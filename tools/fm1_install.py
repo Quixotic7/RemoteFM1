@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
-"""Install a Felucca package (.fwsc) on an FM-1 over USB-MIDI.
+"""Install a package (.fwsc) on an FM-1 over USB-MIDI (Dinghy's tool, from Felucca's; TransitFM1 keeps it as is but
+for the official V15, which it installs without --force).
 
 The same update as the web installer (web/fm1ota.js): step 1, the
 running firmware reads parts of the package and starts the update loader;
@@ -22,6 +23,7 @@ FM-1 is in the update mode of another firmware (only SLOOP's own loader,
 ota-FM-1_9XX, is resumed).
 """
 import argparse
+import hashlib
 import queue
 import re
 import sys
@@ -33,6 +35,8 @@ FINISH_CHECK, FINISH_WRITE = 0xE0000000, 0xF0000000
 MAXDATA = 512
 BLOCKS, BLK, KEEP = 20, 0x30, 0x2F
 LOADER_MARK = b"FELUCCA-LOADER-1"
+# the unmodified official FM-1 V15 (FM-1.fwsc from M-VAVE): installed without --force (ChoralRoot's tools/fm1_install.py)
+STOCK_V15_SHA256 = "db1642b2b6fa5c2cccb11ffd13878068bb28601678d3644049f99dc40e7edb8a"
 PORT_RE = re.compile(r"fm-1|felucca|ota|composite|sinco|usb-midi", re.I)   # never probe other gear
 
 # seconds; the tests shorten them
@@ -375,9 +379,11 @@ def load_package(path, force):
     product = product_of(raw)
     if not re.fullmatch(r"[^_]+_\d+", product):
         raise InstallError("badpkg", f"{path}: not an FM-1 package (identity {product!r})")
-    if LOADER_MARK not in raw and not force:
-        raise InstallError("badpkg", f"{path}: no Felucca update loader in this package; "
-                                     "only Felucca's own packages are installed (--force overrides)")
+    official = hashlib.sha256(raw).hexdigest() == STOCK_V15_SHA256
+    if LOADER_MARK not in raw and not official and not force:
+        raise InstallError("badpkg", f"{path}: no Felucca update loader in this package; only Felucca-family "
+                                     "packages and the unmodified official V15 (FM-1.fwsc) are installed "
+                                     "(--force overrides; on TransitFM1 every package is written by its own loader)")
     image = logical_image(raw)
     bad = package_damage(image)
     if bad:

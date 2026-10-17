@@ -1,29 +1,85 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
-"""Build an FM-1 update package (.fwsc) from the Felucca app and update loader.
+"""Build a complete FM-1 update package (.fwsc) from scratch, with no vendor
+material in it:
 
   flash.bin  head [0, 0x4000): flash header (JieLi SDK default values), JLFS
-             entries, the SDK SPL (uboot.boot, Apache-2.0) and an isd_config
-             blob that decodes to the chip key. The update loader never writes
-             the head.
-             app area 0x4000..: app_area_head, app.bin, the SDK cfg_tool.bin and
-             eq_cfg_hw.bin, the region descriptors; SFC-encrypted with the chip key
-  ota.bin    the Felucca update loader (firmware/loader)
+             entries, the SDK SPL (uboot.boot, Apache-2.0), an isd_config blob
+             of our own that decodes to the chip key; the head is never written
+             by Felucca's loader, it only has to look like a package head
+             app area 0x4000..: app_area_head, Felucca app.bin, the SDK
+             cfg_tool.bin and eq_cfg_hw.bin, the region descriptors, SFC-encrypted
+             with the chip key
+  ota.bin    Felucca's own update loader (firmware/loader)
 
-The SDK files come from the JieLi AC79 SDK (AC79_SDK, or --sdk).
-All integrity checks in the format are CRC16 (poly 0x1021, init 0).
+The layout values (offsets, flags, descriptor addresses, header fields) are
+facts of the FM-1 flash layout and the SDK file formats.
 
-  fm1pkg_make.py APP.bin OTA.bin OUT.fwsc [--product FM-1_9XY] [--sdk DIR]
+An app that starts with ChoralRoot's boot stub (firmware/stub: "CRSTUB" at app.bin + 8; docs/BOOT-SAFETY.md "As
+built") gets the commit marker in app.bin's last whole sector (flash 0x91FE0: magic, format, the body's length and
+CRC-32, the marker's own CRC-32) and four compensation bytes behind it, solved so that app.bin's CRC-16 is the
+constant APP_CRC_FIXED: the directory in sector 0x4000 (app.bin's CRC, the app_area_head block CRC) is then the
+same bytes for every build with the same stub, and the loader never rewrites that sector. Any other app (Felucca,
+a ChoralRoot before the stub) is packed as before.
+
+The three SDK files (uboot.boot, cfg_tool.bin, eq_cfg_hw.bin) are Apache-2.0, not GPL:
+ship LICENSES/Apache-2.0.txt with every package (LICENSING.md; make_site.py and
+build.py --release do).
+
+  fm1pkg_make.py APP.bin OTA.bin OUT.fwsc [--board fm1|smk37] [--product FM-1_9XY] [--key 0x980F]
+
+--board smk37 (M-Vave SMK-37, same AC791N, SPL and loader) selects the SMK flash layout: PRCT 0x9D000 and the stock
+v016 region table (VM, BTIF, USRTRIM, USRFLASH, USR). app.bin's slot, the stub and the marker stay at the FM-1's
+places, so the stub's layout is the same on both boards.
 """
 import argparse
 import os
 import struct
+import zlib
 from pathlib import Path
 
 APP_SLOT = 0x8DFBC
 FLASH_SIZE = 0x93000
+BOARD = "fm1"
+# the region descriptors after app.bin / cfg_tool.bin: (offset, size, flags, resvd, index, name16 or name).
+# The offsets are ABSOLUTE flash offsets. The 16 name bytes after the names are SDK packer fields.
+REGIONS = {
+    "fm1": [(0x93000, 352256, 0x12, 0x80, 0, bytes.fromhex("564d00ffffffffffffffffff00800000")),     # VM
+            (0, None, 0x92, 0x82, 0, bytes.fromhex("5052435400ffffffffffffff434f4445")),         # PRCT = FLASH_SIZE
+            (0xE9000, 0x1000, 0x92, 0x80, 0, bytes.fromhex("4254494600ffffffffffffff4155544f")),  # BTIF
+            (0xEA000, 0x12000, 0x92, 0x81, 1, "USR")],
+    # SMK-37 v016, as the stock package's region table
+    "smk37": [(0x9D000, 0x23000, 0x12, 0x81, 0, bytes.fromhex("564d00ffffffffffffffffff00800000")),    # VM
+              (0, None, 0x92, 0x82, 0, bytes.fromhex("5052435400ffffffffffffff434f4445")),        # PRCT = FLASH_SIZE
+              (0xC0000, 0x1000, 0x92, 0x82, 0, bytes.fromhex("4254494600ffffffffffffff4155544f")), # BTIF
+              (0xC1000, 0x1000, 0x92, 0x81, 0, bytes.fromhex("5553525452494d00ffffffffffffffff")), # USRTRIM
+              (0xC2000, 0x29000, 0x92, 0x81, 0, bytes.fromhex("555352464c41534800ffffffffffffff")), # USRFLASH
+              (0xF4000, 0xA000, 0x92, 0x81, 1, "USR")],
+}
+# per board: (FLASH_SIZE = PRCT = the end of what the update loader writes, the identity's model text)
+BOARDS = {"fm1": (0x93000, "FM-1"),
+          "smk37": (0x9D000, "SMK-37 Pro")}
+
+
+def set_board(board):
+    """select the flash layout of a board ("fm1" default, "smk37")"""
+    global BOARD, FLASH_SIZE
+    if board not in BOARDS:
+        raise SystemExit(f"fm1pkg_make: unknown board {board!r} (fm1, smk37)")
+    BOARD = board
+    FLASH_SIZE = BOARDS[board][0]
+
+
 KEY = 0x980F
+# the boot stub's layout (firmware/stub/stub_core.h), as app.bin offsets (app.bin offset 0 = flash 0x4120)
+STUB_LEN = 0xEE0                    # the stub; the body (the app proper) follows: flash 0x5000, XIP 0x02001000
+STUB_SIG = b"CRSTUB"                # at app.bin + 8 (crt0_stub.S), then the stub's version (u16)
+BODY_MAX = 0x8C000                  # the body ends below the marker's sector (flash 0x91000)
+MARK_OFF = 0x91FE0 - 0x4120         # the marker: the last 32 bytes of flash sector 0x91000
+MARK_MAGIC, MARK_FORMAT = 0x4D425243, 1     # "CRBM"
+COMP_OFF = MARK_OFF + 20            # the four compensation bytes
+APP_CRC_FIXED = 0x4352              # app.bin's CRC-16 in every stub package ("CR")
 # flash header: JieLi SDK defaults (burner_size 544, VID "0.01", flash_size 0xFF000,
 # fs_ver 0x10, PID "AC791N_STORY"), plain, without its CRC
 FLASH_HDR = bytes.fromhex("20022f104cc900f00f001010a4ff4e5d0b41e0cd781dc856417fb367cf9f")
@@ -98,7 +154,75 @@ def sdk_file(rel):
         raise SystemExit(f"fm1pkg_make: {path}: {e.strerror}. Set AC79_SDK to a JieLi AC79 SDK checkout.")
 
 
-def flash_image(app, key):
+def has_stub(app):
+    return len(app) >= STUB_LEN and app[8:8 + len(STUB_SIG)] == STUB_SIG
+
+
+def stub_version(app):
+    return struct.unpack_from("<H", app, 8 + len(STUB_SIG))[0] if has_stub(app) else None
+
+
+def marker(body):
+    """the 20-byte commit marker of a body (app.bin from STUB_LEN, padded to words)"""
+    m = struct.pack("<IIII", MARK_MAGIC, MARK_FORMAT, len(body), zlib.crc32(body))
+    return m + struct.pack("<I", zlib.crc32(m))
+
+
+def compensate(app, off, want):
+    """4 bytes for app[off:off + 4] (zero on entry) that make crc16(app) == want.
+
+    The CRC-16 (init 0, no final xor) is linear over GF(2): crc(a ^ b) = crc(a) ^ crc(b) for equal lengths. So
+    crc(app with bytes v at off) = crc(app) ^ E(v), E(v) = crc(v + zeros to the end): 16 equations in 32 unknown
+    bits, solved by elimination over the 32 basis vectors (the free bits stay 0)."""
+    tail = bytes(len(app) - off - 4)
+    need = crc16(app) ^ want
+    rows = []                                           # (E(bit k), 1 << k), reduced as they come
+    for k in range(32):
+        e, m = crc16((1 << k).to_bytes(4, "little") + tail), 1 << k
+        for pe, pm in rows:
+            if e ^ pe < e:                              # pe's top bit is set in e
+                e, m = e ^ pe, m ^ pm
+        if e:
+            rows.append((e, m))
+            rows.sort(reverse=True)
+    v = 0
+    for pe, pm in rows:
+        if need ^ pe < need:
+            need, v = need ^ pe, v ^ pm
+    if need:
+        raise SystemExit("fm1pkg_make: no compensation bytes give the fixed CRC-16")
+    return v.to_bytes(4, "little")
+
+
+def crc16_slow(data):
+    """bit by bit, no table: the check of compensate() and of both directory CRCs"""
+    c = 0
+    for b in data:
+        c ^= b << 8
+        for _ in range(8):
+            c = ((c << 1) ^ 0x1021) & 0xFFFF if c & 0x8000 else c << 1
+    return c
+
+
+def commit(app, marker_of=marker):
+    """a stub app padded to the slot, with its marker and compensation bytes (marker_of: tools/make_stub_test_pkg.py
+    packs a deliberately wrong one)"""
+    body = app[STUB_LEN:]
+    body += b"\xFF" * (-len(body) % 4)
+    if len(body) > BODY_MAX:
+        raise SystemExit(f"the app body is {len(body)} B, the room below the marker's sector is {BODY_MAX} B")
+    if not body:
+        raise SystemExit("the app has a stub and no body")
+    a = bytearray(app[:STUB_LEN] + body + b"\xFF" * (APP_SLOT - STUB_LEN - len(body)))
+    a[MARK_OFF:MARK_OFF + 20] = marker_of(body)
+    a[COMP_OFF:COMP_OFF + 4] = bytes(4)
+    a[COMP_OFF:COMP_OFF + 4] = compensate(bytes(a), COMP_OFF, APP_CRC_FIXED)
+    if crc16_slow(a) != APP_CRC_FIXED:
+        raise SystemExit("fm1pkg_make: the compensated app.bin CRC-16 is wrong")
+    return bytes(a)
+
+
+def flash_image(app, key, marker_of=marker):
     spl = sdk_file("uboot.boot")                         # SDK SPL, BANKCB-encoded as in the SDK
     cfg_tool = sdk_file("cfg_tool.bin")
     eq = sdk_file("cfg/eq_cfg_hw.bin")
@@ -122,7 +246,8 @@ def flash_image(app, key):
     # ---- app area (plain first, then SFC)
     if len(app) > APP_SLOT:
         raise SystemExit(f"app is {len(app)} B, the slot is {APP_SLOT} B")
-    app = app + b"\xFF" * (APP_SLOT - len(app))
+    stub = has_stub(app)
+    app = commit(app, marker_of) if stub else app + b"\xFF" * (APP_SLOT - len(app))
     blk = 0x120 + APP_SLOT + len(cfg_tool)              # app_area_head block size
     area = bytearray(b"\xFF" * blk)
     area[0x120:0x120 + APP_SLOT] = app
@@ -130,20 +255,22 @@ def flash_image(app, key):
     ents = [entry(crc16(app), 0x120, APP_SLOT, 0x82, 0xFF, 0, "app.bin"),
             entry(crc16(cfg_tool), 0x120 + APP_SLOT, len(cfg_tool), 0x82, 0xFF, 0, "cfg_tool.bin"),
             # region descriptors; the bytes after the names are SDK packer fields (VM size, "CODE", "AUTO")
-            entry(0xFFFF, 0x93000, 352256, 0x12, 0x80, 0, bytes.fromhex("564d00ffffffffffffffffff00800000")),
-            entry(0xFFFF, 0, FLASH_SIZE, 0x92, 0x82, 0, bytes.fromhex("5052435400ffffffffffffff434f4445")),
-            entry(0xFFFF, 0xE9000, 0x1000, 0x92, 0x80, 0, bytes.fromhex("4254494600ffffffffffffff4155544f")),
-            entry(0xFFFF, 0xEA000, 0x12000, 0x92, 0x81, 1, "USR")]
+            *(entry(0xFFFF, o, FLASH_SIZE if sz is None else sz, fl, rs, ix, nm)
+              for o, sz, fl, rs, ix, nm in REGIONS[BOARD])]
     area[32:32 + len(b"".join(ents))] = b"".join(ents)
     area[0:32] = entry(crc16(area[32:blk]), 0x02000120, blk, 0x83, 0xFF, 0, "app_area_head")
+    if stub:                                            # every CRC of the directory the slow way: still valid
+        if (crc16_slow(area[0x120:0x120 + APP_SLOT]) != struct.unpack_from("<H", area, 34)[0] or
+                crc16_slow(area[32:blk]) != struct.unpack_from("<H", area, 2)[0] or
+                crc16_slow(area[2:32]) != struct.unpack_from("<H", area, 0)[0] or
+                crc16_slow(area[34:64]) != struct.unpack_from("<H", area, 32)[0]):
+            raise SystemExit("fm1pkg_make: a directory CRC-16 does not hold")
     # nested cfg directory right after the block: SDK default EQ table
     eq_e = entry(crc16(eq), 0x40, len(eq), 0x82, 0xFF, 1, "eq_cfg_hw.bin")
     cfg_body = eq_e + eq
     cfg = entry(crc16(cfg_body), 0x20, 0x20 + len(cfg_body), 0x83, 0xFF, 1, "cfg") + cfg_body
     region = bytearray(area + cfg)
     sfc(region, 0, len(region), 0, key)
-    if 0x4000 + len(region) > FLASH_SIZE:          # (the update loader writes up to FLASH_SIZE only)
-        raise SystemExit(f"app area too large: ends at 0x{0x4000 + len(region):x}, past 0x{FLASH_SIZE:x}")
     f[0x4000:0x4000 + len(region)] = region
     return bytes(f)
 
@@ -193,12 +320,15 @@ def main():
     ap.add_argument("app", type=Path)
     ap.add_argument("ota", type=Path)
     ap.add_argument("out", type=Path)
-    ap.add_argument("--product", default="FM-1_900")
+    ap.add_argument("--board", choices=sorted(BOARDS), default="fm1")
+    ap.add_argument("--product", help="package identity (default: FM-1_900; smk37: SMK-37 Pro_900)")
     ap.add_argument("--key", type=lambda s: int(s, 0), default=KEY)
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
     a = ap.parse_args()
     global SDK
     SDK = a.sdk
+    set_board(a.board)
+    a.product = a.product or BOARDS[a.board][1] + "_900"
     pkg = ufw(flash_image(a.app.read_bytes(), a.key), a.ota.read_bytes(), a.product)
     a.out.write_bytes(pkg)
     print(f"package {a.out}: {len(pkg)} B, identity {a.product}, chip key {a.key:#06x}")

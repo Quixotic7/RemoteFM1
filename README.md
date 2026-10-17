@@ -1,128 +1,114 @@
-<p align="center"><img src="assets/logo.svg" width="96" alt="Dinghy"></p>
+# TransitFM1
 
-# Dinghy
+**A tiny firmware for the M-VAVE FM-1 to stop at between two others.**
 
-**The smallest firmware for the M-VAVE FM-1 to build your own on.**
+Moving an FM-1 from one custom firmware to another is where units get bricked. The usual advice is to go back to
+the official V15 first. But V15 has no protection against an interrupted write, so the step **out of** V15 into a
+custom firmware is the riskiest one. If the cable comes out or the battery dies partway, the FM-1 can stay dark.
 
-Dinghy plays a sine wave on the keys, and that is all it does. Under it is everything an FM-1 firmware needs
-before it can be any fun: the update path, the USB rescue, USB-MIDI, USB audio, the keys, knobs and LEDs, the
-screen and a place to keep settings. It all works, so you start with the part you actually want to write.
+TransitFM1 is a stop that is safe to leave. It makes no sound and stores nothing. It shows what it is, then waits
+for you to install the next firmware. Three things make it a good stopover:
 
-```
-firmware/src/dinghy.c     <- your firmware: ~200 lines, a 4-voice sine. Start here.
-firmware/src/platform.c   <- the plumbing (boot, USB, updates, audio ISR, settings). Done; read it, don't fight it.
-firmware/src/*.c, hal/    <- Felucca's platform, as SLOOP carries it, unchanged
-```
+- **Every installer treats it as the official V15.** It answers the update handshake as `FM-1_015`, and its USB
+  device is named "FM-1". An installer that refuses other custom firmwares writes over TransitFM1 as it would over
+  stock.
+- **It brings ChoralRoot's flash safeguards.** That's ChoralRoot's boot stub, byte for byte, in front of the app
+  (docs/SAFETY.md). It checks the firmware before starting it. If the write was cut off, it starts update mode
+  instead: three short flashes, then `ota-FM-1` over USB. Holding **OCT-** at power-on does the same.
+- **It writes the next firmware itself.** When you install another firmware from TransitFM1, its own update loader
+  does the writing, whatever loader the package carries. It saves the new firmware's first sector for last. A cut
+  at any point before that last sector leaves an FM-1 that comes back in update mode: switch it on, run the
+  installer again.
 
-Dinghy is based on [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita (Hügelton Instruments), with its
-platform as [SLOOP](https://github.com/isod89/sloop-fm1) (isod89) carries it: it keeps that platform and throws away the
-rest. The smallest boat of the family, after the felucca and the sloop.
+> **Status: 0.1, built and host-tested only. It has not run on an FM-1 yet.** The boot stub and the loader order
+> it builds on are ChoralRoot's, tested on a unit (cable pulled mid-write, rescued). The new parts — writing
+> another firmware's package with sector 0x4000 last, and staging its own loader — are tested only on the host
+> (`tests/run_tests.sh`). Try it first on a unit you can recover with the
+> [FM-1 Transporter](https://github.com/kurogedelic/FM-1-transporter) or
+> [MvaveFM1Unbricker](https://github.com/Quixotic7/MvaveFM1Unbricker). docs/SAFETY.md has the device test plan.
 
-<p align="center"><img src="docs/screen.png" width="240" alt="Dinghy's screen: the name, the note played, a keyboard with the keys that sound"></p>
+## How much of each write is protected
 
-> **Status: 0.3, runs on the FM-1.** Tested on the device: the install, MIDI in (pitch exact, 4 voices), USB audio
-> at 44.1 / 48 kHz, the keys, the screen, the octave kept in flash, and back to another firmware through the hub.
+These are measured on the host. Power was cut after every flash erase and every programmed page, the real stub
+code judged the flash as it stood, and the install was resumed (`tests/ldr_test.c`). "Unprotected" cuts leave
+neither a working stub nor a whole firmware.
 
-## What you get
+| hop | cut points | rescued | unprotected |
+| --- | --- | --- | --- |
+| TransitFM1 → the official V15 (any firmware without ChoralRoot's stub) | 2432 | 2415 | **16**, the last sector only (about 0.1 s) |
+| TransitFM1 ↔ ChoralRoot 0.25.1 | 2279 | 2278 | **0**: sector 0x4000 is the same bytes in both |
+| TransitFM1 → a later TransitFM1 | 256 | 255 | **0** |
+| the official V15 → TransitFM1 | 2432 | 2414 | 17, the first sector only (once per unit) |
 
-| | |
-| --- | --- |
-| **Updates that always work** | `tools/fm1_install.py`, the web installers and the [FM-1 Firmware Hub](https://fm1.designburgapps.com) reach your firmware over USB, so you (and your users) can always install the next build, or go back to the official firmware. |
-| **USB rescue** | Hold **OCT-** while switching on: no sound, only the updater. If your firmware crashes twice at boot, the FM-1 goes there by itself. |
-| **USB-MIDI** | In and out, class compliant: `midi_get()`, `midi_send()`. |
-| **USB audio** | The FM-1 shows up as a 16-bit stereo audio input (44.1 or 48 kHz): record it into any DAW or phone. Nothing to do. |
-| **Panel** | 27 keys, 14 buttons, 7 encoders, the MASTER knob, the LEDs, by name (`BTN_PLAY`, `ENC_KNOB1`, ...). |
-| **Screen** | 240 x 240, text in two sizes, rectangles, lines, pixels. |
-| **Settings** | `settings_load()` / `settings_save()`: up to 256 bytes with a CRC in their own flash sector. |
-| **A crash screen** | A fault shows where it happened (the PC), then the FM-1 restarts. |
-| **Host mode** | The same `dinghy.c` on your computer: the screen as an image, the sound as a WAV. No FM-1 needed to try an idea. |
-| **Checks** | The build fails on what bricks or breaks an FM-1 firmware: a 64-bit division, a call into the chip ROM, too much RAM, a register touched outside `hal/`. |
+Compare the plain address-order write that V15, Felucca and most custom firmwares use. Once the first sector is
+written, no rescue code is left on the unit, so almost the whole one-to-two-minute write is unprotected.
 
-## Build your own
+## Using it
 
-From nothing to your own firmware on the FM-1, step by step. Each step works before you go to the next.
+1. **Getting there.** Install `transit-X.Y.fwsc` with the installer of the firmware you are on now.
+   `tools/fm1_install.py` here, ChoralRoot's `tools/fm1_install.py PACKAGE` and any installer that takes a
+   Felucca-family package will do. From the official V15 it's the same: TransitFM1 installs like any custom
+   firmware.
+   - **Not from Bubba Machine.** Its updater only accepts M-VAVE's own package. Go back to V15 with Bubba's
+     installer first.
+2. **The screen** says `TRANSIT`, its version, "READY FOR THE NEXT FIRMWARE" and "AS V15 (FM-1_015)".
+   - A red **LOADER NOT STAGED** line means TransitFM1 could not set up its rescue. It then refuses updates.
+     Don't continue: report it.
+3. **Leaving.** Open the installer of the firmware you want and install it. To that installer the FM-1 is an FM-1
+   on V15. To go back to stock, install M-VAVE's `FM-1.fwsc`.
+4. **If the install is cut off,** switch the FM-1 off and on. You'll see three short flashes of the key lights, a
+   black screen, and `ota-FM-1` ("Felucca Update") over USB. Open the installer again and run the same install:
+   it finishes the write. An installer that knows Felucca's update mode resumes it by itself. That covers ChoralRoot,
+   Felucca, Dinghy and the FM-1 Firmware Hub. Don't switch it off and on twice in a row while it's in update mode.
+   A second arrival with no normal boot in between drops into the chip's ROM USB boot (`WL82 UBOOT1.00`), where
+   MvaveFM1Unbricker takes over.
 
-### 1. Copy it
+Nothing of yours is kept on TransitFM1. What the previous firmware stored stays in its flash area untouched, unless
+the next firmware's installer or the firmware itself deals with it. Back on V15, presets may read garbled after
+Felucca-family firmwares: System > Reset Patches.
 
-On GitHub: **Use this template** (top right on this page) or fork it, then clone your copy. Rename nothing yet:
-first make sure the unchanged Dinghy builds on your machine.
+## Building
 
-### 2. Set up once
-
-You need Linux on x86-64 (or macOS / Windows with Docker or WSL), Python 3 with Pillow, the JieLi toolchain
-and three files of the JieLi AC79 SDK:
+You need Linux on x86-64 (or macOS / Windows with Docker), Python 3, the JieLi toolchain and three files of the
+JieLi AC79 SDK:
 
 ```sh
 pip3 install Pillow mido python-rtmidi
 tools/get_toolchain.sh                      # JieLi's clang for the chip, to ~/.jieli/toolchain
 git clone --depth 1 --branch AC79NN_SDK_V1.2.1_2023-12-13 \
     https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK.git ~/fw-AC79_AIoT_SDK
+./build.sh                                  # -> build/transit.fwsc (identity FM-1_015)
+./build.sh --release 0.1                    # -> build/transit-0.1.fwsc, SHA256SUMS
+tests/run_tests.sh                          # the host tests of the update path
+V15_PKG=FM-1.fwsc CR_PKG=choralroot.fwsc tests/run_tests.sh   # also the hops to V15 and to ChoralRoot
 ```
 
-On macOS the build runs the toolchain in a `linux/amd64` Docker container by itself (have Docker running).
-`JIELI_TOOLCHAIN` and `AC79_SDK` point elsewhere if your copies live somewhere else.
+On macOS the build runs the toolchain in a `linux/amd64` Docker container (have Docker running). The build prints
+the stub's hash and the hash of sector 0x4000. For the hops to and from ChoralRoot to stay unprotected-free, both
+must be ChoralRoot's: stub `baee55ed…` (version 3) and sector `0f33c838…`. The build warns if the stub differs
+from `firmware/stub/stub.lock`, and a release build stops.
 
-### 3. Hear it without an FM-1
+The size: the app body is about 56 KB (ChoralRoot's is 543 KB), including a 7.5 KB copy of its own update loader.
 
-```sh
-tests/run_host.sh                           # -> build/host/dinghy.wav and screen PNGs
+## What is where
+
 ```
-
-Host mode runs the same `dinghy.c` on your computer: the sound as a WAV, the screen as images. Most ideas can be
-tried here first, in seconds.
-
-### 4. Your first change
-
-Open [firmware/src/dinghy.c](firmware/src/dinghy.c) (~200 lines). The sound is `app_audio()`: it gets an empty
-buffer of stereo frames and adds to it. Make the sine a square:
-
-```c
-s = ((int32_t)ph < 0 ? 8000 : -8000) * amp >> 15;     /* instead of s = (sine(ph) * amp) >> 15; */
+firmware/stub/        ChoralRoot's boot stub, unchanged (stub.lock: version 3, the same hash as ChoralRoot's)
+firmware/loader/      the update loader: Felucca's, with ChoralRoot's order and TransitFM1's (ldr_core.c)
+firmware/src/ota.c    step 1: our own loader staged, kept, restaged; never the package's
+firmware/src/platform.c, transit.c   Dinghy's platform without the sound; the screen
+tools/build.py        the stub, the loader, the app with the loader inside, the package (fm1pkg_make.py)
+tests/                the stub's decision, step 1, the package builder, the loader's interruption model
+docs/SAFETY.md        how it works, the numbers, what is not tested, the device test plan
 ```
-
-Run `tests/run_host.sh` again and listen to `build/host/dinghy.wav`. The screen is drawn in `app_main()`, the keys
-are read there too: change the text, add a knob ([docs/API.md](docs/API.md) has every call).
-
-### 5. Onto the FM-1
-
-```sh
-./build.sh                                       # -> build/dinghy.fwsc (fails on what would brick the FM-1)
-python3 tools/fm1_install.py build/dinghy.fwsc   # over USB; asks before it writes, restarts into your build
-python3 tools/fm1_install.py --info              # what runs on the connected FM-1
-```
-
-That is the whole loop: change, hear it on the host, build, install. Back to another firmware, or to the official
-one, with the [FM-1 Firmware Hub](https://fm1.designburgapps.com) in Chrome or Edge: Dinghy (and every copy of it)
-answers the hub's updater like every firmware there. Installing firmware is at your own risk.
-
-### 6. When it goes wrong
-
-- **It crashes:** the screen shows where (the PC), then the FM-1 restarts. Twice at boot and it goes to the
-  USB rescue by itself.
-- **It won't start at all:** hold **OCT-** while switching on: the USB rescue, no sound, only the updater. Install
-  a working build (or another firmware from the hub) from there.
-- **The build refuses:** it checks for a 64-bit division, a call into the chip ROM, too much RAM, a register touched
-  outside `hal/`. [docs/RULES.md](docs/RULES.md) says why each one matters; read it before your first crash.
-
-### 7. Make it yours, release it, get into the hub
-
-Your name and logo, your own package identity (so the FM-1 and the installers tell your firmware from Dinghy),
-a GitHub release with the `.fwsc`, and how to get listed next to the others in the
-[FM-1 Firmware Hub](https://fm1.designburgapps.com): **[docs/MAKE-IT-YOURS.md](docs/MAKE-IT-YOURS.md)**.
-
-## Where to go next
-
-- **[docs/API.md](docs/API.md)**: everything `platform.c` gives you, with the panel's ids, the screen calls, the
-  audio contract, MIDI, settings, the flash map, timing.
-- **[docs/MAKE-IT-YOURS.md](docs/MAKE-IT-YOURS.md)**: turn Dinghy into your firmware: the name, the package
-  identity, releases, getting into the FM-1 Firmware Hub.
-- **[docs/RULES.md](docs/RULES.md)**: the chip's rules (no FPU, no libgcc, the audio ISR's budget) and what the build
-  checks for you. Read it before your first crash, not after.
 
 ## License
 
-GPL-3.0-only, as Felucca and SLOOP: you may change and share it, and whoever gets your firmware gets its source.
-Details, credits and third-party parts in [LICENSING.md](LICENSING.md).
+GPL-3.0-only, as Felucca, SLOOP, Dinghy and ChoralRoot. You may change and share it, and whoever gets your firmware
+gets its source. Credits and third-party parts are in [LICENSING.md](LICENSING.md).
 
-The platform is Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments, with SLOOP's changes (isod89).
-Dinghy (the app, the host mode, the docs) by zvenson.
+TransitFM1 is based on [Dinghy](https://github.com/zvenson/dinghy) by zvenson. Dinghy is
+[Felucca](https://github.com/hugelton/Felucca)'s platform (Leo Kuroshita, Hügelton Instruments) as
+[SLOOP](https://github.com/isod89/sloop-fm1) (isod89) carries it. The boot stub, the stub's write order and the
+package marker are [ChoralRoot FM-1](https://github.com/Quixotic7/ChoralRootFM1)'s. "M-VAVE" and "FM-1" belong to
+their owners: TransitFM1 is not made or endorsed by them, and installing firmware is at your own risk.

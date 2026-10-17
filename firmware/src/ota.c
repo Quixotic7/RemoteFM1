@@ -1,18 +1,27 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* M-UPGRADE update entry.
+ * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+ * Copyright (C) 2026 ChoralRoot FM-1 contributors (the kept loader), TransitFM1 contributors (step 1) */
+/* M-UPGRADE update entry, TransitFM1's.
  *
  * The updater talks SysEx (F0 pack7(00 59 cmd len24 body chk) F7):
- *   cmd 0x11  handshake -> we answer our package identity (FELUCCA_ID)
- *   F0 22 24 35 7F F7  upgrade -> ota_session(): pull parts of the package
- *     with cmd 0x30 read requests, check them, stage the package's update
- *     loader at 0xE0000 (outside Felucca's store), ask 0xE0000000 ("success"),
- *     then write the UPDATA_PARM record (flash 0xE4F00 + RAM 0x01C7FD88) and
- *     reset. The SPL runs the loader, which installs the package.
- * Nothing is committed before the host's "success"; any failure erases the
- * staging area and Felucca carries on.
+ *   cmd 0x11  handshake -> we answer our package identity (FELUCCA_ID: FM-1_015, as the official V15, so that
+ *             every installer that guards against other firmwares writes over TransitFM1 as over the stock one)
+ *   F0 22 24 35 7F F7  upgrade -> ota_session(): pull the package's header with cmd 0x30 read requests and check
+ *     it, make sure OUR OWN update loader is staged at 0xE0000 (not the package's: docs/SAFETY.md), ask
+ *     0xE0000000 ("success"), then write the UPDATA_PARM record (flash 0xE4F00 + RAM 0x01C7FD88) and reset. The
+ *     SPL runs our loader (firmware/loader), which installs the package in the order that keeps the boot stub's
+ *     rescue for all of the write but its last sector.
+ * Nothing is committed before the host's "success"; a failure leaves our staged loader as it is (the boot stub's
+ * rescue needs it) and TransitFM1 carries on.
  *
- * The firmware (felucca.c) and the host test supply these hooks:
+ * The staging area's life (ChoralRoot's rule, docs/BOOT-SAFETY.md "As built" there; docs/SAFETY.md here): the app,
+ * at every boot (ota_boot_cleanup), KEEPS a staged loader that is ours and whole (ota_staged: the boot stub's
+ * check) and removes only a record left beside it, and erases anything else; then (ota_own_staged, ota_restage)
+ * stages its own copy of the loader (OTA_OWN_LDR, built into the app by tools/build.py) if what is staged is not
+ * that copy. The kept loader is what the boot stub hands over to: after an interrupted write, and when OCT- is held
+ * at power-on.
+ *
+ * The firmware (platform.c) and the host tests supply these hooks:
  *   ota_wire_send(p, n)        one complete F0..F7 message to the host
  *   ota_frame_get(&p, &n)      next received SysEx (7-bit bytes between F0/F7), 0 if none
  *   ota_frame_done()           release it
@@ -20,6 +29,7 @@
  *   ota_erase(off) ota_prog(off, p, n) ota_fread(off, p, n)   flash, 0 = ok
  *   ota_show(step, code)       progress / result for the screen
  *   ota_commit(parm)           write RAM record + reset (never returns on hardware)
+ * and, in the app (not the loader), OTA_OWN_LDR / OTA_OWN_LEN: our ota.bin (outer head, inner head, blocks).
  */
 #define OTA_AREA 0x000E0000u                     /* staged loader, 5 x 4 KiB */
 #define OTA_AREA_LEN 0x5000u
@@ -127,19 +137,11 @@ static int ota_send_msg(uint32_t cmd, const uint8_t *body, uint32_t n)   /* n <=
 
 static void ota_reply_identity(void)
 {
-#ifdef OTA_IDENTITY
-    const char *id_text = OTA_IDENTITY;
-    uint8_t id[27];
-    uint32_t i;
-    for (i = 0; i < sizeof id; i++) id[i] = 0;
-    for (i = 0; i < sizeof id && id_text[i]; i++) id[i] = (uint8_t)id_text[i];
-#else
-    static const char ID[] = FELUCCA_ID;         /* loader / unmodified builds */
+    static const char ID[] = FELUCCA_ID;         /* the app, its rescue mode and the loader each answer their own */
     uint8_t id[27];
     uint32_t i;
     for (i = 0; i < sizeof id; i++)
         id[i] = i < sizeof ID - 1u ? (uint8_t)ID[i] : 0;
-#endif
     ota_send_msg(0x11, id, sizeof id);
 }
 
@@ -266,78 +268,112 @@ static int ota_ufw(uint8_t *hdr, uint32_t *fl_off, uint32_t *fl_len, uint32_t *o
     return 0;
 }
 
-static int ota_stage(void)                       /* steps 1..6; 0 = host said success */
+/* The staged loader is ours and whole: the boot stub's check (firmware/stub/stub_core.h stub_loader_check, which
+ * reads the area through XIP; here through ota_fread in small pieces, no 20 KiB buffer). The two are kept in step by
+ * tests/ota_test.c (the same answer on the staged loader and on thousands of damaged copies). Returns the staged
+ * length from OTA_AREA (the head, the inner head, the blocks), 0 if the stub would refuse it. (ChoralRoot's.) */
+static uint32_t ota_staged(void)
 {
-    static uint8_t hdr[0x400], b[512], mine[512];
-    uint32_t i, n, ota_off, ota_len, fl_off, fl_len, fl_crc, c, len, own, official;
+    uint8_t h[0x88], q[8];
+    uint32_t len, isize, p, end, total = 0, i, own = 0;
+    if (ota_fread(OTA_AREA, h, sizeof h))
+        return 0;
+    if (ota_crc16(h + 2, 30, 0) != ota_rd16(h) || ota_rd32(h + 4) != OTA_AREA || h[12] != 0x41u ||
+        !ota_memeq(h + 16, (const uint8_t *)"LOADER.BIN", 11))
+        return 0;
+    len = ota_rd32(h + 8) - 32u;
+    if (len < 32u + 8u || len > OTA_AREA_LEN - 0x200u)
+        return 0;
+    isize = ota_rd32(h + 0x20 + 4);
+    if (ota_crc16(h + 0x22, 30, 0) != ota_rd16(h + 0x20) || ota_rd32(h + 0x20 + 8) != 0x01C0A800u ||
+        !isize || isize > 0x14000u)
+        return 0;
+    for (i = 0x48; i + 16u <= 0x48u + 64u && !own; i++)
+        own = (uint32_t)ota_memeq(h + i, (const uint8_t *)"FELUCCA-LOADER-1", 16);
+    if (!own)
+        return 0;
+    for (p = 0x40, end = 0x20u + len; p + 8u <= end;) {
+        uint32_t clen, dlen;
+        if (ota_fread(OTA_AREA + p, q, 8))
+            return 0;
+        clen = ota_rd32(q);
+        dlen = ota_rd32(q + 4);
+        if (!clen || clen > 4096u || !dlen || dlen > 4096u || clen > end - p - 8u)
+            return 0;
+        p += 8u + clen;
+        total += dlen;
+        if (dlen != 4096u && p != end)
+            return 0;
+    }
+    return p == end && total == isize ? end : 0;
+}
+
+#ifdef OTA_OWN_LDR
+/* what is staged is our own copy, byte for byte (the head ota_stage_head writes, then ota.bin from its inner head) */
+static int ota_own_staged(void)
+{
+    uint8_t b[256];
+    uint32_t len = OTA_OWN_LEN - 32u, i, n;
+    if (ota_staged() != 32u + len)
+        return 0;
+    for (i = 0; i < len; i += n) {
+        n = len - i > sizeof b ? sizeof b : len - i;
+        if (ota_fread(OTA_AREA + 32u + i, b, n) || !ota_memeq(b, OTA_OWN_LDR + 32u + i, n))
+            return 0;
+    }
+    return 1;
+}
+
+/* stage our own loader: erase, body, read back against its CRC, head last (a cut leaves no head: nothing staged,
+ * restaged at the next boot). 0 = staged */
+static int ota_restage(void)
+{
+    uint8_t b[256];
+    uint32_t len = OTA_OWN_LEN - 32u, c = ota_rd16(OTA_OWN_LDR + 2), crc = 0, i, n;
+    if (OTA_OWN_LEN < 32u + 40u || len > OTA_AREA_LEN - 0x1000u)
+        return -20;
+    for (i = 0; i < OTA_AREA_LEN; i += 0x1000u)
+        if (ota_erase(OTA_AREA + i))
+            return -21;
+    for (i = 0; i < len; i += n) {
+        n = len - i > 256u ? 256u : len - i;
+        if (ota_prog(OTA_AREA + 32u + i, OTA_OWN_LDR + 32u + i, n))
+            return -22;
+    }
+    for (i = 0; i < len; i += n) {
+        n = len - i > sizeof b ? sizeof b : len - i;
+        if (ota_fread(OTA_AREA + 32u + i, b, n))
+            return -23;
+        crc = ota_crc16(b, n, crc);
+    }
+    if (crc != c || ota_stage_head(len))
+        return -24;
+    return ota_own_staged() ? 0 : -25;
+}
+
+/* step 1, TransitFM1's: the package is well formed and has a flash.bin the size of the app area; our own loader is
+ * staged (it writes any package: firmware/loader/ldr_core.c); the host confirms. The package's own loader is never
+ * staged: ours keeps the boot stub's rescue alive through the write. 0 = host said success */
+static int ota_stage(void)
+{
+    static uint8_t hdr[0x400], b[512];
+    uint32_t i, ota_off, ota_len, fl_off, fl_len, fl_crc;
     int rc;
-    /* 1. UFW header + entry list */
     ota_show(1, 0);
     if ((rc = ota_ufw(hdr, &fl_off, &fl_len, &ota_off, &ota_len, &fl_crc)) != 0)
         return rc;
-    if (!fl_off || !ota_off)
+    if (!fl_off || fl_len < 0x93000u)
         return -3;
-    /* 2. which loader: the official one (known CRCs; it rewrites the whole flash.bin
-     *    including the head) or Felucca's own (app area only, checks the chip key) */
-    if (ota_read(ota_off, b, 512))
-        return -6;
-    len = ota_rd32(b + 8);
-    if (ota_crc16(b + 2, 30, 0) != ota_rd16(b) || ota_rd32(b + 4) != 0x20u || b[12] != 0x41u ||
-        ota_len != len + 0x20u || len > OTA_AREA_LEN - 0x200u || ota_crc16(b + 0x22, 30, 0) != ota_rd16(b + 0x20) ||
-        ota_rd32(b + 0x20 + 8) != 0x01C0A800u)
-        return -7;
-    official = ota_rd16(b) == OTA_LDR_HCRC && ota_rd16(b + 2) == OTA_LDR_DCRC && len == OTA_LDR_LEN;
-    for (i = 0x48, own = 0; i + 16u <= 0x48u + 64u && !own; i++)    /* first LZ4 literals: crt0_ldr.S */
-        own = ota_memeq(b + i, (const uint8_t *)"FELUCCA-LOADER-1", 16) && ota_rd32(b + 0x20 + 4) <= 0x14000u;
-    if (!official && !own)
-        return -7;
-    if (official) {                    /* the official loader writes the head: it must equal ours */
-        ota_show(2, 0);
-        for (i = 0; i < 0x4000u; i += 512u) {
-            if (ota_read(fl_off + i, b, 512) || ota_fread(i, mine, 512))
-                return -4;
-            if (!ota_memeq(b, mine, 512))
-                return -5;
-        }
-    }
-    /* 4. stage the package's loader: erase, body, verify, head last */
     ota_show(3, 0);
-    if (ota_read(ota_off, b, 512))
-        return -6;
-    c = ota_rd16(b + 2);                                    /* outer dcrc of the body */
-    for (i = 0; i < OTA_AREA_LEN; i += 0x1000u)
-        if (ota_erase(OTA_AREA + i))
-            return -8;
-    {
-        uint32_t crc = 0;
-        for (i = 0; i < len; i += n) {
-            n = len - i > 512u ? 512u : len - i;
-            if (ota_read(ota_off + 0x20u + i, b, n))
-                return -9;
-            crc = ota_crc16(b, n, crc);
-            if (ota_prog(OTA_AREA + 32u + i, b, n))
-                return -10;
-        }
-        if (crc != c)
-            return -11;
-        for (i = 0, crc = 0; i < len; i += n) {             /* read back from flash */
-            n = len - i > 512u ? 512u : len - i;
-            if (ota_fread(OTA_AREA + 32u + i, b, n))
-                return -11;
-            crc = ota_crc16(b, n, crc);
-        }
-        if (crc != c)
-            return -11;
-    }
-    if (ota_stage_head(len))
-        return -12;
-    /* 6. the host confirms: nothing is committed without it */
+    if (!ota_own_staged() && (rc = ota_restage()) != 0)
+        return rc;
     ota_show(4, 0);
     for (i = 0; i < 4u; i++)
         if (!ota_read(0xE0000000u, b, 8) && ota_memeq(b, (const uint8_t *)"success", 8))
             return 0;
     return -13;
 }
+#endif
 
 static void ota_unstage(void)
 {
@@ -346,6 +382,7 @@ static void ota_unstage(void)
         ota_erase(OTA_AREA + i);
 }
 
+#ifdef OTA_OWN_LDR
 /* returns only when nothing was committed (refused, failed, or dry run) */
 static int ota_session(void)
 {
@@ -355,8 +392,7 @@ static int ota_session(void)
     int rc;
     ota_deadline = ota_now_ms() + 120000u;          /* step 1 normally takes ~5 s; a stalled host gives up after 2 min */
     rc = ota_stage();
-    if (rc) {
-        ota_unstage();
+    if (rc) {                                       /* (our staged loader stays: the boot stub's rescue needs it) */
         ota_show(9, rc);
         return rc;
     }
@@ -371,7 +407,6 @@ static int ota_session(void)
     ota_wr32(parm + 72, OTA_AREA);
     ota_wr16(parm, ota_crc16(parm + 2, 78, 0));
 #if FELUCCA_OTA_DRYRUN
-    ota_unstage();
     ota_show(9, 1);                                 /* 1 = dry run complete */
     return 1;
 #endif
@@ -379,9 +414,13 @@ static int ota_session(void)
 #define FELUCCA_OTA_RAMONLY 0                       /* 1: RAM record only, no power-loss resume (a power
                                                      * cycle leaves a broken loader behind) */
 #endif
-    if (!FELUCCA_OTA_RAMONLY && (ota_prog(OTA_RES, parm, sizeof parm) || ota_fread(OTA_RES, back, sizeof back) ||
+    /* the record's sector (0xE4000: no byte of our loader, which tools/build.py keeps below it) is erased first:
+     * the loader kept from the install before stays staged, and a record a cut session left there would not take
+     * another write over it */
+    if (!FELUCCA_OTA_RAMONLY && (ota_erase(OTA_AREA + OTA_AREA_LEN - 0x1000u) ||
+        ota_prog(OTA_RES, parm, sizeof parm) || ota_fread(OTA_RES, back, sizeof back) ||
         !ota_memeq(back, parm, sizeof parm))) {
-        ota_unstage();
+        ota_erase(OTA_AREA + OTA_AREA_LEN - 0x1000u);  /* the record's sector only (no loader byte there) */
         ota_show(9, -14);
         return -14;
     }
@@ -390,19 +429,34 @@ static int ota_session(void)
     return 0;
 }
 
-/* boot: a staging area left over (we are running, so the update finished or
- * never started): erase it so the SPL does not re-enter the loader */
+#endif
+
+/* boot: what an update left in the staging area (we are running, so the update finished or never started). A loader
+ * of ours that is whole stays: it is the one the boot stub starts when OCT- is held at power-on or the app's marker
+ * is gone (firmware/stub). A staged loader alone starts nothing: the SPL runs it only from the RAM record after a
+ * warm reset (every install; the stub's hand-over), not from the flash copy of the record on a cold boot. The flash
+ * copy of the record is removed if one is still there (the loader erases it when its write is done), but only when
+ * its sector holds no loader byte (ours ends in the second sector; tools/build.py stops a loader that would reach
+ * the fifth). Anything else in the area (another loader, a torn staging) is erased. (ChoralRoot's.)
+ * Returns 0 nothing to do, 1 the area erased, 2 the loader kept and the record's sector erased, -1 a read error. */
 static int ota_boot_cleanup(void)
 {
     uint8_t a[4], r[8];
-    uint32_t i, used = 0;
+    uint32_t i, used = 0, rec = 0, end;
     if (ota_fread(OTA_AREA, a, 4) || ota_fread(OTA_RES, r, 8))
         return -1;
     for (i = 0; i < 4u; i++)
         used |= a[i] != 0xFFu;
     for (i = 0; i < 8u; i++)
-        used |= r[i] != 0xFFu;
-    if (used)
+        rec |= r[i] != 0xFFu;
+    end = ota_staged();
+    if (end) {
+        if (!rec || end > OTA_AREA_LEN - 0x1000u)
+            return 0;
+        ota_erase(OTA_AREA + OTA_AREA_LEN - 0x1000u);
+        return 2;
+    }
+    if (used | rec)
         ota_unstage();
-    return (int)used;
+    return (int)(used | rec);
 }

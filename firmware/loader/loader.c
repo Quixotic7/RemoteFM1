@@ -1,10 +1,10 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Felucca update loader (device side). Runs from RAM, started by the SPL from
- * an update record, with interrupts off: USB is polled from the main loop.
- * It is a USB-MIDI device "Felucca Update" (1209:0002) that answers the
- * M-UPGRADE update protocol as "ota-FM-1_900" (hosts look for "ota-"), and
- * writes the app area only (ldr_core.c). The UBOOT soft key works here too.
+/* TransitFM1's update loader (device side; Felucca's, as SLOOP carries it). Runs from RAM, started by the SPL from
+ * an update record (an install from TransitFM1, or the boot stub's rescue), with interrupts off: USB is polled from
+ * the main loop. It is a USB-MIDI device "Felucca Update" (1209:0002) that answers the M-UPGRADE update protocol as
+ * "ota-FM-1_900", the update mode every Felucca-family installer and the FM-1 Firmware Hub know and resume (hosts
+ * look for "ota-"), and writes the app area only, in the order of ldr_core.c. The UBOOT soft key works here too.
  * Single compilation unit. */
 #include <stdint.h>
 #define FELUCCA_LOADER 1
@@ -109,7 +109,10 @@ void ldr_cstart(void)
 {
     uint32_t *p;
     ldr_record_clear();                             /* first thing: a crash below cannot loop through a
-                                                     * warm reset; resume after power loss uses the flash record */
+                                                     * warm reset. After a power loss the boot stub (firmware/stub)
+                                                     * starts us again: the SPL does not, from the flash record
+                                                     * (docs/SAFETY.md). The stub's rescue word (0x01C7C000) is not
+                                                     * ours: left as it is */
     for (p = _bss_start; p < _bss_end; p++)
         *p = 0;
     ldr_main();
