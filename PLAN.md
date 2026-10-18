@@ -270,3 +270,10 @@ status, one owner per unit across processes (flock), the unit's input merged wit
 statically. FM1VST suite 14/14 (remote_test 83 checks). **The Standalone (built, not installed) on the unit: the
 owner, "Everything works".** Next: install (FM1_COPY_PLUGIN=ON) and test in Live: the lock against the Standalone,
 no double notes with All Ins, the Roto-Control following a physical knob, the set reopening with Remote on.
+
+**2026-10-18, M4 done: the site** (https://quixotic7.github.io/RemoteFM1/, WEB-PLAN.md): the player (FM1VST's look; 10
+native cores in WebAssembly + every Hub firmware through fm1-emu, fetched from the Hub at play time), the RemoteFM1
+installer (0.1.1, TransitFM1's installer), and Use my FM-1. The owner installed 0.1.1 from the live installer page,
+then reloaded the player: the header's Connect FM-1 auto-connected over Web MIDI, and the FM-1 showed and played the
+browser firmware. Open: MASTER at mid-travel jitters (~25 CC/s; wants hysteresis); WebUSB on Windows needs MS OS 2.0
+descriptors; host/fm1remote must be ported to FM1VST's ABI 5/6.
