@@ -180,8 +180,10 @@ static void fm1_fault(const fm1_crash_t *c)
 {
     char b[12];
     uint32_t i, t0, v[3] = {c->vec, c->pc, c->rets};
-    if (!lcd_ready)
-        lcd_init();                             /* a fault before platform's lcd_init (the boot's staging) */
+    if (!lcd_ready) {                           /* a fault before platform's lcd_init (the boot's staging) */
+        lcd_ready = 1;                          /* (first: a fault inside lcd_init does not come back here) */
+        lcd_init();
+    }
     lcd_fill(0, 0, 240, 240, RGB(160, 0, 0));
     draw_text_box(0, 20, 240, &FONT_S, APP_NAME " CRASH", C_WHITE, 1);
     for (i = 0; i < 3u; i++) {

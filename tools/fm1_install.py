@@ -354,13 +354,16 @@ class Updater:
         step("done", back.id.text)
         return back.id.text
 
-    def install(self, dev, image, product, step=lambda *a: None):
+    def install(self, dev, image, product, step=lambda *a: None, official=False):
         """running firmware -> loader -> new firmware; dev from find(). A device already in
-        update mode only needs the write."""
+        update mode only needs the write. official: the package is M-VAVE's V15, so an updater that answers
+        ota-FM-1_015 (M-VAVE's own, cut off writing it) is resumed too: the return to stock. Our loader always
+        answers ota-FM-1_9NN (TransitFM1 0.1.2's ota-FM-1_015 bricked a unit and was reverted in 0.1.3)"""
         if model_of(dev.id.text) != model_of(product):
             dev.link.close()
             raise InstallError("model", f"the device is {dev.id.text}, the package is for {product}")
-        if dev.id.loader and not re.fullmatch(r"ota-FM-1_9\d\d", dev.id.text, re.I):
+        if dev.id.loader and not re.fullmatch(r"ota-FM-1_9\d\d", dev.id.text, re.I) and \
+                not (official and dev.id.text.lower() == "ota-fm-1_015"):
             dev.link.close()           # another firmware's loader: its image layout may differ
             raise InstallError("foreign", f"the FM-1 is in the update mode of another firmware ({dev.id.text}): "
                                           "finish that update with its own updater (M-UPGRADE), then install again")
@@ -480,7 +483,9 @@ def run(a, backend, out, ask):
         print(f"{dev.id.text}  [{mode}]  port: {dev.name}", file=out)
         return 0
     product, image = load_package(a.package, a.force)
-    print(f"package: {product}  ({a.package})", file=out)
+    with open(a.package, "rb") as f:
+        official = hashlib.sha256(f.read()).hexdigest() == STOCK_V15_SHA256
+    print(f"package: {product}  ({a.package})" + ("  the official V15" if official else ""), file=out)
     dev = up.find()
     if not dev:
         raise not_found(up)
@@ -492,7 +497,7 @@ def run(a, backend, out, ask):
         return 1
     prog = Progress(out)
     try:
-        up.install(dev, image, product, prog)
+        up.install(dev, image, product, prog, official)
     finally:
         prog.end()
     return 0

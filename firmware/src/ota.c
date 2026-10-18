@@ -369,6 +369,12 @@ static int ota_stage(void)
         return rc;
     if (!fl_off || fl_len < 0x93000u)
         return -3;
+    /* a flash.bin longer than the app area (Baud Girl's grows past 0x93000 when its app outgrows the slot): our
+     * loader writes the app area only, so it would leave a truncated firmware with its sector 0x4000 committed: a
+     * dark unit (TransitFM1 0.1.2 did that, 2026-10-17). Refused before anything is staged; such a firmware is
+     * installed from the official V15, whose updater stages the package's own loader (TransitFM1 0.1.3) */
+    if (fl_len > 0x93000u)
+        return -4;
     ota_show(3, 0);
     if (!ota_own_staged() && (rc = ota_restage()) != 0)
         return rc;

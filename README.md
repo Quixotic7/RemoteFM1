@@ -81,6 +81,10 @@ Two bugs from TransitFM1 0.1 are fixed here, as in TransitFM1 0.1.1:
   into the ROM's USB boot.
 - **MIDI-in ring:** the ring was never drained, so a DAW sending MIDI shut the installer out.
 
+RemoteFM1 0.1.1 adds TransitFM1 0.1.3's guard: a package whose image reaches past the app area (Baud Girl's can) is
+refused by step 1 and by the loader before anything is written, where it would have been committed truncated. Its
+update loader is byte for byte TransitFM1 0.1.3's and answers `ota-FM-1_900`, not 0.1.2's `ota-FM-1_015`.
+
 Installing firmware is at your own risk. Keep the [FM-1 Transporter](https://github.com/kurogedelic/FM-1-transporter)
 or [MvaveFM1Unbricker](https://github.com/Quixotic7/MvaveFM1Unbricker) at hand.
 

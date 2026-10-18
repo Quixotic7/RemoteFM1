@@ -37,6 +37,11 @@ whole:
 - **At every install** (step 1, `ota_stage`), TransitFM1 checks the package's header and makes sure its own loader
   is staged. **It never stages the package's loader**, whatever the package carries: the official one, Felucca's,
   Bubba Machine's. A step 1 that fails, is refused or loses the host leaves our loader as it is.
+- **A package whose flash.bin reaches past the app area (0x93000) is refused** in step 1 (code -4), before
+  anything is staged, and by the loader (`LDR_ETOOLONG`), before anything is erased. Our loader writes the app area
+  only, so such a package (Baud Girl's grows past it) would be committed truncated: a dark unit. TransitFM1 0.1.2
+  did exactly that on 2026-10-17; 0.1.3 added the refusals, and RemoteFM1 0.1.1 carries them. Such a firmware is
+  installed from the official V15, whose updater stages the package's own loader.
 
 ### The loader's order (`firmware/loader/ldr_core.c`)
 
@@ -73,7 +78,7 @@ Power was cut after every erase and every programmed page. The flash as it stood
 | hop | cut points | rescued | the end | old firmware whole | unprotected |
 | --- | --- | --- | --- | --- | --- |
 | TransitFM1 → the official V15 | 2432 | 2415 | 1 | 0 | **16** (the last sector) |
-| the official V15 → TransitFM1 | 2432 | 2414 | 1 | 0 | 17 (the marker's erase, then the first sector) |
+| the official V15 → TransitFM1 | 2432 | 0 (2414 end in the ROM's USB boot: V15 stages our loader at 0xE6000, where the stub does not look) | 1 | 0 | 17 (the marker's erase, then the first sector) |
 | TransitFM1 → ChoralRoot 0.25.1, and back | 2279 | 2278 | 1 | 0 | **0** |
 | TransitFM1 → another TransitFM1 body | 256 | 255 | 1 | 0 | **0** |
 | a stub-less layout → TransitFM1 | 273 | 255 | 1 | 1 | 16 |

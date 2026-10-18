@@ -62,7 +62,7 @@ static void host_reply(const uint8_t *msg, uint32_t n)       /* queue msg as a d
 /* ---- hooks ---- */
 static int ota_wire_send(const uint8_t *p, uint32_t n)
 {
-    uint8_t u[64], m[600];
+    uint8_t u[64] = {0}, m[600];
     uint32_t d, addr, len, i, s = 0;
     if (p[0] != 0xF0 || p[n - 1] != 0xF7) { printf("bad wire framing\n"); exit(1); }
     d = unpack7h(p + 1, n - 2, u);
@@ -256,6 +256,25 @@ int main(int argc, char **argv)
                      flen != own_len || memcmp(nor + T_AREA + 32u, foreign + ota_entry(foreign, &flen) + 32u, 64) != 0);
         logical = own_pkg; logical_len = own_pkg_len;
         ota_boot_cleanup();
+    }
+    {   /* OTA_LONG_PKG: a package whose flash.bin reaches past 0x93000 (as Baud Girl's): refused before anything
+         * (TransitFM1 0.1.3: 0.1.2's loader wrote such a package truncated and committed it, a dark unit) */
+        const char *lp = getenv("OTA_LONG_PKG");
+        if (lp && *lp) {
+            size_t ll;
+            uint8_t *lg = load_logical(lp, &ll);
+            static uint8_t area[0x5000];
+            memcpy(area, nor + T_AREA, sizeof area);
+            logical = lg; logical_len = ll;
+            rc = session();
+            logical = own_pkg; logical_len = own_pkg_len;
+            free(lg);
+            bad += check("a flash.bin longer than the app area: refused (-4), nothing committed, the area untouched",
+                         rc == -4 && !committed && erases == 0u && !memcmp(nor + T_AREA, area, sizeof area) &&
+                         own_in_area());
+        } else {
+            printf("(OTA_LONG_PKG not set: the long package's refusal skipped)\n");
+        }
     }
     /* failures leave our loader as it is */
     mute_after = 2;
