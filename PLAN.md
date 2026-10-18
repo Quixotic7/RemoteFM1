@@ -262,3 +262,11 @@ stub, sector 0x4000 and loader `68599862…` unchanged):
   - **M1 done.** Open: MIDI CC 7/39 from a MASTER move not watched live on the unit (covered by the host and cross
     tests); battery mV not calibrated (0, cap off); Felucca / Melodee and `--transport midi` not run on the unit yet;
     key-to-sound latency not measured.
+
+**2026-10-18, M3 (FM1VST branch `remote-fm1`: 9413bfb submodule `remote/RemoteFM1` at acd77af, 5526073 the
+feature, 7d64fb3 discovery only to 1209:0001 / "FM-1" ports):** a "Remote FM-1" toggle in the plugin bar with a
+status, one owner per unit across processes (flock), the unit's input merged with the GUI panel, params and MIDI
+(encoders as device turns, so host feedback follows), the host's copy of the unit's own MIDI filtered, libusb linked
+statically. FM1VST suite 14/14 (remote_test 83 checks). **The Standalone (built, not installed) on the unit: the
+owner, "Everything works".** Next: install (FM1_COPY_PLUGIN=ON) and test in Live: the lock against the Standalone,
+no double notes with All Ins, the Roto-Control following a physical knob, the set reopening with Remote on.
