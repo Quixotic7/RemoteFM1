@@ -1,0 +1,88 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<!-- The native engine in a real AudioWorklet: worklet_test.html?core=<id> (served from the worktree root, after
+     build.sh). An OfflineAudioContext at 48 kHz renders 5 s through worklet_test_proc.js; key D4 is held from 3.2 s
+     to 3.7 s. window.__result gets the outcome (worklet_test.mjs reads it); the screen is drawn below. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Native engine worklet test</title>
+<style>
+  :root { --bg: #15161a; --fg: #e8e8ec; --ok: #5fd38d; --bad: #ff6b6b; }
+  body { background: var(--bg); color: var(--fg); font: 13px/1.4 ui-monospace, Menlo, monospace; margin: 16px; }
+  canvas { width: 240px; height: 240px; image-rendering: pixelated; display: block; margin-bottom: 8px; }
+  #verdict.ok { color: var(--ok); } #verdict.bad { color: var(--bad); }
+  pre { white-space: pre-wrap; margin: 0; }
+</style>
+</head>
+<body>
+<canvas id="lcd" width="240" height="240"></canvas>
+<div id="verdict">running</div>
+<pre id="log"></pre>
+<script type="module">
+const log = (s) => { document.getElementById("log").textContent += s + "\n"; };
+const core = new URLSearchParams(location.search).get("core") || "felucca";
+const RATE = 48000, SECONDS = 5, KEY_ON = 3.2, KEY_OFF = 3.7;   // (after the longest splash: OberVave's 2.4 s)
+
+function draw(px) {
+  const c = document.getElementById("lcd").getContext("2d");
+  const img = c.createImageData(240, 240);
+  for (let i = 0; i < px.length; i++) {
+    const v = px[i];
+    img.data[4 * i] = ((v >> 11) & 31) * 255 / 31;
+    img.data[4 * i + 1] = ((v >> 5) & 63) * 255 / 63;
+    img.data[4 * i + 2] = (v & 31) * 255 / 31;
+    img.data[4 * i + 3] = 255;
+  }
+  c.putImageData(img, 0, 0);
+}
+
+async function run() {
+  const wasm = await (await fetch(`../../build/native/${core}.wasm`)).arrayBuffer();
+  const ctx = new OfflineAudioContext(2, RATE * SECONDS, RATE);
+  await ctx.audioWorklet.addModule("worklet_test_proc.js");
+  const node = new AudioWorkletNode(ctx, "fm1-native-test", { numberOfInputs: 0, numberOfOutputs: 1,
+    outputChannelCount: [2], processorOptions: { wasm } });
+  node.connect(ctx.destination);
+  let waiter = null, msgId = 0;
+  const ready = new Promise((res, rej) => {
+    node.port.onmessage = (m) => {
+      const d = m.data;
+      if (d.type === "ready") res(d);
+      else if (d.type === "error") rej(new Error(d.message));
+      else if (d.type === "ack" && waiter) { const w = waiter; waiter = null; w(d); }
+    };
+  });
+  const send = (msg) => new Promise((res) => { waiter = res; node.port.postMessage({ ...msg, id: ++msgId }); });
+  const r = await ready;
+  log(`engine ${r.engine.name} ${r.engine.version}: ${r.info.name} ${r.info.version} (${r.info.license}) in the worklet`);
+  log(`scope: AudioWorkletGlobalScope ${r.scope.global}, sampleRate ${r.scope.sampleRate}, SharedArrayBuffer ${r.scope.sharedArrayBuffer}, TextDecoder ${r.scope.textDecoder}`);
+  const keyDown = { keys: 1 << 9, buttons: 0, enc: new Int32Array(7), keyVel: Uint8Array.from({ length: 27 }, (_, k) => k === 9 ? 100 : 0) };
+  const keyUp = { keys: 0, buttons: 0, enc: new Int32Array(7), keyVel: new Uint8Array(27) };
+  const acks = [];
+  ctx.suspend(KEY_ON).then(async () => { acks.push(await send({ type: "panel", panel: keyDown })); ctx.resume(); });
+  ctx.suspend(KEY_OFF).then(async () => { acks.push(await send({ type: "panel", panel: keyUp })); ctx.resume(); });
+  const buf = await ctx.startRendering();
+  const end = await send({ type: "screen" });
+  draw(end.pixels);
+  const L = buf.getChannelData(0), R = buf.getChannelData(1);
+  const seg = (a, b) => { let pk = 0, ss = 0; for (let i = Math.floor(a * RATE); i < Math.floor(b * RATE); i++) { pk = Math.max(pk, Math.abs(L[i]), Math.abs(R[i])); ss += L[i] * L[i]; } return { peak: pk, rms: Math.sqrt(ss / ((b - a) * RATE)) }; };
+  const before = seg(KEY_ON - 0.5, KEY_ON), during = seg(KEY_ON, KEY_OFF + 0.1);
+  let colours = new Set(end.pixels).size;
+  const quanta = end.quanta;
+  const ok = r.scope.global && !r.scope.sharedArrayBuffer && during.peak > 64 / 32768 && colours >= 2 && quanta === RATE * SECONDS / 128;
+  const result = { core, ok, quanta, expectedQuanta: RATE * SECONDS / 128, before, during, colours, lcdSeq: end.seq,
+                   halted: end.halted, keyAckQuanta: acks.map((a) => a.quanta), info: r.info, scope: r.scope };
+  log(`rendered ${quanta} quanta (${SECONDS} s at ${RATE} Hz); key D4 held ${KEY_ON}..${KEY_OFF} s (acks at quanta ${result.keyAckQuanta})`);
+  log(`audio: before the key peak ${(before.peak * 32768).toFixed(0)}, with it peak ${(during.peak * 32768).toFixed(0)} rms ${(during.rms * 32768).toFixed(0)} (of 32768)`);
+  log(`screen: ${colours} colours, seq ${end.seq}; halted ${end.halted}`);
+  const v = document.getElementById("verdict");
+  v.textContent = ok ? "PASS" : "FAIL";
+  v.className = ok ? "ok" : "bad";
+  window.__result = result;
+}
+run().catch((e) => { log(String(e.stack || e)); document.getElementById("verdict").textContent = "FAIL"; window.__result = { core, ok: false, error: String(e.stack || e) }; });
+</script>
+</body>
+</html>
