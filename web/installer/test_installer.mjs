@@ -6,7 +6,7 @@
 // before the visitor says the MIDI apps are closed; an install cut off finished from update mode; a cancel that
 // sends nothing. Never against a real unit: the only MIDI here is the fake's.
 //   node web/installer/test_installer.mjs [remote-X.Y.fwsc] [FM-1.fwsc]   (default: firmware/ of releases.json)
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { pack7, unpack7 } from "./fm1ota.js";
 import { install, look, describe, packageFrom, releasedPackage, IDENTITY, rfPack7, rfUnpack7 } from "./installer.js";
@@ -122,6 +122,12 @@ const sha = createHash("sha256").update(raw).digest("hex");
 if (!process.argv[2]) {
   const sums = readFileSync(new URL("./firmware/SHA256SUMS", import.meta.url), "utf8");
   ok(sha === rels[0].sha256 && sums.includes(`${sha}  remote-${rels[0].version}.fwsc`), `the released package ${rels[0].version}: releases.json, SHA256SUMS and the file agree`);
+  // what Pages publishes (firmware/ as it is): only the listed releases, no earlier package left beside them
+  const listed = rels.map((r) => `remote-${r.version}.fwsc`).sort().join();
+  const files = readdirSync(new URL("./firmware/", import.meta.url)).filter((f) => f.endsWith(".fwsc")).sort().join();
+  const summed = sums.trim().split("\n").map((l) => l.split(/\s+/)[1]).sort().join();
+  ok(files === listed && summed === listed, `firmware/ holds the listed packages only (${files})`);
+  ok(rels[0].version === "0.1.1" && !files.includes("remote-0.1.fwsc"), "RemoteFM1 0.1.1 is offered, 0.1 is not published");
 }
 const rel = { version: "9.9", sha256: sha };
 const fakeFetch = (bytes) => async (url) => ({ ok: url === "firmware/remote-9.9.fwsc", status: 404, arrayBuffer: async () => bytes.buffer });
@@ -143,7 +149,7 @@ if (v15Path) {
 // what is on the FM-1
 const st = async (o) => describe(await look(new FakeFM1(pkg.image, o).access));
 ok(/official firmware \(FM-1_015\).*TransitFM1/.test(await st({})), "look: FM-1_015 with no HELLO answer is stock V15 or TransitFM1");
-ok(/runs RemoteFM1 0\.1 /.test(await st({ remote: "0.1" })), "look: RemoteFM1 told by its HELLO, with its version");
+ok(/runs RemoteFM1 0\.1\.1 /.test(await st({ remote: "0.1.1" })), "look: RemoteFM1 told by its HELLO, with its version");
 ok(/ChoralRoot 0\.25\.1\./.test(await st({ identity: "FM-1_920", name: "ChoralRoot FM-1", version: "ChoralRoot 0.25.1" })),
    "look: ChoralRoot by its INFO");
 ok(/Bubba Machine/.test(await st({ identity: "FM-1_003", name: "FM-1 Bubba Machine" })), "look: Bubba Machine by its port");
@@ -164,7 +170,7 @@ t = await run({ identity: "FM-1_920", name: "ChoralRoot FM-1", version: "ChoralR
 ok(t.r === "done" && t.dev.bad === 0 && t.dev.identity === IDENTITY, "over ChoralRoot: installed");
 t = await run({ identity: "FM-1_910", name: "Felucca", version: "FELUCCA v1.0.1" });
 ok(t.r === "done" && t.dev.bad === 0, "over Felucca 1.0.1: installed");
-t = await run({ remote: "0.1" });
+t = await run({ remote: "0.1.1" });
 ok(t.r === "done" && t.dev.bad === 0 && t.dev.identity === IDENTITY && t.dev.hellos >= 1, "over RemoteFM1 (a reinstall): installed");
 t = await run({}, {});
 ok(t.r === "refused" && t.dev.upgrades === 0 && t.ui.confirms === 0 && /close every app that uses MIDI/i.test(t.ui.said.at(-1)),

@@ -53,7 +53,8 @@ screen, LEDs and flash go to the page by `postMessage` at up to 30 Hz.
 - **Base:** TransitFM1's web installer (`web/fm1ota.js`, `fm1pkg.js`, GPL), the same M-UPGRADE protocol
   `fm1_install.py` uses.
 - **The package:** RemoteFM1's own release package, served by the site (it's GPL and ours). A tagged release:
-  **RemoteFM1 0.1**, built from the tested M1 firmware.
+  **RemoteFM1 0.1.1** (0.1, the M1 firmware tested on the unit, plus TransitFM1 0.1.3's refusal of a package past
+  the app area; web/installer/firmware/RELEASE-NOTES.md). 0.1's package is not published.
 - **Before installing:** the page says what RemoteFM1 is, tells ChoralRoot users to take a backup first (with
   ChoralRoot's own page), and says how to go back to any other firmware (any installer works over RemoteFM1, which
   answers as V15).

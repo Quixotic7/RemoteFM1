@@ -3,14 +3,15 @@
   "repo": "https://github.com/Quixotic7/RemoteFM1",
   "releases": [
     {
-      "version": "0.1",
+      "version": "0.1.1",
       "date": "2026-10-18",
-      "tag": "v0.1",
-      "sha256": "130350399c594ff19ac5908049caa223f0a10f01edb279bd71c28ac796f2b1a4",
+      "tag": "v0.1.1",
+      "sha256": "a7408d6c0526e01ef80e81c7350082ff203beaca3eabee52899748fc730a96a7",
       "notes": [
         "The FM-1 as a USB panel: its keys, buttons, knobs and MASTER go to the computer as MIDI; the computer draws its screen and lights its LEDs.",
         "Makes no sound by itself: a firmware running on the computer (this site's player, FM1VST, fm1remote) plays.",
-        "Built from the M1 firmware tested on an FM-1 (2026-10-18): ChoralRoot played from a Mac through the unit, 20 frames a second.",
+        "New in 0.1.1: a firmware whose image is larger than the app area (Baud Girl's can be) is refused before anything is written, by the FM-1 and by its update loader; 0.1 could have committed it truncated. Install such a firmware through the official V15.",
+        "The update loader is TransitFM1 0.1.3's, byte for byte (answers ota-FM-1_900). The panel and the protocol are 0.1's, the build tested on an FM-1 on 2026-10-18.",
         "TransitFM1's safeguards: ChoralRoot's boot stub, its own update loader (the next firmware's first sector written last), the boot guard; answers every installer as the official V15."
       ]
     }
