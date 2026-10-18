@@ -2,11 +2,12 @@
 // The site's logic in Node: the catalog, the panel's orders (label / role -> matrix), the worklet host's panel merge
 // (taps), the computer-key map, and the mock engine against web/engine/API.md.
 //   node web/site/test.mjs
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { Controls, labelToMatrix, roleToMatrix, B, E, SRC, KEYMAP, KM, hintText, ledIndexOf, DEFAULT_KEYMAP } from "./js/panel.js";
 import { PanelMerge } from "./worklet/host.js";
 import { createEngine, ENGINE } from "./mock/engine.js";
 import { derive, PRESETS, contrast } from "./js/theme.js";
+import { Fm1Link, viewOf } from "./js/fm1-link.js";
 
 let fails = 0, checks = 0;
 const ok = (c, what) => { checks++; if (!c) fails++; console.log(`${what.padEnd(76)} ${c ? "ok" : "FAIL"}`); };
@@ -76,6 +77,111 @@ eng.midiIn(Uint8Array.from([0x90, 60, 100]));
 ok(eng.midiOut().length === 3 && eng.midiOut().length === 0, "mock: MIDI in echoes notes out once");
 ok(eng.halted() === 0, "mock: not halted");
 eng.dispose();
+
+// ---- the start overlay's key hint: the panel's own letters (FM1VST's map), every one of them a note key
+const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+const hint = [...(/<div id="start"[\s\S]*?<\/div>\s*<div id="toast"/.exec(html) || [""])[0].matchAll(/<kbd>([^<]+)<\/kbd>/g)].map((m) => m[1]);
+const notes = hint.slice(0, -2), octave = hint.slice(-2);
+ok(notes.join("") === "SDFGHJKL" && notes.every((k) => KEYMAP.some((e) => e.code === "Key" + k && e.kind === KM.KEY && hintText(KM.KEY, e.idx) === k))
+   && octave.join() === "Z,X", "start overlay: the key hint shows the panel's own letters (S D F G H J K L, Z X)");
+
+// ---- my FM-1: what the header, the overlay and the sheet show (fm1-link.js)
+const V = (st) => viewOf({ state: "idle", ...st });
+ok(V({}).tone === "off" && V({}).label === "Connect FM-1", "fm1: idle -> grey, Connect FM-1");
+ok(V({ state: "searching", quiet: true }).tone === "off", "fm1: a quiet search (auto-connect) stays grey");
+ok(V({ state: "searching" }).tone === "busy" && V({ state: "starting" }).tone === "busy" && V({ state: "searching" }).live, "fm1: a click's search, starting -> amber, pulsing");
+const vOn = V({ state: "connected", transport: "bulk", unit: { fwVer: "0.3" } });
+ok(vOn.tone === "on" && vOn.label === "FM-1 connected" && vOn.via === "USB" && V({ state: "connected", transport: "midi" }).via === "MIDI", "fm1: connected -> green, FM-1 connected, USB / MIDI");
+const vErr = V({ state: "error", why: "MIDI access (with SysEx) was refused" });
+ok(vErr.tone === "bad" && /allow MIDI/.test(vErr.title) && /try again/.test(vErr.title), "fm1: an error -> red, the reason (and the retry) in the tooltip");
+ok(viewOf({ state: "searching" }, true).tone === "bad", "fm1: nothing answered a click -> red");
+
+{ // the link over a stand-in remote: a click's search that finds nothing turns red and goes on quietly
+  const ls = new Set(), calls = [];
+  let st = { state: "idle" }, timer = null;
+  const fake = { get status() { return st; }, onStatus: (cb) => ls.add(cb), connect: async (o) => { calls.push(["connect", o]); push({ state: "searching" }); },
+    disconnect: async () => { calls.push(["disconnect"]); push({ state: "idle" }); }, setQuiet: (q) => { calls.push(["quiet", q]); push({ ...st, quiet: q }); },
+    autoConnect: async () => { calls.push(["auto"]); return { midi: "granted" }; } };
+  const push = (s) => { st = s; for (const cb of ls) cb(s); };
+  const link = new Fm1Link(fake, { searchMs: 10000, setTimer: (f) => (timer = f), clearTimer: () => { timer = null; } });
+  const seen = [];
+  link.on((v) => seen.push(v.tone));
+  await link.auto();
+  link.connect();
+  ok(calls[0][0] === "auto" && calls[1][0] === "connect" && calls[1][1] === undefined && link.view().tone === "busy", "fm1 link: auto() at load; a click connects (with its gesture) -> amber");
+  timer();
+  ok(link.view().tone === "bad" && calls.some((c) => c[0] === "quiet" && c[1] === true), "fm1 link: no answer in 10 s -> red, the search goes on quietly");
+  push({ state: "starting", quiet: true }); push({ state: "connected", transport: "midi", quiet: true });
+  ok(link.view().tone === "on" && !link.notFound, "fm1 link: the unit answers later -> green");
+  link.disconnect();
+  ok(link.view().tone === "off" && seen.includes("busy") && seen.includes("bad") && seen.includes("on"), "fm1 link: disconnect -> grey; every state reached the subscribers");
+}
+
+// ---- my FM-1 with the real remote.js and libremotefm1 (WASM) against fake units: auto-connect at load
+const BUILT = new URL("../build/remote/", import.meta.url);
+if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeunit.mjs", BUILT))) {
+  console.log("fm1 auto-connect with remote.js: skipped (web/remote/build.sh not run)");
+} else {
+  const { default: createRemoteFM1 } = await import(new URL("remotefm1.mjs", BUILT).href);
+  const { default: createFakeUnit } = await import(new URL("fakeunit.mjs", BUILT).href);
+  const { RemoteFM1 } = await import("../remote/remote.js");
+  const { createWorld } = await import("../remote/test/fakeworld.mjs");
+  const settle = () => new Promise((r) => setImmediate(r));
+  async function page(perm, build) {
+    const w = await createWorld(createFakeUnit, { start: 3 });
+    w.midiPerm = perm;
+    w.keystep = w.addOther("Arturia KeyStep 37");
+    w.iac = w.addOther("IAC Driver Bus 1");
+    if (build) build(w);
+    const remote = new RemoteFM1({ navigator: w.navigator, now: () => w.t, timers: false, module: createRemoteFM1 });
+    const link = new Fm1Link(remote, { setTimer: () => 0, clearTimer: () => {} });
+    const run = async (ms) => { for (let i = 0; i < ms; i++) { w.step(1); remote.tick(); if ((i & 3) === 3) await settle(); } await settle(); };
+    await link.auto();
+    return { w, remote, link, run };
+  }
+  const quietOthers = (w) => w.keystep.bytes === 0 && w.iac.bytes === 0;
+  {
+    const { w, link, run } = await page("granted", (w) => { w.unit = w.addUnit({ midiName: "FM-1", bulk: true }); });
+    await run(2000);
+    ok(link.view().tone === "on" && link.view().via === "MIDI" && w.requestDeviceFilters.length === 0 && quietOthers(w),
+       "fm1 auto: MIDI granted -> connected at load (MIDI), no requestDevice, nothing to other ports");
+    await Promise.all([link.disconnect(), run(400)]);
+  }
+  {
+    const { w, link, run } = await page("granted", (w) => { w.unit = w.addUnit({ midiName: "FM-1", bulk: true }); w.permitted.add(w.unit.usb); });
+    await run(2000);
+    ok(link.view().tone === "on" && link.view().via === "USB" && w.requestDeviceFilters.length === 0, "fm1 auto: MIDI granted, USB paired before -> connected over USB at load");
+    await Promise.all([link.disconnect(), run(400)]);
+  }
+  for (const perm of ["prompt", "denied"]) {
+    const { w, link, run } = await page(perm, (w) => { w.unit = w.addUnit({ midiName: "FM-1", bulk: true }); });
+    await run(3000);
+    ok(link.view().tone === "off" && w.midiRequests.length === 0 && w.requestDeviceFilters.length === 0 && w.unit.sent.length === 0 && quietOthers(w),
+       `fm1 auto: MIDI ${perm} -> grey Connect FM-1; nothing asked, nothing sent`);
+    if (perm === "prompt") {
+      link.connect();                                         // the header's click
+      await run(1500);
+      ok(w.midiRequests.length === 1 && w.requestDeviceFilters.length === 1 && link.view().tone === "on", "fm1 click: asks for MIDI and opens the WebUSB chooser, then connected");
+      await Promise.all([link.disconnect(), run(400)]);
+    }
+  }
+  {
+    const { w, link, run } = await page("granted");
+    await run(3000);
+    ok(link.view().tone === "off" && quietOthers(w), "fm1 auto: no FM-1 plugged in -> grey, nothing sent to the KeyStep or IAC");
+    const stock = w.addUnit({ midiName: "FM-1", name: "FM-1_015", proto: 1 });
+    w.plugIn(stock);
+    await run(8000);
+    const n = stock.cmds.filter((c) => c === 1).length;
+    ok(link.view().tone === "off" && n >= 3 && n <= 5 && stock.cmds.every((c) => c === 1), `fm1 auto: a stock FM-1 plugged in -> stays grey; ${n} HELLOs in 8 s, nothing else`);
+    w.unplug(stock); await run(2500);
+    const unit = w.addUnit({ midiName: "ChoralRoot FM-1" });
+    w.plugIn(unit);
+    await run(2500);
+    ok(link.view().tone === "on" && quietOthers(w) && w.requestDeviceFilters.length === 0, "fm1 auto: a RemoteFM1 unit plugged in later -> connected, no requestDevice");
+    await Promise.all([link.disconnect(), run(400)]);
+  }
+}
 
 console.log(fails ? `site: ${fails} of ${checks} FAILED` : `site tests passed (${checks})`);
 process.exit(fails ? 1 : 0);

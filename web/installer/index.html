@@ -61,6 +61,14 @@
   .sha { word-break: break-all; font-size: .8rem; }
   footer { color: var(--muted); font-size: 0.88rem; margin-top: 32px; }
   #browser-warn { color: var(--amber); font-weight: 600; }
+  a.button { display: inline-block; text-decoration: none; font-weight: 600; border-radius: 8px; }
+  a.button.primary { background: linear-gradient(135deg, #FFA45E, #E07A3C); color: var(--on-accent); font-size: 1.05rem; padding: 12px 20px; }
+  .next { margin-top: 16px; padding: 16px 18px; border-radius: 12px; background: var(--well); border: 1px solid rgba(61, 220, 132, .35); }
+  .next[hidden] { display: none; }
+  .next p { margin: 0 0 12px; color: var(--row-text); }
+  .next .meta { margin: 12px 0 0; color: var(--muted); }
+  .next-title { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1.08rem; color: var(--text) !important; }
+  .next .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px rgba(61, 220, 132, .16), 0 0 8px rgba(61, 220, 132, .55); flex: none; }
 </style>
 </head>
 <body>
@@ -103,14 +111,23 @@
     </div>
     <progress id="bar" max="1000" value="0" hidden></progress>
     <p id="status" class="status" role="status"></p>
+    <div id="next" class="next" hidden>
+      <p class="next-title"><span class="dot"></span>Open the player: your FM-1 connects automatically</p>
+      <p>This page was just allowed MIDI, and the player is on the same site, so it finds the FM-1 by itself once it
+        shows REMOTE FM1 / WAITING FOR HOST (a few seconds after the restart).</p>
+      <div class="row"><a class="player button primary" href="../">Open the player</a></div>
+      <p class="meta">If it doesn't connect: check the FM-1 shows REMOTE FM1 / WAITING FOR HOST, then press <b>Connect FM-1</b>
+        at the top of the player (or <b>Play on my FM-1</b>), and allow MIDI if Chrome asks.</p>
+    </div>
     <details><summary>Log</summary><pre id="log"></pre></details>
   </section>
 
   <section class="card">
     <h2>Then</h2>
     <p>The FM-1 restarts showing REMOTE FM1 / WAITING FOR HOST, its key lights dim. Open <a class="player" href="../">the
-      player</a>, pick a firmware, and connect your FM-1 from the settings (Use my FM-1). On a Mac, <code>fm1remote</code>
-      and FM1VST use it too (<a href="https://github.com/Quixotic7/RemoteFM1#using-it">how</a>).</p>
+      player</a> in Chrome or Edge: once MIDI is allowed for this site, it connects to the FM-1 by itself (the
+      <b>Connect FM-1</b> button at its top shows the state; press it if it stays grey). Pick a firmware and press Play.
+      On a Mac, <code>fm1remote</code> and FM1VST use it too (<a href="https://github.com/Quixotic7/RemoteFM1#using-it">how</a>).</p>
   </section>
 
   <section class="card">

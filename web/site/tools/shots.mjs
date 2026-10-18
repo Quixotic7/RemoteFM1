@@ -8,7 +8,7 @@
 //   PAGES=1   BASE is the published layout (the player at the root, not site/); ONLY=<regex> picks shots
 // Each shot: a viewport, a URL, then steps run in the page (open the sheet, the browser, ...).
 import { spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,6 +21,10 @@ const ONLY = process.env.ONLY ? new RegExp(process.env.ONLY) : null;
 mkdirSync(OUT, { recursive: true });
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// mock: the user's FM-1 through fm1-mock.js (fake units, no hardware): the MIDI permission and the units plugged in
+const MOCK_SRC = readFileSync(join(HERE, "fm1-mock.js"), "utf8");
+const REMOTE_UNIT = { midiName: "FM-1", bulk: true, paired: true };
+const fm1Click = `document.getElementById("fm1-btn").click()`;
 const SHOTS = [
   { name: "device", w: 1400, h: 860, url: "site/?fw=felucca", wait: 2500 },
   { name: "device-pressed", w: 1400, h: 860, url: "site/?fw=fomni", wait: 2000,
@@ -46,7 +50,38 @@ const SHOTS = [
   { name: "mobile-sheet", w: 390, h: 844, mobile: true, url: "site/?fw=felucca", wait: 2000, steps: [`document.getElementById("menu-btn").click()`], after: 600 },
   { name: "mobile-landscape", w: 844, h: 390, mobile: true, url: "site/?fw=felucca", wait: 2500 },
   { name: "nostart", w: 1400, h: 860, url: "site/?fw=felucca", wait: 1500, noAutoplay: true },
+  { name: "fm1-off", w: 1400, h: 860, url: "site/?fw=felucca", wait: 2500, mock: { perm: "prompt", units: [REMOTE_UNIT] } },
+  { name: "fm1-searching", w: 1400, h: 860, url: "site/?fw=felucca", wait: 2500, mock: { perm: "prompt", units: [{ midiName: "FM-1", silent: true }] },
+    steps: [fm1Click], after: 700 },
+  { name: "fm1-usb", w: 1400, h: 860, url: "site/?fw=felucca", wait: 3500, mock: { perm: "granted", units: [REMOTE_UNIT] } },
+  { name: "fm1-midi", w: 1400, h: 860, url: "site/?fw=felucca", wait: 3500, mock: { perm: "granted", units: [{ midiName: "ChoralRoot FM-1" }] } },
+  { name: "fm1-error", w: 1400, h: 860, url: "site/?fw=felucca", wait: 2500, mock: { perm: "denied", units: [{ midiName: "FM-1" }] },
+    steps: [fm1Click], after: 700 },
+  { name: "fm1-menu", w: 1400, h: 860, url: "site/?fw=felucca", wait: 3500, mock: { perm: "granted", units: [REMOTE_UNIT] }, steps: [fm1Click], after: 500 },
+  { name: "fm1-sheet", w: 1400, h: 860, url: "site/?fw=felucca", wait: 3500, mock: { perm: "granted", units: [REMOTE_UNIT] },
+    steps: [`document.getElementById("corner").click()`, `document.querySelector(".remote-slot").scrollIntoView()`], after: 600 },
+  { name: "start-fm1", w: 1400, h: 860, url: "site/?fw=felucca", wait: 2500, noAutoplay: true, mock: { perm: "prompt", units: [REMOTE_UNIT] } },
+  { name: "start-fm1-connected", w: 1400, h: 860, url: "site/?fw=felucca", wait: 3500, noAutoplay: true, mock: { perm: "granted", units: [REMOTE_UNIT] } },
+  { name: "start-fm1-clicked", w: 1400, h: 860, url: "site/?fw=felucca", wait: 2500, noAutoplay: true, mock: { perm: "prompt", units: [REMOTE_UNIT] },
+    steps: [`document.getElementById("start-fm1").click()`], after: 2500 },
+  { name: "start-fm1-unit-screen", w: 900, h: 560, url: "site/?fw=felucca", wait: 3500, noAutoplay: true, mock: { perm: "granted", units: [REMOTE_UNIT] },
+    steps: [`(() => { const w = window.__fm1World, sh = w.shadow(w.units[0]), c = document.createElement("canvas"); c.width = c.height = 240;
+      const g = c.getContext("2d"), img = g.createImageData(240, 240);
+      for (let i = 0; i < 57600; i++) { const v = (sh[2 * i] << 8) | sh[2 * i + 1]; img.data.set([(v >> 11) << 3, ((v >> 5) & 63) << 2, (v & 31) << 3, 255], 4 * i); }
+      g.putImageData(img, 0, 0);
+      const box = document.createElement("div"); box.style.cssText = "position:fixed;right:16px;bottom:16px;z-index:99;background:#000;padding:10px;border:1px solid #555;border-radius:10px;color:#aaa;font:12px sans-serif;text-align:center";
+      box.append(c, document.createElement("br"), "the unit's screen (fake unit's shadow)"); document.body.append(box); })()`], after: 300 },
+  { name: "mobile-fm1-off", w: 390, h: 844, mobile: true, url: "site/?fw=felucca", wait: 2500, mock: { perm: "prompt", units: [REMOTE_UNIT] } },
+  { name: "mobile-fm1-usb", w: 390, h: 844, mobile: true, url: "site/?fw=felucca", wait: 3500, mock: { perm: "granted", units: [REMOTE_UNIT] }, steps: [fm1Click], after: 500 },
+  { name: "mobile-start-fm1", w: 390, h: 844, mobile: true, url: "site/?fw=felucca", wait: 2500, noAutoplay: true, mock: { perm: "prompt", units: [REMOTE_UNIT] } },
   { name: "installer", w: 1200, h: 1500, url: "installer/", wait: 1500 },
+  { name: "installer-done", w: 1200, h: 1100, url: "installer/", wait: 1500,
+    steps: [`(() => { const s = document.getElementById("status"); s.textContent = "Done: RemoteFM1 " + document.getElementById("ver").textContent + " is installed."; s.className = "status ok";
+      const b = document.getElementById("bar"); b.hidden = false; b.value = 1000; document.getElementById("next").hidden = false;
+      document.querySelector("#go").closest(".card").scrollIntoView(); })()`], after: 400 },
+  { name: "installer-done-mobile", w: 390, h: 844, mobile: true, url: "installer/", wait: 1500,
+    steps: [`(() => { const s = document.getElementById("status"); s.textContent = "Done: RemoteFM1 " + document.getElementById("ver").textContent + " is installed."; s.className = "status ok";
+      document.getElementById("next").hidden = false; document.getElementById("next").scrollIntoView({ block: "center" }); })()`], after: 400 },
   { name: "installer-mobile", w: 390, h: 844, mobile: true, url: "installer/", wait: 1500 },
 ];
 
@@ -102,6 +137,7 @@ async function shoot(s) {
     await S("Runtime.enable"); await S("Log.enable"); await S("Page.enable");
     await S("Emulation.setDeviceMetricsOverride", { width: s.w, height: s.h, deviceScaleFactor: s.dpr || (s.mobile ? 2 : 1), mobile: !!s.mobile });
     if (s.mobile) await S("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
+    if (s.mock) await S("Page.addScriptToEvaluateOnNewDocument", { source: `window.__FM1_MOCK = ${JSON.stringify(s.mock)};\n${MOCK_SRC}` });
     await S("Page.navigate", { url: new URL(process.env.PAGES ? s.url.replace(/^site\//, "") : s.url, BASE).href });
     await sleep(s.wait || 2000);
     for (const js of s.steps || []) {

@@ -17,6 +17,7 @@
     <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg></button>
   <span id="status" role="status"></span>
   <nav>
+    <button id="fm1-btn" class="fm1-btn" aria-haspopup="dialog" aria-expanded="false" hidden><span class="fm1-dot off"></span><span class="fm1-label">Connect FM-1</span><span class="fm1-short">FM-1</span><span class="fm1-via" hidden></span></button>
     <a id="install-link" href="../installer/">Install RemoteFM1</a>
     <a href="https://github.com/Quixotic7/RemoteFM1" target="_blank" rel="noopener">Source</a>
   </nav>
@@ -26,8 +27,12 @@
   <div id="device-wrap"><canvas id="device" aria-label="The FM-1: click or touch its keys, buttons and knobs"></canvas></div>
   <button id="corner" aria-label="Settings" title="Settings"></button>
   <div id="start" hidden>
-    <button id="start-btn"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.2v9.6L12.6 8z"/></svg><span>Play <b id="start-name"></b></span></button>
-    <p>Sound starts with a click. Then the keys: <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> <kbd>F</kbd> &hellip; <kbd>Z</kbd> <kbd>X</kbd> octave.</p>
+    <div class="start-row">
+      <button id="start-btn"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.2v9.6L12.6 8z"/></svg><span>Play <b id="start-name"></b></span></button>
+      <button id="start-fm1" class="start-fm1" hidden><span class="fm1-dot off"></span><span>Play on my FM-1</span></button>
+    </div>
+    <p id="start-fm1-note" class="start-note" hidden></p>
+    <p>Sound starts with a click. Keys: <kbd>S</kbd> <kbd>D</kbd> <kbd>F</kbd> <kbd>G</kbd> <kbd>H</kbd> <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd> &hellip; &middot; <kbd>Z</kbd> <kbd>X</kbd> octave.</p>
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 </main>

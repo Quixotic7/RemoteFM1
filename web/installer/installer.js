@@ -177,11 +177,15 @@ if (typeof document !== "undefined") {
       document.body.classList.remove("busy");
     }
   };
+  // RemoteFM1 is on: the next step is the player (same origin: the MIDI permission just granted carries over)
+  const showNext = () => { $("next").hidden = false; $("next").scrollIntoView({ block: "nearest", behavior: "smooth" }); };
   const opts = () => ({ override: $("override").checked, midiClosed: $("midi-closed").checked });
   $("go").addEventListener("click", () => run(async () => {
+    $("next").hidden = true;
     ui.say("Downloading and checking the package...");
     const pkg = await releasedPackage(rel);
     const r = await install(await midi(), pkg, ui, opts());
+    if (r === "done" || r === "resumed") showNext();
     if (r === "refused" && !$("override").checked && /not installed over from here/.test($("status").textContent)) $("override-box").hidden = false;
   }));
   $("check").addEventListener("click", () => run(async () => { ui.say("Looking for the FM-1..."); ui.say(describe(await look(await midi(), ui.log))); }));

@@ -11,7 +11,7 @@ import { Player } from "./audio.js";
 import * as saves from "./saves.js";
 import { Sheet, icon } from "./sheet.js";
 import { makeSite } from "./remote-hook.js";
-import { mountUseFm1 } from "./use-fm1.js";
+import { createFm1, mountUseFm1, mountHeader } from "./use-fm1.js";
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -31,7 +31,7 @@ const state = {
   saves: [], selectedSave: null,
   pixels: null, frameSeq: 0, levels: new Uint8Array(44), playGreen: 0,
 };
-let catalog = null, player = null, sheet = null, site = null, siteEmit = () => {};
+let catalog = null, player = null, sheet = null, site = null, siteEmit = () => {}, fm1 = null;
 const lcd = new Lcd();
 const controls = new Controls((p) => { if (player) player.panel(p); });
 const device = new DeviceView($("device"), controls, lcd);
@@ -278,6 +278,31 @@ async function start() {
   return true;
 }
 
+// ------------------------------------------------------------- my FM-1 ---
+// the start overlay mirrors the link: "Play on my FM-1" while not connected, a line once it is
+let fm1Tone = null;
+function onFm1(v) {
+  const b = $("start-fm1"), note = $("start-fm1-note");
+  b.hidden = v.tone === "on";
+  b.disabled = v.tone === "busy";
+  b.querySelector(".fm1-dot").className = "fm1-dot " + v.tone + (v.live && v.tone !== "off" ? " live" : "");
+  b.querySelector("span:last-child").textContent = v.tone === "busy" ? "Connecting your FM-1..." : "Play on my FM-1";
+  b.title = v.title;
+  note.hidden = v.tone !== "on" && v.tone !== "bad";
+  note.className = "start-note " + v.tone;
+  note.textContent = v.tone === "on" ? `Your FM-1 is connected${v.via ? " over " + v.via : ""}: press Play and it plays this firmware.` : v.detail;
+  if (fm1Tone !== null && v.tone !== fm1Tone) {
+    if (v.tone === "on") toast(`FM-1 connected${v.via ? " over " + v.via : ""}: its keys, knobs and screen are the panel.`, "ok");
+    else if (v.tone === "bad") toast(v.detail, "bad");
+  }
+  fm1Tone = v.tone;
+}
+// one click: the sound and the unit (audio start, Web MIDI, the WebUSB chooser: the same user gesture)
+function playOnFm1() {
+  if (fm1 && !fm1.connected) fm1.connect();
+  start();
+}
+
 // ------------------------------------------------------------------- MIDI ---
 const midi = new MidiInput(onMidi, () => { if (sheet) sheet.render(); });
 function onMidi(d) {
@@ -386,8 +411,13 @@ async function main() {
     if (m && typeof m.RemoteFM1 === "function") {          // W4's class: the section is ours (use-fm1.js)
       app.remoteMounted = true;
       if (typeof m.isCandidatePortName === "function") midi.isUnitPort = m.isCandidatePortName;
-      mountUseFm1(sheet.remoteSlot, site, m, { onUnitPorts: (ports) => { midi.unitPorts = ports; midi.bind(); } });
+      fm1 = createFm1(site, m, { onUnitPorts: (ports) => { midi.unitPorts = ports; midi.bind(); } });
+      mountUseFm1(sheet.remoteSlot, fm1, site);
+      mountHeader($("fm1-btn"), fm1, { openSheet: () => sheet.open() });
+      fm1.on(onFm1);
+      onFm1(fm1.view());
       sheet.render();
+      fm1.auto();                                          // connects now if MIDI was allowed before (no prompt)
     } else if (m && typeof m.mount === "function") { app.remoteMounted = true; sheet.remoteSlot.replaceChildren(); m.mount(sheet.remoteSlot, site); sheet.render(); }
   }).catch(() => { /* (web/remote is W4's: the stub stays) */ });
 
@@ -404,6 +434,7 @@ async function main() {
   $("corner").addEventListener("click", () => sheet.open());
   $("corner").addEventListener("mouseleave", activity);
   $("start-btn").addEventListener("click", () => start());
+  $("start-fm1").addEventListener("click", playOnFm1);
   $("menu-btn").addEventListener("click", () => sheet.open());
   $("fw-btn").addEventListener("click", () => sheet.open("firmware"));
   addEventListener("keydown", (e) => {
