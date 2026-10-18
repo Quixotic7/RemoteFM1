@@ -1,0 +1,159 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Input: the computer keyboard (FM1VST's map, panel.js KEYMAP), the pointer on the drawn panel (mouse and multi-touch:
+// keys and buttons held while pressed, a right-click or ctrl-click latches; knobs turned by a vertical drag or the
+// wheel) and Web MIDI keyboards.
+import { KEYMAP, KM, B, E, SRC } from "./panel.js";
+
+// ---------------------------------------------------------------- keyboard ---
+export class Keyboard {
+  // opts: { controls, enabled() -> bool, onLcdView(), onActivity() }
+  constructor(opts) {
+    this.o = opts;
+    this.held = new Set();
+    this.byCode = new Map();
+    for (const e of KEYMAP) { if (!this.byCode.has(e.code)) this.byCode.set(e.code, []); this.byCode.get(e.code).push(e); }
+    this.down = (e) => this.onDown(e);
+    this.up = (e) => this.onUp(e);
+    this.blur = () => this.releaseAll();
+    addEventListener("keydown", this.down);
+    addEventListener("keyup", this.up);
+    addEventListener("blur", this.blur);
+    document.addEventListener("visibilitychange", () => { if (document.hidden) this.releaseAll(); });
+  }
+  typing(e) { const t = e.target; return t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)); }
+  onDown(e) {
+    if (e.metaKey || e.ctrlKey || e.altKey || this.typing(e) || !this.o.enabled(e)) return;
+    const list = this.byCode.get(e.code);
+    if (!list) return;
+    e.preventDefault();
+    if (this.o.onActivity) this.o.onActivity(e);
+    const c = this.o.controls;
+    if (list[0].kind === KM.TURN) { c.turn(c.selKnob, c.selKnob === E.MASTER ? 2 * list[0].idx : list[0].idx); return; }
+    if (e.repeat || this.held.has(e.code)) return;
+    this.held.add(e.code);
+    for (const m of list) this.action(m, true);
+  }
+  onUp(e) {
+    if (!this.held.has(e.code)) return;
+    this.held.delete(e.code);
+    for (const m of this.byCode.get(e.code)) {
+      let other = false;   // (Z and Esc both hold OCT-: the control stays down while either is)
+      for (const h of this.held) for (const o of this.byCode.get(h) || []) other = other || (o.kind === m.kind && o.idx === m.idx);
+      if (!other) this.action(m, false);
+    }
+  }
+  action(m, down) {
+    const c = this.o.controls;
+    switch (m.kind) {
+      case KM.KEY: c.holdKey(m.idx, SRC.KEY, down); break;
+      case KM.BTN: c.holdBtn(m.idx, SRC.KEY, down); break;
+      case KM.OCTBOTH: c.holdBtn(B.OCTDN, SRC.ESC, down); c.holdBtn(B.OCTUP, SRC.ESC, down); break;
+      case KM.CYCLE:
+        if (down) {
+          const CYC = [E.SELECT, E.K1, E.K2, E.K3, E.K4];
+          let at = CYC.indexOf(c.selKnob);
+          if (at < 0) at = m.idx > 0 ? -1 : 0;
+          c.select(CYC[(((at + m.idx) % 5) + 5) % 5]);
+        }
+        break;
+      case KM.LCDVIEW: if (down && this.o.onLcdView) this.o.onLcdView(); break;
+    }
+  }
+  releaseAll() {
+    this.held.clear();
+    this.o.controls.releaseSrc(SRC.KEY | SRC.ESC | SRC.POINTER);
+  }
+}
+
+// ----------------------------------------------------------------- pointer ---
+// view: the DeviceView of the canvas (toUnits, hit); multi-touch: each pointer holds what it went down on
+export function attachPointer(canvas, view, controls, { onActivity, onScreenTap } = {}) {
+  const ptrs = new Map();   // pointerId -> { kind, idx, y, acc }
+  const pos = (e) => { const r = canvas.getBoundingClientRect(); return view.toUnits(e.clientX - r.left, e.clientY - r.top); };
+  canvas.addEventListener("pointerdown", (e) => {
+    if (onActivity) onActivity(e);
+    const u = pos(e), h = view.hit(u.x, u.y);
+    if (!h) return;
+    if (h.kind === "screen") { if (onScreenTap) onScreenTap(e); return; }
+    e.preventDefault();
+    try { canvas.setPointerCapture(e.pointerId); } catch (_) { /* (a synthetic event) */ }
+    if (h.kind === KM.SELECT) {
+      controls.select(h.idx);
+      ptrs.set(e.pointerId, { kind: KM.SELECT, idx: h.idx, y: e.clientY, acc: 0 });
+      return;
+    }
+    if (e.button === 2 || e.ctrlKey) {   // latch
+      const on = h.kind === KM.KEY ? controls.keySrc[h.idx] & SRC.LATCH : controls.btnSrc[h.idx] & SRC.LATCH;
+      if (h.kind === KM.KEY) controls.holdKey(h.idx, SRC.LATCH, !on); else controls.holdBtn(h.idx, SRC.LATCH, !on);
+      return;
+    }
+    ptrs.set(e.pointerId, { kind: h.kind, idx: h.idx });
+    if (h.kind === KM.KEY) controls.holdKey(h.idx, SRC.POINTER, true); else controls.holdBtn(h.idx, SRC.POINTER, true);
+  });
+  canvas.addEventListener("pointermove", (e) => {
+    const p = ptrs.get(e.pointerId);
+    if (!p || p.kind !== KM.SELECT) return;
+    p.acc += (p.y - e.clientY) / 8;   // 8 CSS pixels a detent, up = clockwise
+    p.y = e.clientY;
+    const s = Math.trunc(p.acc);
+    if (s) { p.acc -= s; controls.turn(p.idx, s); }
+  });
+  const end = (e) => {
+    const p = ptrs.get(e.pointerId);
+    if (!p) return;
+    ptrs.delete(e.pointerId);
+    if (p.kind === KM.SELECT) return;
+    const still = [...ptrs.values()].some((q) => q.kind === p.kind && q.idx === p.idx);
+    if (still) return;
+    if (p.kind === KM.KEY) controls.holdKey(p.idx, SRC.POINTER, false); else controls.holdBtn(p.idx, SRC.POINTER, false);
+  };
+  canvas.addEventListener("pointerup", end);
+  canvas.addEventListener("pointercancel", end);
+  canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+  let wheelAcc = 0;
+  canvas.addEventListener("wheel", (e) => {
+    const u = pos(e), h = view.hit(u.x, u.y);
+    if (!h || h.kind !== KM.SELECT) return;
+    e.preventDefault();
+    const px = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
+    wheelAcc += -px / 40;
+    const s = Math.trunc(wheelAcc);
+    if (s) { wheelAcc -= s; controls.turn(h.idx, s); }
+  }, { passive: false });
+}
+
+// -------------------------------------------------------------------- MIDI ---
+// Web MIDI input: one picked input, or all. handler(bytes) gets every message (Uint8Array).
+export class MidiInput {
+  constructor(handler, onChange) {
+    this.handler = handler; this.onChange = onChange || (() => {});
+    this.access = null; this.selected = ""; this.error = "";
+    // the user's FM-1 running RemoteFM1 is never a MIDI keyboard here (its panel notes would play twice): W4's rule
+    this.isUnitPort = (name) => /fm-1|remotefm1/i.test(name || "") && !/update/i.test(name || "");
+    this.unitPorts = null;
+    this.supported = typeof navigator !== "undefined" && !!navigator.requestMIDIAccess;
+  }
+  skip(i) { return this.isUnitPort(i.name) || (this.unitPorts && this.unitPorts.inputId === i.id); }
+  inputs() { return this.access ? [...this.access.inputs.values()].filter((i) => !this.skip(i)).map((i) => ({ id: i.id, name: i.name, state: i.state })) : []; }
+  async enable() {
+    if (!this.supported) { this.error = "This browser has no Web MIDI (Chrome, Edge, Firefox and Opera have it)."; this.onChange(); return false; }
+    try {
+      this.access = await navigator.requestMIDIAccess({ sysex: false });
+      this.access.onstatechange = () => { this.bind(); this.onChange(); };
+      this.error = "";
+    } catch (e) {
+      this.error = "MIDI access was refused: allow it in the address bar and try again.";
+    }
+    this.bind();
+    this.onChange();
+    return !!this.access;
+  }
+  select(id) { this.selected = id; this.bind(); this.onChange(); }
+  bind() {
+    if (!this.access) return;
+    for (const i of this.access.inputs.values()) {
+      const on = !this.skip(i) && (this.selected === "*" || i.id === this.selected);
+      i.onmidimessage = on ? (e) => this.handler(e.data) : null;
+    }
+  }
+}

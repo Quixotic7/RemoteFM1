@@ -1,0 +1,1915 @@
+{
+ "about": "Built by web/site/tools/build_catalog.mjs from the FM-1 Firmware Hub's catalog and FM1VST's cores. Edit those, not this file.",
+ "generated": "2026-10-18",
+ "hubUpdated": "2026-10-18 17:01 UTC",
+ "hub": "https://thefirmwarehub.com/",
+ "layout": "dev",
+ "paths": {
+  "engines": {
+   "native": {
+    "module": "../engines/native/engine.js",
+    "wasm": "../build/native/{core}.wasm"
+   },
+   "emu": {
+    "module": "../engines/emu/engine.js",
+    "wasm": "../build/emu/fm1_web.wasm",
+    "hook": "../engines/emu/catalog.mjs"
+   },
+   "mock": {
+    "module": "mock/engine.js"
+   }
+  },
+  "remote": "../remote/remote.js",
+  "installer": "../installer/"
+ },
+ "categories": [
+  "All",
+  "Synth",
+  "Groovebox",
+  "Chords",
+  "Drums",
+  "Other"
+ ],
+ "credits": {
+  "fm1emu": {
+   "name": "fm1-emu",
+   "author": "Joakim Eriksson",
+   "license": "MIT",
+   "source": "https://github.com/joakimeriksson/fm1-emu",
+   "line": "Emulated by fm1-emu, the FM-1 emulator by Joakim Eriksson (MIT licence): https://github.com/joakimeriksson/fm1-emu"
+  },
+  "fm1vst": {
+   "name": "FM1VST",
+   "license": "GPL-3.0-only",
+   "source": "https://github.com/Quixotic7/FM1VST"
+  },
+  "hub": {
+   "name": "The FM-1 Firmware Hub",
+   "source": "https://thefirmwarehub.com/"
+  }
+ },
+ "firmwares": [
+  {
+   "id": "amb",
+   "name": "AMB-1",
+   "version": "1.3",
+   "author": "C. Vestal",
+   "authorFull": "Charles Vestal",
+   "category": "Other",
+   "categories": [
+    "Other",
+    "Synth"
+   ],
+   "tag": "Generative ambient",
+   "what": "A generative ambient machine after Music for Airports: it plays itself from the start, breathing voices, bells on tape loops of unequal length, a gliding bass. You do not perform it, you tend it.",
+   "license": "MPL-2.0",
+   "source": "https://github.com/charlesvestal/fm1-amb/tree/v1.3",
+   "repo": "charlesvestal/fm1-amb",
+   "release": "https://github.com/charlesvestal/fm1-amb/releases/tag/v1.3",
+   "site": "https://charlesvestal.github.io/fm1-amb/",
+   "play": "https://charlesvestal.github.io/fm1-amb/emu/",
+   "beta": false,
+   "engines": [
+    "native",
+    "emu"
+   ],
+   "defaultEngine": "native",
+   "native": {
+    "core": "amb",
+    "version": "1.3",
+    "wasm": "../build/native/amb.wasm"
+   },
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/amb-1.3.fwsc",
+    "sha256": "59dbc6b688e3a64bb0da912c1e40890da7bc214b2a3269704627369b776707cb",
+    "size": 610108,
+    "product": "FM-1_7010300"
+   }
+  },
+  {
+   "id": "beetle",
+   "name": "BEETLE",
+   "version": "1.0.5RC",
+   "author": "Joppe Sikken",
+   "authorFull": "Joppe Sikken (SikkenWorks)",
+   "category": "Groovebox",
+   "categories": [
+    "Groovebox"
+   ],
+   "tag": "Tracker for the FM-1",
+   "what": "A tracker for the FM-1: patterns written top to bottom, step by step, with note, instrument, chord and effect columns, the way trackers have always worked.",
+   "license": null,
+   "source": "https://github.com/SikkenWorks/BEETLE/tree/V1.0.5RC",
+   "repo": "SikkenWorks/BEETLE",
+   "release": "https://github.com/SikkenWorks/BEETLE/releases/tag/V1.0.5RC",
+   "site": "https://sikkenworks.github.io/BEETLE/",
+   "play": "https://sikkenworks.github.io/BEETLE/",
+   "beta": true,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/beetle-1.0.5RC.fwsc",
+    "sha256": "40fa76c5f24fbc3f13c262b59436e2d87ea462f382f2d85ad4bb375f90dab644",
+    "size": 610086,
+    "product": "FM-1_2101"
+   }
+  },
+  {
+   "id": "bubba",
+   "name": "Bubba Machine",
+   "version": "0.8.0-beta",
+   "author": "Erbubar23",
+   "authorFull": "Erbubar23",
+   "category": "Groovebox",
+   "categories": [
+    "Groovebox",
+    "Drums",
+    "Synth"
+   ],
+   "tag": "Six-track groovebox written…",
+   "what": "A six-track groovebox written from scratch: TR drums from Plaits' 808 and 909 models, a sampler with a 16-slice slicer, a bass and three free tracks (analog, 6-op FM, 303 acid), scenes and fills, all at 44.1 kHz.",
+   "license": null,
+   "source": "https://github.com/Erbubar23/bubba-machine/tree/v0.8.0-beta",
+   "repo": "Erbubar23/bubba-machine",
+   "release": "https://github.com/Erbubar23/bubba-machine/releases/tag/v0.8.0-beta",
+   "site": "https://erbubar23.github.io/bubba-machine/en/",
+   "play": "https://erbubar23.github.io/bubba-machine/en/",
+   "beta": true,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/bubba-0.8.0-beta.fwsc",
+    "sha256": "e8fc401adb9bc7a8d853f8a12ab8b392c3fc2b26d9812716c0472c7dc69e3bfa",
+    "size": 699956,
+    "product": "FM-1_003"
+   },
+   "emuNote": "boots to a black screen, no sound (needs M-VAVE's own loader)"
+  },
+  {
+   "id": "choralroot",
+   "name": "ChoralRoot",
+   "version": "0.25.1",
+   "author": "Quixotic7",
+   "authorFull": "Quixotic7",
+   "category": "Chords",
+   "categories": [
+    "Chords"
+   ],
+   "tag": "Chord instrument",
+   "what": "A Telepathic Orchid-style chord instrument: one hand plays roots, the other shapes chords; voicings, performance modes, bass and a looper.",
+   "license": "GPL-3.0",
+   "source": "https://github.com/Quixotic7/ChoralRootFM1/tree/v0.25.1",
+   "repo": "Quixotic7/ChoralRootFM1",
+   "release": "https://github.com/Quixotic7/ChoralRootFM1/releases/tag/v0.25.1",
+   "site": "https://github.com/Quixotic7/ChoralRootFM1",
+   "play": "https://quixotic7.github.io/ChoralRootFM1/emu/",
+   "beta": true,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/choralroot-0.25.1.fwsc",
+    "sha256": "1dcac28c65d88888fc690f887971d419cd63014131476bdb73aca4f746bf0902",
+    "size": 610313,
+    "product": "FM-1_920"
+   },
+   "nativeGated": "Casio CZ-1 tones and Prophet-5 programs"
+  },
+  {
+   "id": "coralflower",
+   "name": "CoralFlower",
+   "version": "0.2",
+   "author": "FicusFicusov",
+   "authorFull": "FicusFicusov",
+   "category": "Chords",
+   "categories": [
+    "Chords"
+   ],
+   "tag": "Chords, a flower grows",
+   "what": "Chords after the Orchid, with a UX made for the FM-1: one key turns every note into a chord with a bass, 27 scales, an arpeggiator, a looper, a plate reverb, and a pixel flower that grows as you play.",
+   "license": "GPL-3.0",
+   "source": "https://github.com/FicusFicusov/CoralFlower/tree/v0.2",
+   "repo": "FicusFicusov/CoralFlower",
+   "release": "https://github.com/FicusFicusov/CoralFlower/releases/tag/v0.2",
+   "site": "https://ficusficusov.github.io/CoralFlower/",
+   "play": "https://ficusficusov.github.io/CoralFlower/play/",
+   "beta": true,
+   "engines": [
+    "native",
+    "emu"
+   ],
+   "defaultEngine": "native",
+   "native": {
+    "core": "coralflower",
+    "version": "0.2",
+    "wasm": "../build/native/coralflower.wasm"
+   },
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/coralflower-0.2.fwsc",
+    "sha256": "8b2eb5131ea31738d96a62e45b3d9873d3aa0e2b27ca821df816e7cc6feee039",
+    "size": 610313,
+    "product": "FM-1_930"
+   }
+  },
+  {
+   "id": "cs1",
+   "name": "CS-1",
+   "version": "2026.10.17",
+   "author": "twochannels",
+   "authorFull": "twochannels",
+   "category": "Synth",
+   "categories": [
+    "Synth"
+   ],
+   "tag": "Yamaha CS-80 in spirit",
+   "what": "A Yamaha CS-80 in spirit: eight voices of two channels, high- and low-pass filters in series, ring modulator, the touch response and 22 tones from the owner's manual. A sound module played over MIDI.",
+   "license": null,
+   "source": "https://github.com/twochannels/CS-1/tree/main",
+   "repo": "twochannels/CS-1",
+   "release": "https://twochannels.github.io/CS-1/",
+   "site": "https://twochannels.github.io/CS-1/",
+   "play": "https://twochannels.github.io/CS-1/emu/",
+   "beta": false,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/cs1-2026.10.17+2ae21d67.fwsc",
+    "sha256": "2ae21d67e95bb5f47675c9200aa3edf311944adb2e3bb2ec7118685e8d069e2a",
+    "size": 610113,
+    "product": "FM-1_950"
+   }
+  },
+  {
+   "id": "ctl",
+   "name": "CTL-1",
+   "version": "0.9.2",
+   "author": "Charles Vestal",
+   "authorFull": "Charles Vestal",
+   "category": "Chords",
+   "categories": [
+    "Chords",
+    "Other"
+   ],
+   "tag": "MIDI controller",
+   "what": "A MIDI controller: notes in any scale with its chords on the black keys, four banks of knobs, an arpeggiator and Euclidean drums, with General MIDI sounds of its own when nothing is connected.",
+   "license": null,
+   "source": "https://github.com/charlesvestal/fm1-ctl/tree/v0.9.2",
+   "repo": "charlesvestal/fm1-ctl",
+   "release": "https://github.com/charlesvestal/fm1-ctl/releases/tag/v0.9.2",
+   "site": "https://charlesvestal.github.io/fm1-ctl/",
+   "play": "https://charlesvestal.github.io/fm1-ctl/emu/",
+   "beta": true,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/ctl-0.9.2.fwsc",
+    "sha256": "6898c0497f83340152586f9b7b18c2a654dd330ef180ee8f230fcc17b8fca3b3",
+    "size": 609661,
+    "product": "FM-1_6000902"
+   }
+  },
+  {
+   "id": "dinghy",
+   "name": "Dinghy",
+   "version": "0.3",
+   "author": "zvenson",
+   "authorFull": "zvenson",
+   "category": "Other",
+   "categories": [
+    "Other"
+   ],
+   "tag": "Your base for your own FM-1…",
+   "what": "Your base for your own FM-1 firmware: everything under it done and documented (updates, USB rescue, USB-MIDI, USB audio, keys, screen, settings), a 4-voice sine on top. Fork it, replace the sine.",
+   "license": null,
+   "source": "https://github.com/zvenson/dinghy/tree/v0.3",
+   "repo": "zvenson/dinghy",
+   "release": "https://github.com/zvenson/dinghy/releases/tag/v0.3",
+   "site": "https://github.com/zvenson/dinghy",
+   "play": null,
+   "beta": true,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/dinghy-0.3.fwsc",
+    "sha256": "4e907044a7bda340317fc910d33a0e006eb4d587e08d8980de74d7edcca3ca8e",
+    "size": 610110,
+    "product": "FM-1_993"
+   }
+  },
+  {
+   "id": "duell",
+   "name": "DUELL",
+   "version": "0.2.20-beta",
+   "author": "OSCILL/R",
+   "authorFull": "OSCILL/R",
+   "category": "Synth",
+   "categories": [
+    "Synth"
+   ],
+   "tag": "Bitimbral synth",
+   "what": "A multimorphing bitimbral synthesizer: two complete parts, three ways to play them together, and a morph that glides between two versions of every sound.",
+   "license": "GPL-3.0 + naming terms",
+   "source": "https://github.com/oscillr/DUELL/tree/v0.2.20-beta",
+   "repo": "oscillr/DUELL",
+   "release": "https://github.com/oscillr/DUELL/releases/tag/v0.2.20-beta",
+   "site": "https://github.com/oscillr/DUELL",
+   "play": "https://oscillr.github.io/DUELL/emu/",
+   "beta": true,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/duell-0.2.20-beta.fwsc",
+    "sha256": "bdb12cf2b476124b7b82f2cacdf6ed6a047f33a550eb74a0434183dd527f4478",
+    "size": 610086,
+    "product": "FM-1_901"
+   },
+   "nativeGated": "naming terms for unofficial builds"
+  },
+  {
+   "id": "etch",
+   "name": "ETCH",
+   "version": "1.38",
+   "author": "SikkenWorks",
+   "authorFull": "SikkenWorks",
+   "category": "Synth",
+   "categories": [
+    "Synth"
+   ],
+   "tag": "Draw the sound",
+   "what": "Draw the sound: a waveform drawn and changed with the knobs, saved, morphed into another one, and a third waveform modulating the result.",
+   "license": null,
+   "source": "https://github.com/SikkenWorks/ETCH/tree/ETCH-Update",
+   "repo": "SikkenWorks/ETCH",
+   "release": "https://github.com/SikkenWorks/ETCH/releases/tag/ETCH-Update",
+   "site": "https://etch.sikkenworks.com",
+   "play": null,
+   "beta": false,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/etch-1.38.fwsc",
+    "sha256": "095ef70ccf50a2677d794a0a9d939742c574cf42713c733c9ad7553c1fdbba8a",
+    "size": 610086,
+    "product": "FM-1_1038"
+   }
+  },
+  {
+   "id": "fart",
+   "name": "Fart Machine One",
+   "version": "1.0.0",
+   "author": "A. C. Wilson",
+   "authorFull": "adamcharleswilsonmusic-code",
+   "category": "Other",
+   "categories": [
+    "Other"
+   ],
+   "tag": "Sampler toy",
+   "what": "A questionable musical instrument: eleven artisanal farts, reverb, delay and a sixteen-step sequencer.",
+   "license": "GPL-3.0 (code)",
+   "source": "https://github.com/adamcharleswilsonmusic-code/Fart-Machine-One/tree/V1.0.0",
+   "repo": "adamcharleswilsonmusic-code/Fart-Machine-One",
+   "release": "https://github.com/adamcharleswilsonmusic-code/Fart-Machine-One/releases/tag/V1.0.0",
+   "site": "https://github.com/adamcharleswilsonmusic-code/Fart-Machine-One",
+   "play": null,
+   "beta": false,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/fart-1.0.0.fwsc",
+    "sha256": "bccc89c0a8abcd454c63e5cbedeb7a73a2fa0147a59ee8040105bec03f017c13",
+    "size": 609657,
+    "product": "FM-1_701"
+   },
+   "nativeGated": "bundled recordings, redistribution unverified"
+  },
+  {
+   "id": "felucca",
+   "name": "Felucca",
+   "version": "1.6.1",
+   "author": "Hügelton",
+   "authorFull": "Leo Kuroshita (Hügelton Instruments)",
+   "category": "Synth",
+   "categories": [
+    "Synth",
+    "Groovebox",
+    "Other"
+   ],
+   "tag": "Multi-engine synth",
+   "what": "The custom firmware the others build on: the FM-1's own synth engines, a sequencer, effects and a better panel, with an editor in the browser.",
+   "license": "GPL-3.0 (engines MIT)",
+   "source": "https://github.com/hugelton/Felucca/tree/v1.6.1",
+   "repo": "hugelton/Felucca",
+   "release": "https://github.com/hugelton/Felucca/releases/tag/v1.6.1",
+   "site": "https://github.com/hugelton/Felucca",
+   "play": "https://hugelton.github.io/Felucca/webapp/try/",
+   "beta": false,
+   "engines": [
+    "native",
+    "emu"
+   ],
+   "defaultEngine": "native",
+   "native": {
+    "core": "felucca",
+    "version": "1.6.1",
+    "wasm": "../build/native/felucca.wasm"
+   },
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/felucca-1.6.1.fwsc",
+    "sha256": "dff3a38f7e5b9833e15aba322558c9485e9e422e3ff813c616c91b3584a2d909",
+    "size": 610090,
+    "product": "FM-1_916"
+   }
+  },
+  {
+   "id": "salt",
+   "name": "Felucca [Salt]",
+   "version": "0.9-salt14",
+   "author": "Chance Roth",
+   "authorFull": "Chance Roth (ChanceTheMaker)",
+   "category": "Synth",
+   "categories": [
+    "Synth",
+    "Groovebox"
+   ],
+   "tag": "Felucca with a…",
+   "what": "Felucca with a hardware-inspired Studio in the browser (play it there without an FM-1): many engines, presets, skins. A beta.",
+   "license": null,
+   "source": "https://github.com/ChanceTheMaker/Felucca/tree/v0.9-salt14",
+   "repo": "ChanceTheMaker/Felucca",
+   "release": "https://github.com/ChanceTheMaker/Felucca/releases/tag/v0.9-salt14",
+   "site": "https://github.com/ChanceTheMaker/Felucca",
+   "play": null,
+   "beta": true,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/salt-0.9-salt14.fwsc",
+    "sha256": "efb516a7131d12eb5c008ff9af5a380d07e82eb1040bd03990f28d1233417e28",
+    "size": 609662,
+    "product": "FM-1_909"
+   }
+  },
+  {
+   "id": "felucca8",
+   "name": "Felucca 8 Patterns",
+   "version": "1.5.1_and_sequences",
+   "author": "echoe",
+   "authorFull": "echoe",
+   "category": "Synth",
+   "categories": [
+    "Synth",
+    "Groovebox"
+   ],
+   "tag": "Felucca 1.5.1 with eight…",
+   "what": "Felucca 1.5.1 with eight sequences a track to switch between and chain one after another; the user samples are left out to make room.",
+   "license": null,
+   "source": "https://github.com/echoe/Felucca_8_patterns/tree/1.5.1_and_sequences",
+   "repo": "echoe/Felucca_8_patterns",
+   "release": "https://github.com/echoe/Felucca_8_patterns/releases/tag/1.5.1_and_sequences",
+   "site": "https://github.com/echoe/Felucca_8_patterns",
+   "play": null,
+   "beta": false,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/felucca8-1.5.1_and_sequences.fwsc",
+    "sha256": "c5a23348d71f74e043957ba8315d2f8e19645463cc11224c64f88a588c5c9955",
+    "size": 610086,
+    "product": "FM-1_900"
+   }
+  },
+  {
+   "id": "fimba",
+   "name": "FiMba-1",
+   "version": "0.6.1",
+   "author": "J. Sowers",
+   "authorFull": "jadamsowers",
+   "category": "Synth",
+   "categories": [
+    "Synth",
+    "Chords"
+   ],
+   "tag": "Kalimba",
+   "what": "A physically modelled kalimba: tines laid out like the real one, thumb-roll chords, mbira patterns, a sound hole to cover, grains, tape and a plate reverb. Play it in the browser first.",
+   "license": "GPL-3.0",
+   "source": "https://github.com/jadamsowers/fm1-fimba/tree/v0.6.1",
+   "repo": "jadamsowers/fm1-fimba",
+   "release": "https://github.com/jadamsowers/fm1-fimba/releases/tag/v0.6.1",
+   "site": "https://jadamsowers.github.io/fm1-fimba/",
+   "play": "https://jadamsowers.github.io/fm1-fimba/",
+   "beta": true,
+   "engines": [
+    "native",
+    "emu"
+   ],
+   "defaultEngine": "native",
+   "native": {
+    "core": "fimba",
+    "version": "0.6.1",
+    "wasm": "../build/native/fimba.wasm"
+   },
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/fimba-0.6.1.fwsc",
+    "sha256": "2ce744411ab6142a27e5c6238b8eb2f3875ccaa1e6fc47726211bf09f1393fa7",
+    "size": 609657,
+    "product": "FM-1_8000601"
+   }
+  },
+  {
+   "id": "fm106",
+   "name": "FM-106",
+   "version": "Beta4",
+   "author": "PatttF",
+   "authorFull": "PatttF",
+   "category": "Synth",
+   "categories": [
+    "Synth"
+   ],
+   "tag": "Juno-106 style poly",
+   "what": "The Juno-106 emulation of KR-106 ported to the FM-1: six voices on both cores, the BBD stereo chorus, 128 factory presets and a 1980s Roland look.",
+   "license": "GPL-3.0",
+   "source": "https://github.com/PatttF/fm-106/tree/Beta4",
+   "repo": "PatttF/fm-106",
+   "release": "https://github.com/PatttF/fm-106/releases/tag/Beta4",
+   "site": "https://github.com/PatttF/fm-106",
+   "play": null,
+   "beta": true,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/fm106-Beta4.fwsc",
+    "sha256": "2339bd6438ed23fa95bb1f60b1ff888c9fe2861e28608ce5de904aad1e288baf",
+    "size": 610265,
+    "product": "FM-1_907"
+   },
+   "nativeGated": "Juno-106 patch data"
+  },
+  {
+   "id": "fm1quest",
+   "name": "FM1 Quest",
+   "version": "38",
+   "author": "Hericdk",
+   "authorFull": "Hericdk",
+   "category": "Groovebox",
+   "categories": [
+    "Groovebox",
+    "Other"
+   ],
+   "tag": "Pixel-art RPG while you make…",
+   "what": "A pixel-art RPG while you make music, built on SLOOP: four heroes, one a track, walk through a village and fight monsters and bosses as your loop plays, every SLOOP screen redrawn in the game's style.",
+   "license": null,
+   "source": "https://github.com/hericdk/fm1-quest/tree/quest-38",
+   "repo": "hericdk/fm1-quest",
+   "release": "https://github.com/hericdk/fm1-quest/releases/tag/quest-38",
+   "site": "https://fm1.quest/en/",
+   "play": "https://fm1.quest/sim/",
+   "beta": false,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/fm1quest-38.fwsc",
+    "sha256": "9c29c3e72e4380c478faf68f77e418c05f2a8ae2dc08bdce8d84fd6619130a64",
+    "size": 610019,
+    "product": "FM-1_900"
+   }
+  },
+  {
+   "id": "chord",
+   "name": "fm1-chord",
+   "version": "0.3",
+   "author": "math0ne",
+   "authorFull": "math0ne",
+   "category": "Chords",
+   "categories": [
+    "Chords"
+   ],
+   "tag": "Chord machine after the…",
+   "what": "A chord machine after the HiChord, with extras: chords in a key under the white keys, slash chords and inversions, sounds, envelopes, effects and a looper.",
+   "license": null,
+   "source": "https://github.com/math0ne/fm1-chord/tree/v0.3",
+   "repo": "math0ne/fm1-chord",
+   "release": "https://github.com/math0ne/fm1-chord/releases/tag/v0.3",
+   "site": "https://github.com/math0ne/fm1-chord",
+   "play": null,
+   "beta": true,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/chord-0.3.fwsc",
+    "sha256": "e2d06d0bfd4cd93bb0913494496a526775cb4661a3f2973818c4dd696807d145",
+    "size": 609851,
+    "product": "FM-1_903"
+   }
+  },
+  {
+   "id": "fomajam",
+   "name": "FOMAJAM",
+   "version": "0.1.2",
+   "author": "konsumer",
+   "authorFull": "konsumer",
+   "category": "Drums",
+   "categories": [
+    "Drums",
+    "Groovebox"
+   ],
+   "tag": "Drum machine in the classic…",
+   "what": "A drum machine in the classic step-grid style: voices after the 909, 808, 707, 606, DMX and more, a machine per voice, accents and patterns. Play it in the browser first.",
+   "license": null,
+   "source": "https://github.com/konsumer/fomajam/tree/v0.1.2",
+   "repo": "konsumer/fomajam",
+   "release": "https://github.com/konsumer/fomajam/releases/tag/v0.1.2",
+   "site": "https://konsumer.js.org/fomajam/",
+   "play": "https://konsumer.js.org/fomajam/",
+   "beta": true,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/fomajam-0.1.2.fwsc",
+    "sha256": "e3ad1a765b7b564f79eff5c7259fd789ecbca9d7ded57533d79f0b11a40144bc",
+    "size": 610110,
+    "product": "FM-1_961"
+   }
+  },
+  {
+   "id": "fomni",
+   "name": "FoMni",
+   "version": "0.4",
+   "author": "C. Vestal",
+   "authorFull": "Charles Vestal",
+   "category": "Chords",
+   "categories": [
+    "Chords"
+   ],
+   "tag": "Chord harp",
+   "what": "A chord harp inspired by the Omnichord: strum the white keys, pick chords on the black ones.",
+   "license": "GPL-3.0",
+   "source": "https://github.com/charlesvestal/fm1-fomni/tree/v0.4",
+   "repo": "charlesvestal/fm1-fomni",
+   "release": "https://github.com/charlesvestal/fm1-fomni/releases/tag/v0.4",
+   "site": "https://github.com/charlesvestal/fm1-fomni",
+   "play": "https://charlesvestal.github.io/fm1-fomni/emu/",
+   "beta": true,
+   "engines": [
+    "native",
+    "emu"
+   ],
+   "defaultEngine": "native",
+   "native": {
+    "core": "fomni",
+    "version": "0.4",
+    "wasm": "../build/native/fomni.wasm"
+   },
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/fomni-0.4.fwsc",
+    "sha256": "71fa8304b91bff89078bfd27e981ed28ca4f0d3c5f406e8fdb5a2ab240fbdbb5",
+    "size": 609661,
+    "product": "FM-1_8000400"
+   }
+  },
+  {
+   "id": "frodhes",
+   "name": "Frodhes",
+   "version": "0.9.2",
+   "author": "L. Mirabal",
+   "authorFull": "Leonardo Mirabal",
+   "category": "Synth",
+   "categories": [
+    "Synth"
+   ],
+   "tag": "Electric piano",
+   "what": "A Rhodes electric piano, physically modelled, no samples: four piano types, compressor, drive, tremolo or wah, phaser, chorus, delay and reverb, tap tempo, MIDI clock, scales and presets. Built on Dinghy.",
+   "license": "GPL-3.0",
+   "source": "https://github.com/leonardoMirabal/frodhes/tree/v0.9.2",
+   "repo": "leonardoMirabal/frodhes",
+   "release": "https://github.com/leonardoMirabal/frodhes/releases/tag/v0.9.2",
+   "site": "https://github.com/leonardoMirabal/frodhes",
+   "play": "https://leonardomirabal.github.io/frodhes/",
+   "beta": true,
+   "engines": [
+    "native",
+    "emu"
+   ],
+   "defaultEngine": "native",
+   "native": {
+    "core": "frodhes",
+    "version": "0.9.2",
+    "wasm": "../build/native/frodhes.wasm"
+   },
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/frodhes-0.9.2.fwsc",
+    "sha256": "f5facb8811bf7e15c4de1588f6dfd716681894c8064df814890b322c5f10499a",
+    "size": 610110,
+    "product": "FM-1_958"
+   }
+  },
+  {
+   "id": "fumi",
+   "name": "FuMi-1",
+   "version": "1.0.7",
+   "author": "cartesive",
+   "authorFull": "cartesive",
+   "category": "Synth",
+   "categories": [
+    "Synth",
+    "Chords"
+   ],
+   "tag": "Shigin conductor after the…",
+   "what": "A shigin conductor after the Suiko ST-50: its two rows of keys, the key set in honsū, equal or its own just tuning, a koto and twelve more sounds on a 6-op FM engine, ring time, vibrato, trill and a looper.",
+   "license": null,
+   "source": "https://github.com/cartesive/fumi-1/tree/fumi-1.0.7",
+   "repo": "cartesive/fumi-1",
+   "release": "https://github.com/cartesive/fumi-1/releases/tag/fumi-1.0.7",
+   "site": "https://github.com/cartesive/fumi-1",
+   "play": null,
+   "beta": false,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/fumi-1.0.7.fwsc",
+    "sha256": "817845fb4a6f6f232693bd4e643874fdad1ba36775acbbf53a1695421abdb57f",
+    "size": 609657,
+    "product": "FM-1_7010007"
+   }
+  },
+  {
+   "id": "ghoulbox",
+   "name": "GHOULBOX",
+   "version": "2.3.2",
+   "author": "J. Persinger",
+   "authorFull": "Jason Persinger",
+   "category": "Synth",
+   "categories": [
+    "Synth",
+    "Groovebox"
+   ],
+   "tag": "Dungeon synth",
+   "what": "Dungeon synth: a cathedral hall reverb, tape and crush, a hurdy-gurdy engine, choirs, organs and recorded psaltery and harp, an old-RPG screen with wall torches.",
+   "license": "GPL-3.0 (+ OFL fonts)",
+   "source": "https://github.com/jasonpersinger/ghoulbox-fm1-dungeon-synth/tree/ghoulbox-v2.3.2",
+   "repo": "jasonpersinger/ghoulbox-fm1-dungeon-synth",
+   "release": "https://github.com/jasonpersinger/ghoulbox-fm1-dungeon-synth/releases/tag/ghoulbox-v2.3.2",
+   "site": "https://jasonpersinger.me/ghoulbox-fm1-dungeon-synth/",
+   "play": null,
+   "beta": false,
+   "engines": [
+    "native",
+    "emu"
+   ],
+   "defaultEngine": "native",
+   "native": {
+    "core": "ghoulbox",
+    "version": "2.3.2",
+    "wasm": "../build/native/ghoulbox.wasm"
+   },
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/ghoulbox-2.3.2.fwsc",
+    "sha256": "069f6d783db1e05776a89006ecba07a0abfcd2cc7a0fe6fa64db096b5ecad4c8",
+    "size": 610086,
+    "product": "FM-1_900"
+   }
+  },
+  {
+   "id": "grimm",
+   "name": "GR!MM",
+   "version": "1.0",
+   "author": "GRiMMBIENT",
+   "authorFull": "GRiMMBIENT",
+   "category": "Synth",
+   "categories": [
+    "Synth",
+    "Groovebox"
+   ],
+   "tag": "Dark ambient",
+   "what": "Dark ambient, dungeon synth and deathdream: four tracks, seven sound sources from VA and 6-op FM to formant voices and physical models, tape, granular freeze and reverbs up to infinite, a 64-step sequencer and song mode. Built on Dinghy.",
+   "license": null,
+   "source": "https://github.com/GRiMMBIENT/grimm/tree/v1.0",
+   "repo": "GRiMMBIENT/grimm",
+   "release": "https://github.com/GRiMMBIENT/grimm/releases/tag/v1.0",
+   "site": "https://grimmbient.github.io/grimm/",
+   "play": "https://grimmbient.github.io/grimm/",
+   "beta": false,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/grimm-1.0.fwsc",
+    "sha256": "8f1f6c0bc6c0afb58a400f4ea99a7a03302b98b38e4905527aa1fa2c665f5f65",
+    "size": 610110,
+    "product": "FM-1_966"
+   }
+  },
+  {
+   "id": "hortator",
+   "name": "Hortator",
+   "version": "0.16.0",
+   "author": "DEADACTIVE",
+   "authorFull": "DEADACTIVE",
+   "category": "Drums",
+   "categories": [
+    "Drums"
+   ],
+   "tag": "Drum machine",
+   "what": "A drum machine: eight tracks of drums, a step sequencer, Grids, a pumping compressor, LFOs, resonators and live effects. Play it in the browser first.",
+   "license": null,
+   "source": "https://github.com/deadactive/hortator/tree/drum-v0.16.0",
+   "repo": "deadactive/hortator",
+   "release": "https://github.com/deadactive/hortator/releases/tag/drum-v0.16.0",
+   "site": "https://deadactive.github.io/hortator/",
+   "play": "https://deadactive.github.io/hortator/",
+   "beta": true,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/hortator-0.16.0.fwsc",
+    "sha256": "8f09f76083cf07ef319412dfd769d2dc8fa818c69fafc1b65a054046d18d3f7a",
+    "size": 609649,
+    "product": "FM-1_900"
+   }
+  },
+  {
+   "id": "hyp1",
+   "name": "HYP-1",
+   "version": "1.5.41",
+   "author": "RedtailWorks",
+   "authorFull": "RedtailWorks",
+   "category": "Groovebox",
+   "categories": [
+    "Groovebox"
+   ],
+   "tag": "Hypnotic techno and acid",
+   "what": "Hypnotic techno and acid: a breathing pad, a deep drone, a generative 303 line and grain over drums you sequence. Flip patterns on the bar, break it down, build it up. Forked from AMB-1.",
+   "license": null,
+   "source": "https://github.com/RustyPawz/fm1-HYP1/tree/main",
+   "repo": "RustyPawz/fm1-HYP1",
+   "release": "https://rustypawz.github.io/fm1-HYP1/",
+   "site": "https://rustypawz.github.io/fm1-HYP1/",
+   "play": "https://rustypawz.github.io/fm1-HYP1/emu/",
+   "beta": false,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/hyp1-1.5.41.fwsc",
+    "sha256": "050658fe0ebf591cedb7eb4c7c3d6b188e131c94543cc91455fa31f18efa046b",
+    "size": 609657,
+    "product": "FM-1_7010541"
+   }
+  },
+  {
+   "id": "jangada",
+   "name": "Jangada",
+   "version": "1.0.1",
+   "author": "zednaked",
+   "authorFull": "zednaked",
+   "category": "Synth",
+   "categories": [
+    "Synth",
+    "Groovebox"
+   ],
+   "tag": "Dark, industrial, Brazilian",
+   "what": "Dark, industrial, Brazilian: drones that breathe, ten engines (6-op FM, a superwave analog with a ladder filter), four tracks, a mod matrix, live effects.",
+   "license": null,
+   "source": "https://github.com/zednaked/jangada/tree/v1.0.1",
+   "repo": "zednaked/jangada",
+   "release": "https://github.com/zednaked/jangada/releases/tag/v1.0.1",
+   "site": "https://github.com/zednaked/jangada",
+   "play": "https://zednaked.github.io/jangada/webapp/studio/",
+   "beta": false,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/jangada-1.0.1.fwsc",
+    "sha256": "c382e334057bd107294940e456e5c1140754917ba152a1958af3aa1696333588",
+    "size": 610133,
+    "product": "FM-1_910"
+   }
+  },
+  {
+   "id": "jiant",
+   "name": "JIANT FM",
+   "version": "0.9.10-53173f3",
+   "author": "juanjiant",
+   "authorFull": "juanjiant-bit",
+   "category": "Groovebox",
+   "categories": [
+    "Groovebox",
+    "Synth"
+   ],
+   "tag": "Bio-synthetic OS",
+   "what": "A bio-synthetic groovebox: six tracks drawn as living beings in thermal colours, eight engines (FM6 with Dexed, analog, phase, voice…), mutating macros, song mode from SLOOP. Not yet tested much on a real FM-1.",
+   "license": "GPL-3.0 (+ CMUdict BSD-2)",
+   "source": "https://github.com/juanjiant-bit/JIANT/tree/53173f3",
+   "repo": "juanjiant-bit/JIANT",
+   "release": "https://juanjiant-bit.github.io/JIANT/",
+   "site": "https://juanjiant-bit.github.io/JIANT/",
+   "play": "https://juanjiant-bit.github.io/JIANT/",
+   "beta": true,
+   "engines": [
+    "native",
+    "emu"
+   ],
+   "defaultEngine": "native",
+   "native": {
+    "core": "jiant",
+    "version": "0.8.5",
+    "wasm": "../build/native/jiant.wasm"
+   },
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/jiant-0.9.10-53173f3.fwsc",
+    "sha256": "3eb6bd7dd3d4b81ffc7c05eafcc5521558792ae4c228230572e43795906c6393",
+    "size": 610113,
+    "product": "FM-1_900"
+   }
+  },
+  {
+   "id": "maku",
+   "name": "MAKU",
+   "version": "1.0",
+   "author": "okumurari",
+   "authorFull": "okumurari",
+   "category": "Groovebox",
+   "categories": [
+    "Groovebox",
+    "Synth"
+   ],
+   "tag": "Ambience machine for DJ…",
+   "what": "An ambience machine for DJ interludes: switch it on and a random world in key plays, four parts, buttons that are verbs, and the worlds you like breed new ones. Clock follow. Play it in the browser first.",
+   "license": null,
+   "source": "https://github.com/okumurari2/maku/tree/maku-v1.0",
+   "repo": "okumurari2/maku",
+   "release": "https://github.com/okumurari2/maku/releases/tag/maku-v1.0",
+   "site": "https://okumurari2.github.io/maku/",
+   "play": "https://okumurari2.github.io/maku/",
+   "beta": false,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/maku-1.0.fwsc",
+    "sha256": "b55d471fd179008511dfea032530750f0692d5be8eab263970f5c3c2162b53ea",
+    "size": 610086,
+    "product": "FM-1_910"
+   }
+  },
+  {
+   "id": "mc1",
+   "name": "MC-1",
+   "version": "1.0.2",
+   "author": "dspaudio",
+   "authorFull": "dspaudio",
+   "category": "Groovebox",
+   "categories": [
+    "Groovebox"
+   ],
+   "tag": "Original four-part groovebox…",
+   "what": "An original four-part groovebox with a 1990s workflow: three melodic parts and a 16-lane drum part, 128 melodic presets, eight drum kits, song arrangement, an arpeggiator and recorded knob moves.",
+   "license": null,
+   "source": "https://github.com/dspaudio/mc-1/tree/v1.0.2",
+   "repo": "dspaudio/mc-1",
+   "release": "https://github.com/dspaudio/mc-1/releases/tag/v1.0.2",
+   "site": "https://dspaudio.github.io/mc-1/",
+   "play": "https://dspaudio.github.io/mc-1/",
+   "beta": false,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/mc1-1.0.1.fwsc",
+    "sha256": "a09e763e6000f25dec63eb5feeb6251389dce33bf5abe2eb4746f1f1c7091ab5",
+    "size": 610089,
+    "product": "FM-1_900"
+   }
+  },
+  {
+   "id": "melodee",
+   "name": "Melodee",
+   "version": "1.4.3",
+   "author": "keremimo",
+   "authorFull": "keremimo",
+   "category": "Synth",
+   "categories": [
+    "Synth",
+    "Groovebox"
+   ],
+   "tag": "Multi-engine synth",
+   "what": "Total playing pleasure, far beyond Felucca: recording without quantize, microtonal scales, a Casio CZ-1, a bit-by-bit Dexed, scale modes made for an MPC Sample as its companion.",
+   "license": "GPL-3.0 (+ BSD-3 uPD933)",
+   "source": "https://github.com/keremimo/melodee/tree/v1.4.3",
+   "repo": "keremimo/melodee",
+   "release": "https://github.com/keremimo/melodee/releases/tag/v1.4.3",
+   "site": "https://github.com/keremimo/melodee",
+   "play": null,
+   "beta": false,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/melodee-1.4.3.fwsc",
+    "sha256": "efa44743be492278e25261f012b02425f373b8f31e9e396ef5e47b240a79be80",
+    "size": 610534,
+    "product": "FM-1_91043"
+   },
+   "nativeGated": "Casio CZ-1 tones and Prophet-5 programs"
+  },
+  {
+   "id": "min1",
+   "name": "MIN-1",
+   "version": "0.2.1",
+   "author": "Reytian",
+   "authorFull": "Reytian",
+   "category": "Chords",
+   "categories": [
+    "Chords",
+    "Other"
+   ],
+   "tag": "Tiny minimalist ensemble…",
+   "what": "A tiny minimalist ensemble after Philip Glass: it starts playing when you switch on, you join whenever you like. In EASY mode every white key is a chord that fits. Four models, twenty pieces.",
+   "license": null,
+   "source": "https://github.com/Reytian/fm1-min1/tree/v0.2.1",
+   "repo": "Reytian/fm1-min1",
+   "release": "https://github.com/Reytian/fm1-min1/releases/tag/v0.2.1",
+   "site": "https://reytian.github.io/fm1-min1/",
+   "play": "https://reytian.github.io/fm1-min1/emu/",
+   "beta": true,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/min1-0.2.1.fwsc",
+    "sha256": "82715d6ee18c8b12c287d614c131a4fb37f8606d811ae23301f1cd42bd4548c3",
+    "size": 609657,
+    "product": "FM-1_5000201"
+   }
+  },
+  {
+   "id": "mycelium",
+   "name": "MYCELIUM",
+   "version": "1.0-test",
+   "author": "Mandalars",
+   "authorFull": "Mandalars",
+   "category": "Groovebox",
+   "categories": [
+    "Groovebox"
+   ],
+   "tag": "Forest, Psytrance, Goa and…",
+   "what": "Forest, Psytrance, Goa and Hitech grooves, built on Felucca and SLOOP: original drums and icons and four factory songs. A test release: not yet fully tested on the device.",
+   "license": null,
+   "source": "https://github.com/megagott/mycelium-fm1/tree/v1.0-test",
+   "repo": "megagott/mycelium-fm1",
+   "release": "https://github.com/megagott/mycelium-fm1/releases/tag/v1.0-test",
+   "site": "https://www.mandalars.org/mandalars/fm1/",
+   "play": null,
+   "beta": true,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/mycelium-1.0-test.fwsc",
+    "sha256": "9aa2802a0ac07f412e36c079c8034820b7405e3477468d0b3cfc7fd3f93e0da8",
+    "size": 609999,
+    "product": "FM-1_900"
+   }
+  },
+  {
+   "id": "nmsfm",
+   "name": "No Man Sky FM",
+   "version": "0.4",
+   "author": "Hericdk",
+   "authorFull": "Hericdk",
+   "category": "Other",
+   "categories": [
+    "Other",
+    "Groovebox"
+   ],
+   "tag": "Space adventure",
+   "what": "A space adventure while you make music, built on SLOOP 2.7.1: fly between planets with two knobs, land, mine, fight sentinels and warp between stars, every SLOOP screen floating over the game.",
+   "license": "GPL-3.0 (+ credit request)",
+   "source": "https://github.com/hericdk/nomanskyFM/tree/main",
+   "repo": "hericdk/nomanskyFM",
+   "release": "https://hericdk.github.io/nomanskyFM/",
+   "site": "https://hericdk.github.io/nomanskyFM/",
+   "play": "https://hericdk.github.io/nomanskyFM/sim/",
+   "beta": true,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/nmsfm-0.4.fwsc",
+    "sha256": "192cc140c93d579033c9372d14555f024c85b35c5fd74f3169c40e2d274fdc71",
+    "size": 610035,
+    "product": "FM-1_900"
+   },
+   "nativeGated": "game art"
+  },
+  {
+   "id": "noizdemons",
+   "name": "NOIZ DEMONS",
+   "version": "666",
+   "author": "SPIKE the Percussionist",
+   "authorFull": "SPIKE the Percussionist",
+   "category": "Synth",
+   "categories": [
+    "Synth"
+   ],
+   "tag": "Felucca with randomization…",
+   "what": "Felucca with randomization as a ritual: every new sound summons one of 30 demons of the Ars Goetia, its sigil takes the screen and its rank decides how wild the sound gets.",
+   "license": null,
+   "source": "https://github.com/SPIKE-the-Percussionist/noiz_demons/tree/v666",
+   "repo": "SPIKE-the-Percussionist/noiz_demons",
+   "release": "https://github.com/SPIKE-the-Percussionist/noiz_demons/releases/tag/v666",
+   "site": "https://github.com/SPIKE-the-Percussionist/noiz_demons",
+   "play": null,
+   "beta": false,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/noizdemons-666.fwsc",
+    "sha256": "b1c14859d45bd8ea1d5ea6ca630083e2a647178f1a45b33865e92da7a01e9b8a",
+    "size": 610086,
+    "product": "FM-1_900"
+   }
+  },
+  {
+   "id": "obervave",
+   "name": "OberVave",
+   "version": "1.5.1",
+   "author": "zvenson",
+   "authorFull": "zvenson",
+   "category": "Synth",
+   "categories": [
+    "Synth"
+   ],
+   "tag": "8-voice poly synth",
+   "what": "An 8-voice analog-style poly in the spirit of the classic American polys of 1979-84: two oscillators a voice, sync, cross-mod, a 12 / 24 dB filter with a SEM-style morph, an arpeggiator with hold, chorus, ping-pong delay and a plate reverb. A two-track step sequencer played as sloopDX: live recording on top, chords, long notes, a click and a count-in.",
+   "license": "GPL-3.0",
+   "source": "https://github.com/zvenson/obervave/tree/v1.5.1",
+   "repo": "zvenson/obervave",
+   "release": "https://github.com/zvenson/obervave/releases/tag/v1.5.1",
+   "site": "https://github.com/zvenson/obervave",
+   "play": "https://thefirmwarehub.com/play/obervave/",
+   "beta": false,
+   "engines": [
+    "native",
+    "emu"
+   ],
+   "defaultEngine": "native",
+   "native": {
+    "core": "obervave",
+    "version": "1.5",
+    "wasm": "../build/native/obervave.wasm"
+   },
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/obervave-1.5.fwsc",
+    "sha256": "852c1dfea772a57f3e350e03e42d33a0063fe71df1db062ddb55127d62e90fdb",
+    "size": 610110,
+    "product": "FM-1_955"
+   }
+  },
+  {
+   "id": "orbit",
+   "name": "ORBIT",
+   "version": "0.7.1",
+   "author": "dspaudio",
+   "authorFull": "dspaudio",
+   "category": "Groovebox",
+   "categories": [
+    "Groovebox",
+    "Synth"
+   ],
+   "tag": "Live groovebox",
+   "what": "A four-track groovebox: three synths and a drum machine in a colour-coded Synth, Drum, Event Tape and Mixer workflow, loops turned into songs, user macros, screens after the OP-1. Based on SLOOP.",
+   "license": "GPL-3.0 + OP-1 material",
+   "source": "https://github.com/dspaudio/orbit/tree/v0.7.1",
+   "repo": "dspaudio/orbit",
+   "release": "https://github.com/dspaudio/orbit/releases/tag/v0.7.1",
+   "site": "https://github.com/dspaudio/orbit",
+   "play": null,
+   "beta": true,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/orbit-0.7.1.fwsc",
+    "sha256": "842a69569eaedd0e063e8caa13e7de5f6fb0412bed5b6fccbf11ed3dbdd8c68d",
+    "size": 610019,
+    "product": "FM-1_900"
+   },
+   "nativeGated": "OP-1 material and the Hügelton icon atlas"
+  },
+  {
+   "id": "pigeon",
+   "name": "PIGEON",
+   "version": "0.4",
+   "author": "The Shrimp Blimp",
+   "authorFull": "The Shrimp Blimp",
+   "category": "Drums",
+   "categories": [
+    "Drums",
+    "Groovebox"
+   ],
+   "tag": "Old-school hip-hop and house…",
+   "what": "An old-school hip-hop and house sampler after the SP-404 and the PO-33: two song samples and a 16-pad kit, up to 32 chops a song, a 64-step sequencer, patterns and a song arrangement. Built on Felucca.",
+   "license": null,
+   "source": "https://github.com/TheShrimpBlimp/pigeon/tree/main",
+   "repo": "TheShrimpBlimp/pigeon",
+   "release": "https://theshrimpblimp.com/pigeon/",
+   "site": "https://theshrimpblimp.com/pigeon/",
+   "play": "https://theshrimpblimp.com/pigeon/webapp/emu/",
+   "beta": true,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/pigeon-0.4.fwsc",
+    "sha256": "100b4f0e02a345af91e758423f0a12e3241a8d3422ff8cc0b3f85b5eb93066cd",
+    "size": 610995,
+    "product": "FM-1_900"
+   }
+  },
+  {
+   "id": "gammawave",
+   "name": "Pocket GammaWave",
+   "version": "1.0-GW",
+   "author": "ShadowTune",
+   "authorFull": "ShadowTune (GammaWave Audio)",
+   "category": "Synth",
+   "categories": [
+    "Synth",
+    "Groovebox"
+   ],
+   "tag": "Companion to the GammaWave…",
+   "what": "The companion to the GammaWave desktop synth: four industrial distortions, vowel and scream filters, an FFT spectrogram, a four-track tape deck screen and a song generator with 49 genres, trap and drill too.",
+   "license": null,
+   "source": "https://github.com/fvalente/GammaWave-FM1/tree/v1.0-GW",
+   "repo": "fvalente/GammaWave-FM1",
+   "release": "https://github.com/fvalente/GammaWave-FM1/releases/tag/v1.0-GW",
+   "site": "https://gammawaveaudio.com/",
+   "play": "https://fvalente.github.io/GammaWave-FM1/",
+   "beta": false,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/gammawave-1.0-GW.fwsc",
+    "sha256": "2de2d2e7d0d375ac67c01400ff4f692b11e67bd34fd95aa2963589c0a25370f4",
+    "size": 610113,
+    "product": "FM-1_981"
+   }
+  },
+  {
+   "id": "polly",
+   "name": "Polly",
+   "version": "0.5",
+   "author": "Charles Vestal",
+   "authorFull": "Charles Vestal",
+   "category": "Groovebox",
+   "categories": [
+    "Groovebox",
+    "Chords"
+   ],
+   "tag": "Pocket arranger after the QY70",
+   "what": "A pocket arranger after the QY70: pick a style, play three keys for a chord and a band of eight follows, songs from sections, General MIDI sounds from Sonivox EAS, and a General MIDI module over MIDI in.",
+   "license": null,
+   "source": "https://github.com/charlesvestal/fm1-polly/tree/v0.5",
+   "repo": "charlesvestal/fm1-polly",
+   "release": "https://github.com/charlesvestal/fm1-polly/releases/tag/v0.5",
+   "site": "https://charlesvestal.github.io/fm1-polly/",
+   "play": "https://charlesvestal.github.io/fm1-polly/emu/",
+   "beta": true,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/polly-0.5.fwsc",
+    "sha256": "2dea2914b4628f075cf3605fae7a75afc03a4b2ae2d7823d8ccf4bf16dd986c7",
+    "size": 610136,
+    "product": "FM-1_3000500"
+   }
+  },
+  {
+   "id": "purplemonkey",
+   "name": "PurpleMonkey",
+   "version": "0.11",
+   "author": "Quixotic7",
+   "authorFull": "Quixotic7",
+   "category": "Other",
+   "categories": [
+    "Other"
+   ],
+   "tag": "For a small child",
+   "what": "A first instrument for toddlers: random key bashing and knob turning are rewarded with dancing animated pets and little musical sequences. Press a key, any key.",
+   "license": "GPL-3.0",
+   "source": "https://github.com/Quixotic7/PurpleMonkeyFM1/tree/v0.11",
+   "repo": "Quixotic7/PurpleMonkeyFM1",
+   "release": "https://github.com/Quixotic7/PurpleMonkeyFM1/releases/tag/v0.11",
+   "site": "https://quixotic7.github.io/PurpleMonkeyFM1/",
+   "play": "https://quixotic7.github.io/PurpleMonkeyFM1/",
+   "beta": true,
+   "engines": [
+    "native",
+    "emu"
+   ],
+   "defaultEngine": "native",
+   "native": {
+    "core": "purplemonkey",
+    "version": "0.11",
+    "wasm": "../build/native/purplemonkey.wasm"
+   },
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/purplemonkey-0.11.fwsc",
+    "sha256": "edf961e7a85e8795747d1624b828a70bc8f6b0e065bdb019c106ee9a7d43b606",
+    "size": 609857,
+    "product": "FM-1_927"
+   }
+  },
+  {
+   "id": "rainbow",
+   "name": "Rainbow Mode",
+   "version": "1.1.5-rb",
+   "author": "J. Bartlett",
+   "authorFull": "joshbartlettband-web",
+   "category": "Other",
+   "categories": [
+    "Other"
+   ],
+   "tag": "Music toy",
+   "what": "A music toy for little children: 63 cartoon friends, every key in tune, chords, strumming, songs to follow and an ear game, notes on a staff, a volume cap for small ears.",
+   "license": "GPL-3.0",
+   "source": "https://github.com/joshbartlettband-web/felucca-rainbow/tree/main",
+   "repo": "joshbartlettband-web/felucca-rainbow",
+   "release": "https://joshbartlettband-web.github.io/felucca-rainbow/",
+   "site": "https://joshbartlettband-web.github.io/felucca-rainbow/",
+   "play": "https://joshbartlettband-web.github.io/felucca-rainbow/webapp/try/",
+   "beta": false,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/rainbow-1.1.5-rb+804c7785.fwsc",
+    "sha256": "804c77851c4125f12ce81a50e0f40a421c02401b1a3e72cc4240b231d2e30e83",
+    "size": 610086,
+    "product": "FM-1_911"
+   },
+   "nativeGated": "character look-alikes"
+  },
+  {
+   "id": "shineon",
+   "name": "Shine On",
+   "version": "1.2.1",
+   "author": "zvenson",
+   "authorFull": "zvenson",
+   "category": "Synth",
+   "categories": [
+    "Synth"
+   ],
+   "tag": "String ensemble in the…",
+   "what": "A string ensemble in the spirit of the late-70s machines, grown out of OberVave: divide-down keyers with 16', 8' and 4' footages, register filters, a three-tap BBD ensemble and a phaser, on two tracks with the sequencer.",
+   "license": null,
+   "source": "https://github.com/zvenson/shineon/tree/v1.2.1",
+   "repo": "zvenson/shineon",
+   "release": "https://github.com/zvenson/shineon/releases/tag/v1.2.1",
+   "site": "https://github.com/zvenson/shineon",
+   "play": "https://thefirmwarehub.com/play/shineon/",
+   "beta": false,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/shineon-1.2.fwsc",
+    "sha256": "07e55714999f5c220f4c815c2c3f2b8f8148ca9e31c77e68fc3611fe99f40733",
+    "size": 610110,
+    "product": "FM-1_962"
+   }
+  },
+  {
+   "id": "skiff",
+   "name": "Skiff",
+   "version": "1.3.2",
+   "author": "illuminus5",
+   "authorFull": "illuminus5",
+   "category": "Groovebox",
+   "categories": [
+    "Groovebox",
+    "Synth"
+   ],
+   "tag": "Six tracks of synths and…",
+   "what": "Six tracks of synths and drums with a groovebox's workflow: fourteen engines, a 64-step sequencer with chords, ratchets, trig conditions and locks, songs, PERFORM with scenes, six themes and a browser editor; FM6 sounds built from scratch on the unit. Built on Felucca 1.1.5; its sounds and projects load.",
+   "license": null,
+   "source": "https://github.com/illuminus5/skiff/tree/v1.3.2",
+   "repo": "illuminus5/skiff",
+   "release": "https://github.com/illuminus5/skiff/releases/tag/v1.3.2",
+   "site": "https://illuminus5.github.io/skiff/",
+   "play": null,
+   "beta": false,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/skiff-1.3.2.fwsc",
+    "sha256": "d77f60a500df772a136358fafba716e8be3d6311dd56430749d5ebb9f476584d",
+    "size": 611605,
+    "product": "FM-1_713"
+   }
+  },
+  {
+   "id": "sloop",
+   "name": "SLOOP",
+   "version": "2.7.1",
+   "author": "isod89",
+   "authorFull": "isod89",
+   "category": "Groovebox",
+   "categories": [
+    "Groovebox"
+   ],
+   "tag": "Live groovebox",
+   "what": "A live groovebox: tracks, layers, a step sequencer, song mode, punch-in effects and samples, played on the FM-1 in real time.",
+   "license": "GPL-3.0 + Hügelton icons (§7)",
+   "source": "https://github.com/isod89/sloop-fm1/tree/v2.7.1",
+   "repo": "isod89/sloop-fm1",
+   "release": "https://github.com/isod89/sloop-fm1/releases/tag/v2.7.1",
+   "site": "https://github.com/isod89/sloop-fm1",
+   "play": null,
+   "beta": false,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/sloop-2.7.1.fwsc",
+    "sha256": "7c9d269d15d1c1a48e0ebada7ffa2c2aa196c19d51056fd3f760d322322b335f",
+    "size": 610035,
+    "product": "FM-1_900"
+   },
+   "nativeGated": "the Hügelton icon atlas"
+  },
+  {
+   "id": "sloopbanks",
+   "name": "SLOOP DX7 Banks",
+   "version": "2.5-b28-test",
+   "author": "majnikool",
+   "authorFull": "majnikool",
+   "category": "Groovebox",
+   "categories": [
+    "Groovebox",
+    "Synth"
+   ],
+   "tag": "SLOOP 2.4 with up to twelve…",
+   "what": "SLOOP 2.4 with up to twelve DX7 voice banks, kept and named in the editor, presets by kind. Test builds: back up first.",
+   "license": null,
+   "source": "https://github.com/majnikool/sloop-fm1/tree/v2.5-b28-test",
+   "repo": "majnikool/sloop-fm1",
+   "release": "https://github.com/majnikool/sloop-fm1/releases/tag/v2.5-b28-test",
+   "site": "https://github.com/majnikool/sloop-fm1",
+   "play": null,
+   "beta": true,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/sloopbanks-2.5-b28-test.fwsc",
+    "sha256": "a54e9d815db8502565023b11977f83da2fa9bcbdf824ee64ec67d81d601e4cd3",
+    "size": 610019,
+    "product": "FM-1_925"
+   }
+  },
+  {
+   "id": "floyd",
+   "name": "SLOOP Floyd FM",
+   "version": "2.4",
+   "author": "René Bohne",
+   "authorFull": "René Bohne",
+   "category": "Synth",
+   "categories": [
+    "Synth"
+   ],
+   "tag": "SLOOP with a visual…",
+   "what": "SLOOP with a visual four-operator FM engine after Floyd Steinberg's 4-OP idea: an ADSR per operator, seven pages, a live oscilloscope that draws the envelopes as you play.",
+   "license": null,
+   "source": "https://github.com/renebohne/sloop-fm1/tree/v2.4",
+   "repo": "renebohne/sloop-fm1",
+   "release": "https://github.com/renebohne/sloop-fm1/releases/tag/v2.4",
+   "site": "https://github.com/renebohne/sloop-fm1",
+   "play": null,
+   "beta": false,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/floyd-2.4.fwsc",
+    "sha256": "d70301ad3e1f67a71792a2644829658a8570eceb0681ba2ac6eb41d771cc7560",
+    "size": 609802,
+    "product": "FM-1_924"
+   }
+  },
+  {
+   "id": "sloopdx",
+   "name": "sloopDX",
+   "version": "4.0",
+   "author": "zvenson",
+   "authorFull": "zvenson",
+   "category": "Drums",
+   "categories": [
+    "Drums",
+    "Groovebox",
+    "Synth"
+   ],
+   "tag": "FM drums and a DX7",
+   "what": "SLOOP's live workflow with Dexed's DX7 engine and 128 steps a track: six operators, 32 algorithms, your own .syx banks, every voice edited on the FM-1, FM drums you program.",
+   "license": "GPL-3.0",
+   "source": "https://github.com/zvenson/dxsloop",
+   "repo": "zvenson/dxsloop",
+   "release": "https://dx7.designburgapps.com",
+   "site": "https://dx7.designburgapps.com",
+   "play": null,
+   "beta": false,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/sloopdx-4.0.fwsc",
+    "sha256": "5d330286fa42583db5d2e4eceb246dbcbcff6c8e716398f4c98ed87ab56c6c79",
+    "size": 610130,
+    "product": "FM-1_940"
+   },
+   "nativeGated": "the Hügelton icon atlas"
+  },
+  {
+   "id": "tonitor",
+   "name": "Tonitor",
+   "version": "2026.10.18",
+   "author": "Nuno Zimas",
+   "authorFull": "Nuno Zimas",
+   "category": "Synth",
+   "categories": [
+    "Synth",
+    "Other"
+   ],
+   "tag": "Six tracks for live ambient…",
+   "what": "Six tracks for live ambient and experimental music: three synth engines, patches generated by algorithm, free-length loops with up to ten overdubs each, a granulator, filters and a lush reverb.",
+   "license": null,
+   "source": "https://github.com/nzimas/tonitor/tree/main",
+   "repo": "nzimas/tonitor",
+   "release": "https://nzimas.github.io/tonitor/",
+   "site": "https://nzimas.github.io/tonitor/",
+   "play": null,
+   "beta": false,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/tonitor-2026.10.18+f6b58312.fwsc",
+    "sha256": "f6b58312605c2d35a218b6c54055cd20a0ebb5673bf04b98c3846d4fb11fd163",
+    "size": 609992,
+    "product": "FM-1_700"
+   }
+  },
+  {
+   "id": "tribe",
+   "name": "TRIBE",
+   "version": "0.1-beta",
+   "author": "apiel",
+   "authorFull": "apiel",
+   "category": "Groovebox",
+   "categories": [
+    "Groovebox",
+    "Drums"
+   ],
+   "tag": "Ten-track groovebox where…",
+   "what": "A ten-track groovebox where any engine plays on any track: kicks, 909 and 808 voices, the 303, sixteen clips a track, scatter effects and four master knobs you assign. Built on X0X.",
+   "license": null,
+   "source": "https://github.com/apiel/fm1-tribe/tree/main",
+   "repo": "apiel/fm1-tribe",
+   "release": "https://apiel.github.io/fm1-tribe/",
+   "site": "https://apiel.github.io/fm1-tribe/",
+   "play": "https://apiel.github.io/fm1-tribe/#emulator",
+   "beta": true,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/tribe-0.1-beta.fwsc",
+    "sha256": "094c0438ebb91175271680a5d284531d7ca563af3666b22ea3428dc62b41e175",
+    "size": 609680,
+    "product": "FM-1_9000100"
+   }
+  },
+  {
+   "id": "tuna",
+   "name": "Tuna",
+   "version": "1.0-fbc56d3",
+   "author": "delirioux",
+   "authorFull": "delirioux",
+   "category": "Other",
+   "categories": [
+    "Other"
+   ],
+   "tag": "Generative music built on…",
+   "what": "Generative music built on Felucca: composer profiles write the music as it plays, you steer them. A work in progress.",
+   "license": null,
+   "source": "https://github.com/delirioux/tuna/tree/fbc56d3",
+   "repo": "delirioux/tuna",
+   "release": "https://delirioux.github.io/tuna/",
+   "site": "https://delirioux.github.io/tuna/",
+   "play": "https://delirioux.github.io/tuna/try/",
+   "beta": false,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/tuna-1.0-b77b159.fwsc",
+    "sha256": "d94c2fcf5257f771bb26895b93095c40d9533dc6244cf326034264f6245dee0a",
+    "size": 610090,
+    "product": "FM-1_900"
+   }
+  },
+  {
+   "id": "vector37",
+   "name": "Vector37",
+   "version": "0.3.1",
+   "author": "genkigenki",
+   "authorFull": "genkigenki",
+   "category": "Synth",
+   "categories": [
+    "Synth"
+   ],
+   "tag": "Orbiting overtone synth",
+   "what": "An orbiting overtone synth: four corners of two overtone generators each, a sun on a path and a moon around it decide how much of each you hear; the knobs shape the selected planet. Made for the SMK-37, here its FM-1 build. After the Beetlecrab Vector.",
+   "license": null,
+   "source": "https://github.com/genkigenki/Vector37",
+   "repo": "genkigenki/Vector37",
+   "release": null,
+   "site": "https://github.com/genkigenki/Vector37",
+   "play": "https://genkigenki.github.io/smk37/vector37-sim/",
+   "beta": true,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/vector37-0.3.1.fwsc",
+    "sha256": "b6404f716c303e76e31245cb09bd4ea247eea1cbe93ba650eae8cab571c2d7b3",
+    "size": 610019,
+    "product": "FM-1_700"
+   }
+  },
+  {
+   "id": "waveloop",
+   "name": "WaveLoop FM-1",
+   "version": "1.0.5.2-midi23",
+   "author": "ELI7VH",
+   "authorFull": "ELI7VH",
+   "category": "Synth",
+   "categories": [
+    "Synth",
+    "Groovebox"
+   ],
+   "tag": "Felucca played from an…",
+   "what": "Felucca played from an Arturia MiniLab 3: track faders, a DJ filter, momentary effect pads; 32 patches a bank, 12 evolving songs, revoiced 808 and CR78 kits.",
+   "license": null,
+   "source": "https://github.com/ELI7VH/Felucca/tree/1.0.5.2-midi23",
+   "repo": "ELI7VH/Felucca",
+   "release": "https://github.com/ELI7VH/Felucca/releases/tag/1.0.5.2-midi23",
+   "site": "https://eli7vh.github.io/Felucca/mod/",
+   "play": null,
+   "beta": false,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/waveloop-1.0.5.2-midi23.fwsc",
+    "sha256": "e9529deb7ff626ee64b08fe06a550e39cd2a99c3cc1697bfcb65828f030cf22d",
+    "size": 609849,
+    "product": "FM-1_910"
+   }
+  },
+  {
+   "id": "winampfm",
+   "name": "winampFM Synth",
+   "version": "0.12",
+   "author": "Hericdk",
+   "authorFull": "Hericdk",
+   "category": "Groovebox",
+   "categories": [
+    "Groovebox",
+    "Synth"
+   ],
+   "tag": "Winamp 2.x on the FM-1",
+   "what": "Winamp 2.x on the FM-1, built on SLOOP: your sounds as a playlist, four tracks you record as loops, effects on sliders and a visualizer made of lines. The real firmware plays in a 3D simulator first.",
+   "license": null,
+   "source": "https://github.com/hericdk/winampFM/tree/v0.12",
+   "repo": "hericdk/winampFM",
+   "release": "https://hericdk.github.io/winampFM/",
+   "site": "https://hericdk.github.io/winampFM/",
+   "play": "https://hericdk.github.io/winampFM/sim/",
+   "beta": true,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/winampfm-0.12.fwsc",
+    "sha256": "32a78b18132be64b83557886f9fc1c8c4419adb8932a2b8bc83bb5fb7e681b0b",
+    "size": 610019,
+    "product": "FM-1_900"
+   }
+  },
+  {
+   "id": "x0x",
+   "name": "X0X",
+   "version": "1.1.0",
+   "author": "C. Vestal",
+   "authorFull": "Charles Vestal",
+   "category": "Drums",
+   "categories": [
+    "Drums",
+    "Groovebox"
+   ],
+   "tag": "909, 808 and 303s",
+   "what": "A groovebox: 909 and 808 drums, two 303s with TB-3PO, a breakbeat generator and song mode.",
+   "license": "GPL-3.0",
+   "source": "https://github.com/charlesvestal/fm1-x0x/tree/v1.1.0",
+   "repo": "charlesvestal/fm1-x0x",
+   "release": "https://github.com/charlesvestal/fm1-x0x/releases/tag/v1.1.0",
+   "site": "https://github.com/charlesvestal/fm1-x0x",
+   "play": "https://charlesvestal.github.io/fm1-x0x/emu/",
+   "beta": false,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/x0x-1.1.0.fwsc",
+    "sha256": "a0c29deb930c65f1d40b5691b7d673f861418b438b7e65027cb9c671e6f44f5b",
+    "size": 609684,
+    "product": "FM-1_9010100"
+   },
+   "nativeGated": "cymbal samples of unconfirmed origin"
+  },
+  {
+   "id": "x0xrmx",
+   "name": "X0X-RMX",
+   "version": "1.1.0",
+   "author": "Mr-Roboto",
+   "authorFull": "Mr-Roboto (Oliver)",
+   "category": "Groovebox",
+   "categories": [
+    "Groovebox"
+   ],
+   "tag": "X0X remixed after The Orb",
+   "what": "X0X remixed after The Orb: banks and patterns reordered live per voice, Grids MAP and EUCLID drum generation, an extended TB-3PO with 22 scales and a morphing 303 waveform. Built on X0X.",
+   "license": null,
+   "source": "https://github.com/Mr-Roboto/fm1-x0x-rmx/tree/v1.1.0",
+   "repo": "Mr-Roboto/fm1-x0x-rmx",
+   "release": "https://github.com/Mr-Roboto/fm1-x0x-rmx/releases/tag/v1.1.0",
+   "site": "https://mr-roboto.github.io/fm1-x0x-rmx/",
+   "play": "https://mr-roboto.github.io/fm1-x0x-rmx/emu/",
+   "beta": false,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/x0xrmx-1.1.0.fwsc",
+    "sha256": "b343c135779c1de933d655236b14628103816036e170d65faed706aba620dcaa",
+    "size": 609680,
+    "product": "FM-1_987010100"
+   }
+  },
+  {
+   "id": "zp12",
+   "name": "zp12",
+   "version": "2.4.2",
+   "author": "zvenson",
+   "authorFull": "zvenson",
+   "category": "Drums",
+   "categories": [
+    "Drums"
+   ],
+   "tag": "Standalone 12-bit sampler…",
+   "what": "A standalone 12-bit sampler inspired by the E-mu SP-1200: sample in the browser (mic, line-in or a file), unplug, and the FM-1 plays on its own: nothing smoothed, loops and songs.",
+   "license": null,
+   "source": "https://github.com/zvenson/zp12",
+   "repo": "zvenson/zp12",
+   "release": "https://zp12.designburgapps.com",
+   "site": "https://zp12.designburgapps.com",
+   "play": "https://thefirmwarehub.com/play/zp12/",
+   "beta": false,
+   "engines": [
+    "emu"
+   ],
+   "defaultEngine": "emu",
+   "native": null,
+   "emu": {
+    "pkg": "https://thefirmwarehub.com/fw/zp12-2.4.2.fwsc",
+    "sha256": "dd05aec856d37b6a76355dc5dcf57b8103936dff9cfc2515576d8212090e299e",
+    "size": 610110,
+    "product": "FM-1_974"
+   }
+  }
+ ]
+}
