@@ -59,14 +59,22 @@ jobs:
         with:
           version: ${{ env.EMSDK_VERSION }}
 
+      - uses: actions/setup-python@v5          # Ubuntu's own python3 refuses pip installs (PEP 668)
+        if: steps.parts.outputs.native == '1'
+        with:
+          python-version: "3.12"
+
       - name: Native cores (W1), FM1VST's 10 un-gated cores in WebAssembly
         if: steps.parts.outputs.native == '1'
+        continue-on-error: true                  # a failed engine leaves the site up with its fallback
         env:
           FM1VST_DIR: ${{ github.workspace }}/web/vendor/FM1VST
         run: |
-          sudo apt-get update && sudo apt-get install -y cmake rsync libraqm0
-          python3 -m pip install --upgrade pillow fonttools
-          export CR_PYTHON="$(command -v python3)"
+          set -x
+          sudo apt-get update && sudo apt-get install -y cmake rsync libraqm0 libfribidi0
+          python -m pip install --upgrade pillow fonttools
+          python -c "from PIL import features; print('raqm', features.check('raqm'))"
+          export CR_PYTHON="$(command -v python)"
           bash web/engines/native/build.sh
           mkdir -p _site/engines/native
           cp web/engines/native/engine.js _site/engines/native/
@@ -74,6 +82,7 @@ jobs:
 
       - name: Emulated engine (W2), fm1-emu's web crate
         if: steps.parts.outputs.emu == '1'
+        continue-on-error: true
         run: |
           rustup target add wasm32-unknown-unknown
           mkdir -p _site/engines/emu
@@ -83,6 +92,7 @@ jobs:
 
       - name: Use my FM-1 (W4), libremotefm1 in WebAssembly
         if: steps.parts.outputs.remote == '1'
+        continue-on-error: true
         run: |
           bash web/remote/build.sh
           mkdir -p _site/remote _site/build/remote
