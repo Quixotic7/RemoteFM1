@@ -127,11 +127,28 @@ export async function createWorld(createFakeUnit, { start = 1000 } = {}) {
         world.permitted.add(u.usb);
         return u.usb;
     };
+    // the Web MIDI permission (navigator.permissions 'midi' with sysex): 'granted' (default), 'prompt' (a request
+    // would ask: here it is granted at once, as a click on Allow), 'denied' (a request throws). world.setMidiPerm()
+    // changes it and fires the PermissionStatus's 'change'.
+    world.midiPerm = 'granted';
+    world.permQueries = [];
+    const permStatus = new EventTarget();
+    Object.defineProperty(permStatus, 'state', { get: () => world.midiPerm });
+    world.setMidiPerm = st => { world.midiPerm = st; permStatus.dispatchEvent(new Event('change')); };
     world.navigator = {
         requestMIDIAccess: async opts => {
             world.midiRequests.push(opts);
+            if (world.midiPerm === 'denied') throw new DOMException('Permission denied.', 'NotAllowedError');
+            if (world.midiPerm === 'prompt') world.midiPerm = 'granted';
             if (!opts || !opts.sysex) world.sysexGranted = false;
             return access;
+        },
+        permissions: {
+            query: async d => {
+                world.permQueries.push(d);
+                if (!d || d.name !== 'midi') throw new TypeError('not a permission name');
+                return permStatus;
+            },
         },
         usb,
     };
@@ -218,6 +235,12 @@ export async function createWorld(createFakeUnit, { start = 1000 } = {}) {
         u.input.state = u.output.state = 'disconnected';
         for (const p of [u.input, u.output]) { const e = new Event('statechange'); e.port = p; access.dispatchEvent(e); }
         if (u.usb) { u.usb._unplug(); const e = new Event('disconnect'); e.device = u.usb; usb.dispatchEvent(e); }
+    };
+    // a unit plugged in after the page started: its ports appear (statechange), its USB device too ('connect' only
+    // when it was paired before: permitted)
+    world.plugIn = (u, { paired = false } = {}) => {
+        for (const p of [u.input, u.output]) { const e = new Event('statechange'); e.port = p; access.dispatchEvent(e); }
+        if (u.usb && paired) { world.permitted.add(u.usb); const e = new Event('connect'); e.device = u.usb; usb.dispatchEvent(e); }
     };
     world.unplugUsb = u => { u.usb._unplug(); const e = new Event('disconnect'); e.device = u.usb; usb.dispatchEvent(e); };
     world.replug = u => {

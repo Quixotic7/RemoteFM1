@@ -215,5 +215,113 @@ async function setup(opts = {}, build = () => {}, start = 3) {
     check(err && r2.status.state === 'error', `MIDI refused, no WebUSB: connect() rejects ("${err && err.message}")`);
 }
 
+// ------------------------------------------------------------------ 4. autoConnect(): no gesture, no prompt
+{
+    console.log('-- autoConnect: permission granted / prompt / denied, plug-in later, quiet HELLO, disconnect pauses');
+    const hellos = u => u.cmds.filter(c => c === 0x01).length;
+
+    // granted: connects by itself, MIDI only from what was granted, no chooser, nothing to other devices
+    {
+        const { world, remote, run, until } = await setup({ usb: 'ask' }, w => {
+            w.other = w.addOther('IAC Driver Bus 1');
+            w.updater = w.addUnit({ midiName: 'FM-1 Update' });
+            w.unit = w.addUnit({ midiName: 'FM-1', bulk: true });
+        });
+        const info = await remote.autoConnect();
+        check(info.midi === 'granted' && world.permQueries[0].name === 'midi' && world.permQueries[0].sysex === true,
+            'granted: permissions.query({name: "midi", sysex: true})');
+        const t = await until(() => remote.status.state === 'connected', 4000);
+        check(t >= 0 && remote.status.quiet === true && remote.status.transport === 'midi', `granted: connected by itself in ${t} ms (quiet, MIDI)`);
+        check(world.requestDeviceFilters.length === 0, 'granted: no requestDevice without a gesture (the unpaired USB unit stays on MIDI)');
+        check(world.other.bytes === 0 && world.updater.sent.length === 0, 'granted: no byte to the other device or the updater port');
+        await Promise.all([remote.disconnect(), run(400)]);
+        check(remote.status.state === 'idle', 'disconnect(): idle');
+        await run(5000);
+        check(remote.status.state === 'idle' && world.session(world.unit) === 0, 'after disconnect(): no auto-connect while the unit stays plugged in');
+        world.unplug(world.unit); await run(300);
+        world.replug(world.unit);
+        const t2 = await until(() => remote.status.state === 'connected', 5000);
+        check(t2 >= 0, `after disconnect(): plugged in again, connected by itself in ${t2} ms`);
+        await Promise.all([remote.disconnect(), run(400)]);
+    }
+
+    // prompt / denied: nothing asked, nothing sent
+    for (const perm of ['prompt', 'denied']) {
+        const { world, remote, run } = await setup({ usb: 'ask' }, w => {
+            w.midiPerm = perm;
+            w.unit = w.addUnit({ midiName: 'FM-1', bulk: true });
+            w.permitted.add(w.unit.usb);                           // even a paired USB unit: no MIDI, no auto session
+        });
+        const info = await remote.autoConnect();
+        await run(5000);
+        check(info.midi === perm && world.midiRequests.length === 0 && world.requestDeviceFilters.length === 0
+            && world.unit.sent.length === 0 && world.usbOut === 0 && remote.status.state === 'idle',
+            `${perm}: no requestMIDIAccess, no requestDevice, nothing sent, idle (${world.unit.sent.length} msgs)`);
+        let err = null;
+        try { await remote.connect(); } catch (e) { err = e; }      // then a click
+        if (perm === 'prompt') {
+            const t = await (async () => { for (let i = 0; i < 300; i++) { await run(10); if (remote.status.state === 'connected') return i * 10; } return -1; })();
+            check(world.midiRequests.length === 1 && world.requestDeviceFilters.length === 0 && t >= 0 && remote.status.transport === 'bulk'
+                && remote.status.quiet === false, `prompt: a click asks for MIDI and connects (bulk: the paired unit) in ${t} ms`);
+        } else {
+            // denied MIDI, but a paired USB unit: a click still connects (bulk), as before
+            check(world.midiRequests.length === 1 && !err, 'denied: a click asks once more (refused); the paired USB unit is used');
+        }
+        await Promise.all([remote.disconnect(), run(400)]);
+    }
+
+    // a permission granted later (the installer, in another tab) starts it
+    {
+        const { world, remote, run, until } = await setup({ usb: 'off' }, w => { w.midiPerm = 'prompt'; w.unit = w.addUnit({ midiName: 'FM-1' }); });
+        await remote.autoConnect();
+        await run(500);
+        world.setMidiPerm('granted');
+        const t = await until(() => remote.status.state === 'connected', 4000);
+        check(t >= 0 && t < 1000 && world.midiRequests.length === 1, `permission granted later: connected by itself in ${t} ms`);
+        await Promise.all([remote.disconnect(), run(400)]);
+    }
+
+    // plug-in later; quiet HELLO only to FM-1 ports, at most every 2 s; unplugged: the quiet session ends
+    {
+        const { world, remote, run, until } = await setup({ usb: 'ask' }, w => { w.other = w.addOther('Arturia KeyStep 37'); });
+        await remote.autoConnect();
+        await run(3000);
+        check(remote.status.state === 'idle' && world.midiRequests.length === 1 && world.other.bytes === 0,
+            'granted, no FM-1 plugged in: no session, nothing sent');
+        const v15 = world.addUnit({ midiName: 'FM-1', name: 'FM-1_015', proto: 1 });   // the stock firmware: answers, not RemoteFM1
+        world.plugIn(v15);
+        await run(1000);
+        check(remote.status.state === 'searching' && remote.status.quiet && hellos(v15) === 1, 'a stock FM-1 plugged in: one HELLO, a quiet search');
+        await run(10000);
+        const n = hellos(v15);
+        check(n >= 5 && n <= 7 && v15.cmds.every(c => c === 0x01), `quiet: ${n} HELLOs in 11 s to the stock FM-1 (at most every 2 s), nothing else`);
+        world.unplug(v15);
+        await run(3000);
+        check(remote.status.state === 'idle', 'its ports gone: the quiet session ends (idle)');
+        const unit = world.addUnit({ midiName: 'ChoralRoot FM-1', bulk: true });
+        world.plugIn(unit, { paired: true });
+        const t = await until(() => remote.status.state === 'connected', 5000);
+        check(t >= 0 && remote.status.transport === 'bulk', `a RemoteFM1 unit plugged in later (paired before): connected over bulk in ${t} ms`);
+        check(world.other.bytes === 0 && world.requestDeviceFilters.length === 0, 'still nothing to the KeyStep, no requestDevice');
+        // a click while connected quietly: a normal session (the chooser is not needed: a USB link is there)
+        await remote.connect();
+        check(remote.status.quiet === false && world.requestDeviceFilters.length === 0, 'a click on the quiet session: normal, no chooser (USB already linked)');
+        world.unplug(unit); await run(3000);
+        check(remote.status.state === 'searching', 'a normal session keeps looking after an unplug (as before)');
+        await Promise.all([remote.disconnect(), run(400)]);
+    }
+
+    // a click on a quiet search (nothing answering): the chooser, now that there is a gesture
+    {
+        const { world, remote, run, until } = await setup({ usb: 'ask' }, w => { w.unit = w.addUnit({ midiName: 'FM-1', silent: true, bulk: true }); });
+        await remote.autoConnect();
+        await until(() => remote.status.state === 'searching', 2000);
+        check(remote.status.quiet && world.requestDeviceFilters.length === 0, 'a silent FM-1: a quiet search, no chooser');
+        await remote.connect();
+        check(!remote.status.quiet && world.requestDeviceFilters.length === 1, 'a click on it: no longer quiet, the WebUSB chooser opened once');
+        await Promise.all([remote.disconnect(), run(400)]);
+    }
+}
+
 console.log(`\n${passes} passed, ${fails} failed`);
 process.exit(fails ? 1 : 0);

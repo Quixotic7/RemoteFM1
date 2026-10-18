@@ -54,14 +54,35 @@ export function candidatePairs(access, match = isCandidatePortName) {
 
 function usbMatches(d) { return d.vendorId === USB_FILTER.vendorId && d.productId === USB_FILTER.productId; }
 
+// HELLO (cmd 0x01) as it goes out: SysEx F0 7D 52 46 01 .., bulk 'R' 'F' 01 00 ..
+function isHello(kind, b) {
+    return kind === 'midi' ? b.length > 4 && b[0] === 0xf0 && b[1] === 0x7d && b[2] === 0x52 && b[3] === 0x46 && b[4] === 0x01
+        : b.length > 2 && b[0] === 0x52 && b[1] === 0x46 && b[2] === 0x01;
+}
+
+// The page's Web MIDI permission (with SysEx), without asking: 'granted' | 'prompt' | 'denied' | 'unknown' (no
+// Permissions API for MIDI) | 'unsupported' (no Web MIDI).
+export async function midiPermission(nav = globalThis.navigator) {
+    const st = await midiPermissionStatus(nav);
+    return typeof st === 'string' ? st : st.state;
+}
+async function midiPermissionStatus(nav) {
+    if (!nav || !nav.requestMIDIAccess) return 'unsupported';
+    if (!nav.permissions || !nav.permissions.query) return 'unknown';
+    try { return await nav.permissions.query({ name: 'midi', sysex: true }); } catch (e) { return 'unknown'; }
+}
+
 export class RemoteFM1 {
     // opts: { fps: 20, transport: 'auto' | 'midi' | 'bulk', usb: 'ask' | 'known' | 'off', keepaliveMs: 3000,
     //         budget: 0 (bytes per frame, 0 = the transport's), moduleUrl, portMatch(name) -> bool,
+    //         quietHelloMs: 2000 (a quiet session's HELLO, per port, at most this often),
+    //         autoMinMs: 2000, autoDebounceMs: 250 (autoConnect()'s looks after a plug-in),
     //         navigator (tests), now() -> ms (tests), timers: true (false: the caller calls tick()) }
     constructor(opts = {}) {
         this.opts = {
             fps: 20, transport: 'auto', usb: 'ask', keepaliveMs: 3000, budget: 0, hostName: 'web', timers: true,
-            usbReads: 4, moduleUrl: new URL('../build/remote/remotefm1.mjs', import.meta.url).href, ...opts,
+            usbReads: 4, moduleUrl: new URL('../build/remote/remotefm1.mjs', import.meta.url).href,
+            quietHelloMs: 2000, autoMinMs: 2000, autoDebounceMs: 250, ...opts,
         };
         this._nav = opts.navigator || globalThis.navigator;
         this._now = opts.now || (() => Math.floor(performance.now()));
@@ -73,7 +94,13 @@ export class RemoteFM1 {
         this._access = null;
         this._timer = null;
         this._running = false;
-        this._status = { state: 'idle', transport: null, fps: 0, why: '', unit: null, ports: null };
+        this._status = { state: 'idle', transport: null, fps: 0, why: '', unit: null, ports: null, quiet: false };
+        this._quiet = false;                 // a session started without a gesture (autoConnect): no prompt, HELLO slower
+        this._auto = null;                   // autoConnect()'s state
+        this._autoAccess = null;             // its MIDIAccess (granted before: no prompt)
+        this._autoKnown = new Set();         // candidate port ids seen connected (a new one is a plug-in)
+        this._autoPaused = false;            // disconnect() by the user: no auto-connect until the next plug-in
+        this._autoDue = null; this._autoLast = -1e9; this._autoTimer = null; this._autoBusy = false;
         this._frame = null;                  // the last frame given (applied when the module is up)
         this._frameSeq = undefined;
         this._leds = null;
@@ -92,6 +119,20 @@ export class RemoteFM1 {
         this._onUsbConnect = e => {
             if (this._running && usbMatches(e.device) && this._wantUsb()) this._openUsb(e.device);
         };
+        this._onAutoMidi = e => {
+            const p = e && e.port;
+            if (!p || !this._match(p.name)) return;
+            if (!connected(p)) { this._autoKnown.delete(p.id); return; }
+            if (this._autoKnown.has(p.id)) return;          // (our own open() also fires statechange)
+            this._autoKnown.add(p.id);
+            this._autoPaused = false;
+            this._autoKick();
+        };
+        this._onAutoUsb = e => {
+            if (!e || !e.device || !usbMatches(e.device)) return;
+            this._autoPaused = false;
+            this._autoKick();
+        };
         this._onMidiState = () => {
             // a port gone: its link goes at once (the session then looks again); new ports wait for the rescan
             if (!this._access) return;
@@ -109,22 +150,34 @@ export class RemoteFM1 {
 
     // Start looking for the unit and keep a session with it (reconnecting by itself) until stop() / disconnect().
     // Call it from a click: in Chrome it may open the WebUSB chooser (opts.usb 'ask', when no FM-1 is paired yet).
-    async connect() {
+    // { gesture: false }: never prompt (no WebUSB chooser; Web MIDI only if its permission is already 'granted'), and
+    // a quiet session (HELLO at most every opts.quietHelloMs per port); resolves false, status idle, when nothing is
+    // permitted. A click's connect() on a quiet session makes it a normal one (and may still open the chooser).
+    // Resolves true once the search runs.
+    async connect({ gesture = true } = {}) {
+        if (gesture) this._autoPaused = false;
         if (this._running) {
+            if (gesture && this._quiet) { this._quiet = false; this._setStatus({ quiet: false }); }
+            if (gesture) await this._widen();
             if (this._M && this._M._rw_state() === S_STOPPED) this._M._rw_restart(this._t());
-            return;
+            return true;
         }
         this._running = true;
+        this._quiet = !gesture;
         // the chooser first, while the click's user activation is fresh
-        const usbPick = this._wantUsb() ? this._pickUsb(this.opts.usb === 'ask') : Promise.resolve([]);
-        this._setStatus({ state: 'searching', why: 'connect' });
+        const usbPick = this._wantUsb() ? this._pickUsb(gesture && this.opts.usb === 'ask') : Promise.resolve([]);
+        this._setStatus({ state: 'searching', why: 'connect', quiet: this._quiet });
         try {
             const M = await this._loadModule();
-            const midi = this._nav && this._nav.requestMIDIAccess
-                ? this._nav.requestMIDIAccess({ sysex: true }).catch(e => { this._log(`Web MIDI: ${e.message || e}`); return null; })
-                : Promise.resolve(null);
-            const [access, devs] = await Promise.all([midi, usbPick.catch(() => [])]);
-            if (!this._running) return;
+            const [access, devs] = await Promise.all([this._midiAccess(gesture), usbPick.catch(() => [])]);
+            if (!this._running) return false;
+            if (!access && !gesture) {
+                // quiet: the panel's events come over Web MIDI only, so a paired USB unit alone isn't enough
+                this._running = false; this._quiet = false;
+                for (const d of devs) { try { if (d.opened) await d.close(); } catch (e) { /* */ } }
+                this._setStatus({ state: 'idle', why: 'Web MIDI not permitted yet', quiet: false });
+                return false;
+            }
             if (!access && !devs.length) throw new Error(this._nav && this._nav.requestMIDIAccess
                 ? 'MIDI access (with SysEx) was refused' : 'this browser has no Web MIDI');
             this._access = access;
@@ -153,11 +206,41 @@ export class RemoteFM1 {
             if (!this._links.size) this._log('no candidate port yet: is the FM-1 plugged in and running RemoteFM1?');
             this.tick();
             if (this.opts.timers) this._timer = setInterval(() => this.tick(), 4);
+            return true;
         } catch (e) {
-            this._running = false;
-            this._setStatus({ state: 'error', why: String(e.message || e) });
+            this._running = false; this._quiet = false;
+            this._setStatus({ state: 'error', why: String(e.message || e), quiet: false });
             throw e;
         }
+    }
+
+    // Connect by itself wherever the browser already allows it, never prompting, and again whenever the unit is
+    // plugged in later: Web MIDI only when its permission is 'granted' (e.g. by the installer on this origin), WebUSB
+    // only for an FM-1 paired before. A quiet session starts only while an FM-1-named port is there, sends HELLO to
+    // those ports only and at most every opts.quietHelloMs, and ends when the ports go. After disconnect(), it waits
+    // for the next plug-in. Resolves { midi: permission, usb: paired FM-1s }.
+    async autoConnect() {
+        if (this._auto) return this._auto.info;
+        const auto = this._auto = { info: { midi: 'unsupported', usb: 0 } };
+        const st = await midiPermissionStatus(this._nav);
+        auto.info.midi = typeof st === 'string' ? st : st.state;
+        if (typeof st !== 'string' && st.addEventListener) st.addEventListener('change', () => {
+            auto.info.midi = st.state;                       // (allowed in another tab: the installer)
+            if (st.state === 'granted') this._autoMidi().then(() => this._autoKick(true));
+        });
+        if (auto.info.midi === 'granted') await this._autoMidi();
+        const usb = this._nav && this._nav.usb;
+        if (usb && usb.addEventListener) usb.addEventListener('connect', this._onAutoUsb);
+        auto.info.usb = (await this._pickUsb(false)).length;
+        this._autoKick(true);
+        return auto.info;
+    }
+
+    // A session that keeps looking quietly (HELLO every opts.quietHelloMs), or back to normal.
+    setQuiet(on) {
+        if (!this._running) return;
+        this._quiet = !!on;
+        this._setStatus({ quiet: this._quiet });
     }
 
     // End the session: SESSION 0 goes out at once (synchronously on Web MIDI: safe in 'pagehide'); resolves on the
@@ -176,8 +259,13 @@ export class RemoteFM1 {
         });
     }
 
-    // stop(), then let go of every port and the USB interface.
+    // stop(), then let go of every port and the USB interface. autoConnect() then waits for the next plug-in.
     async disconnect() {
+        this._autoPaused = true;
+        await this._release('disconnected');
+    }
+
+    async _release(why) {
         await this.stop();
         if (this._timer) clearInterval(this._timer);
         this._timer = null;
@@ -191,7 +279,8 @@ export class RemoteFM1 {
         this._access = null;
         if (this._M) this._M._rw_free();
         this._wasActive = false;
-        this._setStatus({ state: 'idle', transport: null, fps: 0, why: 'disconnected', unit: null, ports: null });
+        this._quiet = false;
+        this._setStatus({ state: 'idle', transport: null, fps: 0, why, unit: null, ports: null, quiet: false });
     }
 
     // The screen to show: engine.screen()'s { seq, pixels } (240*240 RGB565, host order). Same seq: ignored.
@@ -228,6 +317,7 @@ export class RemoteFM1 {
 
     // The session's clock: every 4 ms on a timer (opts.timers), or the caller's (tests).
     tick() {
+        this._autoPoll();
         const M = this._M;
         if (!M || !this._running) return;
         const now = this._t();
@@ -248,6 +338,85 @@ export class RemoteFM1 {
     _t() { return this._now() >>> 0; }
     _log(msg) { for (const cb of this._ls.log) cb(msg); }
     _wantUsb() { return this.opts.usb !== 'off' && this.opts.transport !== 'midi' && this._nav && this._nav.usb; }
+
+    // Web MIDI with SysEx: from a click, requested (it may prompt); without one, only when already granted
+    async _midiAccess(gesture) {
+        const nav = this._nav;
+        if (!nav || !nav.requestMIDIAccess) return null;
+        if (this._autoAccess) return this._autoAccess;
+        if (!gesture && await midiPermission(nav) !== 'granted') return null;
+        return nav.requestMIDIAccess({ sysex: true }).catch(e => { this._log(`Web MIDI: ${e.message || e}`); return null; });
+    }
+
+    // a click on a running (quiet) session: what a gesture allows and the session lacks
+    async _widen() {
+        const tasks = [];
+        if (this._wantUsb() && this.opts.usb === 'ask' && !this._usbOpening && ![...this._links.values()].some(l => l.kind === 'usb'))
+            tasks.push(this._pickUsb(true).then(ds => (ds.length && this._running ? this._openUsb(ds[0]) : null)));
+        if (!this._access && this._nav && this._nav.requestMIDIAccess)
+            tasks.push(this._nav.requestMIDIAccess({ sysex: true }).then(a => {
+                if (!this._running || this._access) return;
+                this._access = a;
+                if (a.addEventListener) a.addEventListener('statechange', this._onMidiState);
+                this._scanMidi();
+            }, e => this._log(`Web MIDI: ${e.message || e}`)));
+        await Promise.all(tasks);
+    }
+
+    async _autoMidi() {
+        if (this._autoAccess || !this._nav || !this._nav.requestMIDIAccess) return;
+        let a = null;
+        try { a = await this._nav.requestMIDIAccess({ sysex: true }); } catch (e) { this._log(`Web MIDI: ${e.message || e}`); return; }
+        if (this._autoAccess) return;
+        this._autoAccess = a;
+        for (const p of [...a.inputs.values(), ...a.outputs.values()]) if (connected(p) && this._match(p.name)) this._autoKnown.add(p.id);
+        if (a.addEventListener) a.addEventListener('statechange', this._onAutoMidi);
+    }
+
+    // a look for the unit soon: debounced, and at most every opts.autoMinMs
+    _autoKick(now_ = false) {
+        if (!this._auto) return;
+        const now = this._t();
+        const due = Math.max(now + (now_ ? 0 : this.opts.autoDebounceMs), this._autoLast + this.opts.autoMinMs);
+        if (this._autoDue !== null && this._autoDue <= due) return;
+        this._autoDue = due;
+        if (this.opts.timers) {
+            clearTimeout(this._autoTimer);
+            this._autoTimer = setTimeout(() => this._autoPoll(), Math.max(0, due - now));
+        }
+    }
+
+    _autoPoll() {
+        if (this._autoDue === null || this._t() < this._autoDue) return;
+        this._autoDue = null;
+        this._autoCheck();
+    }
+
+    async _autoCheck() {
+        if (!this._auto || this._running || this._autoPaused || this._autoBusy) return;
+        this._autoBusy = true;
+        try {
+            const pairs = this._autoAccess ? candidatePairs(this._autoAccess, this._match) : [];
+            for (const p of pairs) { this._autoKnown.add(p.input.id); this._autoKnown.add(p.output.id); }
+            if (!pairs.length) return;                       // nothing FM-1-named: not a byte, no session
+            if (this._running || this._autoPaused) return;
+            this._autoLast = this._t();
+            this._log(`auto: "${pairs[0].name}" is there: looking for RemoteFM1 quietly`);
+            await this.connect({ gesture: false });
+        } catch (e) {
+            this._log(`auto: ${e.message || e}`);
+        } finally {
+            this._autoBusy = false;
+        }
+    }
+
+    // a quiet session with no FM-1 port left (unplugged): end it; the next plug-in starts another
+    _autoEnd() {
+        if (!this._running || !this._quiet || !this._auto || this._links.size || this._usbOpening) return;
+        if (this._status.state === 'connected' || this._status.state === 'starting') return;
+        this._log('auto: no FM-1 port left: stopped looking');
+        this._release('no FM-1 plugged in');
+    }
 
     async _loadModule() {
         if (this._M) return this._M;
@@ -273,6 +442,11 @@ export class RemoteFM1 {
     _write(tag, bytes) {
         const l = this._links.get(tag);
         if (!l || l.dead) return -1;
+        if (this._quiet && isHello(l.kind, bytes)) {        // quiet: one HELLO per port per opts.quietHelloMs
+            const now = this._t();
+            if (l.lastHello !== undefined && now - l.lastHello < this.opts.quietHelloMs) return 0;
+            l.lastHello = now;
+        }
         if (l.kind === 'midi') {
             try { l.output.send(bytes); } catch (e) { this._log(`${l.name}: send failed: ${e.message || e}`); l.dead = true; return -1; }
             return 0;
@@ -392,6 +566,8 @@ export class RemoteFM1 {
         this._scanMidi();
         if (this._wantUsb() && ![...this._links.values()].some(l => l.kind === 'usb') && !this._usbOpening)
             this._pickUsb(false).then(ds => { if (ds.length && this._running) this._openUsb(ds[0]); }, () => {});
+        if (this._quiet && this._auto && ![...this._links.values()].some(l => l.kind === 'midi'))
+            Promise.resolve().then(() => this._autoEnd());   // (after the session's poll returns)
     }
 
     _scanMidi() {
