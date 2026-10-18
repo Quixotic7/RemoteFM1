@@ -1,3 +1,6 @@
 [submodule "web/vendor/fm1-emu"]
 	path = web/vendor/fm1-emu
 	url = https://github.com/joakimeriksson/fm1-emu
+[submodule "web/vendor/FM1VST"]
+	path = web/vendor/FM1VST
+	url = https://github.com/Quixotic7/FM1VST.git
