@@ -1,0 +1,122 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# The site on GitHub Pages (WEB-PLAN.md section 4): the FM-1 player (web/site), its engines, Use my FM-1, and the
+# RemoteFM1 installer (web/installer). Pages must be turned on once by the owner: Settings > Pages > Source: GitHub
+# Actions. Until then the deploy job fails harmlessly; this file enables nothing.
+#
+# The published tree (what web/site/tools/build_catalog.mjs --layout pages expects):
+#   index.html css/ js/ worklet/ mock/ fonts/ catalog.json      the player (web/site)
+#   engines/native/engine.js + <core>.wasm                       W1 (needs the FM1VST submodule at web/vendor/FM1VST)
+#   engines/emu/engine.js catalog.mjs fm1_web.wasm LICENSE-fm1-emu.txt   W2 (needs web/vendor/fm1-emu)
+#   remote/remote.js, build/remote/remotefm1.mjs                 W4 (Use my FM-1)
+#   installer/                                                   the RemoteFM1 installer and its package
+# A part whose sources are missing is skipped: the page then falls back to its test engine for that engine, or keeps
+# the Use my FM-1 stub.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+env:
+  EMSDK_VERSION: "6.0.11"     # the version the engines were built and tested with locally (~/emsdk)
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Tests (the site's logic, the installer against a simulated FM-1)
+        run: |
+          node web/site/test.mjs
+          node web/installer/test_installer.mjs
+
+      - name: Which parts can be built
+        id: parts
+        run: |
+          echo "native=$([ -f web/vendor/FM1VST/CMakeLists.txt ] && [ -f web/engines/native/build.sh ] && echo 1 || echo 0)" >> "$GITHUB_OUTPUT"
+          echo "emu=$([ -f web/vendor/fm1-emu/Cargo.toml ] && [ -f web/engines/emu/build.sh ] && echo 1 || echo 0)" >> "$GITHUB_OUTPUT"
+          echo "remote=$([ -f web/remote/build.sh ] && echo 1 || echo 0)" >> "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+
+      - name: Emscripten
+        if: steps.parts.outputs.native == '1' || steps.parts.outputs.remote == '1'
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: ${{ env.EMSDK_VERSION }}
+
+      - name: Native cores (W1), FM1VST's 10 un-gated cores in WebAssembly
+        if: steps.parts.outputs.native == '1'
+        env:
+          FM1VST_DIR: ${{ github.workspace }}/web/vendor/FM1VST
+        run: |
+          sudo apt-get update && sudo apt-get install -y cmake rsync libraqm0
+          python3 -m pip install --upgrade pillow fonttools
+          export CR_PYTHON="$(command -v python3)"
+          bash web/engines/native/build.sh
+          mkdir -p _site/engines/native
+          cp web/engines/native/engine.js _site/engines/native/
+          cp web/build/native/*.wasm _site/engines/native/
+
+      - name: Emulated engine (W2), fm1-emu's web crate
+        if: steps.parts.outputs.emu == '1'
+        run: |
+          rustup target add wasm32-unknown-unknown
+          mkdir -p _site/engines/emu
+          bash web/engines/emu/build.sh "$PWD/_site/engines/emu"
+          cp web/engines/emu/engine.js web/engines/emu/catalog.mjs _site/engines/emu/
+          cp web/vendor/fm1-emu/LICENSE _site/engines/emu/LICENSE-fm1-emu.txt
+
+      - name: Use my FM-1 (W4), libremotefm1 in WebAssembly
+        if: steps.parts.outputs.remote == '1'
+        run: |
+          bash web/remote/build.sh
+          mkdir -p _site/remote _site/build/remote
+          cp web/remote/remote.js _site/remote/
+          cp web/build/remote/remotefm1.mjs _site/build/remote/
+
+      - name: The player and the installer
+        run: |
+          mkdir -p _site
+          cp -R web/site/index.html web/site/css web/site/js web/site/worklet web/site/mock web/site/fonts _site/
+          # the catalog: the Hub's live one, else the snapshot in the tree
+          node web/site/tools/build_catalog.mjs --layout pages --hub https://thefirmwarehub.com/catalog.json --out _site/catalog.json \
+            || node web/site/tools/build_catalog.mjs --layout pages --out _site/catalog.json
+          mkdir -p _site/installer
+          cp -R web/installer/index.html web/installer/installer.js web/installer/fm1ota.js web/installer/fm1pkg.js \
+                web/installer/releases.json web/installer/firmware _site/installer/
+          # the package the page installs is the one its release list names
+          (cd _site/installer/firmware && sha256sum -c SHA256SUMS)
+          touch _site/.nojekyll
+          find _site -type f | sort
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
