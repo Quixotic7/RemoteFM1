@@ -227,3 +227,22 @@ raw JSON in `results/m0/`):
   device (usb.c SysEx parsing) drops it. The updater's frames are ≤ 640 B, but a real parsing bug would matter there.
 - Not measured yet: Chrome (Web MIDI, WebUSB: `web/m0_bench.html`), an iPad, the 2 kHz poll (`remote-usb0.fwsc`),
   input latency from the panel.
+
+**2026-10-18, M1 built** (branch `m1`: m1-device + m1-host + the cross test, `build/remote.fwsc` sha256 `13035039…`;
+stub, sector 0x4000 and loader `68599862…` unchanged):
+- Device (RemoteFM1 0.1, protocol 2, docs/PROTOCOL.md): session with keepalive, waiting screen, LEDS (five levels →
+  this HAL's three), TILES into a 115,200 B shadow with all five encodings (`rfm_draw.c`, host-compilable), a
+  non-blocking push of dirty tiles at 20 MHz with USB served throughout (`rfm_push.c`), FRAME_ACK, PANEL_R, panel
+  events as plain MIDI. **The M0 SysEx bug is fixed and confirmed on the unit**: macOS sends a long SysEx's odd byte
+  as CIN 0xF; the old parser dropped it. Now `cin_f` = 1 per 2 KB / 8 KB message and 0 checksum errors.
+- Host (`host/`): libremotefm1 (portable core: codec, session, panel, screen encoder; macOS back ends CoreMIDI and
+  libusb) and `fm1remote` (an .fm1core on FM1VST's engine, the FM-1 as panel, audio on the Mac). 9 ctest suites.
+- Cross test (`host/tests/test_cross.c`): the host session and encoder against the device's own rfm_app / rfm_draw /
+  rfm_push, both transports, with faults; 202,187 checks. It found one misreading per side (device: no shadow-reset
+  bit after power-on; host: dropped 1-count MASTER corrections), both fixed, and the spec now says so.
+- Through the real device code: a UI frame ~1.9 KB, a single value ~240 B, real core screens from black 2.3–10.6 KB
+  in one frame; full-screen noise settles in 3 frames on bulk, 9 on SysEx. Device draw 7.5 ms for a UI frame, ~45 ms
+  for a full repaint.
+- The unit ran the m1-device build (496808d2…) briefly: HELLO, SysEx fix, blit OK. The owner then took it for
+  TransitFM1 tests. Next: flash `m1` (13035039…) and run `fm1remote --device --port FM-1 --stats` (first `--pattern`,
+  then ChoralRoot, then `--transport midi`, Felucca, Melodee); input latency by hand.
