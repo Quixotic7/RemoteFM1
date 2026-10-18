@@ -1,120 +1,120 @@
-# TransitFM1
+# RemoteFM1
 
-> **This tree is RemoteFM1** (PLAN.md), branch `m0-bench`: the M0 measuring build. `./build.sh` now builds
-> `build/remote.fwsc` (`--unit transit` builds TransitFM1 as it was, byte for byte; `--usb-mode 0|2` the other USB
-> services). TransitFM1's safety parts below are unchanged underneath. The bench: `tools/m0_bench.py` (SysEx over
-> CoreMIDI), `tools/m0_bulk.c` (vendor bulk over libusb), `web/m0_bench.html` (Web MIDI + WebUSB); the protocol is
-> `firmware/src/remote_proto.h`. TransitFM1's README follows.
+**The M-VAVE FM-1 as a USB panel for an FM-1 firmware running on your computer.**
 
-**A tiny firmware for the M-VAVE FM-1 to stop at between two others.**
+RemoteFM1 is a firmware for the FM-1 that does almost nothing by itself. It sends every key, button, encoder and the
+MASTER pot to the computer, and shows whatever the computer sends back on its LEDs and its 240×240 screen. On the
+computer, an FM-1 firmware built for the emulator runs at full speed and uses the real FM-1 as its panel. That lets
+you try firmware changes without reflashing the unit, and run things the FM-1's own CPU and memory couldn't hold.
 
-Moving an FM-1 from one custom firmware to another is where units get bricked. The usual advice is to go back to
-the official V15 first. But V15 has no protection against an interrupted write, so the step **out of** V15 into a
-custom firmware is the riskiest one. If the cable comes out or the battery dies partway, the FM-1 can stay dark.
+> **Status: early (M1, 2026-10-18).** It works end to end on one unit: ChoralRoot running on a Mac with the FM-1 as
+> its panel, 20 frames a second, input and screen confirmed. Not released, no installer page yet. The plan and every
+> measurement are in [PLAN.md](PLAN.md).
 
-TransitFM1 is a stop that is safe to leave. It makes no sound and stores nothing. It shows what it is, then waits
-for you to install the next firmware. Three things make it a good stopover:
+## How it works
 
-- **Every installer treats it as the official V15.** It answers the update handshake as `FM-1_015`, and its USB
-  device is named "FM-1". An installer that refuses other custom firmwares writes over TransitFM1 as it would over
-  stock.
-- **It brings ChoralRoot's flash safeguards.** That's ChoralRoot's boot stub, byte for byte, in front of the app
-  (docs/SAFETY.md). It checks the firmware before starting it. If the write was cut off, it starts update mode
-  instead: three short flashes, then `ota-FM-1` over USB. Holding **OCT-** at power-on does the same.
-- **It writes the next firmware itself.** When you install another firmware from TransitFM1, its own update loader
-  does the writing, whatever loader the package carries. It saves the new firmware's first sector for last. A cut
-  at any point before that last sector leaves an FM-1 that comes back in update mode: switch it on, run the
-  installer again.
+```
+ FM-1 (RemoteFM1)                                  Mac
+ keys, buttons, encoders, MASTER  ──plain MIDI──►  libremotefm1 ──► the firmware (an .fm1core)
+ LEDs, screen                     ◄─SysEx / bulk── screen encoder ◄── its screen and LEDs
+```
 
-> **Status: 0.1, built and host-tested only. It has not run on an FM-1 yet.** The boot stub and the loader order
-> it builds on are ChoralRoot's, tested on a unit (cable pulled mid-write, rescued). The new parts — writing
-> another firmware's package with sector 0x4000 last, and staging its own loader — are tested only on the host
-> (`tests/run_tests.sh`). Try it first on a unit you can recover with the
-> [FM-1 Transporter](https://github.com/kurogedelic/FM-1-transporter) or
-> [MvaveFM1Unbricker](https://github.com/Quixotic7/MvaveFM1Unbricker). docs/SAFETY.md has the device test plan.
+- **Input** goes out as plain MIDI, so any MIDI app sees the FM-1 as a controller:
+  - keys: notes on channel 16;
+  - buttons: notes on channel 15;
+  - encoders: relative CCs 16–22;
+  - MASTER: 14-bit CC 7/39.
+- **The screen** goes as 16×16 tiles. Only tiles that changed are sent, oldest first, each in the smallest of five
+  encodings. A typical UI frame is about 2 KB; a full redraw of a busy screen is 2–10 KB.
+- **Two transports:**
+  - USB-MIDI SysEx, which works everywhere, including Web MIDI and the iPad;
+  - a vendor bulk interface for macOS (libusb) and Chrome (WebUSB), about 830 KB/s.
 
-## How much of each write is protected
+  The host uses bulk when it can.
+- The protocol is in [docs/PROTOCOL.md](docs/PROTOCOL.md), with its constants in [proto/rfm1.h](proto/rfm1.h).
 
-These are measured on the host. Power was cut after every flash erase and every programmed page, the real stub
-code judged the flash as it stood, and the install was resumed (`tests/ldr_test.c`). "Unprotected" cuts leave
-neither a working stub nor a whole firmware.
-
-| hop | cut points | rescued | unprotected |
-| --- | --- | --- | --- |
-| TransitFM1 → the official V15 (any firmware without ChoralRoot's stub) | 2432 | 2415 | **16**, the last sector only (about 0.1 s) |
-| TransitFM1 ↔ ChoralRoot 0.25.1 | 2279 | 2278 | **0**: sector 0x4000 is the same bytes in both |
-| TransitFM1 → a later TransitFM1 | 256 | 255 | **0** |
-| the official V15 → TransitFM1 | 2432 | 2414 | 17, the first sector only (once per unit) |
-
-Compare the plain address-order write that V15, Felucca and most custom firmwares use. Once the first sector is
-written, no rescue code is left on the unit, so almost the whole one-to-two-minute write is unprotected.
+On the host side, any firmware that exists as an **fm1core** can run: ChoralRoot, Felucca and Melodee today (through
+[FM1VST](https://github.com/Quixotic7/FM1VST)'s engine). The stock M-VAVE firmware can't run on the host, because no
+emulator exists for the FM-1's CPU.
 
 ## Using it
 
-1. **Getting there.** Install `transit-X.Y.fwsc` with the installer of the firmware you are on now.
-   `tools/fm1_install.py` here, ChoralRoot's `tools/fm1_install.py PACKAGE` and any installer that takes a
-   Felucca-family package will do. From the official V15 it's the same: TransitFM1 installs like any custom
-   firmware.
-   - **Not from Bubba Machine.** Its updater only accepts M-VAVE's own package. Go back to V15 with Bubba's
-     installer first.
-2. **The screen** says `TRANSIT`, its version, "READY FOR THE NEXT FIRMWARE" and "AS V15 (FM-1_015)".
-   - A red **LOADER NOT STAGED** line means TransitFM1 could not set up its rescue. It then refuses updates.
-     Don't continue: report it.
-3. **Leaving.** Open the installer of the firmware you want and install it. To that installer the FM-1 is an FM-1
-   on V15. To go back to stock, install M-VAVE's `FM-1.fwsc`.
-4. **If the install is cut off,** switch the FM-1 off and on. You'll see three short flashes of the key lights, a
-   black screen, and `ota-FM-1` ("Felucca Update") over USB. Open the installer again and run the same install:
-   it finishes the write. An installer that knows Felucca's update mode resumes it by itself. That covers ChoralRoot,
-   Felucca, Dinghy and the FM-1 Firmware Hub. Don't switch it off and on twice in a row while it's in update mode.
-   A second arrival with no normal boot in between drops into the chip's ROM USB boot (`WL82 UBOOT1.00`), where
-   MvaveFM1Unbricker takes over.
+1. **Install RemoteFM1** on the FM-1 with any Felucca-family installer, for example `python3 tools/fm1_install.py
+   build/remote.fwsc`. RemoteFM1 answers installers as the official V15 (`FM-1_015`, USB device "FM-1"), so every
+   installer can write over it later.
+2. **Without a host**, the screen reads REMOTE FM1 / WAITING FOR HOST and the key lights glow dim.
+3. **Run a firmware on the Mac:**
 
-Nothing of yours is kept on TransitFM1. What the previous firmware stored stays in its flash area untouched, unless
-the next firmware's installer or the firmware itself deals with it. Back on V15, presets may read garbled after
-Felucca-family firmwares: System > Reset Patches.
+   ```sh
+   cmake -S host -B host/build -DCMAKE_BUILD_TYPE=Release && cmake --build host/build -j
+   host/build/fm1remote --device --port FM-1 --stats                  # ChoralRoot
+   host/build/fm1remote --device --port FM-1 --stats --core felucca   # or melodee
+   host/build/fm1remote --device --port FM-1 --stats --pattern        # test screens only, no firmware
+   ```
 
-## Building
+   - The sound plays on the Mac.
+   - Each firmware's flash image is kept in `~/Library/Application Support/fm1remote/`.
+   - Ctrl-C ends the session, and the FM-1 goes back to its waiting screen.
+   - `fm1remote` expects the [FM1VST](https://github.com/Quixotic7/FM1VST) checkout next to this one (cores in
+     `FM1VST/build/cores`).
+4. **To leave RemoteFM1**, install the next firmware with its own installer, as you would over V15.
 
-You need Linux on x86-64 (or macOS / Windows with Docker), Python 3, the JieLi toolchain and three files of the
-JieLi AC79 SDK:
+macOS keeps the MIDI port name of the first firmware it saw on the unit (for example "ChoralRoot FM-1"). The host
+finds RemoteFM1 by asking (HELLO), never by name. If the port shows up offline after a firmware change, use
+`--midi-restart` or Audio MIDI Setup > Rescan MIDI.
+
+## Safety
+
+RemoteFM1 is built on [TransitFM1](https://github.com/Quixotic7/TransitFM1) and keeps all of its flash safeguards:
+
+- ChoralRoot's boot stub, byte for byte;
+- its own staged update loader, which writes the next firmware with the first sector last;
+- the boot guard;
+- the M-UPGRADE updater as V15.
+
+[docs/SAFETY.md](docs/SAFETY.md) explains them. RemoteFM1 stores nothing on the unit, and the data an earlier
+firmware left in flash stays where it is.
+
+Two bugs from TransitFM1 0.1 are fixed here, as in TransitFM1 0.1.1:
+
+- **Loader re-stage:** re-staging the update loader read from flash while writing flash, which crashed the unit
+  into the ROM's USB boot.
+- **MIDI-in ring:** the ring was never drained, so a DAW sending MIDI shut the installer out.
+
+Installing firmware is at your own risk. Keep the [FM-1 Transporter](https://github.com/kurogedelic/FM-1-transporter)
+or [MvaveFM1Unbricker](https://github.com/Quixotic7/MvaveFM1Unbricker) at hand.
+
+## Building the firmware
+
+You need Docker on macOS or Windows (or Linux x86-64), Python 3 with Pillow, the JieLi toolchain and the JieLi AC79
+SDK, exactly as for TransitFM1:
 
 ```sh
-pip3 install Pillow mido python-rtmidi
-tools/get_toolchain.sh                      # JieLi's clang for the chip, to ~/.jieli/toolchain
-git clone --depth 1 --branch AC79NN_SDK_V1.2.1_2023-12-13 \
-    https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK.git ~/fw-AC79_AIoT_SDK
-./build.sh                                  # -> build/transit.fwsc (identity FM-1_015)
-./build.sh --release 0.1                    # -> build/transit-0.1.fwsc, SHA256SUMS
-tests/run_tests.sh                          # the host tests of the update path
-V15_PKG=FM-1.fwsc CR_PKG=choralroot.fwsc tests/run_tests.sh   # also the hops to V15 and to ChoralRoot
+tools/get_toolchain.sh
+git clone --depth 1 --branch AC79NN_SDK_V1.2.1_2023-12-13 https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK.git ~/fw-AC79_AIoT_SDK
+./build.sh                  # -> build/remote.fwsc; `--unit transit` builds TransitFM1 0.1 as it was
+tests/run_tests.sh          # the firmware's host tests (stub, loader, update path, protocol, decoder, session)
+host/run_tests.sh           # the host library's tests, including the cross test against the firmware's own code
 ```
-
-On macOS the build runs the toolchain in a `linux/amd64` Docker container (have Docker running). The build prints
-the stub's hash and the hash of sector 0x4000. For the hops to and from ChoralRoot to stay unprotected-free, both
-must be ChoralRoot's: stub `baee55ed…` (version 3) and sector `0f33c838…`. The build warns if the stub differs
-from `firmware/stub/stub.lock`, and a release build stops.
-
-The size: the app body is about 56 KB (ChoralRoot's is 543 KB), including a 7.5 KB copy of its own update loader.
 
 ## What is where
 
 ```
-firmware/stub/        ChoralRoot's boot stub, unchanged (stub.lock: version 3, the same hash as ChoralRoot's)
-firmware/loader/      the update loader: Felucca's, with ChoralRoot's order and TransitFM1's (ldr_core.c)
-firmware/src/ota.c    step 1: our own loader staged, kept, restaged; never the package's
-firmware/src/platform.c, transit.c   Dinghy's platform without the sound; the screen
-tools/build.py        the stub, the loader, the app with the loader inside, the package (fm1pkg_make.py)
-tests/                the stub's decision, step 1, the package builder, the loader's interruption model
-docs/SAFETY.md        how it works, the numbers, what is not tested, the device test plan
+firmware/src/remote.c       the device app: USB service, waiting screen, panel input, LEDs, glue
+firmware/src/rfm_app.c      the protocol layer (no hardware; also compiled into the host tests)
+firmware/src/rfm_draw.c     the TILES decoder;  rfm_push.c: the screen push, which never blocks USB
+firmware/                   everything else: TransitFM1's platform, boot stub, update loader, USB (+ vendor interface)
+proto/, docs/PROTOCOL.md    the protocol
+host/                       libremotefm1, the macOS back ends, fm1remote, tests
+tools/m0_bench.py, m0_bulk.c, web/m0_bench.html   transport benchmarks (SysEx, bulk, Web MIDI / WebUSB)
+PLAN.md                     the plan, the milestones and every measurement
 ```
 
 ## License
 
-GPL-3.0-only, as Felucca, SLOOP, Dinghy and ChoralRoot. You may change and share it, and whoever gets your firmware
-gets its source. Credits and third-party parts are in [LICENSING.md](LICENSING.md).
-
-TransitFM1 is based on [Dinghy](https://github.com/zvenson/dinghy) by zvenson. Dinghy is
+GPL-3.0-only, like everything it's built from. See [LICENSING.md](LICENSING.md) for who made what. RemoteFM1 comes from
+TransitFM1, which comes from [Dinghy](https://github.com/zvenson/dinghy) (zvenson), which runs on
 [Felucca](https://github.com/hugelton/Felucca)'s platform (Leo Kuroshita, Hügelton Instruments) as
-[SLOOP](https://github.com/isod89/sloop-fm1) (isod89) carries it. The boot stub, the stub's write order and the
-package marker are [ChoralRoot FM-1](https://github.com/Quixotic7/ChoralRootFM1)'s. "M-VAVE" and "FM-1" belong to
-their owners: TransitFM1 is not made or endorsed by them, and installing firmware is at your own risk.
+[SLOOP](https://github.com/isod89/sloop-fm1) carries it. The boot stub is
+[ChoralRoot FM-1](https://github.com/Quixotic7/ChoralRootFM1)'s. "M-VAVE" and "FM-1" belong to their owners;
+RemoteFM1 is not made or endorsed by them.
