@@ -26,7 +26,8 @@
  *   ota_frame_get(&p, &n)      next received SysEx (7-bit bytes between F0/F7), 0 if none
  *   ota_frame_done()           release it
  *   ota_now_ms(), ota_idle()   time; called while waiting (watchdog, USB)
- *   ota_erase(off) ota_prog(off, p, n) ota_fread(off, p, n)   flash, 0 = ok
+ *   ota_erase(off) ota_prog(off, p, n) ota_fread(off, p, n)   flash, 0 = ok; ota_prog's p must be in RAM (never
+ *                              a const array or a string literal: those are in XIP flash, which is off while it writes)
  *   ota_show(step, code)       progress / result for the screen
  *   ota_commit(parm)           write RAM record + reset (never returns on hardware)
  * and, in the app (not the loader), OTA_OWN_LDR / OTA_OWN_LEN: our ota.bin (outer head, inner head, blocks).
@@ -325,19 +326,23 @@ static int ota_own_staged(void)
 }
 
 /* stage our own loader: erase, body, read back against its CRC, head last (a cut leaves no head: nothing staged,
- * restaged at the next boot). 0 = staged */
+ * restaged at the next boot). 0 = staged. OTA_OWN_LDR is a const array in XIP flash: every chunk goes through the
+ * RAM buffer b first, since the flash driver (fl_prog_ram) reads its source while the flash is out of XIP (handing
+ * it OTA_OWN_LDR itself faulted at the first page). */
 static int ota_restage(void)
 {
     uint8_t b[256];
-    uint32_t len = OTA_OWN_LEN - 32u, c = ota_rd16(OTA_OWN_LDR + 2), crc = 0, i, n;
+    uint32_t len = OTA_OWN_LEN - 32u, c = ota_rd16(OTA_OWN_LDR + 2), crc = 0, i, n, k;
     if (OTA_OWN_LEN < 32u + 40u || len > OTA_AREA_LEN - 0x1000u)
         return -20;
     for (i = 0; i < OTA_AREA_LEN; i += 0x1000u)
         if (ota_erase(OTA_AREA + i))
             return -21;
     for (i = 0; i < len; i += n) {
-        n = len - i > 256u ? 256u : len - i;
-        if (ota_prog(OTA_AREA + 32u + i, OTA_OWN_LDR + 32u + i, n))
+        n = len - i > sizeof b ? sizeof b : len - i;
+        for (k = 0; k < n; k++)
+            b[k] = OTA_OWN_LDR[32u + i + k];
+        if (ota_prog(OTA_AREA + 32u + i, b, n))
             return -22;
     }
     for (i = 0; i < len; i += n) {

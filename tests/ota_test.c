@@ -107,10 +107,16 @@ static int ota_erase(uint32_t off)
     memset(nor + off, 0xFF, 4096);
     return 0;
 }
+/* own_ldr stands for OTA_OWN_LDR, the app's const array in XIP flash: on the unit the flash driver (fl_prog_ram)
+ * reads its source with XIP off, so a source in there faults at the first page (the unit bricked by it: PLAN.md 10) */
 static int ota_prog(uint32_t off, const void *src, uint32_t n)
 {
     const uint8_t *s = src;
     uint32_t i;
+    if ((uintptr_t)s + n > (uintptr_t)own_ldr && (uintptr_t)s < (uintptr_t)(own_ldr + sizeof own_ldr)) {
+        printf("FATAL: ota_prog(%#x) reads its source from the loader array (XIP flash on the unit: a fault)\n", off);
+        exit(1);
+    }
     if (off < T_AREA || off + n > T_AREA + 0x5000u) { bad_erase++; return -8; }
     for (i = 0; i < n; i++) nor[off + i] &= s[i];
     return 0;
@@ -296,6 +302,36 @@ int main(int argc, char **argv)
     nor[T_AREA + 0x4Cu] = 'X';
     bad += check("boot: not a Felucca-family loader is erased", ota_boot_cleanup() == 1 && area_erased());
     bad += check(".. restaged", ota_restage() == 0 && own_in_area());
+    /* the boot after a hop that staged elsewhere (the official V15 stages its loader at 0xE6000): our area erased,
+     * so the boot (platform.c fm1_cstart) restages our loader; then a foreign loader in our own area */
+    {
+        uint8_t fl[0x5000];
+        uint32_t flen = own_len, foff = 0;
+        memcpy(fl, own_ldr, own_len);
+        fl[0x4Cu] = 'X';                                   /* not ours (no package given: a changed copy) */
+        if (foreign && (foff = ota_entry(foreign, &flen)) != 0 && flen <= sizeof fl)
+            memcpy(fl, foreign + foff, flen);
+        else
+            flen = own_len;
+        memset(nor + T_AREA, 0xFF, 0x5000u);
+        bad += check("boot, the area erased: nothing to clean (rc 0), not ours",
+                     ota_boot_cleanup() == 0 && !ota_own_staged());
+        bad += check(".. restaged byte for byte (ota_restage)", ota_restage() == 0 && own_in_area() && bad_erase == 0);
+        memset(nor + T_AREA, 0xFF, 0x6000u + flen);
+        memcpy(nor + 0xE6000u, fl, flen);
+        bad += check("boot, a foreign loader at 0xE6000, the area erased: not ours",
+                     ota_boot_cleanup() == 0 && !ota_own_staged());
+        bad += check(".. restaged byte for byte, 0xE6000 left as it is",
+                     ota_restage() == 0 && own_in_area() && !memcmp(nor + 0xE6000u, fl, flen) && bad_erase == 0);
+        memset(nor + 0xE6000u, 0xFF, flen);
+        memset(nor + T_AREA, 0xFF, 0x5000u);
+        memcpy(nor + T_AREA + 32u, fl + 32u, flen - 32u > 0x4000u - 32u ? 0x4000u - 32u : flen - 32u);
+        ota_stage_head(flen - 32u);
+        bad += check("boot, a foreign loader staged at 0xE0000: erased (rc 1)",
+                     ota_own_staged() == 0 && ota_boot_cleanup() == 1 && area_erased());
+        bad += check(".. restaged byte for byte", ota_restage() == 0 && own_in_area() && bad_erase == 0);
+        printf("  (the foreign loader: %s, %u bytes)\n", foreign && foff ? "the FOREIGN package's" : "a changed copy", flen);
+    }
     /* the two checks in step: the same answer on damaged copies of the staged loader */
     memcpy(keep, nor + T_AREA, sizeof keep);
     srand(1);

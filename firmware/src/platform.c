@@ -102,6 +102,8 @@ static int ota_prog(uint32_t off, const void *p, uint32_t n)
 {
     if (!ota_in_area(off, n))
         return -8;
+    if ((uint32_t)(uintptr_t)p - FL_XIP(0x4000u) < 0x100000u)
+        return -9;                              /* a source in XIP flash: fl_prog_ram reads it with XIP off */
     return fl_write(off, p, n);
 }
 static int ota_fread(uint32_t off, void *p, uint32_t n) { return st_read(off, p, n); }
@@ -178,6 +180,8 @@ static void fm1_fault(const fm1_crash_t *c)
 {
     char b[12];
     uint32_t i, t0, v[3] = {c->vec, c->pc, c->rets};
+    if (!lcd_ready)
+        lcd_init();                             /* a fault before platform's lcd_init (the boot's staging) */
     lcd_fill(0, 0, 240, 240, RGB(160, 0, 0));
     draw_text_box(0, 20, 240, &FONT_S, APP_NAME " CRASH", C_WHITE, 1);
     for (i = 0; i < 3u; i++) {

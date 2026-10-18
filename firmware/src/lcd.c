@@ -12,6 +12,7 @@
 
 static uint8_t lcd_small[64];
 static uint8_t lcd_busy;           /* a lcd_data DMA may still run; CS is low */
+static uint8_t lcd_ready;          /* lcd_init has run (fm1_fault: a boot-time fault inits the panel itself) */
 
 static void lcd_spin(uint32_t n)
 {
@@ -127,4 +128,5 @@ static void lcd_init(void)
     fm1_lcd_baud(LCD_BAUD);
     lcd_fill(0, 0, 240, 240, 0);
     lcd_cmd(0x29);
+    lcd_ready = 1;
 }
