@@ -1,0 +1,51 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>emu engine: browser test</title>
+<!-- A minimal page for test-browser.mjs: fetches the engine's wasm (web/build/emu) and a package from
+     the FM-1 Firmware Hub's mirror (the page's real runtime path, CORS included), runs the emu engine
+     in a real AudioWorklet, presses a key, and shows the screen. ?fw=<Hub id>&mhz=100 -->
+<style>body { background: #111; color: #ddd; font: 13px monospace; } canvas { image-rendering: pixelated; }</style>
+<canvas id="lcd" width="240" height="240"></canvas>
+<pre id="out">starting…</pre>
+<script type="module">
+import { fetchHubCatalog, entriesFromHub, fetchPackage } from "./catalog.mjs";
+const q = new URLSearchParams(location.search);
+const out = document.getElementById("out");
+const log = (s) => { out.textContent += "\n" + s; };
+window.__result = (async () => {
+  const hub = await fetchHubCatalog();
+  const entry = entriesFromHub(hub).find((f) => f.id === (q.get("fw") || "felucca"));
+  const { bytes, url } = await fetchPackage(entry);
+  log(`package ${url}: ${bytes.length} bytes`);
+  const wasm = await (await fetch("../../build/emu/fm1_web.wasm")).arrayBuffer();
+  const ac = new AudioContext({ latencyHint: "interactive" });
+  await ac.audioWorklet.addModule("test-worklet.js");
+  const node = new AudioWorkletNode(ac, "emu-test-host", { numberOfOutputs: 1, outputChannelCount: [2] });
+  node.connect(ac.destination);
+  await ac.resume();
+  const result = new Promise((resolve, reject) => {
+    node.port.onmessage = (m) => {
+      if (m.data.type === "booted") log(`booted in ${m.data.ms} ms, latencyFrames ${m.data.info.latencyFrames}`);
+      if (m.data.type === "error") reject(new Error(m.data.message));
+      if (m.data.type === "result") resolve(m.data);
+    };
+  });
+  node.port.postMessage({ type: "load", wasm, fwsc: bytes.buffer, mhz: +(q.get("mhz") || 100) }, [wasm, bytes.buffer]);
+  const r = await result;
+  const img = new ImageData(240, 240);
+  for (let i = 0; i < 240 * 240; i++) {
+    const v = r.pixels[i];
+    img.data[4 * i] = ((v >> 11) & 31) * 255 / 31;
+    img.data[4 * i + 1] = ((v >> 5) & 63) * 255 / 63;
+    img.data[4 * i + 2] = (v & 31) * 255 / 31;
+    img.data[4 * i + 3] = 255;
+  }
+  document.getElementById("lcd").getContext("2d").putImageData(img, 0, 0);
+  delete r.pixels;
+  r.ua = navigator.userAgent;
+  r.fw = `${entry.id} ${entry.version}`;
+  log(JSON.stringify(r, null, 1));
+  ac.close();
+  return r;
+})().catch((e) => { log("ERROR " + e); return { error: String(e) }; });
+</script>
