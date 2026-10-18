@@ -1,0 +1,18 @@
+{
+  "about": "The RemoteFM1 releases the web installer offers, newest first (index.html installs the first). sha256 is the package's (firmware/remote-X.Y.fwsc), as firmware/SHA256SUMS lists it: test_installer.mjs checks the two agree, and the page checks it again in the browser before any write.",
+  "repo": "https://github.com/Quixotic7/RemoteFM1",
+  "releases": [
+    {
+      "version": "0.1",
+      "date": "2026-10-18",
+      "tag": "v0.1",
+      "sha256": "130350399c594ff19ac5908049caa223f0a10f01edb279bd71c28ac796f2b1a4",
+      "notes": [
+        "The FM-1 as a USB panel: its keys, buttons, knobs and MASTER go to the computer as MIDI; the computer draws its screen and lights its LEDs.",
+        "Makes no sound by itself: a firmware running on the computer (this site's player, FM1VST, fm1remote) plays.",
+        "Built from the M1 firmware tested on an FM-1 (2026-10-18): ChoralRoot played from a Mac through the unit, 20 frames a second.",
+        "TransitFM1's safeguards: ChoralRoot's boot stub, its own update loader (the next firmware's first sector written last), the boot guard; answers every installer as the official V15."
+      ]
+    }
+  ]
+}

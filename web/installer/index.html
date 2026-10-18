@@ -1,0 +1,161 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<!-- TransitFM1's web installer page (GPL-3.0-only), with RemoteFM1's package and text. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Install RemoteFM1</title>
+<meta name="description" content="RemoteFM1: the M-VAVE FM-1 as a USB panel for a firmware running in your browser or on your computer. Install it from the browser.">
+<meta name="theme-color" content="#0F1113">
+<style>
+  @font-face {
+    font-family: "Inter Tight"; font-weight: 100 900; font-display: swap;
+    src: url("../fonts/InterTight-VF-latin.woff") format("woff"), url("../site/fonts/InterTight-VF-latin.woff") format("woff");
+  }
+  :root {
+    --window: #0F1113; --surface: #1D2024; --raised: #23272C; --raised-hover: #2A2F35; --well: #141619; --border: #33383F;
+    --line: #2E333A; --divider: #2B2F35; --text: #E8EAED; --row-text: #D6D9DD; --muted: #8A9099; --heading: #7D838C;
+    --accent: #FF8A3D; --on-accent: #1A0E06; --ok: #3DDC84; --bad: #FF6464; --amber: #F5A524;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--window); color: var(--text); font: 500 15px/1.55 "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
+  header { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 14px; border-bottom: 1px solid #1A1D21; }
+  header a { color: var(--row-text); text-decoration: none; font-weight: 600; font-size: 13px; padding: 6px 10px; border-radius: 8px; }
+  header a:hover { background: var(--raised); }
+  header .brand { display: flex; align-items: center; gap: 9px; color: var(--text); font-size: 15px; font-weight: 700; padding-left: 0; }
+  .mark { width: 18px; height: 18px; border-radius: 5px; background: linear-gradient(135deg, #FFA45E, #E07A3C); box-shadow: inset 0 0 0 1px rgba(0,0,0,.4); }
+  header nav { margin-left: auto; display: flex; gap: 4px; }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 2.2rem; line-height: 1.15; margin: 0 0 8px; letter-spacing: -0.01em; font-weight: 800; }
+  h1 span { color: var(--accent); }
+  h2 { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--heading); margin: 0 0 12px; font-weight: 700; }
+  .lede { font-size: 1.08rem; color: var(--row-text); margin: 0 0 24px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px; margin: 0 0 14px; }
+  .warn { border-color: rgba(245, 165, 36, .45); }
+  .warn h2 { color: var(--amber); }
+  .card p { margin: 0 0 10px; }
+  .card p:last-child { margin-bottom: 0; }
+  ul { padding-left: 1.2em; margin: 8px 0 0; }
+  li { margin: 4px 0; }
+  button { font: inherit; font-weight: 600; border-radius: 8px; border: 1px solid var(--line); background: var(--raised); color: var(--row-text); padding: 9px 16px; cursor: pointer; }
+  button:hover:not(:disabled) { background: var(--raised-hover); }
+  button.primary { background: linear-gradient(135deg, #FFA45E, #E07A3C); color: var(--on-accent); border-color: transparent; font-size: 1.05rem; padding: 12px 20px; }
+  button:disabled { opacity: 0.45; cursor: default; }
+  body.busy button { pointer-events: none; opacity: 0.6; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .meta { color: var(--muted); font-size: 0.93rem; }
+  progress { width: 100%; height: 8px; margin-top: 14px; accent-color: var(--accent); }
+  .status { margin: 14px 0 0; min-height: 1.5em; }
+  .status.ok { color: var(--ok); font-weight: 600; }
+  .status.bad { color: var(--bad); font-weight: 600; }
+  details { margin-top: 12px; }
+  summary { cursor: pointer; color: var(--muted); }
+  pre { white-space: pre-wrap; font-size: 0.8rem; color: var(--muted); max-height: 240px; overflow: auto; background: var(--well); border-radius: 8px; padding: 10px; }
+  input[type=file] { max-width: 100%; color: var(--muted); }
+  label.check { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; color: var(--row-text); }
+  label.check input { margin-top: 4px; accent-color: var(--accent); width: 16px; height: 16px; flex: none; }
+  a { color: var(--accent); }
+  code { font-size: .9em; background: var(--well); padding: 1px 5px; border-radius: 4px; }
+  .sha { word-break: break-all; font-size: .8rem; }
+  footer { color: var(--muted); font-size: 0.88rem; margin-top: 32px; }
+  #browser-warn { color: var(--amber); font-weight: 600; }
+</style>
+</head>
+<body>
+<header>
+  <a class="brand player" href="../"><span class="mark"></span>FM-1 Player</a>
+  <nav><a class="player" href="../">Play firmwares</a><a href="https://github.com/Quixotic7/RemoteFM1" target="_blank" rel="noopener">Source</a></nav>
+</header>
+<main>
+  <h1>Install Remote<span>FM1</span></h1>
+  <p class="lede">RemoteFM1 turns the M-VAVE FM-1 into a USB panel. Its keys, buttons, knobs and MASTER go to the computer,
+    and the computer draws its screen and lights its LEDs. <b>It makes no sound on its own:</b> a firmware running on
+    the computer plays, in <a class="player" href="../">this site's player</a>, in FM1VST or in <code>fm1remote</code>.</p>
+
+  <section class="card warn">
+    <h2>Before you start</h2>
+    <p><b>ChoralRoot users: back up first</b> with ChoralRoot's own page
+      (<a href="https://quixotic7.github.io/ChoralRootFM1/webapp/installer/">its installer's Back up button</a>). RemoteFM1
+      reads and writes nothing of what ChoralRoot keeps, and ChoralRoot finds it all when you go back; a backup costs a
+      minute and covers the unexpected.</p>
+    <p><b>Close every app that uses MIDI:</b> DAWs (Ableton Live, Logic, ...), synth editors, and other browser tabs with
+      an FM-1 page. An app sending MIDI clock to the FM-1 can stall an install halfway.</p>
+    <p><b>Chrome or Edge on a computer:</b> installing needs Web MIDI with SysEx. The FM-1 charged, switched on and
+      connected with a USB data cable, directly. Installing firmware is at your own risk.</p>
+    <p id="browser-warn" hidden>This browser has no Web MIDI: open this page in Chrome or Edge.</p>
+  </section>
+
+  <section class="card">
+    <h2>Install</h2>
+    <p class="meta">RemoteFM1 <span id="ver">…</span>, released <span id="date">…</span>. SHA-256 <span class="sha" id="sha">…</span></p>
+    <ul id="notes"></ul>
+    <label class="check"><input type="checkbox" id="midi-closed"><span>DAWs and every other app that uses MIDI are
+      closed.</span></label>
+    <div class="row" style="margin-top:16px">
+      <button id="go" class="primary" disabled>Install RemoteFM1</button>
+      <button id="check">What is on my FM-1?</button>
+    </div>
+    <div id="override-box" hidden>
+      <label class="check"><input type="checkbox" id="override"><span>I understand the risk: install over this firmware
+        anyway. An install over Sloop or a Felucca beta has left FM-1s that no longer start.</span></label>
+    </div>
+    <progress id="bar" max="1000" value="0" hidden></progress>
+    <p id="status" class="status" role="status"></p>
+    <details><summary>Log</summary><pre id="log"></pre></details>
+  </section>
+
+  <section class="card">
+    <h2>Then</h2>
+    <p>The FM-1 restarts showing REMOTE FM1 / WAITING FOR HOST, its key lights dim. Open <a class="player" href="../">the
+      player</a>, pick a firmware, and connect your FM-1 from the settings (Use my FM-1). On a Mac, <code>fm1remote</code>
+      and FM1VST use it too (<a href="https://github.com/Quixotic7/RemoteFM1#using-it">how</a>).</p>
+  </section>
+
+  <section class="card">
+    <h2>If an install is cut off</h2>
+    <p>A pulled cable or a flat battery is not the end: switch the FM-1 off and on. Three short flashes of the key
+      lights and a black screen mean <b>update mode</b>. Open this page (or the installer you were using) and press
+      <b>Install</b> again with the same firmware: it finishes the write. Holding <b>OCT-</b> while switching on gives the
+      same update mode at any time.</p>
+    <p class="meta">Do not switch off and on twice in a row while it is in update mode: the second time it drops into the
+      chip's own USB boot ("WL82 UBOOT1.00"), where <a href="https://github.com/Quixotic7/MvaveFM1Unbricker">MvaveFM1Unbricker</a>
+      (Windows or Linux) or the <a href="https://github.com/kurogedelic/FM-1-transporter">FM-1 Transporter</a> take over.
+      Arriving from the official V15, a cut-off write ends there rather than in update mode.</p>
+  </section>
+
+  <section class="card">
+    <h2>Leaving RemoteFM1</h2>
+    <p>Install the next firmware with its own installer, as you would over the official firmware: <b>RemoteFM1 answers
+      every installer as V15</b> (<code>FM-1_015</code>, USB device "FM-1"). ChoralRoot's, Felucca's, the
+      <a href="https://thefirmwarehub.com">FM-1 Firmware Hub</a>'s: any of them. RemoteFM1 writes the next firmware with its
+      own update loader, the first sector last. To go back to stock, install M-VAVE's <code>FM-1.fwsc</code> (below).</p>
+    <p><b>Baud Girl</b>, and any firmware whose image is larger than the app area: install the official V15 first, then
+      that firmware from V15 with its own installer.</p>
+    <details>
+      <summary>Install a package file from here</summary>
+      <p class="meta">An FM-1 package (<code>.fwsc</code>), for example M-VAVE's <code>FM-1.fwsc</code> or the release of the
+        firmware you are going to. Also finishes a cut-off install of that file.</p>
+      <div class="row">
+        <input type="file" id="file" accept=".fwsc">
+        <button id="file-go" disabled>Install this file</button>
+      </div>
+    </details>
+  </section>
+
+  <footer>
+    <p>RemoteFM1 is free software under the GPL-3.0 (<a href="https://github.com/Quixotic7/RemoteFM1">source</a>), built on
+      <a href="https://github.com/Quixotic7/TransitFM1">TransitFM1</a> (its installer page and loader),
+      <a href="https://github.com/zvenson/dinghy">Dinghy</a>, <a href="https://github.com/hugelton/Felucca">Felucca</a>'s
+      platform as <a href="https://github.com/isod89/sloop-fm1">SLOOP</a> carries it, and
+      <a href="https://github.com/Quixotic7/ChoralRootFM1">ChoralRoot FM-1</a>'s boot stub. The package holds three JieLi
+      AC79 SDK files (Apache-2.0) and the Terminus font (OFL-1.1): <a href="firmware/">the package, its sums and every
+      licence</a>.</p>
+    <p>"M-VAVE" and "FM-1" belong to their owners. RemoteFM1 answers the update protocol as the official firmware so that
+      installers accept it; it is not made or endorsed by M-VAVE.</p>
+  </footer>
+</main>
+<script type="module" src="installer.js"></script>
+</body>
+</html>
