@@ -25,3 +25,10 @@ staged loader written through RAM, MIDI-in draining, and the identity `FM-1_015`
 0.1 (sha256 `13035039…`) is the build that was tested on a unit, on 2026-10-18: ChoralRoot played from a Mac through
 the FM-1. 0.1.1 has passed the host tests: power cuts after every flash operation for V15 and ChoralRoot 0.25.1 both
 ways, plus both refusals of an oversized package. 0.1 is no longer offered here.
+
+0.1.1 on a unit, 2026-10-18:
+- **Installed with this page,** in Chrome, over 0.1. The update mode wrote for 30 s, and the unit came back
+  answering RemoteFM1 v0.1.1 with its own loader staged ("loader 1": the new loader replaced 0.1's at first boot).
+- **ChoralRoot 0.25.1 → RemoteFM1 0.1.1 → ChoralRoot 0.25.1** with `fm1_install.py`:
+  - ChoralRoot's boot stub reported "boot stub v3 … marker ok";
+  - ChoralRoot's stored data (128 user sounds, favourites, loops, settings) was identical before and after.
