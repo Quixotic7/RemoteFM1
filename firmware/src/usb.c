@@ -26,6 +26,7 @@
  *   USB_SYSEX_HOOK(b)   every SysEx byte (and a status byte that ends a SysEx), in usb_poll's context
  *   USB_EP1_ROOM()      0: leave the EP1 OUT packet for a later poll (NAK), checked before the MIDI ring's room
  *   USB_FRAME_DUE()     the 10 ms frame-number check is due (usb_poll may then run far more often than 2 kHz)
+ *   USB_CIN_F_SYSEX()   defined: a CIN 0xF byte inside a SysEx is taken as a SysEx byte (and this is called)
  *   SXQ                 the SysEx TX ring's size in events (64) */
 #include "../hal/fm1_usb.h"   /* registers; relative, so the loader and the host tests find it too */
 #ifndef FELUCCA_CDC
@@ -814,6 +815,17 @@ static void midi_in_event(uint32_t pkt)
             sysex_byte((uint8_t)(pkt >> (8u * (k + 1u))));
         return;
     }
+#ifdef USB_CIN_F_SYSEX
+    /* CIN 0xF, a single unparsed byte (USB-MIDI 1.0 section 4), inside a SysEx (or an F0 starting one) is a SysEx
+     * byte like those of CIN 4..7. macOS sends a long SysEx's odd byte at a split this way: dropped (rx_bad), it
+     * made M0's 2 KB and 8 KB SINK messages one byte short (tests/usb_midi_test.c). RemoteFM1 only: the update
+     * loader stays TransitFM1's, byte for byte */
+    if (cin == 0xFu && (st == 0xF0u || (usb.sx_on && (st < 0x80u || st == 0xF7u)))) {
+        USB_CIN_F_SYSEX();
+        sysex_byte((uint8_t)st);
+        return;
+    }
+#endif
     if (st >= 0x80u && st < 0xF8u) {                   /* channel / system common also ends a SysEx */
 #ifdef USB_SYSEX_HOOK
         USB_SYSEX_HOOK(st);
