@@ -279,12 +279,17 @@ int main(void)
     send_bk(RFM_HELLO, NULL, 0);
     CHECK(nout == 1 && out[0].t == RF_T_BK && out[0].cmd == RFM_HELLO_R && out[0].b[25] == 0xA0 + 25 + 1);
 
-    /* ---- outside a session: LEDS ignored, TILES decoded and acknowledged at once, nothing pushed */
+    /* ---- outside a session: LEDS ignored, TILES decoded and acknowledged at once, nothing pushed; the first
+     * FRAME_ACK since power-on says shadow reset (the device restarted), the next does not */
     nout = nleds = 0;
     memset(b, 0xFF, 45);
     send_sx(RFM_LEDS, b, 45);
     CHECK(nleds == 0 && nout == 0);
     n = tiles_fill(b, 7, 1, 0, 0, 16, 16, 0xF800);
+    send_sx(RFM_TILES, b, n);
+    CHECK(nout == 1);
+    check_ack(&out[0], RF_T_SX, 7, RFM_ACK_SHADOW_RESET, n, 0);
+    nout = 0;
     send_sx(RFM_TILES, b, n);
     CHECK(nout == 1);
     check_ack(&out[0], RF_T_SX, 7, 0, n, 0);

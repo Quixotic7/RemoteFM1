@@ -28,7 +28,8 @@
  *  - An encoder turned more than 63 detents between two reports goes out as several messages of at most 63.
  *  - FRAME_ACK pending: the frames ENDed but not yet acknowledged after this one. One push may cover several
  *    ENDs (they arrived while a push ran): each gets its own FRAME_ACK, in order, when that push is over.
- *  - The first FRAME_ACK after a session start carries "shadow reset" (bit1). */
+ *  - The first FRAME_ACK after a session start carries "shadow reset" (bit1), and so does the first after power-on,
+ *    in a session or not (the spec: "a new session, or the device restarted"). */
 #include "rfm_draw.h"
 #include "rfm_push.h"
 
@@ -90,6 +91,7 @@ static void rfm_app_init(uint16_t *fb, uint16_t *stage, uint32_t stage_px, const
     rfa.draw.ctx = &rfa.push;
     rfm_push_init(&rfa.push, fb, stage, stage_px, lcd);
     rfa.master = rfa.master_sent = -1;
+    rfa.shadow_reset = 1;                               /* the device restarted: a host's model is invalid */
 }
 
 static void rfa_wr16(uint8_t *p, uint32_t v)
