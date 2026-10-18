@@ -10,8 +10,8 @@
  * PANEL_R reconciles: PANEL_R wins. A control is corrected only if no MIDI event touched it in the last settle_ms
  * (PANEL_R travels on the session transport, the events on EP1: a PANEL_R may overtake an event still on its way);
  * an unsettled difference is left to the next PANEL_R. Encoders use the difference between counters (the first
- * PANEL_R after reset() only sets the baseline). MASTER is corrected by PANEL_R when it differs by >= 2 counts
- * (the unit sends MIDI only on a change of >= 2), or on the first PANEL_R. */
+ * PANEL_R after reset() only sets the baseline). MASTER is corrected by PANEL_R on any difference, 1 count too
+ * (the unit sends MIDI only on a change of >= 2: the last count of a move reaches the host only by PANEL_R). */
 #ifndef RFM_PANEL_H
 #define RFM_PANEL_H
 #include <stdint.h>

@@ -163,14 +163,16 @@ static void test_reconcile(void)
     r.enc[2] = -32766;
     rfm_panel_reconcile(&p, &r, 3700);
     CHECK(nev == 1 && last_is(RFM_EV_ENC, 2, 3, RFM_EVS_RESYNC));
-    /* MASTER: a 1-count difference is jitter (the unit sends >= 2), 2 is a change */
+    /* MASTER: PANEL_R wins, a 1-count move too (the unit's MIDI skips those: its dead band is 2) */
     nev = 0;
     r.master = 501;
     rfm_panel_reconcile(&p, &r, 4200);
-    CHECK(nev == 0);
-    r.master = 502;
+    CHECK(nev == 1 && last_is(RFM_EV_MASTER, 0, 501, RFM_EVS_RESYNC) && p.master == 501);
+    r.master = 503;
     rfm_panel_reconcile(&p, &r, 4700);
-    CHECK(nev == 1 && last_is(RFM_EV_MASTER, 0, 502, RFM_EVS_RESYNC));
+    CHECK(nev == 2 && last_is(RFM_EV_MASTER, 0, 503, RFM_EVS_RESYNC));
+    rfm_panel_reconcile(&p, &r, 4800);                  /* the same again: nothing */
+    CHECK(nev == 2);
     /* reset (a new session): the next PANEL_R is a baseline for the encoders */
     rfm_panel_reset(&p);
     nev = 0;

@@ -137,8 +137,9 @@ void rfm_panel_reconcile(rfm_panel_t *p, const rfm_panel_r_t *r, uint32_t now)
     }
     {
         uint32_t m = r->master > 1023u ? 1023u : r->master;
-        int32_t d = (int32_t)m - (int32_t)p->master;
-        if ((!p->have_master || first || d >= 2 || d <= -2) && m != p->master && settled(p, p->t_master, now)) {
+        /* PANEL_R wins (docs/PROTOCOL.md section 4), a 1-count move too: the unit's MIDI skips those (dead band
+         * of 2), so only PANEL_R can tell the host about them */
+        if (m != p->master && settled(p, p->t_master, now)) {
             p->master = (uint16_t)m;
             ev(p, RFM_EV_MASTER, 0, (int16_t)m, RFM_EVS_RESYNC);
         }
