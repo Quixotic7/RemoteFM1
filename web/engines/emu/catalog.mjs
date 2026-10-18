@@ -103,22 +103,12 @@ export async function fetchPackage(entry, fetchFn = fetch) {
 }
 
 // The visitor's own package (a File / Blob / ArrayBuffer / Uint8Array they opened). Says whether
-// it is M-VAVE's V15 (by the hash the Hub's catalog gives, when given one) and its product name.
-// Returns { bytes, sha256, stock: boolean, product: string | null }.
+// it is M-VAVE's V15 (by the hash the Hub's catalog gives; null when no catalog was given). Any FM-1
+// package boots the same way, so another file still runs. Returns { bytes, sha256, stock }.
 export async function stockFromFile(file, hub = null) {
   const bytes = file instanceof Uint8Array ? file
     : new Uint8Array(file.arrayBuffer ? await file.arrayBuffer() : file);
   const sha256 = await sha256hex(bytes);
   const known = hub?.stock?.sha256 ?? null;
-  return { bytes, sha256, stock: known ? sha256 === known : null, product: productOf(bytes) };
-}
-
-// The package's product string ("FM-1_015", "FM-1_916", ...): the first "FM-1_<digits>" in its
-// header area, or null. (Informational; the emulator boots any FM-1 package.)
-export function productOf(bytes) {
-  const n = Math.min(bytes.length, 4096);
-  let s = "";
-  for (let i = 0; i < n; i++) s += bytes[i] >= 32 && bytes[i] < 127 ? String.fromCharCode(bytes[i]) : " ";
-  const m = s.match(/FM-1_\d{3,9}/);
-  return m ? m[0] : null;
+  return { bytes, sha256, stock: known ? sha256 === known : null };
 }

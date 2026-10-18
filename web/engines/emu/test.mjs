@@ -189,7 +189,7 @@ for (const [id, version] of WANT) {
       if (!existsSync(STOCK)) { results.push({ id, ok: false, error: `no local ${STOCK}` }); continue; }
       const own = await stockFromFile(new Uint8Array(readFileSync(STOCK)), hub);
       fwsc = own.bytes;
-      entry.version = own.stock ? "V15" : own.product || "?";
+      entry.version = own.stock ? "V15" : "(not V15)";
     } else fwsc = await packageFor(entry);
     const r = await run(entry, fwsc);
     results.push(r);
