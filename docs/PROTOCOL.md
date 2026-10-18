@@ -43,8 +43,11 @@ One message = a command byte + a body (8-bit bytes, multi-byte fields **little e
 - **SESSION** (`0x10`, body: `start8 keepalive_ms16`).
   - `start = 1`: the host takes over. The device clears its screen and shadow to black (0x0000), turns all LEDs
     off, resets the frame numbering, sends **PANEL_R**, and from then on shows only what the host sends.
+  - A SESSION body shorter than 3 bytes means keepalive 0; an empty body is ignored.
   - `start = 0`: the session ends; the device goes back to its waiting screen.
-  - `keepalive_ms`: if no message of any kind arrives from the host for this long, the device ends the session by
+  - A SESSION start during a running session (a host retrying after a lost ACK) restarts the session: black
+    shadow, LEDs off, frame numbering reset.
+  - `keepalive_ms`: if no RemoteFM1 message of any kind (SINK included) arrives from the host for this long, the device ends the session by
     itself. 0 means never; a host normally uses 3000.
   - A USB reset or unplug also ends the session.
   - Reply: **ACK** (`0x46`, empty).
@@ -89,6 +92,9 @@ drops the rest of that message, still honours END if it was set, and reports the
 **Flow control.** The host keeps at most `max_frames_in_flight` (2) frames sent but not acknowledged. The device must
 keep servicing USB while it pushes pixels (the SPI DMA runs in the background; the main loop keeps polling USB).
 
+**Outside a session** the device decodes TILES into its shadow and acknowledges them, but doesn't push them (the
+waiting screen stays), and it ignores LEDS.
+
 **After the device resets or a session starts,** the host's model of the screen is all black, and the host sends
 what differs.
 
@@ -100,7 +106,7 @@ what differs.
 |---|---|
 | note key `k` (0..26, matrix id `14 + k`, `emu_hal_t.keys` bit `k`; key 0 = F3) | Note On `9F 53+k 100` / Note Off `8F 53+k 0` (channel 16) |
 | button `b` (matrix id 0..13, `emu_hal_t.buttons` bit `b`: 0 OCT-, 1 OCT+, 2 FX, 3 SEL, 4 ENV, 5 LFO, 6 EDIT, 7 GLO, 8 HOME, 9 SAVE, 10 ARP, 11 SEQ, 12 PLAY, 13 REC) | Note On `9E b 127` / Note Off `8E b 0` (channel 15) |
-| matrix encoder `e` (0..6, `emu_hal_t.enc[e]`, + clockwise) | `BE 16+e 64+d`, with `d` the detents since the last report, clamped to −63..+63, never 0 |
+| matrix encoder `e` (0..6, `emu_hal_t.enc[e]`, + clockwise) | `BE 16+e 64+d`, with `d` the detents since the last report, never 0; a turn of more than 63 detents is **split** into several messages of at most ±63, so nothing is lost. Deltas are in matrix sense: `emu_hal_t.enc[e]` moves by exactly `d` |
 | MASTER pot (ADC 0..1023, `emu_hal_t.master`) | `BE 07 v14>>7` then `BE 27 v14&0x7F`, with `v14 = adc << 4`. Sent on a change of ≥ 2 counts, at most every 5 ms, and always when a session starts |
 
 - Events go out in the order they were detected, with no batching delay.
@@ -115,7 +121,7 @@ Body:
 | 0 | `keys32` |
 | 4 | `buttons16` |
 | 6 | `enc[7]` (int16, absolute detent counters since boot, wrapping) |
-| 20 | `master16` |
+| 20 | `master16`: the ADC value 0..1023 (not v14), exact. The host takes it even inside the MIDI deadband |
 | 22 | `battery_mv16` (0 = unknown) |
 | 24 | `flags8` (bit0 session active) |
 
@@ -123,6 +129,8 @@ Length `RFM_PANEL_LEN` = 25.
 
 - Sent on PANEL_REQ (`0x13`, empty body), when a session starts, and every 500 ms during a session, on the session's
   transport.
+- Every 500 ms is also the host's heartbeat: no PANEL_R for about 1.6 s, or one without the session flag, means
+  the session is gone.
 - A host that sees a PANEL_R disagree with what the events told it believes PANEL_R. For encoders it uses the
   difference between counters.
 
@@ -130,11 +138,18 @@ Length `RFM_PANEL_LEN` = 25.
 
 Body: `frame16 status8 draw_us32 bytes32 pending8`.
 
-- `status` bit0: a decode error in this frame. bit1: the shadow was reset (a new session, or the device restarted),
-  so the host's model is invalid and the host sends a full frame.
-- `draw_us`: decode plus push time. `bytes`: the frame's body bytes received. `pending`: frames the device has
-  queued.
+- `status` bit0: a decode error in this frame. Malformed input includes bytes after the last rectangle and a PAL
+  index ≥ n. A TILES body too short to carry a frame number gets no ACK, and the next FRAME_ACK has bit0 set.
+- `status` bit1: the shadow was reset. It is set on the first FRAME_ACK after a session start **and** on the first
+  FRAME_ACK after power-on, in a session or not. The host's model is then invalid, and the host sends a full frame.
+- `draw_us`: decode plus push time.
+- `bytes`: the sum of that frame's TILES body lengths, headers included.
+- `pending`: ENDs still queued after this one. One push may cover several ENDs; each still gets its own ACK, in
+  order.
 - Length `RFM_ACK_LEN` = 12.
+
+Idea for a later version, not in protocol 2: FRAME_ACK status bit2 "no session", so a host notices a lost session
+at once instead of through the heartbeat.
 
 ## 5. Kept from M0 (diagnostics)
 
