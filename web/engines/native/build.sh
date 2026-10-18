@@ -118,7 +118,7 @@ for e in "${sel[@]}"; do
             --enable-mutable-globals --asyncify --pass-arg=asyncify-imports@env.fm1w_co_yield \
             "$FM1WEB_OPT" -o "$OUT/$id.wasm"
     fi
-    size=$(stat -f %z "$OUT/$id.wasm" 2>/dev/null || stat -c %s "$OUT/$id.wasm")
+    size=$(wc -c < "$OUT/$id.wasm" | tr -d ' ')     # (GNU stat -f is the filesystem's status, not a format)
     ver=$(grep -E "^-- $id core: version" "$BLD/configure.log" | sed -E 's/.*version ([^,]*),.*/\1/' || true)
     commit=$(git -C "$FM1VST_DIR/cores/$tree" rev-parse HEAD)
     printf '  %s.wasm  %d bytes\n' "$id" "$size"
