@@ -254,3 +254,11 @@ stub, sector 0x4000 and loader `68599862…` unchanged):
   - `fm1remote --device --core choralroot` (FM1VST's 2026-10-08 core, fresh flash), 120 s: the session up, ChoralRoot's
     boot screen in 1,250 B, nothing sent while it is still, no errors, flash saved on exit. **Input not tested yet**
     (nobody at the unit): next run with the owner playing.
+  - **Second ChoralRoot run, the owner playing (120 s): "Screen is good, input good".** 302 panel messages on the
+    port (a second CoreMIDI client listened beside fm1remote): all 14 buttons, all 7 encoders (every detent arrived),
+    11 different keys; 294 input events reached the core, its screen and LEDs followed (up to ~13 fps while
+    playing, ~1.3 KB per frame, ACK ≤ 68 ms, no errors). MASTER sat at its minimum (0) during the run; read
+    afterwards with PANEL_REQ it gave 528 at about half way, so the pot reads correctly.
+  - **M1 done.** Open: MIDI CC 7/39 from a MASTER move not watched live on the unit (covered by the host and cross
+    tests); battery mV not calibrated (0, cap off); Felucca / Melodee and `--transport midi` not run on the unit yet;
+    key-to-sound latency not measured.
