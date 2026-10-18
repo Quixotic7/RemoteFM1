@@ -8,8 +8,8 @@
   tools/m0_bench.py --selftest          the codec against firmware/src/remote_proto.h's golden vector (no MIDI)
 
 It opens the MIDI port whose name contains --port, sends HELLO and goes on only if the unit answers as
-"RemoteFM1-M0" (another firmware ignores the message: the tool then says so and exits with 2, having sent nothing
-else). Then:
+"RemoteFM1" (M1, protocol 2: M0's diagnostics are kept) or "RemoteFM1-M0" (another firmware ignores the message:
+the tool then says so and exits with 2, having sent nothing else). Then:
   sink    SINK messages of each size for --seconds; the host's rate, and what STATS says arrived (gaps, checksum
           errors, bytes dropped); flow control: a STATS round trip every window, at most two windows in flight
   source  SOURCE of each size for --seconds (stopped with a HELLO): the rate received, sequence gaps, bad sums
@@ -27,7 +27,8 @@ import struct
 import sys
 import time
 
-NAME = b"RemoteFM1-M0"
+NAME = b"RemoteFM1"                      # M1 (proto 2); M0 answered NAMES[1] (proto 1)
+NAMES = (NAME, b"RemoteFM1-M0")
 SX_HEAD = bytes([0xF0, 0x7D, 0x52, 0x46])
 HELLO, SINK, SOURCE, ECHO, STATS, STATS_RESET, BLIT_BENCH, TILE = range(1, 9)
 HELLO_R, DATA, ECHO_R, STATS_R, ACK, BLIT_R, SOURCE_DONE = 0x41, 0x43, 0x44, 0x45, 0x46, 0x47, 0x50
@@ -37,7 +38,8 @@ sx_t_first sx_t_last
 bk_rx_msgs bk_sink_msgs bk_sink_bytes bk_gaps bk_lost bk_chk bk_bad bk_ovf bk_held bk_tx_msgs bk_tx_bytes
 bk_t_first bk_t_last bk_sync bk_frame_gaps
 polls_main_ps polls_isr_ps usb_permille loops_ps usb_resets usb_setups ep1_rx ep1_tx ep3_rx ep3_tx
-tiles tile_bytes midi_in_dropped lcd_timeouts src_us sx_rx_ps sx_tx_ps bk_rx_ps bk_tx_ps""".split()
+tiles tile_bytes midi_in_dropped lcd_timeouts src_us sx_rx_ps sx_tx_ps bk_rx_ps bk_tx_ps
+usb_cinf usb_rx_bad loop_max_us frames decode_errs push_us_last push_us_max sessions""".split()
 
 
 # ------------------------------------------------------------- codec ---
@@ -80,14 +82,19 @@ def rf_sum(b):
 
 
 def parse_hello(b):
-    if len(b) < 51 or not b.startswith(NAME):
+    if len(b) < 51 or b[:16].rstrip(b"\0") not in NAMES:
         return None
     sxq, rxr, txr, sxm, bkm = struct.unpack_from("<HIIHH", b, 29)
-    return {"name": b[:16].rstrip(b"\0").decode(), "proto": b[16], "version": b[17:25].rstrip(b"\0").decode(),
-            "transports": b[25], "usb_configured": bool(b[25] & 1), "bulk_built": bool(b[25] & 2),
-            "usb_mode": b[26], "lcd_baud": b[27], "loader_state": struct.unpack_from("b", b, 28)[0],
-            "sxq": sxq, "bk_rx_ring": rxr, "bk_tx_ring": txr, "sx_body_max": sxm, "bk_body_max": bkm,
-            "identity": b[43:51].rstrip(b"\0").decode()}
+    h = {"name": b[:16].rstrip(b"\0").decode(), "proto": b[16], "version": b[17:25].rstrip(b"\0").decode(),
+         "transports": b[25], "usb_configured": bool(b[25] & 1), "bulk_built": bool(b[25] & 2),
+         "usb_mode": b[26], "lcd_baud": b[27], "loader_state": struct.unpack_from("b", b, 28)[0],
+         "sxq": sxq, "bk_rx_ring": rxr, "bk_tx_ring": txr, "sx_body_max": sxm, "bk_body_max": bkm,
+         "identity": b[43:51].rstrip(b"\0").decode()}
+    if len(b) >= 67:                    # proto 2 (docs/PROTOCOL.md section 2)
+        w, hh, caps = struct.unpack_from("<HHH", b, 51)
+        h.update({"screen": [w, hh], "caps": caps, "frames_in_flight": b[57], "session": b[58],
+                  "fw_ver": b[59:67].rstrip(b"\0").decode()})
+    return h
 
 
 def parse_stats(b):
@@ -115,6 +122,14 @@ def selftest():
         assert len(p) == n + (n + 6) // 7 and all(x < 0x80 for x in p)
         assert unpack7(p) == b
         assert sx_decode(sx_encode(SINK, b)) == (SINK, b)
+    h = bytearray(67)                   # a proto 2 HELLO_R (docs/PROTOCOL.md section 2)
+    h[:9], h[16], h[43:51] = NAME, 2, b"FM-1_015"
+    struct.pack_into("<HHHBB", h, 51, 240, 240, 0x2F, 2, 1)
+    h[59:62] = b"0.1"
+    ph = parse_hello(bytes(h))
+    assert ph and ph["proto"] == 2 and ph["screen"] == [240, 240] and ph["caps"] == 0x2F and ph["session"] == 1
+    assert ph["fw_ver"] == "0.1" and parse_hello(b"RemoteFM1-M0" + bytes(39))["name"] == "RemoteFM1-M0"
+    assert parse_hello(b"RemoteFM1-XX" + bytes(39)) is None
     assert rf_sum(b"\x01\x02") == 4 and rf_sum(b"\xff" * 40) == rf_sum(bytes([0xff] * 40))
     print("m0_bench selftest ok")
 
@@ -264,7 +279,8 @@ def test_sink(link, size, secs, window=32768):
             "arrived_msgs": st["sx_sink_msgs"], "arrived_bytes": st["sx_sink_bytes"],
             "dev_kBps": round(st["sx_sink_bytes"] / dev_ms * 1000 / 1024, 1), "gaps": st["sx_gaps"],
             "lost": st["sx_lost"], "chk_err": st["sx_chk"], "bad": st["sx_bad"], "ovf": st["sx_ovf"],
-            "held": st["sx_held"], "polls_main_ps": st["polls_main_ps"], "usb_permille": st["usb_permille"]}
+            "held": st["sx_held"], "polls_main_ps": st["polls_main_ps"], "usb_permille": st["usb_permille"],
+            "cin_f": st.get("usb_cinf"), "usb_rx_bad": st.get("usb_rx_bad")}
 
 
 def test_source(link, size, secs):
@@ -410,7 +426,7 @@ def main():
                 break
     if not hello:
         link.close()
-        print("m0_bench: no RemoteFM1-M0 answer on this port: the unit runs another firmware (or none). "
+        print("m0_bench: no RemoteFM1 answer on this port: the unit runs another firmware (or none). "
               "Nothing else was sent.")
         return 2
     print(f"HELLO  {hello['name']} v{hello['version']}  proto {hello['proto']}  identity {hello['identity']}  "
@@ -421,7 +437,7 @@ def main():
             print(f"\nSINK host -> device, {a.seconds:g} s each (KB = 1024 B of payload)")
             res["sink"] = [test_sink(link, s, a.seconds) for s in sizes]
             table(res["sink"], ["size", "msgs_sent", "host_kBps", "dev_kBps", "arrived_bytes", "gaps", "chk_err",
-                                "bad", "ovf", "held", "polls_main_ps", "usb_permille", "error"])
+                                "bad", "ovf", "held", "cin_f", "polls_main_ps", "usb_permille", "error"])
         if "source" in only:
             print(f"\nSOURCE device -> host, {a.seconds:g} s each")
             res["source"] = [test_source(link, s, a.seconds) for s in sizes]

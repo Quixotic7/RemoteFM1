@@ -26,8 +26,8 @@
 </head>
 <body>
 <h1>RemoteFM1 M0 bench</h1>
-<p>SysEx over Web MIDI and vendor bulk over WebUSB, against a unit running RemoteFM1-M0. The unit must answer HELLO
-  as RemoteFM1-M0 before any other test runs.</p>
+<p>SysEx over Web MIDI and vendor bulk over WebUSB, against a unit running RemoteFM1 (M1, protocol 2, which keeps
+  M0's bench commands) or RemoteFM1-M0. The unit must answer HELLO as one of them before any other test runs.</p>
 <fieldset>
   <label>MIDI port <input type="text" id="port" value="FM-1"></label>
   <label>seconds <input type="number" id="secs" value="5" min="1" max="30" style="width:5ch"></label>
@@ -50,7 +50,8 @@ sx_t_first sx_t_last
 bk_rx_msgs bk_sink_msgs bk_sink_bytes bk_gaps bk_lost bk_chk bk_bad bk_ovf bk_held bk_tx_msgs bk_tx_bytes
 bk_t_first bk_t_last bk_sync bk_frame_gaps
 polls_main_ps polls_isr_ps usb_permille loops_ps usb_resets usb_setups ep1_rx ep1_tx ep3_rx ep3_tx
-tiles tile_bytes midi_in_dropped lcd_timeouts src_us sx_rx_ps sx_tx_ps bk_rx_ps bk_tx_ps`.split(/\s+/);
+tiles tile_bytes midi_in_dropped lcd_timeouts src_us sx_rx_ps sx_tx_ps bk_rx_ps bk_tx_ps
+usb_cinf usb_rx_bad loop_max_us frames decode_errs push_us_last push_us_max sessions`.split(/\s+/);
 const HDR = 10;
 
 function pack7(b) {
@@ -118,7 +119,7 @@ const u32 = (b, o) => new DataView(b.buffer, b.byteOffset).getUint32(o, true);
 function le32(v) { const b = new Uint8Array(4); new DataView(b.buffer).setUint32(0, v >>> 0, true); return b; }
 function parseHello(b) {
   const td = new TextDecoder(), s = (a, n) => td.decode(b.subarray(a, a + n)).replace(/\0+$/, "");
-  if (b.length < 51 || s(0, 16) !== "RemoteFM1-M0") return null;
+  if (b.length < 51 || (s(0, 16) !== "RemoteFM1" && s(0, 16) !== "RemoteFM1-M0")) return null;
   const dv = new DataView(b.buffer, b.byteOffset);
   return { name: s(0, 16), proto: b[16], version: s(17, 8), transports: b[25], usb_mode: b[26], lcd_baud: b[27],
            loader_state: dv.getInt8(28), identity: s(43, 8) };
@@ -220,7 +221,7 @@ async function runMidi() {
   await sleep(300);
   log(`port ${inp.name}`);
   const hello = await link.hello();
-  if (!hello) { log("no RemoteFM1-M0 answer: the unit runs another firmware (or none). Nothing else was sent.", true); return; }
+  if (!hello) { log("no RemoteFM1 answer: the unit runs another firmware (or none). Nothing else was sent.", true); return; }
   log(`HELLO  ${hello.name} v${hello.version}  identity ${hello.identity}  usb mode ${hello.usb_mode}  loader ${hello.loader_state}`);
   const secs = +val("secs"), R = results.midi = { port: inp.name, hello, sink: [], source: [] };
 
@@ -319,7 +320,7 @@ async function runUsb() {
   try {
     log(`interface ${itf.interfaceNumber}, EP OUT ${epOut}, EP IN ${epIn}`);
     const hello = await link.hello();
-    if (!hello) { log("no RemoteFM1-M0 answer over bulk", true); return; }
+    if (!hello) { log("no RemoteFM1 answer over bulk", true); return; }
     log(`HELLO  ${hello.name} v${hello.version}  identity ${hello.identity}  usb mode ${hello.usb_mode}`);
     const secs = +val("secs"), R = results.usb = { hello, depth, sink: [], source: [] };
 

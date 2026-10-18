@@ -227,7 +227,7 @@ def build_stub():
 
 def build_app(stub):
     flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-Ifirmware/gen", "-Ibuild/gen", f'-DFELUCCA_ID="{PRODUCT}"',
-             f'-DAPP_VER="{VERSION or "0.0"}"'] + ([f"-DREMOTE_USB_MAINLOOP={USB_MODE}"] if USB_MODE is not None else [])
+             f'-DAPP_VER="{VERSION or ("0.1" if UNIT.startswith("remote") else "0.0")}"'] + ([f"-DREMOTE_USB_MAINLOOP={USB_MODE}"] if USB_MODE is not None else [])
     cmds = [("cc", "-c", FW / "crt0.S", "-o", OUT / "crt0.o"),
             ("cc", "-c", FW / "hal" / "fm1_vec.S", "-o", OUT / "fm1_vec.o"),
             ("cc", "-c", FW / "hal" / "fm1_isr.S", "-o", OUT / "fm1_isr.o"),

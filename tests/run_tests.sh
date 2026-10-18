@@ -1,7 +1,8 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-only
 # The host tests of TransitFM1's update path (docs/SAFETY.md), on the device build's outputs, and of RemoteFM1's
-# bench protocol. Run ./build.sh first.
+# protocol: M0's framing, the TILES decoder and the push, the protocol layer in a scripted session, usb.c's SysEx
+# parsing. Run ./build.sh first.
 #   tests/run_tests.sh
 #   UNIT=transit                 test build/transit.* (./build.sh --unit transit) instead of build/remote.*
 #   V15_PKG=path/FM-1.fwsc   also: TransitFM1 -> the official V15 and back (M-VAVE's file; not in this tree)
@@ -52,6 +53,17 @@ echo "== RemoteFM1's bench protocol (firmware/src/remote_proto.h; tools/m0_bench
 $CC $SAN -Ifirmware/src -o "$H/proto_test" tests/proto_test.c
 "$H/proto_test"
 python3 tools/m0_bench.py --selftest
+echo "== the TILES decoder and the screen push (firmware/src/rfm_draw.c, rfm_push.c)"
+$CC $SAN -o "$H/rfm_draw_test" tests/rfm_draw_test.c
+"$H/rfm_draw_test"
+echo "== the protocol layer: a scripted session from both transports (firmware/src/rfm_app.c)"
+$CC $SAN -o "$H/session_test" tests/session_test.c
+"$H/session_test"
+echo "== usb.c's EP1 parser and long SysEx: M0's lost byte (CIN 0xF), TransitFM1's parser and RemoteFM1's"
+$CC $SAN -Wno-int-to-pointer-cast -o "$H/usb_midi_test" tests/usb_midi_test.c
+"$H/usb_midi_test"
+$CC $SAN -Wno-int-to-pointer-cast -DWITH_CIN_F -o "$H/usb_midi_test_rf" tests/usb_midi_test.c
+"$H/usb_midi_test_rf"
 if [ -f /opt/homebrew/include/libusb-1.0/libusb.h ]; then
     echo "== tools/m0_bulk.c builds (not run: it would open the unit)"
     cc -std=c99 -O2 -Wall -Wextra -Ifirmware/src -I/opt/homebrew/include/libusb-1.0 -o "$H/m0_bulk" tools/m0_bulk.c \

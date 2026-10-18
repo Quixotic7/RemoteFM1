@@ -8,7 +8,8 @@
  *
  * It finds 1209:0001 with an interface of class 0xFF (RemoteFM1's; another firmware has none: it says so and
  * exits with 2), claims that interface only (the MIDI interfaces stay with the system: no configuration change,
- * no reset, no kernel driver detached), sends HELLO and goes on only if the answer is "RemoteFM1-M0". Then:
+ * no reset, no kernel driver detached), sends HELLO and goes on only if the answer is "RemoteFM1" (M1) or
+ * "RemoteFM1-M0". Then:
  *   sink    SINK frames, one per transfer of each size (10-byte header + seq + data + sum), --depth transfers in
  *           flight, for --seconds; then STATS: what arrived, gaps, bad sums
  *   source  SOURCE (messages of min(size, 16402) - 18 data bytes) read with transfers of each size, --depth in
@@ -143,6 +144,17 @@ static int get_stats(void)
     for (uint32_t i = 0; i < mbox.body[0] && 1 + 4 * i + 4 <= mbox.len && i < RF_ST_N + 16; i++)
         stv[i] = rf_rd32(mbox.body + 1 + 4 * i);
     return 0;
+}
+
+/* HELLO_R's name: RemoteFM1 (M1, proto 2) or M0's RemoteFM1-M0 */
+static int hello_ok(const uint8_t *h, uint32_t n)
+{
+    char name[17];
+    if (n < RF_HELLO_LEN)
+        return 0;
+    memcpy(name, h, 16);
+    name[16] = 0;
+    return !strcmp(name, RF_NAME) || !strcmp(name, "RemoteFM1-M0");
 }
 
 static int reset_stats(void) { return send_frame(RF_STATS_RESET, NULL, 0) || !wait_reply(RF_ACK, 3.0) ? -1 : 0; }
@@ -496,9 +508,8 @@ int main(int argc, char **argv)
         while (!libusb_bulk_transfer(dev, ep_in, junk, sizeof junk, &got, 100) && got > 0)
             ;                                           /* whatever an earlier run left */
     }
-    if (send_frame(RF_HELLO, NULL, 0) || !wait_reply(RF_HELLO_R, 1.5) || mbox.len < RF_HELLO_LEN ||
-        memcmp(mbox.body, RF_NAME, sizeof RF_NAME - 1)) {
-        fprintf(stderr, "m0_bulk: no RemoteFM1-M0 answer over bulk\n");
+    if (send_frame(RF_HELLO, NULL, 0) || !wait_reply(RF_HELLO_R, 1.5) || !hello_ok(mbox.body, mbox.len)) {
+        fprintf(stderr, "m0_bulk: no RemoteFM1 answer over bulk\n");
         rc = 2;
         goto done;
     }

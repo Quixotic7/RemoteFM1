@@ -18,15 +18,18 @@
  *   STATS       ()                         -> STATS_R   n8, n x u32 (RF_ST_* order)
  *   STATS_RESET ()                         -> ACK
  *   BLIT_BENCH  baud8[] (none: 4, 2)       -> BLIT_R    n8, n x (baud8 full_us32 tiles_us32 strips_us32)
- *   TILE        x8 y8 w8 h8 px[w*h*2]      -> nothing: drawn at once (px RGB565 big endian, as the panel takes it)
+ *   TILE        x8 y8 w8 h8 px[w*h*2]      -> nothing: drawn at once (px RGB565 big endian, as the panel takes it;
+ *                                             M1: into the shadow, then pushed)
+ * Protocol 2 (M1) keeps all of these as diagnostics and adds the session, LED, screen and panel messages:
+ * docs/PROTOCOL.md, proto/rfm1.h.
  * DATA's data[i] = (uint8_t)(seq * 7 + i); sum32 = rf_sum over data[] only. */
 #ifndef REMOTE_PROTO_H
 #define REMOTE_PROTO_H
 #include <stdint.h>
 
 #define RF_FN static __attribute__((unused))     /* (not every includer uses every helper) */
-#define RF_NAME "RemoteFM1-M0"
-#define RF_PROTO 1
+#define RF_NAME "RemoteFM1"          /* M1 (proto 2, docs/PROTOCOL.md, proto/rfm1.h); M0 answered "RemoteFM1-M0", 1 */
+#define RF_PROTO 2
 #define RF_SX_ID0 0x7Du
 #define RF_SX_ID1 0x52u
 #define RF_SX_ID2 0x46u
@@ -34,7 +37,7 @@
 #define RF_VID 0x1209u
 #define RF_PID 0x0001u
 #define RF_SX_BODY_MAX 1024u        /* collected (non-SINK) body over SysEx: TILE 16 x 16, ECHO */
-#define RF_BK_BODY_MAX 8192u        /* over bulk: TILE up to a 240 x 16 strip */
+#define RF_BK_BODY_MAX 16384u       /* over bulk (M0: 8192; proto 2: RFM_BK_BODY_MAX) */
 #define RF_SX_SRC_MAX 8192u         /* SOURCE msg_len limits */
 #define RF_BK_SRC_MAX 16384u
 
@@ -47,9 +50,9 @@ enum {
 };
 enum { RF_T_SX = 0, RF_T_BK = 1 };
 
-/* HELLO_R body, 51 bytes: */
+/* HELLO_R body, M0's 51 bytes (proto 2 adds 16 more: proto/rfm1.h RFM_HELLO_*): */
 #define RF_HELLO_LEN 51u
-/*  0 name[16] "RemoteFM1-M0"       16 proto8         17 ver[8] (APP_VER)   25 transports8 (bit0 USB configured,
+/*  0 name[16] "RemoteFM1"          16 proto8         17 ver[8] (APP_VER)   25 transports8 (bit0 USB configured,
  *  bit1 vendor bulk built in, bit2 SysEx heard, bit3 bulk heard)          26 usb_mode8 (REMOTE_USB_MAINLOOP)
  * 27 lcd_baud8   28 loader_state (int8)   29 sxq16 (SysEx TX events)   31 bk_rx_ring32   35 bk_tx_ring32
  * 39 sx_body_max16   41 bk_body_max16   43 identity[8] ("FM-1_015") */
@@ -66,6 +69,11 @@ enum {
     RF_ST_USB_RESETS, RF_ST_USB_SETUPS, RF_ST_EP1_RX, RF_ST_EP1_TX, RF_ST_EP3_RX, RF_ST_EP3_TX,
     RF_ST_TILES, RF_ST_TILE_BYTES, RF_ST_MIDI_IN_DROPPED, RF_ST_LCD_TIMEOUTS, RF_ST_SRC_US,
     RF_ST_SX_RX_PS, RF_ST_SX_TX_PS, RF_ST_BK_RX_PS, RF_ST_BK_TX_PS,
+    /* M1 (appended: STATS_R's n8 says how many a device sends) */
+    RF_ST_USB_CINF,                 /* CIN 0xF bytes taken into a SysEx (usb.c USB_CIN_F_SYSEX) */
+    RF_ST_USB_RX_BAD,               /* malformed USB-MIDI events ignored */
+    RF_ST_LOOP_MAX_US,              /* the longest main loop pass (outside an update session) */
+    RF_ST_FRAMES, RF_ST_DECODE_ERRS, RF_ST_PUSH_US_LAST, RF_ST_PUSH_US_MAX, RF_ST_SESSIONS,
     RF_ST_N
 };
 

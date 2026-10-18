@@ -71,14 +71,16 @@ def main():
         if cmd == m.HELLO:
             if src["on"]:
                 source_done()
-            h = bytearray(51)
-            h[:12] = m.NAME
-            h[16] = 1
+            h = bytearray(67)
+            h[:len(m.NAME)] = m.NAME
+            h[16] = 2
+            struct.pack_into("<HHHBB", h, 51, 240, 240, 0x2F, 2, 0)
+            h[59:62] = b"sim"
             h[17:20] = b"sim"
             h[25] = 3
             h[26] = 1
             h[27] = 4
-            struct.pack_into("<HIIHH", h, 29, 3584, 32768, 32768, 1024, 8192)
+            struct.pack_into("<HIIHH", h, 29, 3584, 32768, 32768, 1024, 16384)
             h[43:51] = b"FM-1_015"
             send(m.HELLO_R, bytes(h))
         elif cmd == m.SOURCE:
