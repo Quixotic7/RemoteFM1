@@ -246,3 +246,11 @@ stub, sector 0x4000 and loader `68599862…` unchanged):
 - The unit ran the m1-device build (496808d2…) briefly: HELLO, SysEx fix, blit OK. The owner then took it for
   TransitFM1 tests. Next: flash `m1` (13035039…) and run `fm1remote --device --port FM-1 --stats` (first `--pattern`,
   then ChoralRoot, then `--transport midi`, Felucca, Melodee); input latency by hand.
+- **2026-10-18, first live runs** (`m1` 13035039… on 5BD75BE3, installed over TransitFM1 0.1.3; RemoteFM1 re-staged its
+  own loader at first boot from RAM, HELLO "loader 1"; the XIP fix works on hardware):
+  - `fm1remote --device --pattern`: bulk + MIDI found by HELLO at once; 20.0 fps sent. UI pattern 360–480 B per
+    frame, ACK 4–11 ms. Full-screen gradient animation ~35 KB per frame at the bulk limit, ACK ~96 ms, 2 in flight,
+    the oldest-first catch-up working. Clean start / stop.
+  - `fm1remote --device --core choralroot` (FM1VST's 2026-10-08 core, fresh flash), 120 s: the session up, ChoralRoot's
+    boot screen in 1,250 B, nothing sent while it is still, no errors, flash saved on exit. **Input not tested yet**
+    (nobody at the unit): next run with the owner playing.
