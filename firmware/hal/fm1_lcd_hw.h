@@ -8,6 +8,7 @@
  *   fm1_lcd_send_cmd(c)        D/C low, CS low, one byte (then fm1_lcd_wait)
  *   fm1_lcd_send_data(p, n)    D/C high, CS low, DMA n bytes from RAM p
  *   fm1_lcd_wait()             SPI done (or timeout, counted), pending cleared
+ *   fm1_lcd_done()             the running transfer is over (a look, no wait, nothing cleared)
  *   fm1_lcd_deselect()         CS high
  */
 #pragma once
@@ -55,6 +56,8 @@ static void fm1_lcd_wait(void)
         fm1_lcd_timeouts++;
     FM1_LCD_SPI_CON |= 0x4000u;
 }
+
+FM1_INLINE uint32_t fm1_lcd_done(void) { return FM1_LCD_SPI_CON & 0x8000u; }   /* the transfer is over (no wait) */
 
 FM1_INLINE void fm1_lcd_deselect(void) { FM1_LCD_PC_OUT |= FM1_LCD_CS; }
 

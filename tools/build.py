@@ -55,7 +55,8 @@ SDK_SHA256 = {
 
 PRODUCT = "FM-1_015"                # the official V15's identity: every installer writes over TransitFM1 as over stock
 VERSION = None                      # APP_VER for release builds
-UNIT = "transit"                    # firmware/src/UNIT.c; build/UNIT.{bin,elf,dis,fwsc}
+UNIT = "remote"                     # firmware/src/UNIT.c; build/UNIT.{bin,elf,dis,fwsc} (--unit transit: TransitFM1)
+USB_MODE = None                     # RemoteFM1: REMOTE_USB_MAINLOOP (remote.c; None = its default, 1)
 
 
 def toolchain():
@@ -226,11 +227,11 @@ def build_stub():
 
 def build_app(stub):
     flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-Ifirmware/gen", "-Ibuild/gen", f'-DFELUCCA_ID="{PRODUCT}"',
-             f'-DAPP_VER="{VERSION or "0.0"}"']
+             f'-DAPP_VER="{VERSION or "0.0"}"'] + ([f"-DREMOTE_USB_MAINLOOP={USB_MODE}"] if USB_MODE is not None else [])
     cmds = [("cc", "-c", FW / "crt0.S", "-o", OUT / "crt0.o"),
             ("cc", "-c", FW / "hal" / "fm1_vec.S", "-o", OUT / "fm1_vec.o"),
             ("cc", "-c", FW / "hal" / "fm1_isr.S", "-o", OUT / "fm1_isr.o"),
-            ("cc", *flags, "-c", FW / "src" / f"{UNIT}.c", "-o", OUT / f"{UNIT}.o")]
+            ("cc", *flags, "-c", FW / "src" / f"{UNIT.split('-')[0]}.c", "-o", OUT / f"{UNIT}.o")]
     tc_all(*cmds)
     elf = OUT / f"{UNIT}.elf"
     tc("pi32v2/bin/ld", "--gc-sections", "-e", "_start", "-T", FW / "app.ld", OUT / "crt0.o", OUT / "fm1_vec.o",
@@ -343,11 +344,22 @@ def mmio_check():
 
 
 def main():
-    global PRODUCT, VERSION
+    global PRODUCT, VERSION, UNIT, USB_MODE
     ap = argparse.ArgumentParser()
+    ap.add_argument("--unit", default=UNIT, choices=["remote", "transit"], help="the app: remote (RemoteFM1, the "
+                    "default) or transit (TransitFM1 as it was)")
+    ap.add_argument("--usb-mode", type=int, choices=[0, 1, 2], help="RemoteFM1's USB service (remote.c): 0 the "
+                    "TIMER5 ISR at 2 kHz (TransitFM1's), 1 the main loop (the default), 2 the ISR at 10 kHz; the "
+                    "package is then named remote-usbN")
     ap.add_argument("--release", metavar="X.Y", help="release build: the version string X.Y (the identity stays FM-1_015)")
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
     a = ap.parse_args()
+    UNIT = a.unit
+    if a.usb_mode is not None:
+        if UNIT != "remote":
+            raise SystemExit("--usb-mode is RemoteFM1's")
+        USB_MODE = a.usb_mode
+        UNIT = f"remote-usb{a.usb_mode}"
     name = f"{UNIT}.fwsc"
     if a.release:
         if not re.fullmatch(r"\d+\.\d+(\.\d+)?(-[A-Za-z0-9.]+)?", a.release):

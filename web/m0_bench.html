@@ -1,0 +1,413 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only. Copyright (C) 2026 RemoteFM1 contributors -->
+<!-- RemoteFM1 M0 bench in Chrome: the SysEx tests over Web MIDI and the bulk tests over WebUSB, the same table as
+     tools/m0_bench.py and tools/m0_bulk.c. Serve it from localhost (Web MIDI SysEx and WebUSB need a secure
+     context): python3 -m http.server 8000 -d web, then http://localhost:8000/m0_bench.html in Chrome or Edge.
+     The protocol is firmware/src/remote_proto.h; keep the codec below in step with it. No external scripts. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RemoteFM1 M0 Bench</title>
+<style>
+  :root { --bg: #fff; --fg: #111; --dim: #666; --line: #ddd; --acc: #1769c2; --bad: #c0392b; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #111; --fg: #eee; --dim: #999; --line: #333; --acc: #78c8ff; --bad: #ff6a50; } }
+  body { background: var(--bg); color: var(--fg); font: 14px/1.4 system-ui, sans-serif; margin: 0; padding: 16px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  p { color: var(--dim); margin: 0 0 12px; max-width: 70ch; }
+  fieldset { border: 1px solid var(--line); border-radius: 6px; margin: 0 0 12px; padding: 8px 12px; }
+  label { margin-right: 12px; }
+  input[type=text] { width: 16ch; }
+  button { margin: 4px 6px 4px 0; padding: 6px 12px; }
+  pre { background: color-mix(in srgb, var(--fg) 6%, var(--bg)); padding: 12px; border-radius: 6px; overflow-x: auto;
+        white-space: pre; font: 12px/1.35 ui-monospace, Menlo, monospace; min-height: 8em; }
+  .bad { color: var(--bad); }
+</style>
+</head>
+<body>
+<h1>RemoteFM1 M0 bench</h1>
+<p>SysEx over Web MIDI and vendor bulk over WebUSB, against a unit running RemoteFM1-M0. The unit must answer HELLO
+  as RemoteFM1-M0 before any other test runs.</p>
+<fieldset>
+  <label>MIDI port <input type="text" id="port" value="FM-1"></label>
+  <label>seconds <input type="number" id="secs" value="5" min="1" max="30" style="width:5ch"></label>
+  <label>SysEx sizes <input type="text" id="sxsizes" value="32,128,512,2048,8192"></label>
+  <label>bulk sizes <input type="text" id="bksizes" value="64,512,4096,16384,65536"></label>
+  <label>depth <input type="number" id="depth" value="4" min="1" max="16" style="width:4ch"></label>
+</fieldset>
+<button id="midi">Run SysEx tests (Web MIDI)</button>
+<button id="usb">Run bulk tests (WebUSB)</button>
+<button id="save">Save JSON</button>
+<pre id="out"></pre>
+<script id="codec">
+"use strict";
+const SXH = [0xF0, 0x7D, 0x52, 0x46];
+const C = { HELLO: 1, SINK: 2, SOURCE: 3, ECHO: 4, STATS: 5, STATS_RESET: 6, BLIT_BENCH: 7, TILE: 8,
+            HELLO_R: 0x41, DATA: 0x43, ECHO_R: 0x44, STATS_R: 0x45, ACK: 0x46, BLIT_R: 0x47, SOURCE_DONE: 0x50 };
+const ST_NAMES = `uptime_ms
+sx_rx_msgs sx_sink_msgs sx_sink_bytes sx_gaps sx_lost sx_chk sx_bad sx_ovf sx_held sx_tx_msgs sx_tx_bytes
+sx_t_first sx_t_last
+bk_rx_msgs bk_sink_msgs bk_sink_bytes bk_gaps bk_lost bk_chk bk_bad bk_ovf bk_held bk_tx_msgs bk_tx_bytes
+bk_t_first bk_t_last bk_sync bk_frame_gaps
+polls_main_ps polls_isr_ps usb_permille loops_ps usb_resets usb_setups ep1_rx ep1_tx ep3_rx ep3_tx
+tiles tile_bytes midi_in_dropped lcd_timeouts src_us sx_rx_ps sx_tx_ps bk_rx_ps bk_tx_ps`.split(/\s+/);
+const HDR = 10;
+
+function pack7(b) {
+  const out = new Uint8Array(b.length + Math.ceil(b.length / 7));
+  let o = 0;
+  for (let i = 0; i < b.length; i += 7) {
+    const g = Math.min(7, b.length - i);
+    let m = 0;
+    for (let k = 0; k < g; k++) m |= (b[i + k] >> 7) << k;
+    out[o++] = m;
+    for (let k = 0; k < g; k++) out[o++] = b[i + k] & 0x7F;
+  }
+  return out;
+}
+function unpack7(b) {
+  const out = new Uint8Array(b.length);
+  let o = 0;
+  for (let i = 0; i < b.length; i += 8) {
+    const m = b[i];
+    for (let k = 1; k < 8 && i + k < b.length; k++) out[o++] = b[i + k] | (((m >> (k - 1)) & 1) << 7);
+  }
+  return out.subarray(0, o);
+}
+function sxEncode(cmd, body = new Uint8Array(0)) {
+  const p = pack7(body), m = new Uint8Array(6 + p.length);
+  m.set(SXH); m[4] = cmd; m.set(p, 5); m[m.length - 1] = 0xF7;
+  return m;
+}
+function sxDecode(m) {
+  if (m.length < 6 || m[0] !== 0xF0 || m[1] !== 0x7D || m[2] !== 0x52 || m[3] !== 0x46 || m[m.length - 1] !== 0xF7)
+    return null;
+  return [m[4], unpack7(m.subarray(5, m.length - 1))];
+}
+function rfSum(b, s = 0) {
+  for (let i = 0; i < b.length; i++) s = ((((s << 1) | (s >>> 31)) + b[i]) >>> 0);
+  return s;
+}
+function bkHeader(h, cmd, len, seq) {
+  h[0] = 0x52; h[1] = 0x46; h[2] = cmd; h[3] = 0;
+  h[4] = len & 255; h[5] = len >> 8;
+  new DataView(h.buffer, h.byteOffset).setUint32(6, seq >>> 0, true);
+}
+function frame(cmd, body, seq) {
+  const f = new Uint8Array(HDR + body.length);
+  bkHeader(f, cmd, body.length, seq); f.set(body, HDR);
+  return f;
+}
+class BulkParser {                       /* remote_proto.h rf_bk_feed: frames may span transfers */
+  constructor(onMsg) { this.onMsg = onMsg; this.buf = new Uint8Array(0); this.sync = 0; }
+  feed(chunk) {
+    let b = this.buf.length ? concat(this.buf, chunk) : chunk, p = 0;
+    for (;;) {
+      if (b.length - p < HDR) break;
+      if (b[p] !== 0x52 || b[p + 1] !== 0x46) { p++; this.sync++; continue; }
+      const len = b[p + 4] | (b[p + 5] << 8);
+      if (b.length - p < HDR + len) break;
+      this.onMsg(b[p + 2], b.subarray(p + HDR, p + HDR + len));
+      p += HDR + len;
+    }
+    this.buf = b.slice(p);
+  }
+}
+function concat(a, b) { const c = new Uint8Array(a.length + b.length); c.set(a); c.set(b, a.length); return c; }
+const u32 = (b, o) => new DataView(b.buffer, b.byteOffset).getUint32(o, true);
+function le32(v) { const b = new Uint8Array(4); new DataView(b.buffer).setUint32(0, v >>> 0, true); return b; }
+function parseHello(b) {
+  const td = new TextDecoder(), s = (a, n) => td.decode(b.subarray(a, a + n)).replace(/\0+$/, "");
+  if (b.length < 51 || s(0, 16) !== "RemoteFM1-M0") return null;
+  const dv = new DataView(b.buffer, b.byteOffset);
+  return { name: s(0, 16), proto: b[16], version: s(17, 8), transports: b[25], usb_mode: b[26], lcd_baud: b[27],
+           loader_state: dv.getInt8(28), identity: s(43, 8) };
+}
+function parseStats(b) {
+  const o = {};
+  for (let i = 0; i < b[0]; i++) o[ST_NAMES[i] || "st" + i] = u32(b, 1 + 4 * i);
+  return o;
+}
+if (typeof module !== "undefined") module.exports = { pack7, unpack7, sxEncode, sxDecode, rfSum, frame, BulkParser, C };
+</script>
+<script>
+"use strict";
+const out = document.getElementById("out");
+const results = { time: new Date().toISOString() };
+function log(s, bad) {
+  const line = document.createElement("span");
+  if (bad) line.className = "bad";
+  line.textContent = s + "\n";
+  out.appendChild(line);
+}
+function table(rows, cols) {
+  const w = cols.map(c => Math.max(c.length, ...rows.map(r => String(r[c] ?? "").length)));
+  log("  " + cols.map((c, i) => c.padStart(w[i])).join("  "));
+  for (const r of rows) log("  " + cols.map((c, i) => String(r[c] ?? "").padStart(w[i])).join("  "));
+}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const val = id => document.getElementById(id).value;
+const sizes = id => val(id).split(",").map(Number).filter(n => n > 0);
+const kb = (bytes, s) => s > 0 ? +(bytes / s / 1024).toFixed(1) : null;
+
+/* a transport: send(cmd, body), wait(cmd, ms), and a DATA sink while a SOURCE runs */
+class Link {
+  constructor() { this.waiters = []; this.data = null; }
+  deliver(cmd, body, t) {
+    if (cmd === C.DATA) { if (this.data) this.data(body, t); return; }
+    const i = this.waiters.findIndex(w => w.cmd === cmd);
+    if (i >= 0) { const w = this.waiters.splice(i, 1)[0]; clearTimeout(w.timer); w.res({ t, body: body.slice() }); }
+  }
+  wait(cmd, ms = 2000) {
+    return new Promise(res => {
+      const w = { cmd, res };
+      w.timer = setTimeout(() => { this.waiters.splice(this.waiters.indexOf(w), 1); res(null); }, ms);
+      this.waiters.push(w);
+    });
+  }
+  async request(cmd, body, rcmd, ms) { const p = this.wait(rcmd, ms); await this.send(cmd, body); return p; }
+  async stats() { const r = await this.request(C.STATS, new Uint8Array(0), C.STATS_R, 3000); return r && parseStats(r.body); }
+  async reset() { return !!(await this.request(C.STATS_RESET, new Uint8Array(0), C.ACK, 3000)); }
+  async hello() {
+    for (let i = 0; i < 2; i++) {
+      const r = await this.request(C.HELLO, new Uint8Array(0), C.HELLO_R, 1500);
+      const h = r && parseHello(r.body);
+      if (h) return h;
+    }
+    return null;
+  }
+}
+
+async function sourceTest(link, size, secs, stopHello) {
+  await sleep(300);
+  await link.reset();
+  const exp = new Map();
+  let msgs = 0, bytes = 0, gaps = 0, bad = 0, last = -1, t0 = 0, t1 = 0;
+  link.data = (b, t) => {
+    if (b.length < 8) { bad++; return; }
+    const seq = u32(b, 0), d = b.subarray(4, b.length - 4), k = (seq * 7) & 255;
+    const key = k * 100000 + d.length;
+    if (!exp.has(key)) { const e = new Uint8Array(d.length); for (let i = 0; i < e.length; i++) e[i] = (k + i) & 255; exp.set(key, [e, rfSum(e)]); }
+    const [e, es] = exp.get(key);
+    if (u32(b, b.length - 4) !== es || d.some((x, i) => x !== e[i])) bad++;
+    if (last >= 0 && seq !== last + 1) gaps++;
+    last = seq; if (!msgs++) t0 = t; t1 = t; bytes += d.length;
+  };
+  const req = new Uint8Array(6); new DataView(req.buffer).setUint32(0, 0xFFFFFFFF, true); req[4] = size & 255; req[5] = size >> 8;
+  const done = link.wait(C.SOURCE_DONE, (secs + 6) * 1000);
+  await link.send(C.SOURCE, req);
+  await sleep(secs * 1000);
+  const hr = link.wait(C.HELLO_R, 3000);
+  await stopHello();
+  const d = await done; await hr;
+  link.data = null;
+  const r = { size, msgs, bytes, host_kBps: kb(bytes, (t1 - t0) / 1000), gaps, bad };
+  if (d) { const db = u32(d.body, 0), dus = u32(d.body, 8); Object.assign(r, { dev_bytes: db, dev_kBps: kb(db, dus / 1e6), aborted: d.body[12] }); }
+  else r.error = "no SOURCE_DONE";
+  return r;
+}
+
+/* ---------------------------------------------------- Web MIDI --- */
+async function runMidi() {
+  out.textContent = "";
+  const acc = await navigator.requestMIDIAccess({ sysex: true });
+  const want = val("port").toLowerCase(), pick = m => [...m.values()].find(p => p.name.toLowerCase().includes(want) && !/update/i.test(p.name));
+  const inp = pick(acc.inputs), outp = pick(acc.outputs);
+  if (!inp || !outp) { log(`no MIDI port matching "${val("port")}"`, true); return; }
+  const link = new Link();
+  link.send = async (cmd, body) => outp.send(sxEncode(cmd, body));
+  inp.onmidimessage = e => { const d = e.data[0] === 0xF0 ? sxDecode(e.data) : null; if (d) link.deliver(d[0], d[1], e.timeStamp); };
+  await sleep(300);
+  log(`port ${inp.name}`);
+  const hello = await link.hello();
+  if (!hello) { log("no RemoteFM1-M0 answer: the unit runs another firmware (or none). Nothing else was sent.", true); return; }
+  log(`HELLO  ${hello.name} v${hello.version}  identity ${hello.identity}  usb mode ${hello.usb_mode}  loader ${hello.loader_state}`);
+  const secs = +val("secs"), R = results.midi = { port: inp.name, hello, sink: [], source: [] };
+
+  log(`\nSINK host -> device, ${secs} s each (KB = 1024 B of payload)`);
+  for (const size of sizes("sxsizes")) {
+    await sleep(300); await link.reset();
+    const data = crypto.getRandomValues(new Uint8Array(size)), sum = rfSum(data), body = new Uint8Array(size + 8);
+    body.set(data, 4); body.set(le32(sum), 4 + size);
+    let seq = 0, sent = 0, since = 0, err = null;
+    const inflight = [], t0 = performance.now();
+    while (performance.now() - t0 < secs * 1000) {
+      body.set(le32(seq++), 0);
+      const m = sxEncode(C.SINK, body);
+      outp.send(m); sent += size; since += m.length;
+      if (since >= 32768) {                                    /* flow control: two STATS windows in flight */
+        since = 0; inflight.push(link.request(C.STATS, new Uint8Array(0), C.STATS_R, 5000));
+        if (inflight.length > 1 && !(await inflight.shift())) { err = "STATS timeout (flow control)"; break; }
+      }
+    }
+    for (const p of inflight) await p;
+    const st = await link.stats(), t1 = performance.now();
+    if (!st) { R.sink.push({ size, error: "no STATS" }); continue; }
+    R.sink.push({ size, msgs_sent: seq, host_kBps: kb(sent, (t1 - t0) / 1000),
+                  dev_kBps: kb(st.sx_sink_bytes, Math.max(st.sx_t_last - st.sx_t_first, 1) / 1000),
+                  arrived: st.sx_sink_bytes, gaps: st.sx_gaps, chk: st.sx_chk, bad: st.sx_bad, ovf: st.sx_ovf,
+                  held: st.sx_held, polls_ps: st.polls_main_ps + st.polls_isr_ps, usb_permille: st.usb_permille, error: err });
+  }
+  table(R.sink, ["size", "msgs_sent", "host_kBps", "dev_kBps", "arrived", "gaps", "chk", "bad", "ovf", "held", "polls_ps", "usb_permille", "error"]);
+
+  log(`\nSOURCE device -> host, ${secs} s each`);
+  for (const size of sizes("sxsizes"))
+    R.source.push(await sourceTest(link, size, secs, () => link.send(C.HELLO, new Uint8Array(0))));
+  table(R.source, ["size", "msgs", "bytes", "host_kBps", "dev_kBps", "gaps", "bad", "aborted", "error"]);
+
+  log("\nECHO 8 bytes, 500 round trips");
+  R.echo = await echoTest(link, 8);
+  table([R.echo], ["n", "lost", "min_ms", "median_ms", "p99_ms", "max_ms"]);
+
+  log("\nBLIT_BENCH (us)");
+  const b = await link.request(C.BLIT_BENCH, new Uint8Array([4, 2]), C.BLIT_R, 15000);
+  if (b) {
+    R.blit = [];
+    for (let k = 0; k < b.body[0]; k++) {
+      const o = 1 + 13 * k, full = u32(b.body, o + 1);
+      R.blit.push({ baud: b.body[o], spi_mhz: +(60 / (b.body[o] + 1)).toFixed(1), full_us: full, full_fps: +(1e6 / full).toFixed(1),
+                    tiles_us: u32(b.body, o + 5), strips_us: u32(b.body, o + 9) });
+    }
+    table(R.blit, ["baud", "spi_mhz", "full_us", "full_fps", "tiles_us", "strips_us"]);
+  } else log("  no BLIT_R", true);
+  R.stats = await link.stats();
+  inp.onmidimessage = null;
+  log("\ndone");
+}
+
+async function echoTest(link, n) {
+  await sleep(300);
+  const lat = []; let lost = 0;
+  for (let i = 0; i < 500; i++) {
+    const body = new Uint8Array(n).fill(0xA5); body.set(le32(i), 0);
+    const t0 = performance.now(), r = await link.request(C.ECHO, body, C.ECHO_R, 1000);
+    if (!r || r.body.length !== n || u32(r.body, 0) !== i) { lost++; continue; }
+    lat.push(performance.now() - t0);
+  }
+  if (!lat.length) return { n: 500, lost, error: "no ECHO_R" };
+  lat.sort((a, b) => a - b);
+  const f = x => +x.toFixed(3);
+  return { n: 500, lost, min_ms: f(lat[0]), median_ms: f(lat[lat.length >> 1]), p99_ms: f(lat[Math.floor(lat.length * 0.99)]), max_ms: f(lat[lat.length - 1]) };
+}
+
+/* ------------------------------------------------------ WebUSB --- */
+async function runUsb() {
+  out.textContent = "";
+  const dev = await navigator.usb.requestDevice({ filters: [{ vendorId: 0x1209, productId: 0x0001 }] });
+  await dev.open();
+  if (dev.configuration === null) await dev.selectConfiguration(1);   /* (only if unconfigured: MIDI keeps its own) */
+  const itf = dev.configuration.interfaces.find(i => i.alternate.interfaceClass === 0xFF);
+  if (!itf) { log("no vendor interface: the unit runs another firmware", true); await dev.close(); return; }
+  await dev.claimInterface(itf.interfaceNumber);
+  const epIn = itf.alternate.endpoints.find(e => e.direction === "in").endpointNumber;
+  const epOut = itf.alternate.endpoints.find(e => e.direction === "out").endpointNumber;
+  const link = new Link();
+  let seq = 0, reading = true;
+  const parser = new BulkParser((cmd, body) => link.deliver(cmd, body, performance.now()));
+  link.send = (cmd, body) => dev.transferOut(epOut, frame(cmd, body, seq++));
+  const depth = +val("depth");
+  let readSize = 16384;
+  const reader = async () => {                                  /* depth reads in flight, always */
+    const pend = [];
+    while (reading) {
+      while (pend.length < depth) pend.push(dev.transferIn(epIn, readSize).catch(() => null));
+      const r = await pend.shift();
+      if (r && r.data && r.data.byteLength) parser.feed(new Uint8Array(r.data.buffer, r.data.byteOffset, r.data.byteLength));
+    }
+  };
+  const readerDone = reader();
+  try {
+    log(`interface ${itf.interfaceNumber}, EP OUT ${epOut}, EP IN ${epIn}`);
+    const hello = await link.hello();
+    if (!hello) { log("no RemoteFM1-M0 answer over bulk", true); return; }
+    log(`HELLO  ${hello.name} v${hello.version}  identity ${hello.identity}  usb mode ${hello.usb_mode}`);
+    const secs = +val("secs"), R = results.usb = { hello, depth, sink: [], source: [] };
+
+    log(`\nSINK host -> device, ${secs} s each, ${depth} transfers in flight`);
+    for (const size of sizes("bksizes")) {
+      await sleep(300); await link.reset();
+      const n = size - HDR - 8, data = crypto.getRandomValues(new Uint8Array(Math.min(n, 65536))), sum = rfSum(data);
+      const body = new Uint8Array(n + 8); body.set(data, 4); body.set(le32(sum), 4 + n);
+      let k = 0, sent = 0;
+      const pend = [], t0 = performance.now();
+      while (performance.now() - t0 < secs * 1000) {
+        while (pend.length < depth) { body.set(le32(k++), 0); pend.push(dev.transferOut(epOut, frame(C.SINK, body, seq++))); sent += n; }
+        await pend.shift();
+      }
+      await Promise.all(pend);
+      const t1 = performance.now(), st = await link.stats();
+      if (!st) { R.sink.push({ size, error: "no STATS" }); continue; }
+      R.sink.push({ size, transfers: k, host_kBps: kb(sent, (t1 - t0) / 1000),
+                    dev_kBps: kb(st.bk_sink_bytes, Math.max(st.bk_t_last - st.bk_t_first, 1) / 1000), arrived: st.bk_sink_bytes,
+                    gaps: st.bk_gaps, chk: st.bk_chk, bad: st.bk_bad, held: st.bk_held, polls_ps: st.polls_main_ps + st.polls_isr_ps,
+                    usb_permille: st.usb_permille });
+    }
+    table(R.sink, ["size", "transfers", "host_kBps", "dev_kBps", "arrived", "gaps", "chk", "bad", "held", "polls_ps", "usb_permille", "error"]);
+
+    log(`\nSOURCE device -> host, ${secs} s each, read transfers of size`);
+    for (const size of sizes("bksizes")) {
+      readSize = size;
+      R.source.push(await sourceTest(link, Math.min(size, 16402) - 18, secs, () => link.send(C.HELLO, new Uint8Array(0))));
+      R.source[R.source.length - 1].read_size = size;
+    }
+    readSize = 16384;
+    table(R.source, ["read_size", "size", "msgs", "bytes", "host_kBps", "dev_kBps", "gaps", "bad", "aborted", "error"]);
+
+    log("\nECHO 16 bytes, 500 round trips");
+    R.echo = await echoTest(link, 16);
+    table([R.echo], ["n", "lost", "min_ms", "median_ms", "p99_ms", "max_ms"]);
+
+    log(`\nTILE over bulk, ${secs} s each`);
+    R.tile = [];
+    for (const kind of ["240x16", "16x16"]) {
+      await sleep(300); await link.reset();
+      const w = kind === "240x16" ? 240 : 16, per = kind === "240x16" ? 1 : 15, fsz = HDR + 4 + w * 32;
+      let row = 0, sent = 0;
+      const pend = [], t0 = performance.now();
+      while (performance.now() - t0 < secs * 1000) {
+        while (pend.length < depth) {
+          const buf = new Uint8Array(per * fsz), y = row % 15, c = Math.floor(row / 15) * 40;
+          for (let j = 0; j < per; j++) {
+            const px = ((((c + j * 9) * 3) & 0xF8) << 8) | (((y * 17) & 0xFC) << 3) | (((c + j * 9) & 0xF8) >> 3);
+            const body = new Uint8Array(4 + w * 32);
+            body[0] = per > 1 ? j * 16 : 0; body[1] = y * 16; body[2] = w; body[3] = 16;
+            for (let i = 0; i < w * 16; i++) { body[4 + 2 * i] = px >> 8; body[5 + 2 * i] = px & 255; }
+            bkHeader(buf.subarray(j * fsz), C.TILE, body.length, seq++); buf.set(body, j * fsz + HDR);
+            sent++;
+          }
+          row++;
+          pend.push(dev.transferOut(epOut, buf));
+        }
+        await pend.shift();
+      }
+      await Promise.all(pend);
+      const dt = (performance.now() - t0) / 1000, st = await link.stats();
+      if (!st) { R.tile.push({ kind, error: "no STATS" }); continue; }
+      const tps = st.tiles / dt;
+      R.tile.push({ kind, sent, drawn: st.tiles, tiles_ps: +tps.toFixed(1), screens_ps: +(tps / (per > 1 ? 225 : 15)).toFixed(2),
+                    px_kBps: kb(st.tile_bytes, dt), bad: st.bk_bad });
+    }
+    table(R.tile, ["kind", "sent", "drawn", "tiles_ps", "screens_ps", "px_kBps", "bad", "error"]);
+    R.stats = await link.stats();
+    log("\ndone");
+  } finally {
+    reading = false;
+    await Promise.race([readerDone, sleep(500)]);
+    await dev.releaseInterface(itf.interfaceNumber).catch(() => {});
+    await dev.close().catch(() => {});
+  }
+}
+
+const guard = f => async () => { try { await f(); } catch (e) { log(String(e), true); } };
+document.getElementById("midi").onclick = guard(runMidi);
+document.getElementById("usb").onclick = guard(runUsb);
+document.getElementById("save").onclick = () => {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(results, null, 1)], { type: "application/json" }));
+  a.download = "m0_bench_web.json"; a.click();
+};
+if (!navigator.requestMIDIAccess) log("this browser has no Web MIDI (use Chrome or Edge)", true);
+if (!navigator.usb) log("this browser has no WebUSB (use Chrome or Edge)", true);
+</script>
+</body>
+</html>

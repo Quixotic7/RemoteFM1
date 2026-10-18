@@ -1,5 +1,11 @@
 # TransitFM1
 
+> **This tree is RemoteFM1** (PLAN.md), branch `m0-bench`: the M0 measuring build. `./build.sh` now builds
+> `build/remote.fwsc` (`--unit transit` builds TransitFM1 as it was, byte for byte; `--usb-mode 0|2` the other USB
+> services). TransitFM1's safety parts below are unchanged underneath. The bench: `tools/m0_bench.py` (SysEx over
+> CoreMIDI), `tools/m0_bulk.c` (vendor bulk over libusb), `web/m0_bench.html` (Web MIDI + WebUSB); the protocol is
+> `firmware/src/remote_proto.h`. TransitFM1's README follows.
+
 **A tiny firmware for the M-VAVE FM-1 to stop at between two others.**
 
 Moving an FM-1 from one custom firmware to another is where units get bricked. The usual advice is to go back to

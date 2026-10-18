@@ -13,8 +13,11 @@
  *   screen              240 x 240, lcd_fill, draw_text_box with FONT_S (16 px) / FONT_L (32 px) (gfx.c)
  *   crash screen        the PC of a fault, then a reboot
  *
- * The app (transit.c) includes this file first and supplies:
+ * The app (transit.c, remote.c) includes this file first and supplies:
  *   static void app_main(void)                        never returns; calls platform_poll() often (every few ms)
+ * and may define, before including it:
+ *   PLATFORM_USB_TICK(sub, t0)   called on every TIMER5 tick (10 kHz) instead of usb_poll() on every fifth: the app
+ *                                then owns the rule that only one context touches the SIE at a time (remote.c)
  */
 enum { BTN_OCT_DOWN = 0, BTN_OCT_UP = 1, BTN_FX = 2, BTN_SEL = 3, BTN_ENV = 4, BTN_LFO = 5, BTN_EDIT = 6,
        BTN_GLO = 7, BTN_HOME = 8, BTN_SAVE = 9, BTN_ARP = 10, BTN_SEQ = 11, BTN_PLAY = 12, BTN_REC = 13 };
@@ -135,8 +138,12 @@ void fm1_timer5_irq(void)
         acc -= 1000u * FM1_TICKS_PER_US;
         fm1_ms++;
     }
+#ifdef PLATFORM_USB_TICK
+    PLATFORM_USB_TICK(sub, t0);                 /* the app decides when the ISR polls USB (remote.c) */
+#else
     if (sub % 5u == 0u)
         usb_poll();
+#endif
     if (++sub == 10u)
         sub = 0;
 }

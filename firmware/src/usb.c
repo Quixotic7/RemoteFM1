@@ -18,7 +18,15 @@
  * phones and apps that only take 48 kHz: the host picks the rate with SET_CUR (two discrete rates in the one alt
  * setting). The engines stay at 44.1 kHz; at 48 kHz uac_tap48 resamples (a polyphase FIR 160 / 147, uac_fir.h:
  * 12 taps a phase, Q15, Felucca's 24 x Q30 made smaller) into the ring. 44.1 kHz, the rate until a host asks
- * for another, sends the samples as before, bit for bit. */
+ * for another, sends the samples as before, bit for bit.
+ * RemoteFM1 (REMOTE_VENDOR=1, the app only; the update loader never defines it): a vendor-specific interface
+ * (class 0xFF) with a bulk OUT / IN pair on EP3 (the endpoint of the CDC option, which then stays off), bcdUSB 2.10
+ * and a BOS descriptor with the WebUSB platform capability, so Chrome can open it; bytes go through the rings
+ * vb_in / vb_out. App hooks (none defined: the code below is TransitFM1's, byte for byte):
+ *   USB_SYSEX_HOOK(b)   every SysEx byte (and a status byte that ends a SysEx), in usb_poll's context
+ *   USB_EP1_ROOM()      0: leave the EP1 OUT packet for a later poll (NAK), checked before the MIDI ring's room
+ *   USB_FRAME_DUE()     the 10 ms frame-number check is due (usb_poll may then run far more often than 2 kHz)
+ *   SXQ                 the SysEx TX ring's size in events (64) */
 #include "../hal/fm1_usb.h"   /* registers; relative, so the loader and the host tests find it too */
 #ifndef FELUCCA_CDC
 #define FELUCCA_CDC 0
@@ -32,6 +40,12 @@
 #if !FELUCCA_UAC
 #undef FELUCCA_UAC_48K
 #define FELUCCA_UAC_48K 0
+#endif
+#ifndef REMOTE_VENDOR
+#define REMOTE_VENDOR 0
+#endif
+#if REMOTE_VENDOR && (FELUCCA_CDC || FELUCCA_UAC || defined(FELUCCA_LOADER))
+#error "REMOTE_VENDOR takes EP3 and assumes interfaces 0..1 are MIDI only: no CDC, no UAC, not in the loader"
 #endif
 enum { S_FADDR = 0, S_POWER = 1, S_INTRTX1 = 2, S_INTRTX2 = 3, S_INTRRX1 = 4, S_INTRRX2 = 5, S_INTRUSB = 6,
        S_INTRTX1E = 7, S_INTRTX2E = 8, S_INTRRX1E = 9, S_INTRRX2E = 10, S_INTRUSBE = 11, S_FRAME1 = 12,
@@ -58,6 +72,25 @@ static struct {
     uint8_t rx_pend;             /* EP3 OUT packet seen, not yet taken (the ring was full) */
     uint32_t rx_pkts, tx_pkts;
 } cdc = {{0x00, 0xC2, 0x01, 0x00, 0, 0, 8}};   /* 115200 8N1 */
+#endif
+
+#if REMOTE_VENDOR
+/* the vendor interface's bulk pair (EP3): rings in the pool, power-of-two sizes */
+#ifndef VB_IN_N
+#define VB_IN_N 32768u
+#endif
+#ifndef VB_OUT_N
+#define VB_OUT_N 32768u
+#endif
+static uint8_t ep3tx[64] __attribute__((aligned(4)));
+static uint8_t ep3rx[64 + 4] __attribute__((aligned(4)));
+static uint8_t vb_in[VB_IN_N] __attribute__((section(".pool")));     /* host -> app (usb_poll writes) */
+static uint8_t vb_out[VB_OUT_N] __attribute__((section(".pool")));   /* app -> host (usb_poll reads) */
+static volatile uint32_t vi_w, vi_r, vo_w, vo_r;
+static struct {
+    uint8_t rx_pend;             /* EP3 OUT packet seen, not yet taken (the ring was full) */
+    uint32_t rx_pkts, tx_pkts, held;
+} vb;
 #endif
 
 #if FELUCCA_UAC
@@ -150,7 +183,9 @@ static uint8_t sx_frame[640];
 static uint32_t sx_pos;
 static volatile uint32_t sx_frame_len;
 static volatile uint8_t sx_ready, sx_collect, sx_busy;
+#ifndef SXQ
 #define SXQ 64u
+#endif
 static uint32_t sx_out_q[SXQ];
 static volatile uint32_t so_w, so_r;
 #endif
@@ -174,8 +209,9 @@ static void midi_out_event(uint32_t pkt)            /* from the audio ISR */
  * per version) */
 #define CDC_IF (2 + FELUCCA_UAC)
 #define UAC_AS_IF 2u
-#define CFG_LEN (101 + 74 * FELUCCA_CDC + 74 * FELUCCA_UAC + 3 * FELUCCA_UAC_48K)
-#define USB_NIF (2 + FELUCCA_UAC + 2 * FELUCCA_CDC)
+#define CFG_LEN (101 + 74 * FELUCCA_CDC + 74 * FELUCCA_UAC + 3 * FELUCCA_UAC_48K + 23 * REMOTE_VENDOR)
+#define USB_NIF (2 + FELUCCA_UAC + 2 * FELUCCA_CDC + REMOTE_VENDOR)
+#define VENDOR_IF 2u                                    /* (REMOTE_VENDOR: after audio control + MIDI) */
 #if FELUCCA_CDC
 static const uint8_t DEV_DESC[18] = {18, 1, 0x00, 0x02, 0xEF, 0x02, 0x01, 64, 0x09, 0x12, 0x01, 0x00,
                                      0x01 + 0x10 * (FELUCCA_UAC + FELUCCA_UAC_48K), 0x03, 1, 2, 0, 1};   /* misc/IAD */
@@ -186,9 +222,21 @@ static const uint8_t CFG_DESC[] = {
 #ifndef FELUCCA_USB_PID
 #define FELUCCA_USB_PID 0x0001   /* the update loader is 0x0002 */
 #endif
+#if REMOTE_VENDOR
+/* bcdUSB 2.10 (the host asks for the BOS descriptor), bcdDevice 3.50 (hosts cache descriptors per version) */
+static const uint8_t DEV_DESC[18] = {18, 1, 0x10, 0x02, 0, 0, 0, 64, 0x09, 0x12, FELUCCA_USB_PID & 0xFF,
+                                     FELUCCA_USB_PID >> 8, 0x50, 0x03, 1, 2, 0, 1};
+/* BOS: the WebUSB platform capability {3408b638-09a9-47a0-8bfd-a0768815b665}, version 1.00, vendor code 1, no
+ * landing page */
+static const uint8_t BOS_DESC[29] = {
+    5, 0x0F, 29, 0, 1,
+    24, 0x10, 0x05, 0, 0x38, 0xB6, 0x08, 0x34, 0xA9, 0x09, 0xA0, 0x47, 0x8B, 0xFD, 0xA0, 0x76, 0x88, 0x15, 0xB6, 0x65,
+    0x00, 0x01, 0x01, 0};
+#else
 static const uint8_t DEV_DESC[18] = {18, 1, 0x10, 0x01, 0, 0, 0, 64, 0x09, 0x12, FELUCCA_USB_PID & 0xFF,
                                      FELUCCA_USB_PID >> 8, 0x00 + 0x10 * (FELUCCA_UAC + FELUCCA_UAC_48K), 0x03,
                                      1, 2, 0, 1};
+#endif
 static const uint8_t CFG_DESC[] = {
     9, 2, CFG_LEN & 0xFF, CFG_LEN >> 8, USB_NIF, 1, 0, 0x80, 50,
 #endif
@@ -232,6 +280,11 @@ static const uint8_t CFG_DESC[] = {
     5, 0x24, 0x06, CDC_IF, CDC_IF + 1,                  /* union */
     7, 5, 0x82, 3, 8, 0, 16,                            /* EP2 IN interrupt (never sent) */
     9, 4, CDC_IF + 1, 0, 2, 0x0A, 0, 0, 0,              /* data */
+    7, 5, 0x03, 2, 64, 0, 0,                            /* EP3 OUT bulk */
+    7, 5, 0x83, 2, 64, 0, 0,                            /* EP3 IN bulk */
+#endif
+#if REMOTE_VENDOR
+    9, 4, VENDOR_IF, 0, 2, 0xFF, 0, 0, 0,               /* vendor specific: RemoteFM1's bulk pair */
     7, 5, 0x03, 2, 64, 0, 0,                            /* EP3 OUT bulk */
     7, 5, 0x83, 2, 64, 0, 0,                            /* EP3 IN bulk */
 #endif
@@ -313,6 +366,12 @@ static int get_desc(uint32_t wvalue, const uint8_t **d, uint16_t *l)
         default:
             return 0;
         }
+#if REMOTE_VENDOR
+    case 15:
+        *d = BOS_DESC;
+        *l = sizeof BOS_DESC;
+        return 1;
+#endif
     default:
         return 0;
     }
@@ -425,6 +484,20 @@ static void ep1_config(void)
     sie_wr(S_INTRRX1E, 0x0A);
     fm1_usb_ep_enable((1u << 2) | (1u << 3));
     cdc.rx_pend = 1;                                    /* look once: a packet may already wait */
+#endif
+#if REMOTE_VENDOR
+    fm1_usb_ep_txbuf(3, ep3tx);
+    fm1_usb_ep_rxbuf(3, ep3rx);
+    sie_wr(S_INDEX, 3);
+    sie_wr(S_TXMAXP, 0xFF);
+    sie_wr(S_TXCSR1, 0x48);
+    sie_wr(S_TXCSR2, 0);
+    sie_wr(S_RXMAXP, 0xFF);
+    sie_wr(S_RXCSR1, 0x90);
+    sie_wr(S_RXCSR2, 0);
+    sie_wr(S_INTRRX1E, 0x0A);
+    fm1_usb_ep_enable(1u << 3);
+    vb.rx_pend = 1;                                     /* look once: a packet may already wait */
 #endif
 #if FELUCCA_UAC
     fm1_usb_ep4_txbuf(ep4tx);
@@ -595,7 +668,7 @@ static void ep0_service(void)
 #if FELUCCA_CDC
         uint32_t ep = s[4] & 0x0Fu, last = usb_cdc_on ? 3u : 1u;   /* (USB SERIAL OFF: EP2 / EP3 are not described) */
 #else
-        uint32_t ep = s[4] & 0x0Fu, last = 1u;
+        uint32_t ep = s[4] & 0x0Fu, last = REMOTE_VENDOR ? 3u : 1u;   /* (REMOTE_VENDOR: EP3; EP2 is not ours, harmless) */
 #endif
 #if FELUCCA_UAC
         if (wvalue == 0 && s[4] == 0x84u)
@@ -678,6 +751,9 @@ static void sysex_byte(uint8_t b)
     static const uint8_t UBOOT_KEY[6] = {0xF0, 0x22, 0x24, 0x35, 0x7D, 0xF7};
     if (b >= 0xF8u)
         return;                                        /* realtime may occur anywhere in SysEx */
+#ifdef USB_SYSEX_HOOK
+    USB_SYSEX_HOOK(b);
+#endif
     if ((b & 0x80u) && b != 0xF0u && b != 0xF7u) {
         usb.sx_on = 0;
 #if FELUCCA_OTA
@@ -739,6 +815,9 @@ static void midi_in_event(uint32_t pkt)
         return;
     }
     if (st >= 0x80u && st < 0xF8u) {                   /* channel / system common also ends a SysEx */
+#ifdef USB_SYSEX_HOOK
+        USB_SYSEX_HOOK(st);
+#endif
         usb.sx_on = 0;
 #if FELUCCA_OTA
         sx_collect = 0;
@@ -774,6 +853,10 @@ static void midi_in_event(uint32_t pkt)
 static int ep1_take(const uint8_t *b, uint32_t n)
 {
     uint32_t i;
+#ifdef USB_EP1_ROOM
+    if (!USB_EP1_ROOM())
+        return 0;
+#endif
 #ifndef FELUCCA_LOADER
     if (MQ - (mi_w - mi_r) < EP1_ROOM)
         return 0;
@@ -961,6 +1044,61 @@ static void ep3_tx(void)                                /* <= 63 bytes per packe
     fm1_usb_ep_send(3, ep3tx, n);
     sie_wr(S_TXCSR1, sie_rd(S_TXCSR1) | 0x01u);
     cdc.tx_pkts++;
+}
+#endif
+
+#if REMOTE_VENDOR
+static void ep3_rx(void)                                /* leaves the packet (NAK) while the ring is too full */
+{
+    uint32_t csr, n, i, w;
+    sie_wr(S_INDEX, 3);
+    csr = sie_rd(S_RXCSR1) | (sie_rd(S_RXCSR2) << 8);
+    if (!(csr & 1u)) {
+        vb.rx_pend = 0;
+        return;
+    }
+    n = sie_rd(S_RXCOUNT1) | (sie_rd(S_RXCOUNT2) << 8);
+    if (n > 64u)
+        n = 64u;
+    if (VB_IN_N - (vi_w - vi_r) < n) {
+        vb.held++;
+        return;                                         /* rx_pend stays: taken on a later poll */
+    }
+    vb.rx_pend = 0;
+    fm1_usb_rx_sync();
+    w = vi_w;
+    for (i = 0; i < n; i++)
+        vb_in[(w + i) & (VB_IN_N - 1u)] = ep3rx[i];
+    RING_PUBLISH();
+    vi_w = w + n;
+    vb.rx_pkts++;
+    csr = (csr & ~0x164u) | 0x10u;
+    sie_wr(S_RXCSR1, csr & 0xFFu);
+    sie_wr(S_RXCSR2, csr >> 8);
+}
+
+/* one packet of up to 64 bytes; when the ring would empty with exactly 64, 63 go now and the last byte in a short
+ * packet after: a burst always ends in a short packet, which ends the host's transfer (no ZLP needed) */
+static void ep3_tx(void)
+{
+    uint32_t csr, n, i, r = vo_r, avail = vo_w - r;
+    if (!avail)
+        return;
+    sie_wr(S_INDEX, 3);
+    csr = sie_rd(S_TXCSR1);
+    if (csr & 0x01u)
+        return;                                         /* previous packet still pending */
+    if (csr & 0x80u)
+        sie_wr(S_TXCSR1, csr & ~0x80u);
+    n = avail > 64u ? 64u : avail == 64u ? 63u : avail;
+    RING_PUBLISH();                                     /* the slots after the index */
+    for (i = 0; i < n; i++)
+        ep3tx[i] = vb_out[(r + i) & (VB_OUT_N - 1u)];
+    RING_PUBLISH();
+    vo_r = r + n;
+    fm1_usb_ep_send(3, ep3tx, n);
+    sie_wr(S_TXCSR1, sie_rd(S_TXCSR1) | 0x01u);
+    vb.tx_pkts++;
 }
 #endif
 
@@ -1189,7 +1327,11 @@ static void usb_poll(void)                              /* TIMER5 ISR, 2 kHz */
     }
     if (usb.config) {                                   /* the frame number only advances with a real host */
         static uint32_t tick;
+#ifdef USB_FRAME_DUE
+        if (USB_FRAME_DUE()) {                          /* every 10 ms, however often usb_poll runs */
+#else
         if (++tick >= 20u) {                            /* every 20 polls = 10 ms */
+#endif
             uint16_t f;
             tick = 0;
             f = (uint16_t)(sie_rd(S_FRAME1) | (sie_rd(S_FRAME2) & 7u) << 8);
@@ -1231,6 +1373,10 @@ static void usb_poll(void)                              /* TIMER5 ISR, 2 kHz */
         usb.e0_tx = 0;
         usb.has_pend_addr = 0;
         usb.rx_pend = 0;
+#if REMOTE_VENDOR
+        vo_r = vo_w;                                    /* nothing stale for the next host */
+        vb.rx_pend = 0;
+#endif
 #if FELUCCA_CDC
         cdc.dtr = 0;
         cdc.e0_rx = 0;
@@ -1262,6 +1408,15 @@ static void usb_poll(void)                              /* TIMER5 ISR, 2 kHz */
             ep3_rx();
         if (cdc.dtr)
             ep3_tx();
+    }
+#endif
+#if REMOTE_VENDOR
+    if (usb.config) {
+        if (ir & 0x08u)
+            vb.rx_pend = 1;
+        if (vb.rx_pend)
+            ep3_rx();
+        ep3_tx();
     }
 #endif
 #if FELUCCA_UAC
