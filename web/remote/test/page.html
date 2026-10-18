@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RemoteFM1 page test</title>
+<style>
+  :root { --bg: #15161a; --fg: #e8e8ea; --ok: #5fd38a; --bad: #ff6b6b; --dim: #8a8d96; }
+  body { background: var(--bg); color: var(--fg); font: 13px/1.4 ui-monospace, Menlo, monospace; margin: 16px; }
+  .row { display: flex; gap: 16px; flex-wrap: wrap; }
+  figure { margin: 0; }
+  figcaption { color: var(--dim); margin-top: 4px; }
+  canvas { width: 240px; height: 240px; image-rendering: pixelated; border: 1px solid #333; }
+  #leds span { display: inline-block; width: 10px; height: 10px; margin: 1px; border-radius: 2px; background: #222; }
+  .pass { color: var(--ok); } .fail { color: var(--bad); }
+  pre { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h3>RemoteFM1 in the browser: remote.js against the fake unit (mocked Web MIDI + WebUSB)</h3>
+<div class="row">
+  <figure><canvas id="engine" width="240" height="240"></canvas><figcaption>the page's frame (engine.screen())</figcaption></figure>
+  <figure><canvas id="unit" width="240" height="240"></canvas><figcaption>the fake unit's shadow</figcaption></figure>
+</div>
+<p id="status">status: idle</p>
+<div id="leds"></div>
+<pre id="result">running</pre>
+<script type="module" src="page_test.mjs"></script>
+</body>
+</html>
