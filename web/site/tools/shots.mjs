@@ -28,6 +28,45 @@ const fm1Click = `document.getElementById("fm1-btn").click()`;
 // until RemoteFM1's line is showing (the emulator has booted it), at most 30 s
 const waitSelf = `new Promise((res) => { const t0 = Date.now(), f = () => { const t = document.getElementById("toast");
   if ((t.classList.contains("show") && /firmwares|remote/i.test(t.textContent)) || Date.now() - t0 > 30000) res(t.textContent); else setTimeout(f, 100); }; f(); })`;
+// hub: the FM-1 Firmware Hub, mocked in the page (no request leaves the machine): its catalog is the snapshot with
+// Felucca at 1.6.2 (FM1VST's native core stays 1.6.1); every package it lists is served as this site's RemoteFM1
+// package (the only one on disk) with that SHA-256, so the emulated engine boots; anything else there is a 404.
+// seed: saves put in IndexedDB before the page's own scripts run (once per shot).
+const REL = JSON.parse(readFileSync(join(HERE, "..", "..", "installer", "releases.json"), "utf8")).releases[0];
+const OWN_PKG = `/installer/firmware/remote-${REL.version}.fwsc`;
+function hubMockSrc(changes = {}) {
+  const hub = JSON.parse(readFileSync(join(HERE, "..", "data", "hub-catalog.snapshot.json"), "utf8"));
+  for (const f of hub.firmwares) {
+    Object.assign(f, changes[f.id] || {});
+    if (f.pkg) { f.sha256 = REL.sha256; f.size = 0; }
+  }
+  hub.updated = "2026-10-19 04:17 UTC (mock)";
+  const pkgs = hub.firmwares.filter((f) => f.pkg).map((f) => "https://thefirmwarehub.com/" + f.pkg);
+  return `(() => {
+    const HUB = ${JSON.stringify(hub)}, PKGS = new Set(${JSON.stringify(pkgs)}), real = window.fetch.bind(window);
+    window.fetch = async (input, init) => {
+      const u = String(input && input.url || input);
+      if (!u.startsWith("https://thefirmwarehub.com/")) return real(input, init);
+      if (u === "https://thefirmwarehub.com/catalog.json") return new Response(JSON.stringify(HUB), { status: 200, headers: { "content-type": "application/json" } });
+      if (PKGS.has(u)) return real(${JSON.stringify(OWN_PKG)});
+      return new Response("not found", { status: 404 });
+    };
+  })();`;
+}
+const seedSrc = (recs) => `(() => {
+  if (sessionStorage.getItem("__seeded")) return;
+  sessionStorage.setItem("__seeded", "1");
+  const r = indexedDB.open("remotefm1-player", 1);
+  r.onupgradeneeded = () => r.result.createObjectStore("saves", { keyPath: "key" }).createIndex("fw", "fw");
+  r.onsuccess = () => { const t = r.result.transaction("saves", "readwrite"), s = t.objectStore("saves");
+    for (const x of ${JSON.stringify(recs)}) s.put({ ...x, key: [x.fw, x.engine, x.version, x.name].join("\u0001"), bytes: new Uint8Array(4100) }); t.oncomplete = () => r.result.close(); };
+})();`;
+const FELUCCA_162 = { felucca: { version: "1.6.2", pkg: "fw/felucca-1.6.2.fwsc", release: "https://github.com/hugelton/Felucca/releases/tag/v1.6.2" } };
+const openBrowserAt = (id) => [`document.getElementById("fw-btn").click()`,
+  `new Promise((r) => setTimeout(r, 300)).then(() => { const c = document.querySelector('.card[data-id="${id}"]'); if (c) c.scrollIntoView({ block: "center" }); })`];
+const filterTo = (k) => `document.querySelector('.engine-filter [data-engine="${k}"]').click()`;
+const engineSection = `(() => { document.getElementById("corner").click(); return new Promise((r) => setTimeout(() => {
+  const hd = [...document.querySelectorAll(".sheet h3.heading")].find((x) => /^Engine/.test(x.textContent)); if (hd) hd.scrollIntoView({ block: "start" }); r(); }, 400)); })()`;
 const SHOTS = [
   { name: "device", w: 1400, h: 860, url: "site/?fw=felucca", wait: 2500 },
   { name: "device-pressed", w: 1400, h: 860, url: "site/?fw=fomni", wait: 2000,
@@ -83,6 +122,21 @@ const SHOTS = [
   { name: "remotefm1-player", w: 1400, h: 860, url: "site/?fw=remotefm1", wait: 1000, steps: [waitSelf], after: 2500 },
   { name: "remotefm1-mobile", w: 390, h: 844, mobile: true, url: "site/?fw=remotefm1", wait: 1000, steps: [waitSelf], after: 2500 },
   { name: "remotefm1-fm1", w: 1400, h: 860, url: "site/?fw=remotefm1", wait: 1000, mock: { perm: "granted", units: [REMOTE_UNIT] }, steps: [waitSelf], after: 2500 },
+  // following the Hub's releases: Felucca 1.6.2 on the (mocked) Hub, its native core 1.6.1
+  { name: "release-card", w: 1400, h: 860, url: "site/?fw=felucca", wait: 5000, hub: FELUCCA_162, steps: openBrowserAt("felucca"), after: 600 },
+  { name: "release-sheet", w: 1400, h: 860, url: "site/?fw=felucca", wait: 6000, hub: FELUCCA_162, steps: [engineSection], after: 600 },
+  { name: "release-carry", w: 1400, h: 860, url: "site/?fw=felucca", wait: 7000, hub: FELUCCA_162,
+    seed: [{ fw: "felucca", engine: "emu", version: "1.6.1", name: "Autosave", saved: "2026-10-15T20:00:00.000Z" }, { fw: "felucca", engine: "emu", version: "1.6.1", name: "My song", saved: "2026-10-15T19:00:00.000Z" }] },
+  { name: "release-carry-sheet", w: 1400, h: 860, url: "site/?fw=felucca", wait: 7000, hub: FELUCCA_162,
+    seed: [{ fw: "felucca", engine: "emu", version: "1.6.1", name: "Autosave", saved: "2026-10-15T20:00:00.000Z" }], steps: [`document.getElementById("corner").click()`], after: 600 },
+  { name: "release-filter-all", w: 1400, h: 860, url: "site/?fw=felucca", wait: 5000, hub: FELUCCA_162, steps: [...openBrowserAt("felucca"), filterTo("all")], after: 600 },
+  { name: "release-filter-native", w: 1400, h: 860, url: "site/?fw=felucca", wait: 5000, hub: FELUCCA_162, steps: [`document.getElementById("fw-btn").click()`, filterTo("native")], after: 600 },
+  { name: "release-filter-emu", w: 1400, h: 860, url: "site/?fw=felucca", wait: 5000, hub: FELUCCA_162, steps: [`document.getElementById("fw-btn").click()`, filterTo("emu")], after: 600 },
+  { name: "release-cpu", w: 1400, h: 860, url: "site/?fw=choralroot", wait: 6000, hub: {}, steps: [engineSection], after: 600 },
+  { name: "release-cpu-480", w: 1400, h: 860, url: "site/?fw=choralroot", wait: 6000, hub: {},
+    steps: [engineSection, `[...document.querySelectorAll('.seg.wide button')].find((b) => b.textContent === "480").click()`], after: 5000 },
+  { name: "release-mobile-sheet", w: 390, h: 844, mobile: true, url: "site/?fw=felucca", wait: 6000, hub: FELUCCA_162,
+    steps: [`(() => { document.getElementById("menu-btn").click(); return new Promise((r) => setTimeout(() => { const hd = [...document.querySelectorAll(".sheet h3.heading")].find((x) => /^Engine/.test(x.textContent)); if (hd) hd.scrollIntoView({ block: "start" }); r(); }, 400)); })()`], after: 600 },
   { name: "installer", w: 1200, h: 1500, url: "installer/", wait: 1500 },
   { name: "installer-done", w: 1200, h: 1100, url: "installer/", wait: 1500,
     steps: [`(() => { const s = document.getElementById("status"); s.textContent = "Done: RemoteFM1 " + document.getElementById("ver").textContent + " is installed."; s.className = "status ok";
@@ -147,6 +201,8 @@ async function shoot(s) {
     await S("Emulation.setDeviceMetricsOverride", { width: s.w, height: s.h, deviceScaleFactor: s.dpr || (s.mobile ? 2 : 1), mobile: !!s.mobile });
     if (s.mobile) await S("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
     if (s.mock) await S("Page.addScriptToEvaluateOnNewDocument", { source: `window.__FM1_MOCK = ${JSON.stringify(s.mock)};\n${MOCK_SRC}` });
+    if (s.hub) await S("Page.addScriptToEvaluateOnNewDocument", { source: hubMockSrc(s.hub) });
+    if (s.seed) await S("Page.addScriptToEvaluateOnNewDocument", { source: seedSrc(s.seed) });
     await S("Page.navigate", { url: new URL(process.env.PAGES ? s.url.replace(/^site\//, "") : s.url, BASE).href });
     await sleep(s.wait || 2000);
     for (const js of s.steps || []) {

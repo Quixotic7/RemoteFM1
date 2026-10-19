@@ -11,12 +11,20 @@
 #   installer/                                                   the RemoteFM1 installer and its package
 # A part whose sources are missing is skipped: the page then falls back to its test engine for that engine, or keeps
 # the Use my FM-1 stub.
+#
+# Nightly (schedule): the Hub deletes a firmware's old package when it releases a new version, and the page follows it
+# live anyway (web/site/js/live.js); the nightly run rebuilds the catalog from the Hub, reports every native core
+# behind the Hub (the job summary, and ::warning annotations: readable through the public check-runs API), and
+# deploys only when the commit or the catalog differ from the deployed site's deployed.json. A Hub outage never fails
+# it: the catalog falls back to the snapshot in the tree, and a scheduled run then keeps the deployed site.
 name: Pages
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * *"
 
 permissions:
   contents: read
@@ -29,7 +37,30 @@ env:
   EMSDK_VERSION: "6.0.11"     # the version the engines were built and tested with locally (~/emsdk)
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      deploy: ${{ steps.report.outputs.deploy }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: The Hub's releases (native cores behind it), and whether to deploy
+        id: report
+        run: |
+          mkdir -p _check
+          # the Hub's live catalog, else the snapshot in the tree (a Hub outage does not fail the run)
+          node web/site/tools/build_catalog.mjs --layout pages --hub https://thefirmwarehub.com/catalog.json --out _check/catalog.json \
+            || node web/site/tools/build_catalog.mjs --layout pages --out _check/catalog.json
+          node web/site/tools/release_report.mjs --catalog _check/catalog.json --commit "${{ github.sha }}" --event "${{ github.event_name }}" \
+            --site "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+
   build:
+    needs: check
+    if: needs.check.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -116,6 +147,8 @@ jobs:
           (cd _site/installer/firmware && sha256sum -c SHA256SUMS)
           # RemoteFM1 in the player: its package is the catalog's only same-origin one; it must be published
           node -e 'const c=require("./_site/catalog.json");for(const f of c.firmwares)if(f.emu.from==="site"&&!require("fs").existsSync("_site/"+f.emu.pkg)){console.error("missing _site/"+f.emu.pkg);process.exit(1)}'
+          # what is deployed: the commit and the catalog's hash (the nightly run compares them: release_report.mjs)
+          node web/site/tools/release_report.mjs --catalog _site/catalog.json --stamp _site/deployed.json --commit "${{ github.sha }}"
           touch _site/.nojekyll
           find _site -type f | sort
 

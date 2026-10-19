@@ -2,6 +2,7 @@
  "about": "Built by web/site/tools/build_catalog.mjs from the FM-1 Firmware Hub's catalog, FM1VST's cores and RemoteFM1's own release (web/installer/releases.json). Edit those, not this file.",
  "generated": "2026-10-19",
  "hubUpdated": "2026-10-18 17:01 UTC",
+ "hubSource": "snapshot",
  "hub": "https://thefirmwarehub.com/",
  "layout": "dev",
  "paths": {
@@ -84,7 +85,8 @@
     "sha256": "59dbc6b688e3a64bb0da912c1e40890da7bc214b2a3269704627369b776707cb",
     "size": 610108,
     "product": "FM-1_7010300"
-   }
+   },
+   "nativeBehind": false
   },
   {
    "id": "beetle",
@@ -217,7 +219,8 @@
     "sha256": "8b2eb5131ea31738d96a62e45b3d9873d3aa0e2b27ca821df816e7cc6feee039",
     "size": 610313,
     "product": "FM-1_930"
-   }
+   },
+   "nativeBehind": false
   },
   {
    "id": "cs1",
@@ -444,7 +447,8 @@
     "sha256": "dff3a38f7e5b9833e15aba322558c9485e9e422e3ff813c616c91b3584a2d909",
     "size": 610090,
     "product": "FM-1_916"
-   }
+   },
+   "nativeBehind": false
   },
   {
    "id": "salt",
@@ -545,7 +549,8 @@
     "sha256": "2ce744411ab6142a27e5c6238b8eb2f3875ccaa1e6fc47726211bf09f1393fa7",
     "size": 609657,
     "product": "FM-1_8000601"
-   }
+   },
+   "nativeBehind": false
   },
   {
    "id": "fm106",
@@ -708,7 +713,8 @@
     "sha256": "71fa8304b91bff89078bfd27e981ed28ca4f0d3c5f406e8fdb5a2ab240fbdbb5",
     "size": 609661,
     "product": "FM-1_8000400"
-   }
+   },
+   "nativeBehind": false
   },
   {
    "id": "frodhes",
@@ -744,7 +750,8 @@
     "sha256": "f5facb8811bf7e15c4de1588f6dfd716681894c8064df814890b322c5f10499a",
     "size": 610110,
     "product": "FM-1_958"
-   }
+   },
+   "nativeBehind": false
   },
   {
    "id": "fumi",
@@ -813,7 +820,8 @@
     "sha256": "069f6d783db1e05776a89006ecba07a0abfcd2cc7a0fe6fa64db096b5ecad4c8",
     "size": 610086,
     "product": "FM-1_900"
-   }
+   },
+   "nativeBehind": false
   },
   {
    "id": "grimm",
@@ -965,7 +973,7 @@
     "native",
     "emu"
    ],
-   "defaultEngine": "native",
+   "defaultEngine": "emu",
    "native": {
     "core": "jiant",
     "version": "0.8.5",
@@ -976,7 +984,8 @@
     "sha256": "3eb6bd7dd3d4b81ffc7c05eafcc5521558792ae4c228230572e43795906c6393",
     "size": 610113,
     "product": "FM-1_900"
-   }
+   },
+   "nativeBehind": true
   },
   {
    "id": "maku",
@@ -1224,7 +1233,7 @@
     "native",
     "emu"
    ],
-   "defaultEngine": "native",
+   "defaultEngine": "emu",
    "native": {
     "core": "obervave",
     "version": "1.5",
@@ -1235,7 +1244,8 @@
     "sha256": "852c1dfea772a57f3e350e03e42d33a0063fe71df1db062ddb55127d62e90fdb",
     "size": 610110,
     "product": "FM-1_955"
-   }
+   },
+   "nativeBehind": true
   },
   {
    "id": "orbit",
@@ -1400,7 +1410,8 @@
     "sha256": "edf961e7a85e8795747d1624b828a70bc8f6b0e065bdb019c106ee9a7d43b606",
     "size": 609857,
     "product": "FM-1_927"
-   }
+   },
+   "nativeBehind": false
   },
   {
    "id": "rainbow",

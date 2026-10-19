@@ -12,6 +12,8 @@ import * as saves from "./saves.js";
 import { Sheet, icon } from "./sheet.js";
 import { makeSite } from "./remote-hook.js";
 import { createFm1, mountUseFm1, mountHeader } from "./use-fm1.js";
+import { liveCatalog, mergeLive, packageFor, chooseEngine, compareVersions } from "./live.js";
+import { mhzFor, pickMhz, stepDown, Governor, DEVICE_MHZ } from "./cpu.js";
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -28,10 +30,12 @@ const state = {
   theme: presetNamed(prefs.theme) || presetNamed(DEFAULT_THEME),
   view: params.get("view") === "screen" ? "screen" : params.get("view") === "device" ? "device" : prefs.view || "device",
   transpose: prefs.transpose | 0, notesPlayKeys: prefs.notesPlayKeys !== false, reachFirmware: !!prefs.reachFirmware,
-  saves: [], selectedSave: null,
+  saves: [], selectedSave: null, carryOffer: null,
+  mhz: DEVICE_MHZ, mhzChoice: "auto",                       // the emulated CPU clock of the running firmware (cpu.js)
+  browseEngine: ["all", "native", "emu"].includes(prefs.browseEngine) ? prefs.browseEngine : "all",   // the browser's filter
   pixels: null, frameSeq: 0, levels: new Uint8Array(44), playGreen: 0,
 };
-let catalog = null, player = null, sheet = null, site = null, siteEmit = () => {}, fm1 = null;
+let catalog = null, snapshot = null, emuHook = null, player = null, sheet = null, site = null, siteEmit = () => {}, fm1 = null;
 const lcd = new Lcd();
 const controls = new Controls((p) => { if (player) player.panel(p); });
 const device = new DeviceView($("device"), controls, lcd);
@@ -123,11 +127,8 @@ const selfLine = (tone = fm1Tone) => tone === "on" ? "Your FM-1 is now remotely 
 const versionOf = (e, engine) => (!e ? "" : engine === "native" && e.native ? e.native.version : e.version);
 const findEntry = (id) => catalog.firmwares.find((f) => f.id === id) || null;
 
-function engineFor(e, want) {
-  if (want && e.engines.includes(want)) return want;
-  const pref = (prefs.engine || {})[e.id];
-  return pref && e.engines.includes(pref) ? pref : e.defaultEngine;
-}
+// the deep link's engine, the visitor's choice (until a new release), else the default (newest wins: live.js)
+const engineFor = (e, want) => chooseEngine(e, want, prefs);
 
 async function refreshSaves() {
   state.saves = state.entry ? await saves.list(state.entry.id) : [];
@@ -144,6 +145,7 @@ async function openFirmware(id, want = null) {
   state.wantEngine = engineFor(e, want);
   state.engine = state.wantEngine;
   state.info = null; state.selectedSave = null;
+  hideOffer();
   if (!e.local) { prefs.last = e.id; savePrefs(); }
   updateTitle();
   if (!EMBED && !e.local) {
@@ -161,24 +163,87 @@ async function openFirmware(id, want = null) {
 }
 
 // (re)start the current firmware on its engine, from a save (or the autosave)
+let bootSeq = 0;
 async function boot(fromSave = null) {
-  const e = state.entry, eng = state.wantEngine;
+  let e = state.entry;
+  const eng = state.wantEngine, seq = ++bootSeq;
   if (!e || !player) return;
-  const ver = versionOf(e, eng);
-  const rec = fromSave || (await saves.get(e.id, eng, ver, saves.AUTOSAVE));
   state.engine = eng; state.engineState = "loading"; state.info = null;
   setStatus(`Loading ${e.name}...`);
   if (sheet) sheet.render();
   try {
-    await player.load(e, eng, rec ? rec.bytes : null);
+    // an emulated firmware's package from where the Hub points now (a gone one: the Hub once more, then the snapshot's)
+    if (eng === "emu" && !e.localBytes && e.emu && e.emu.pkg && emuHook && emuHook.fetchPackage) {
+      let got;
+      try { got = await packageFor(e, { fetchPackage: (pkg) => emuHook.fetchPackage(pkg), recheck: recheckHub }); }
+      catch (err) { throw new Error(`The package of ${e.name} could not be downloaded from ${e.emu.from === "site" ? "this site" : "the FM-1 Firmware Hub"} (${err.message || err}).`); }
+      if (seq !== bootSeq || state.entry !== e) return;          // (another firmware was picked meanwhile)
+      if (got.entry !== e) { replaceEntry(got.entry); e = got.entry; }
+      e = { ...e, localBytes: got.bytes };
+    }
+    const ver = versionOf(state.entry, eng);
+    const rec = fromSave || (await saves.get(state.entry.id, eng, ver, saves.AUTOSAVE));
+    const clk = mhzFor(state.entry.id, prefs);
+    state.mhz = clk.mhz; state.mhzChoice = clk.choice;
+    governor = eng === "emu" ? new Governor({ ...clk, now: performance.now() }) : null;
+    await player.load(e, eng, rec ? rec.bytes : null, eng === "emu" ? { mhz: clk.mhz } : {});
+    if (!fromSave && !state.entry.local) offerCarry(state.entry, eng, ver);
   } catch (err) {
+    if (seq !== bootSeq) return;
     const msg = err.message || String(err);
     await fallback(/worklet|module/i.test(msg) ? `The ${eng === "native" ? "native" : "emulated"} engine is not on this site yet.` : msg);
   }
 }
+// ---------------------------------------------------------- the CPU clock ---
+// the emulated clock: a step down (Auto) or a new pick reloads the firmware from its running flash (fm1-emu takes the
+// clock at boot only); the save is the same one (saves are per firmware, engine and version, not per clock)
+let governor = null;
+async function rebootKeepingFlash() {
+  if (!state.running || !state.entry) return;
+  let bytes = null;
+  if (state.engine !== "mock" && state.info) { try { bytes = await currentFlash(); } catch (_) { bytes = null; } }
+  await boot(bytes ? { name: saves.AUTOSAVE, bytes } : null);
+}
+function onLoad(m) {
+  if (!governor || state.engine !== "emu" || !state.entry) return;
+  const r = governor.feed(m, performance.now());
+  if (!r) return;
+  const e = state.entry;
+  if (r.step) {
+    prefs.autoMhz = stepDown(prefs, e.id, r.step); savePrefs();
+    toast(`Your computer can't run this firmware at full speed: emulating at ${r.step} MHz.`, "bad", 7000);
+    rebootKeepingFlash();
+  } else if (r.warn) {
+    toast(state.mhzChoice === "auto" ? `Your computer can't keep up with ${e.name} even at ${state.mhz} MHz: expect dropouts.`
+      : `Your computer can't keep up with ${e.name} at ${state.mhz} MHz: try Auto or a lower clock.`, "bad", 8000);
+  }
+  if (sheet) sheet.render();
+}
+
+// the entry that played in place of the catalog's (a newer release found on a re-check, or the snapshot's version)
+function replaceEntry(n) {
+  const i = catalog.firmwares.findIndex((f) => f.id === n.id);
+  if (i >= 0) catalog.firmwares[i] = n;
+  state.entry = n;
+  updateTitle();
+  refreshSaves();
+}
+// the Hub's catalog once more (once per page), merged over the deployed one: the entry for id, or null
+let recheckP = null;
+function recheckHub(id) {
+  if (!recheckP) recheckP = emuHook.fetchHubCatalog((u) => fetch(u, { cache: "no-cache" }))
+    .then((hub) => mergeLive(snapshot, hub, { emuSkip: emuHook.EMU_SKIP || {} })).catch(() => null);
+  return recheckP.then((c) => (c && c.firmwares.find((f) => f.id === id)) || null);
+}
 async function fallback(why) {
   const e = state.entry;
   console.warn("engine:", why);
+  // the newest-wins default (emulated) could not start: the firmware's native core, if it has one, before a test engine
+  if (state.wantEngine === "emu" && e.native && e.engines.includes("native") && !params.get("engine")) {
+    toast(`${why} Playing the native core ${e.native.version} instead.`, "bad");
+    state.wantEngine = "native";
+    return boot();
+  }
   state.engine = "mock"; state.engineState = "mock";
   toast(`${why} Playing a test engine instead.`, "bad");
   setStatus("");
@@ -203,17 +268,54 @@ function creditStatus() {
 function metaLine() {
   const e = state.entry;
   if (!e) return "";
-  const eng = state.engine === "mock" ? "test engine (the real one is not here yet)" : state.engine === "native" ? "native" : "emulated";
+  const eng = state.engine === "mock" ? "test engine (the real one is not here yet)" : state.engine === "native" ? "native" : `emulated, ${state.mhz} MHz`;
   return `${e.category} · ${e.tag} · ${e.author} · ${eng}`;
 }
 function engineNote() {
   const e = state.entry;
   if (!e) return "";
-  const n = e.native ? `Native: FM1VST's ${e.name} core ${e.native.version}, compiled to WebAssembly; starts at once.` : null;
-  const m = `Emulated: the firmware's own package ${e.version} on fm1-emu, the FM-1's chip in the browser; heavier on the CPU.`;
+  const n = !e.native ? null : e.nativeBehind
+    ? `Native: FM1VST's ${e.name} core ${e.native.version}, older than the Hub's ${e.version}, compiled to WebAssembly; starts at once and is lighter on the CPU.`
+    : `Native: FM1VST's ${e.name} core ${e.native.version}, compiled to WebAssembly; starts at once.`;
+  const m = e.engines.includes("emu") ? `Emulated: the firmware's own package ${e.version}${e.nativeBehind ? " (the latest)" : ""} on fm1-emu, the FM-1's chip in the browser; heavier on the CPU.` : null;
   const now = state.engine === "mock" ? `Now: a test engine, because the ${state.wantEngine === "native" ? "native" : "emulated"} engine could not start.` : "";
   const credit = state.engine === "emu" ? catalog.credits.fm1emu.line + "." : "";
   return [n, m, now, credit].filter(Boolean).join(" ");
+}
+
+// ------------------------------------------------------------- carry a save ---
+// a version with no save, an older one with a save on the same engine kind: offered once (saves.js Carry)
+const carry = new saves.Carry({
+  compare: compareVersions,
+  decisions: { get: (k) => (prefs.carry || {})[k], set: (k, v) => { prefs.carry = { ...(prefs.carry || {}), [k]: v }; savePrefs(); } },
+});
+const carryText = (o) => `Bring your ${state.entry ? state.entry.name : o.fw} ${o.from} save to ${o.to}? (a backup of it is kept)`;
+async function offerCarry(e, eng, ver) {
+  let o = null;
+  try { o = await carry.check(e.id, eng, ver); } catch (_) { return; }
+  if (!o || state.entry !== e || state.wantEngine !== eng || state.engine === "mock") return;
+  state.carryOffer = o;
+  const box = $("offer");
+  $("offer-text").textContent = carryText(o);
+  box.hidden = false;
+  requestAnimationFrame(() => box.classList.add("show"));
+  if (sheet) sheet.render();
+}
+function hideOffer() {
+  state.carryOffer = null;
+  const box = $("offer");
+  if (box) { box.classList.remove("show"); box.hidden = true; }
+}
+async function answerCarry(yes) {
+  const o = state.carryOffer;
+  if (!o) return;
+  hideOffer();
+  try {
+    const rec = await carry.answer(o, yes);
+    await refreshSaves();
+    if (rec) { toast(`Your ${o.from} save is now ${o.to}'s; the ${o.from} one is kept as it was.`, "ok"); if (state.running && state.entry && state.entry.id === o.fw) await boot(rec); }
+  } catch (err) { toast(err.message || String(err), "bad"); }
+  if (sheet) sheet.render();
 }
 
 // ------------------------------------------------------------------ audio ---
@@ -249,6 +351,7 @@ function makePlayer() {
     },
     halted(code) { toast(`${state.entry ? state.entry.name : "The firmware"} restarted (code ${code}).`); boot(); },
     midiOut(bytes) { siteEmit("midiOut", bytes); },
+    load: onLoad,
     error(msg) {
       console.warn("worklet:", msg);
       if (/^load:/.test(msg) && state.engine !== "mock") fallback(msg.replace(/^load:\s*/, "The engine could not start: ") + ".");
@@ -332,7 +435,7 @@ const app = {
   installerUrl: "",
   remoteMounted: false,
   remoteStatus: "",
-  versionOf, metaLine, engineNote,
+  versionOf, metaLine, engineNote, carryText, answerCarry,
   sheetChanged(open) { document.body.classList.toggle("sheet-open", open); if (open) document.body.classList.remove("chrome"); else $("stage").focus({ preventScroll: true }); },
   set(k, v) {
     if (k === "theme") { state.theme = presetNamed(v) || state.theme; prefs.theme = state.theme.name; applyTheme(); }
@@ -341,11 +444,30 @@ const app = {
     savePrefs();
     if (sheet) sheet.render();
   },
-  openFirmware: (id) => { openFirmware(id); },
+  // from the browser; engine: its filter's (Native / Emulated), picked as the sheet's engine choice is
+  openFirmware: (id, engine = null) => {
+    const e = findEntry(id);
+    if (e && engine && e.engines.includes(engine)) {
+      prefs.engine = { ...(prefs.engine || {}), [e.id]: engine }; prefs.engineAt = { ...(prefs.engineAt || {}), [e.id]: e.version }; savePrefs();
+      return openFirmware(e, engine);
+    }
+    openFirmware(id);
+  },
+  setMhz(choice) {
+    const e = state.entry;
+    if (!e) return;
+    Object.assign(prefs, pickMhz(prefs, e.id, choice)); savePrefs();
+    const clk = mhzFor(e.id, prefs);
+    const reload = clk.mhz !== state.mhz;
+    state.mhzChoice = clk.choice;
+    if (sheet) sheet.render();
+    if (reload && state.engine === "emu") rebootKeepingFlash();
+    else state.mhz = clk.mhz;
+  },
   setEngine(name) {
     const e = state.entry;
     if (!e || !e.engines.includes(name)) return;
-    prefs.engine = { ...(prefs.engine || {}), [e.id]: name }; savePrefs();
+    prefs.engine = { ...(prefs.engine || {}), [e.id]: name }; prefs.engineAt = { ...(prefs.engineAt || {}), [e.id]: e.version }; savePrefs();
     openFirmware(e, name);
   },
   async enableMidi() { if (await midi.enable()) { if (!midi.selected) midi.select(prefs.midi || "*"); } },
@@ -402,10 +524,19 @@ async function main() {
   applyTheme();
   try {
     const r = await fetch("catalog.json", { cache: "no-cache" });
-    catalog = await r.json();
+    snapshot = catalog = await r.json();
   } catch (e) {
     toast("The firmware list could not be loaded. Reload the page.", "bad");
     return;
+  }
+  // the Hub's catalog, live (its current versions and packages), merged over the deployed one; the deployed one if the
+  // Hub does not answer within 4 s (web/engines/emu/catalog.mjs fetches it; without the emulated engine, no merge)
+  try { emuHook = catalog.paths.engines.emu && catalog.paths.engines.emu.hook ? await import(new URL(catalog.paths.engines.emu.hook, document.baseURI).href) : null; }
+  catch (_) { emuHook = null; }
+  if (emuHook && typeof emuHook.fetchHubCatalog === "function") {
+    catalog = await liveCatalog(snapshot, { emuSkip: emuHook.EMU_SKIP || {},
+      fetchHub: (signal) => emuHook.fetchHubCatalog((u) => fetch(u, { signal })) });
+    if (!catalog.live) console.warn("the Hub's catalog:", catalog.liveError, "- using the deployed snapshot");
   }
   app.installerUrl = catalog.paths.installer;
   $("install-link").href = catalog.paths.installer;
@@ -445,6 +576,8 @@ async function main() {
   $("start-fm1").addEventListener("click", playOnFm1);
   $("menu-btn").addEventListener("click", () => sheet.open());
   $("fw-btn").addEventListener("click", () => sheet.open("firmware"));
+  $("offer-yes").addEventListener("click", () => answerCarry(true));
+  $("offer-no").addEventListener("click", () => answerCarry(false));
   addEventListener("keydown", (e) => {
     if (e.key !== "Escape" || !sheet.isOpen) return;
     e.stopImmediatePropagation(); e.preventDefault();

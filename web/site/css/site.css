@@ -144,6 +144,19 @@ kbd { font: 600 11px/1 "Inter Tight", sans-serif; border: 1px solid var(--line);
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 .toast.bad { border-color: rgba(255, 100, 100, .45); }
 .toast.ok { border-color: rgba(61, 220, 132, .45); }
+/* a save from an older version, offered once (main.js offerCarry): above the toast, until answered */
+.offer {
+  position: absolute; left: 50%; bottom: 18px; transform: translate(-50%, 12px); z-index: 5; max-width: min(620px, calc(100% - 32px));
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: center;
+  background: var(--surface); border: 1px solid var(--accent, var(--border)); color: var(--text); border-radius: 12px; padding: 10px 12px 10px 16px;
+  font-size: 13.5px; box-shadow: 0 8px 28px rgba(0,0,0,.5); opacity: 0; transition: opacity .2s, transform .2s;
+}
+.offer.show { opacity: 1; transform: translate(-50%, 0); }
+.offer[hidden] { display: none; }
+.offer .offer-btns { display: flex; gap: 6px; flex: none; }
+.offer.show ~ .toast { bottom: 84px; }
+.sheet .carry { border: 1px solid var(--accent); border-radius: 10px; padding: 10px 12px; margin: 0 0 10px; font-size: 13px; color: var(--row-text); }
+.sheet .carry .pills { margin-top: 8px; }
 
 /* ---- the sheet (FM1VST Sheet.cpp: 360 wide, the browser 620, About 400; slides in over a scrim) */
 .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.45); opacity: 0; pointer-events: none; transition: opacity .18s ease-out; z-index: 10; }
@@ -245,6 +258,23 @@ kbd { font: 600 11px/1 "Inter Tight", sans-serif; border: 1px solid var(--line);
 .seg button:hover:not(.on):not(:disabled) { background: var(--raised); color: var(--row-text); }
 .seg button.on { background: var(--seg-on); color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.06); }
 .seg button:disabled { opacity: .45; cursor: default; }
+/* two engines at two versions (the native core behind the Hub): one per line, the latest first */
+.seg.stack { flex-direction: column; width: 100%; margin: 0 0 8px; }
+.seg.stack button { text-align: left; padding: 8px 11px; }
+.seg.stack button small { font-weight: 500; opacity: .75; margin-left: 4px; }
+/* the emulated CPU clock, one line of five; 360 and 480 (an overclock) in amber when picked */
+.seg.wide { width: 100%; margin: 0 0 6px; }
+.seg.wide button { flex: 1; padding: 6px 4px; }
+.seg.wide button.oc.on { background: color-mix(in srgb, var(--seg-on) 55%, var(--amber, #F5B544)); }
+.seg.wide button.dev:not(.on) { color: var(--row-text); }
+/* under the six choices: the device's range (320, 360) and the overclock (480, 640) */
+.mhz-scale { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0 4px; font-size: 10.5px; color: var(--muted); margin: 0 2px 6px; text-align: center; }
+.mhz-scale span { border-top: 1px solid currentColor; padding-top: 3px; }
+.mhz-scale .dev { grid-column: 3 / 5; color: var(--row-text); }
+.mhz-scale .oc { grid-column: 5 / 7; color: var(--amber); }
+/* the firmware browser's engine filter: All / Native / Emulated, above the category chips */
+.seg.engine-filter { display: inline-flex; margin: 12px 0 0; }
+.seg.engine-filter + .chips { margin-top: 8px; }
 .stepper { display: flex; align-items: center; height: 32px; width: 118px; background: var(--well); border: 1px solid var(--line); border-radius: 8px; flex: none; }
 .stepper button { width: 30px; height: 100%; border: 0; background: none; cursor: pointer; display: grid; place-items: center; border-radius: 6px; color: var(--knob-off); }
 .stepper button:hover { color: var(--text); background: var(--raised); }
@@ -277,6 +307,10 @@ kbd { font: 600 11px/1 "Inter Tight", sans-serif; border: 1px solid var(--line);
 .card-top b { font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card-ver { color: var(--accent); font-size: 11px; font-weight: 600; white-space: nowrap; flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; }
 .card-meta { color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-meta.split { display: flex; gap: 6px; }
+.card-meta.split > span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.card-note { flex: none; color: var(--knob-off, var(--muted)); font-size: 10.5px; font-weight: 600; }
+.card-note.heavy { color: var(--amber, #F5B544); font-weight: 500; }
 .card-badge { position: absolute; left: 5px; top: 5px; width: 4px; height: 4px; border-radius: 50%; background: var(--green); box-shadow: 0 0 5px var(--green); }
 .cards { grid-auto-flow: row dense; }
 .card.badged { grid-column: span 2; }

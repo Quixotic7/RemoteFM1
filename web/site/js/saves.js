@@ -77,3 +77,52 @@ export async function importBackup(text) {
   for (const s of saves) await put(s.fw, s.engine, s.version, s.name, s.bytes);
   return saves.length;
 }
+
+// ---- a save carried to a new version
+// A firmware loaded at a version with no save, when an older version of it has one on the same engine kind, is
+// offered that save once: "Bring your Felucca 1.6.1 save to 1.6.2?". Yes copies the older version's flash into this
+// version's Autosave and leaves the older save as it is (the backup); no starts fresh and is not asked again. Saves
+// are only carried within an engine kind: a native save is an fm1core flash image (FM1VST's core, 1 MiB), an emulated
+// one fm1-emu's sector records (the sectors that differ from the package's own flash); neither engine reads the
+// other's, and no conversion between them is checked.
+//   new Carry({ list, put, decisions: { get(key), set(key, value) }, compare })
+//   await carry.check(fw, engine, version)  -> an offer { fw, engine, from, to, rec } or null
+//   await carry.answer(offer, yes)          -> the new Autosave (yes) or null
+// A decision per (firmware, engine, version): "offered" (shown, not answered: shown again at the next load), "yes",
+// "no". A version that already had saves before any offer is never asked about.
+export const carryKey = (fw, engine, version) => `${fw}|${engine}|${version}`;
+
+// the offer from a firmware's saves (every engine and version), or null; compare: live.js compareVersions
+export function carryOffer(recs, fw, engine, version, decision, compare) {
+  if (decision === "yes" || decision === "no" || engine === "mock" || !version) return null;
+  const mine = recs.filter((r) => r.fw === fw && r.engine === engine);
+  if (mine.some((r) => r.version === version) && decision !== "offered") return null;
+  // older versions (or unsure ones: a build hash), never a newer one
+  const older = mine.filter((r) => r.version !== version && !(compare(r.version, version) > 0));
+  if (!older.length) return null;
+  // the newest of them (unsure ones: the one saved last), then its Autosave (else its last named save)
+  const last = older.reduce((a, b) => { const c = compare(b.version, a.version); return c > 0 ? b : c < 0 ? a : b.saved > a.saved ? b : a; });
+  const same = older.filter((r) => r.version === last.version);
+  const rec = same.find((r) => r.name === AUTOSAVE) || same.reduce((a, b) => (b.saved > a.saved ? b : a));
+  return { fw, engine, from: rec.version, to: version, rec };
+}
+
+export class Carry {
+  constructor({ list: listFn = list, put: putFn = put, decisions, compare }) {
+    this.list = listFn; this.put = putFn; this.decisions = decisions; this.compare = compare;
+    this.shown = new Set();     // offered in this page already
+  }
+  async check(fw, engine, version) {
+    const key = carryKey(fw, engine, version);
+    if (this.shown.has(key)) return null;
+    const o = carryOffer(await this.list(fw), fw, engine, version, this.decisions.get(key), this.compare);
+    if (!o) return null;
+    this.shown.add(key);
+    this.decisions.set(key, "offered");
+    return o;
+  }
+  async answer(o, yes) {
+    this.decisions.set(carryKey(o.fw, o.engine, o.to), yes ? "yes" : "no");
+    return yes ? this.put(o.fw, o.engine, o.to, AUTOSAVE, o.rec.bytes) : null;
+  }
+}

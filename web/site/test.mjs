@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// The site's logic in Node: the catalog, the panel's orders (label / role -> matrix), the worklet host's panel merge
+// The site's logic in Node: the catalog, following the Hub's releases (live merge, versions, newest wins, saves
+// carried to a new version), the emulated CPU clock, the browser's engine filter, the panel's orders (label / role -> matrix), the worklet host's panel merge
 // (taps), the computer-key map, and the mock engine against web/engine/API.md.
 //   node web/site/test.mjs
 import { readFileSync, existsSync, unlinkSync } from "node:fs";
@@ -25,7 +26,8 @@ ok(cat.firmwares.every((f) => f.engines.includes("emu") && /^[0-9a-f]{64}$/.test
    && (f.id === "remotefm1" ? f.emu.from === "site" : /^https:\/\/thefirmwarehub\.com\/fw\//.test(f.emu.pkg) && !f.emu.from)),
    "catalog: every firmware runs emulated, its package from the Hub (RemoteFM1's from the site) with a SHA-256");
 ok(new Set(cat.firmwares.map((f) => f.id)).size === cat.firmwares.length, "catalog: ids unique");
-ok(cat.firmwares.filter((f) => f.native).every((f) => f.defaultEngine === "native" && f.native.wasm.endsWith(`${f.native.core}.wasm`)), "catalog: native is the default where it exists");
+ok(cat.firmwares.filter((f) => f.native).every((f) => f.defaultEngine === (f.nativeBehind ? "emu" : "native") && f.native.wasm.endsWith(`${f.native.core}.wasm`)),
+   "catalog: native is the default where it exists, unless the Hub's version is newer (newest wins)");
 ok(["choralroot", "melodee", "x0x", "orbit"].every((id) => cat.firmwares.find((f) => f.id === id).nativeGated), "catalog: gated cores say why they are not native");
 ok(cat.firmwares.every((f) => cat.categories.includes(f.category)), "catalog: every category is a chip");
 
@@ -59,6 +61,168 @@ ok(cat.firmwares.every((f) => cat.categories.includes(f.category)), "catalog: ev
   try { await fetchPackage({ id: rf.id, name: rf.name, package: { url: rf.emu.pkg, sha256: "0".repeat(64) } }, fakeFetch, "http://127.0.0.1:8731/site/"); } catch (e) { bad = e.message; }
   ok(asked[0] === `http://127.0.0.1:8731/installer/firmware/remote-${r0.version}.fwsc` && got.bytes.length === bytes.length && /SHA-256/.test(bad || ""),
      "remotefm1: the emu hook fetches it same-origin and refuses a wrong SHA-256");
+}
+
+// ---- following the Hub's releases (js/live.js): the version comparator, newest wins, the live merge, gone packages
+{
+  const L = await import("./js/live.js");
+  const C = L.compareVersions;
+  const cases = [
+    ["1.6.2", "1.6.1", 1], ["1.6.1", "1.6.1", 0], ["1.6", "1.6.0", 0], ["1.10", "1.9", 1], ["v1.2", "1.2", 0],
+    ["0.2.20-beta", "0.2.20", -1], ["0.2.21-beta", "0.2.20", 1], ["0.2.20-beta", "0.2.20-beta2", -1], ["1.0.5RC", "1.0.5", -1], ["1.0.5RC", "1.0.5-beta", 1],
+    ["Beta4", "Beta3", 1], ["Beta4", "Beta4", 0], ["1.1.5-rb", "1.1.5-rb", 0], ["1.1.6-rb", "1.1.5-rb", 1],
+    ["0.8.5-c524e3c", "0.8.5-c524e3c", 0], ["0.9.10-53173f3", "0.8.5", 1], ["2026.10.17", "2026.10.9", 1], ["2026.10.17", "2026.10.17", 0],
+    ["2.4.2+804c7785", "2.4.2", 0], ["1.5.1", "1.5", 1], ["0.9-salt14", "0.9-salt13", 1], ["2.5-b28-test", "2.5", -1],
+  ];
+  const bad = cases.filter(([a, b, w]) => C(a, b) !== w || C(b, a) !== -w || (w === 0 && C(b, a) !== 0));
+  ok(!bad.length, `versions: ${cases.length} ordered pairs (dotted, -beta, RC, Beta4, -rb, a hash, dates, +build)${bad.length ? " " + JSON.stringify(bad) : ""}`);
+  const unsure = [["0.8.5-c524e3c", "0.8.5"], ["1.1.5-rb", "1.1.5"], ["Beta4", "1.0"], ["1.0-fbc56d3", "1.0-b77b159"], ["1.5.1_and_sequences", "1.5.1"]];
+  ok(unsure.every(([a, b]) => Number.isNaN(C(a, b))) && unsure.every(([a, b]) => L.hubNewer(a, b)) && !L.hubNewer("1.6.1", "1.6.1") && !L.hubNewer("1.6.0", "1.6.1"),
+     "versions: unsure ones (a hash, a tag, Beta4 vs 1.0) are NaN and count as the Hub's newer; equal or older do not");
+
+  // newest wins
+  const nat = (v, hv) => L.newestWins({ id: "felucca", version: hv, engines: ["native", "emu"], native: { core: "felucca", version: v }, defaultEngine: "native" });
+  ok(nat("1.6.1", "1.6.2").defaultEngine === "emu" && nat("1.6.1", "1.6.2").nativeBehind && nat("1.6.1", "1.6.1").defaultEngine === "native" && !nat("1.6.1", "1.6.1").nativeBehind,
+     "default engine: the Hub's 1.6.2 over native 1.6.1 -> emu; equal -> native");
+  const fe = nat("1.6.1", "1.6.2");
+  ok(L.chooseEngine(fe, "native", {}) === "native" && L.chooseEngine(fe, null, {}) === "emu"
+     && L.chooseEngine(fe, null, { engine: { felucca: "native" } }) === "emu"
+     && L.chooseEngine(fe, null, { engine: { felucca: "native" }, engineAt: { felucca: "1.6.2" } }) === "native"
+     && L.chooseEngine(fe, null, { engine: { felucca: "native" }, engineAt: { felucca: "1.6.1" } }) === "emu"
+     && L.chooseEngine(nat("1.6.1", "1.6.1"), null, { engine: { felucca: "emu" } }) === "emu",
+     "default engine: ?engine=native forces native; a choice made at an older release yields to the newest");
+
+  // the merge
+  const snap = cat, hubSnap = JSON.parse(readFileSync(new URL("./data/hub-catalog.snapshot.json", import.meta.url), "utf8"));
+  const hub = JSON.parse(JSON.stringify(hubSnap));
+  const hf = hub.firmwares.find((f) => f.id === "felucca");
+  Object.assign(hf, { version: "1.6.2", pkg: "fw/felucca-1.6.2.fwsc", sha256: "a".repeat(64), size: 123 });
+  hub.firmwares = hub.firmwares.filter((f) => f.id !== "sloop" && f.id !== "amb");     // left the Hub: an emulated one, a native one
+  hub.firmwares.push({ id: "newfw", name: "Newfw", kind: ["synth"], author: "Someone (Somewhere)", what: "A new synth: very new.", version: "0.1", pkg: "fw/newfw-0.1.fwsc", sha256: "b".repeat(64), size: 9 });
+  hub.firmwares.push({ id: "remotefm1", name: "Impostor", version: "9.9", pkg: "fw/remotefm1-9.9.fwsc", sha256: "c".repeat(64) });
+  const m = L.mergeLive(snap, hub, {});
+  const mf = m.firmwares.find((f) => f.id === "felucca"), old = snap.firmwares.find((f) => f.id === "felucca");
+  ok(m.live && mf.version === "1.6.2" && mf.emu.pkg === "https://thefirmwarehub.com/fw/felucca-1.6.2.fwsc" && mf.emu.sha256 === "a".repeat(64)
+     && mf.native.wasm === old.native.wasm && mf.native.version === old.native.version && mf.defaultEngine === "emu" && mf.nativeBehind
+     && mf.snapshot.version === old.version && mf.snapshot.emu.pkg === old.emu.pkg && mf.category === old.category && mf.tag === old.tag,
+     "merge: a newer Hub version -> its version, package and SHA-256; native data kept; default emu; the snapshot's kept for a 404");
+  const n = m.firmwares.find((f) => f.id === "newfw");
+  ok(n && n.engines.join() === "emu" && n.author === "Someone" && n.category === "Synth" && n.tag === "New synth" && n.emu.pkg.endsWith("fw/newfw-0.1.fwsc"), "merge: a firmware new on the Hub appears, emulated");
+  const amb = m.firmwares.find((f) => f.id === "amb");
+  ok(!m.firmwares.some((f) => f.id === "sloop") && amb && amb.engines.join() === "native" && amb.defaultEngine === "native" && amb.offHub,
+     "merge: a firmware that left the Hub disappears, unless native (then native only)");
+  const rf = m.firmwares.find((f) => f.id === "remotefm1");
+  ok(rf === snap.firmwares.find((f) => f.id === "remotefm1") && m.firmwares.filter((f) => f.id === "remotefm1").length === 1, "merge: RemoteFM1's own entry stays as deployed (same-origin package)");
+  const same = L.mergeLive(snap, hubSnap, {});
+  ok(same.firmwares.length === snap.firmwares.length && same.firmwares.every((f) => { const o = snap.firmwares.find((x) => x.id === f.id); return o && o.version === f.version && o.emu.pkg === f.emu.pkg && o.defaultEngine === f.defaultEngine && !f.snapshot; }),
+     "merge: the snapshot's own Hub catalog changes nothing");
+
+  // the Hub down / slow -> the snapshot
+  const down = await L.liveCatalog(snap, { fetchHub: async () => { throw new TypeError("Failed to fetch"); } });
+  const slow = await L.liveCatalog(snap, { timeoutMs: 30, fetchHub: (signal) => new Promise((res, rej) => { signal.addEventListener("abort", () => rej(new Error("aborted"))); }) });
+  const up = await L.liveCatalog(snap, { fetchHub: async () => hub });
+  ok(!down.live && down.firmwares === snap.firmwares && !slow.live && /no answer/.test(slow.liveError) && up.live && up.firmwares.find((f) => f.id === "felucca").version === "1.6.2",
+     "live catalog: the Hub down or past the timeout -> the deployed snapshot; up -> merged");
+
+  // a gone package: the live catalog once more, then the snapshot's
+  const pkgs = { "https://thefirmwarehub.com/fw/felucca-1.6.3.fwsc": "163", [old.emu.pkg]: "161" };
+  const asked = [];
+  const fetchPackage = async (p) => { asked.push(p.package.url); if (!pkgs[p.package.url]) throw new Error(`${p.package.url}: 404`); return { bytes: new TextEncoder().encode(pkgs[p.package.url]) }; };
+  let rechecks = 0;
+  const fresh163 = { ...mf, version: "1.6.3", emu: { ...mf.emu, pkg: "https://thefirmwarehub.com/fw/felucca-1.6.3.fwsc" } };
+  const g1 = await L.packageFor(mf, { fetchPackage, recheck: async () => { rechecks++; return fresh163; } });
+  ok(g1.entry.version === "1.6.3" && new TextDecoder().decode(g1.bytes) === "163" && rechecks === 1 && asked.join() === [mf.emu.pkg, fresh163.emu.pkg].join(),
+     "404: the Hub's catalog once more -> its newer package");
+  asked.length = 0; rechecks = 0;
+  const g2 = await L.packageFor(mf, { fetchPackage, recheck: async () => { rechecks++; return mf; } });
+  ok(g2.entry.version === old.version && g2.entry.fromSnapshot && new TextDecoder().decode(g2.bytes) === "161" && rechecks === 1 && asked.join() === [mf.emu.pkg, old.emu.pkg].join()
+     && g2.entry.defaultEngine === "native",
+     "404: nothing newer on the Hub -> the snapshot's package and version (native the default again)");
+  let shaErr = null;
+  try { await L.packageFor(mf, { fetchPackage: async () => { throw new Error("x: SHA-256 1, the catalog says 2"); }, recheck: async () => { rechecks = 99; return null; } }); } catch (e) { shaErr = e.message; }
+  ok(/SHA-256/.test(shaErr) && rechecks !== 99 && L.isGone(new TypeError("Failed to fetch")) && L.isGone(new Error("u: 404")) && !L.isGone(new Error("u: 500")),
+     "404: a wrong SHA-256 is reported, not fallen back from");
+
+  // the browser's engine filter
+  const all = L.browse(m.firmwares, {}), nativeOnly = L.browse(m.firmwares, { engine: "native" }), emuOnly = L.browse(m.firmwares, { engine: "emu" });
+  ok(all.length === m.firmwares.length && nativeOnly.every((f) => f.native) && nativeOnly.length === m.firmwares.filter((f) => f.native).length
+     && emuOnly.every((f) => f.engines.includes("emu") && !f.emuNote) && !emuOnly.some((f) => f.id === "bubba" || f.id === "amb") && emuOnly.some((f) => f.id === "felucca"),
+     "filter: All everything; Native the cores; Emulated what fm1-emu runs (not bubba, not a native-only one)");
+  ok(L.browse(m.firmwares, { engine: "native", cat: "Groovebox", q: "fel" }).map((f) => f.id).join() === "felucca" && L.browse(m.firmwares, { engine: "emu", q: "zzzz" }).length === 0,
+     "filter: combines with a category chip and the search");
+  const cvN = L.cardView(mf, "native"), cvE = L.cardView(mf, "emu"), cvA = L.cardView(mf, "all");
+  ok(cvN.version === mf.native.version && cvN.note === "Hub: 1.6.2" && cvN.engine === "native" && cvE.version === "1.6.2" && cvE.engine === "emu" && !cvE.note
+     && cvA.version === "1.6.2" && cvA.note === `native: ${mf.native.version}` && cvA.engine === null && L.cardView(snap.firmwares.find((f) => f.id === "fimba"), "native").note === null,
+     "filter: Native cards show the native version (a note when behind) and start native; Emulated the Hub's and start emu; All the default");
+}
+
+// ---- a save carried to a new version (js/saves.js Carry)
+{
+  const S = await import("./js/saves.js"), { compareVersions } = await import("./js/live.js");
+  const store = [], decided = new Map();
+  const io = { list: async (fw) => store.filter((r) => r.fw === fw),
+    put: async (fw, engine, version, name, bytes) => { const i = store.findIndex((r) => r.fw === fw && r.engine === engine && r.version === version && r.name === name); const r = { fw, engine, version, name, bytes: new Uint8Array(bytes), saved: new Date(Date.now() + store.length).toISOString() }; if (i >= 0) store[i] = r; else store.push(r); return r; },
+    decisions: { get: (k) => decided.get(k), set: (k, v) => decided.set(k, v) }, compare: compareVersions };
+  await io.put("felucca", "emu", "1.6.1", S.AUTOSAVE, [1, 2, 3]);
+  await io.put("felucca", "native", "1.6.1", S.AUTOSAVE, [9, 9]);
+  await io.put("felucca", "emu", "1.5.0", "old", [5]);
+  const c1 = new S.Carry(io);
+  const o = await c1.check("felucca", "emu", "1.6.2");
+  ok(o && o.from === "1.6.1" && o.to === "1.6.2" && o.engine === "emu" && o.rec.name === S.AUTOSAVE && (await c1.check("felucca", "emu", "1.6.2")) === null,
+     "carry: 1.6.2 has no save, 1.6.1 has one (emu) -> offered once in a page");
+  const n = await c1.answer(o, true);
+  const at162 = store.filter((r) => r.version === "1.6.2"), at161 = store.find((r) => r.engine === "emu" && r.version === "1.6.1");
+  ok(n && at162.length === 1 && at162[0].engine === "emu" && at162[0].name === S.AUTOSAVE && at162[0].bytes.join() === "1,2,3" && at161 && at161.bytes.join() === "1,2,3"
+     && (await new S.Carry(io).check("felucca", "emu", "1.6.2")) === null,
+     "carry: yes copies the flash to 1.6.2's Autosave, keeps 1.6.1's as the backup, and is not asked again");
+  const c2 = new S.Carry(io);
+  const on = await c2.check("felucca", "native", "1.6.3");
+  ok(on && on.engine === "native" && on.rec.bytes.join() === "9,9", "carry: native offers the native save only (engine kinds not mixed)");
+  await c2.answer(on, false);
+  ok((await new S.Carry(io).check("felucca", "native", "1.6.3")) === null && !store.some((r) => r.version === "1.6.3"), "carry: no starts fresh and stops asking for that version");
+  ok((await new S.Carry(io).check("felucca", "emu", "1.4.0")) === null && (await new S.Carry(io).check("felucca", "mock", "1.6.9")) === null
+     && (await new S.Carry(io).check("fomni", "emu", "0.5")) === null, "carry: never from a newer version, never on the test engine, nothing to carry -> no offer");
+  // shown, not answered (a reload): again; a version that had saves before any offer: never
+  const c3 = new S.Carry(io);
+  const o3 = await c3.check("felucca", "emu", "1.7");
+  await io.put("felucca", "emu", "1.7", S.AUTOSAVE, [7]);                     // (the fresh boot's own autosave)
+  ok(o3 && (await new S.Carry(io).check("felucca", "emu", "1.7")) && (await new S.Carry(io).check("felucca", "emu", "1.6.2")) === null,
+     "carry: an unanswered offer comes back at the next load; a version with saves already is not asked about");
+  const b = S.parseBackup(S.backupJson(store));
+  ok(b.length === store.length && b.some((r) => r.version === "1.6.1" && r.engine === "emu"), "carry: the export holds the backup with the rest");
+}
+
+// ---- the emulated CPU clock (js/cpu.js)
+{
+  const P = await import("./js/cpu.js");
+  ok(P.mhzFor("choralroot", {}).mhz === 360 && P.mhzFor("choralroot", {}).choice === "auto" && P.DEVICE_MHZ === 360
+     && P.MHZ_CHOICES.join() === "auto,240,320,360,480,640" && P.inDeviceRange(320) && P.inDeviceRange(360) && P.isOverclock(480) && P.isOverclock(640) && !P.isOverclock(360),
+     "cpu: the default is Auto at 360 MHz; choices Auto 240 320 360 480 640 (320-360 the device's, 480 640 overclock)");
+  let prefs = {};
+  Object.assign(prefs, P.pickMhz(prefs, "choralroot", 640));
+  const saved = JSON.parse(JSON.stringify(prefs));                           // (through localStorage)
+  ok(P.mhzFor("choralroot", saved).mhz === 640 && P.mhzFor("choralroot", saved).choice === 640 && P.mhzFor("felucca", saved).mhz === 360
+     && P.mhzFor("x", { mhz: { x: 100 } }).mhz === 360, "cpu: a pick is kept per firmware, before the default (100 is no choice)");
+  // Auto, too slow: load above 75 % for 2 s (after the 4 s grace) -> 320
+  const run = (g, samples) => { for (const [t, load, late] of samples) { const r = g.feed({ load, lateMs: late || 0 }, t); if (r) return [t, r]; } return null; };
+  const busy = (from, to, load, late = 0) => { const s = []; for (let t = from; t <= to; t += 500) s.push([t, load, late]); return s; };
+  const g = new P.Governor({ choice: "auto", mhz: 360, now: 0 });
+  const r = run(g, [...busy(500, 3500, 0.99), ...busy(4000, 5000, 0.5), ...busy(5500, 9000, 0.9)]);
+  ok(r && r[1].step === 320 && r[0] === 7500, `cpu: Auto, load 90 % for 2 s after the boot's grace -> steps to 320 MHz (at ${r && r[0]} ms)`);
+  prefs.autoMhz = P.stepDown({}, "x", 320);
+  ok(P.mhzFor("x", prefs).mhz === 320 && [360, 320, 240, 180].map(P.nextStep).join() === "320,240,180,120" && P.nextStep(120) === null,
+     "cpu: 360 -> 320 -> 240 -> 180 -> 120 (the floor), and the step is kept (never up by itself)");
+  const gl = new P.Governor({ choice: "auto", mhz: 240, now: 0 });
+  const rl = run(gl, busy(4000, 9000, 0.3, 70));
+  ok(rl && rl[1].step === 180, "cpu: Auto, dropouts adding up (70 ms late a report) -> the next step down");
+  ok(run(new P.Governor({ choice: "auto", mhz: 360, now: 0 }), [...busy(4000, 20000, 0.7), ...busy(20500, 21500, 0.95), ...busy(22000, 40000, 0.6, 10)]) === null,
+     "cpu: Auto, 70 % load and short spikes -> stays");
+  const gm = new P.Governor({ choice: 640, mhz: 640, now: 0 }), rm = run(gm, busy(4000, 9000, 0.95));
+  ok(rm && rm[1].warn && !rm[1].step && gm.feed({ load: 0.99 }, 10000) === null, "cpu: a manual 640 never changes; it warns once");
+  ok(run(new P.Governor({ choice: "auto", mhz: 120, now: 0 }), busy(4000, 9000, 0.95))[1].warn, "cpu: Auto at the 120 MHz floor, still too slow -> a warning, no lower step");
+  Object.assign(prefs, P.pickMhz(prefs, "x", "auto"));
+  ok(P.mhzFor("x", prefs).mhz === 360, "cpu: picking Auto again starts at 360");
+  ok(["choralroot", "melodee", "sloopdx", "fm106", "coralflower"].every((id) => P.DUAL_CORE.has(id) && cat.firmwares.some((f) => f.id === id)), "cpu: the dual-core firmwares (CPU-heavy) are in the catalog");
 }
 
 // ---- orders

@@ -7,6 +7,8 @@
 // app (main.js) holds the state and the actions; the sheet re-renders its page on app.changed().
 import { PRESETS, accentOf, onAccent, css, hex } from "./theme.js";
 import { AUTOSAVE } from "./saves.js";
+import { browse, cardView, ENGINE_FILTERS } from "./live.js";
+import { MHZ_CHOICES, DEVICE_MHZ, DEVICE_RANGE, OVERCLOCK, DUAL_CORE, isOverclock, inDeviceRange } from "./cpu.js";
 
 // ---- icons: FM1VST Look::icon, 16 x 16 boxes
 const ICON = {
@@ -162,11 +164,30 @@ export class Sheet {
     out.push(heading("Engine"));
     if (e) {
       const both = e.engines.length > 1;
-      const idx = st.engine === "native" ? 0 : 1;
-      out.push(row("Runs on", both ? null : e.nativeGated ? "native build not public: " + e.nativeGated : "emulated only",
-        segmented(["Native", "Emulated"], st.engine === "mock" ? (st.wantEngine === "native" ? 0 : 1) : idx, (i) => a.setEngine(i ? "emu" : "native"),
-          new Set(both ? [] : e.native ? [1] : [0]))));
-      out.push(h("p", { class: "note" }, a.engineNote()));
+      const shown = st.engine === "mock" ? st.wantEngine : st.engine;
+      if (both && e.nativeBehind) {
+        // two versions: the Hub's latest (emulated, the default) and FM1VST's older core (native), one per line
+        out.push(row("Runs on", `the Hub has ${e.version}; the native core is ${e.native.version}`, null));
+        out.push(h("div", { class: "seg stack", role: "radiogroup" }, [["emu", "Emulated", e.version, "latest"], ["native", "Native", e.native.version, "older, faster"]].map(([k, label, v, why]) =>
+          h("button", { class: shown === k ? "on" : "", role: "radio", "aria-checked": String(shown === k), onclick: () => a.setEngine(k) }, `${label} ${v}`, h("small", {}, `(${why})`)))));
+      } else {
+        out.push(row("Runs on", both ? null : e.nativeGated ? "native build not public: " + e.nativeGated : e.native ? "native only (no longer on the Hub)" : "emulated only",
+          segmented(["Native", "Emulated"], shown === "native" ? 0 : 1, (i) => a.setEngine(i ? "emu" : "native"),
+            new Set(both ? [] : e.native ? [1] : [0]))));
+      }
+      // the emulated CPU clock (emu only): Auto, the device's range (320-360), an overclock (480, 640)
+      if (shown === "emu") {
+        const c = st.mhzChoice;
+        const sub = c === "auto" ? (st.mhz === DEVICE_MHZ ? `Auto: ${DEVICE_MHZ} MHz, the FM-1's own clock; lower if this computer can't keep up` : `Auto: stepped down to ${st.mhz} MHz for this computer`)
+          : isOverclock(c) ? `${c} MHz, ${OVERCLOCK}` : inDeviceRange(c) ? `${c} MHz, the FM-1's own range` : `${c} MHz, under the FM-1's clock: lighter, may stutter`;
+        out.push(row("Emulated CPU", sub, null));
+        out.push(h("div", { class: "seg wide", role: "radiogroup", "aria-label": "Emulated CPU clock" }, MHZ_CHOICES.map((m) =>
+          h("button", { class: (m === c ? "on" : "") + (isOverclock(m) ? " oc" : inDeviceRange(m) ? " dev" : ""), role: "radio", "aria-checked": String(m === c),
+            title: m === "auto" ? `${DEVICE_MHZ} MHz, stepping down if this computer can't keep up` : isOverclock(m) ? OVERCLOCK : inDeviceRange(m) ? "the FM-1's own range" : "under the FM-1's clock",
+            onclick: () => a.setMhz(m) }, m === "auto" ? "Auto" : `${m}`))));
+        out.push(h("div", { class: "mhz-scale" }, h("span", { class: "dev" }, "the FM-1"), h("span", { class: "oc" }, "overclock")));
+        out.push(h("p", { class: "note" }, `MHz. The FM-1 runs at about ${DEVICE_RANGE[0]}-${DEVICE_RANGE[1]} MHz; 480 and 640 are an overclock: more headroom for heavy firmwares, more work for this computer. A change restarts the firmware from its running flash.`));
+      }
     }
 
     // ABOUT
@@ -184,6 +205,9 @@ export class Sheet {
   savesSection() {
     const a = this.app, st = a.state, saves = st.saves || [];
     const out = [];
+    // a save of an older version, offered once (main.js offerCarry)
+    if (st.carryOffer) out.push(h("div", { class: "carry" }, a.carryText(st.carryOffer),
+      h("div", { class: "pills two" }, pill("Bring it", () => a.answerCarry(true), "primary"), pill("Start fresh", () => a.answerCarry(false), "ghost"))));
     const mine = saves.filter((r) => r.engine === st.engine && r.version === a.versionOf(st.entry, st.engine));
     const named = mine.filter((r) => r.name !== AUTOSAVE);
     const sel = named.find((r) => r.name === st.selectedSave) || null;
@@ -251,15 +275,22 @@ export class Sheet {
     const cats = cat.categories;
     const grid = h("div", { class: "cards" });
     const fill = () => {
-      const q = this.search.trim().toLowerCase(), c = cats[this.cat];
-      const list = cat.firmwares.filter((f) => (c === "All" || f.categories.includes(c)) &&
-        (!q || [f.name, f.author, f.authorFull, f.tag, f.what, f.id].some((s) => s && s.toLowerCase().includes(q))));
+      const eng = st.browseEngine || "all";
+      const list = browse(cat.firmwares, { engine: eng, cat: cats[this.cat], q: this.search });
       grid.replaceChildren(...list.map((f) => {
         // a card with a badge (RemoteFM1's "meta") is wider and shows its blurb in place of the tag
-        const card = h("button", { class: "card" + (f.badge ? " badged" : "") + (st.entry && f.id === st.entry.id ? " current" : ""), title: `${f.name} ${f.version}\n${f.what || ""}`,
-          onclick: () => { a.openFirmware(f.id); this.close(); } },
-          h("span", { class: "card-top" }, h("b", {}, f.name), f.badge ? h("span", { class: "card-tag" }, f.badge) : null, h("span", { class: "card-ver" }, f.version)),
-          h("span", { class: "card-meta" }, f.blurb || `${f.tag} · ${f.author}`),
+        const v = cardView(f, eng), meta = f.blurb || `${f.tag} · ${f.author}`;
+        // a dual-core firmware, when it would run emulated: CPU-heavy
+        const runsEmu = v.engine ? v.engine === "emu" : f.defaultEngine === "emu";
+        const note = v.note || (runsEmu && DUAL_CORE.has(f.id) ? "CPU-heavy" : null);
+        const card = h("button", { class: "card" + (f.badge ? " badged" : "") + (st.entry && f.id === st.entry.id ? " current" : ""), title: `${f.name} ${v.version}\n${f.what || ""}`,
+          "data-id": f.id, onclick: () => { a.openFirmware(f.id, v.engine); this.close(); } },
+          h("span", { class: "card-top" }, h("b", {}, f.name), f.badge ? h("span", { class: "card-tag" }, f.badge) : null, h("span", { class: "card-ver" }, v.version)),
+          note
+            ? h("span", { class: "card-meta split" }, h("span", {}, meta), h("span", { class: "card-note" + (v.note ? "" : " heavy"),
+                title: v.note ? (eng === "native" ? `The Hub has ${f.version}; FM1VST's native core is ${f.native.version}` : `FM1VST's native core is ${f.native.version}; the Hub's latest ${f.version} runs emulated`)
+                  : "Runs both of the FM-1's cores: heavy to emulate" }, note))
+            : h("span", { class: "card-meta" }, meta),
           f.native ? h("span", { class: "card-badge", title: "Runs natively (WebAssembly)" }) : null);
         return card;
       }), h("label", { class: "card file", title: "Run a package from your computer, emulated (for example M-VAVE's FM-1.fwsc)" },
@@ -270,12 +301,16 @@ export class Sheet {
     };
     const search = h("div", { class: "search" }, h("span", { html: icon("search") }),
       h("input", { type: "search", placeholder: `Search ${cat.firmwares.length} firmwares`, value: this.search, oninput: (ev) => { this.search = ev.target.value; fill(); } }));
+    const engines = h("div", { class: "seg engine-filter", role: "radiogroup", "aria-label": "Engine" }, ENGINE_FILTERS.map(([k, label]) =>
+      h("button", { class: (st.browseEngine || "all") === k ? "on" : "", role: "radio", "aria-checked": String((st.browseEngine || "all") === k), "data-engine": k,
+        title: k === "native" ? "Firmwares with a native core (FM1VST's), started native" : k === "emu" ? "Every firmware the emulator runs, at the Hub's latest, started emulated" : "Every firmware, on its default engine",
+        onclick: (ev) => { a.set("browseEngine", k); } }, label)));
     const chips = h("div", { class: "chips" }, cats.map((c, i) => h("button", { class: "chip" + (i === this.cat ? " on" : ""), onclick: (ev) => {
       this.cat = i; for (const b of chips.children) b.classList.toggle("on", b === ev.currentTarget); fill();
     } }, c)));
     fill();
-    return [search, chips, grid,
-      h("p", { class: "note" }, "From ", link(cat.hub, "the FM-1 Firmware Hub"), ` (${cat.hubUpdated || "snapshot"}). Firmwares with a dot run natively, compiled from FM1VST's cores; every firmware also runs emulated on `,
+    return [search, engines, chips, grid,
+      h("p", { class: "note" }, "From ", link(cat.hub, "the FM-1 Firmware Hub"), ` (${cat.live ? "live, " : "as of "}${cat.hubUpdated || "snapshot"}). Firmwares with a dot run natively, compiled from FM1VST's cores (where the Hub has a newer release, it runs emulated unless you pick native); every firmware also runs emulated on `,
         link(cat.credits.fm1emu.source, "fm1-emu"), ", its package fetched from where the Hub points (RemoteFM1's from this site).")];
   }
 

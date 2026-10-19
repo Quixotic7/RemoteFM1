@@ -7,7 +7,8 @@
 //   - RemoteFM1 itself (web/installer/releases.json, its first release): the one package this site hosts, fetched from
 //     the installer's firmware/ folder on the same site, not from the Hub. It plays nothing; it waits for a host.
 // Every Hub firmware gets the emulated engine (its package fetched at play time from where the Hub points); the ten
-// un-gated cores also get the native one, which is then their default.
+// un-gated cores also get the native one, which is then their default while it is the Hub's version (newest wins:
+// web/site/js/live.js, which builds the entries; the page merges the Hub's live catalog over this one at load).
 //   node web/site/tools/build_catalog.mjs [--layout dev|pages] [--hub FILE|URL] [--out FILE]
 // layout: where the engines, the remote module and the installer are, seen from the page:
 //   dev    the page at web/site/ served from web/ (python3 -m http.server in web/): ../engines/.., ../build/..
@@ -16,12 +17,12 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { siteEntry, CATEGORIES, HUB } from "../js/live.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url)), SITE = join(HERE, "..");
 const arg = (n, d) => { const i = process.argv.indexOf(n); return i > 0 ? process.argv[i + 1] : d; };
 const layout = arg("--layout", "dev"), out = arg("--out", join(SITE, "catalog.json"));
 const hubSrc = arg("--hub", join(SITE, "data", "hub-catalog.snapshot.json"));
-const HUB = "https://thefirmwarehub.com/";
 
 const PATHS = {
   dev: {
@@ -45,7 +46,9 @@ const PATHS = {
 };
 if (!PATHS[layout]) { console.error(`build_catalog: --layout dev or pages, not ${layout}`); process.exit(2); }
 
-const hub = /^https?:/.test(hubSrc) ? await (await fetch(hubSrc)).json() : JSON.parse(readFileSync(hubSrc, "utf8"));
+const hubLive = /^https?:/.test(hubSrc);
+const hub = hubLive ? await (await fetch(hubSrc, { signal: AbortSignal.timeout(30000) })).json() : JSON.parse(readFileSync(hubSrc, "utf8"));
+if (!Array.isArray(hub.firmwares) || !hub.firmwares.length) { console.error(`build_catalog: ${hubSrc} has no firmwares`); process.exit(1); }
 const cores = JSON.parse(readFileSync(join(SITE, "data", "cores.json"), "utf8")).cores;
 const coreByHub = new Map(cores.map((c) => [c.hub || c.core, c]));
 
@@ -53,52 +56,10 @@ const coreByHub = new Map(cores.map((c) => [c.hub || c.core, c]));
 let EMU_SKIP = { bubba: "boots to a black screen, no sound (needs M-VAVE's own loader)" };
 try { EMU_SKIP = (await import(new URL("../../engines/emu/catalog.mjs", import.meta.url).href)).EMU_SKIP || EMU_SKIP; } catch (_) { /* (W2's branch not merged) */ }
 
-const CAT = { synth: "Synth", groove: "Groovebox", chords: "Chords", drums: "Drums", other: "Other", dev: "Other" };
-const CATEGORIES = ["All", "Synth", "Groovebox", "Chords", "Drums", "Other"];
-
-// a short tag from the Hub's description: its first clause, without the article, at most ~30 characters
-function tagOf(what) {
-  let s = String(what || "").split(/[:;(]|\.(?:\s|$)| - | — /)[0].trim().replace(/^(an?|the)\s+/i, "");
-  if (!s) return "Firmware";
-  const comma = s.split(",")[0].trim();
-  if (s.length > 30 && comma.length >= 12) s = comma;
-  s = s[0].toUpperCase() + s.slice(1);
-  if (s.length <= 30) return s;
-  const cut = s.slice(0, 29), sp = cut.lastIndexOf(" ");
-  return (sp > 12 ? cut.slice(0, sp) : cut).replace(/[\s,-]+$/, "") + "…";
-}
-const shortAuthor = (a) => String(a || "").replace(/\s*\(.*\)\s*/g, "").trim() || "unknown";
-
 const firmwares = hub.firmwares.map((f) => {
-  const kinds = (Array.isArray(f.kind) ? f.kind : [f.kind]).filter(Boolean);
-  const cats = [...new Set(kinds.map((k) => CAT[k] || "Other"))];
   const core = coreByHub.get(f.id) || null;
   const native = core && !core.gated ? { core: core.core, version: core.version, wasm: PATHS[layout].engines.native.wasm.replace("{core}", core.core) } : null;
-  const e = {
-    id: f.id,
-    name: f.name,
-    version: f.version,
-    author: core ? core.author : shortAuthor(f.author),
-    authorFull: f.author,
-    category: core ? core.category : cats[0] || "Other",
-    categories: core ? [...new Set([core.category, ...cats])] : cats,
-    tag: core ? core.tag : tagOf(f.what),
-    what: f.what,
-    license: core ? core.license : null,
-    source: f.source || (f.repo ? `https://github.com/${f.repo}` : null),
-    repo: f.repo || null,
-    release: f.release || null,
-    site: f.site || null,
-    play: f.play || null,
-    beta: !!f.beta,
-    engines: native ? ["native", "emu"] : ["emu"],
-    defaultEngine: native ? "native" : "emu",
-    native,
-    emu: { pkg: f.pkg ? new URL(f.pkg, HUB).href : null, sha256: f.sha256 || null, size: f.size || 0, product: f.product || null },
-  };
-  if (core && core.gated) e.nativeGated = core.gated;
-  if (EMU_SKIP[f.id]) e.emuNote = EMU_SKIP[f.id];
-  return e;
+  return siteEntry(f, { core, native, emuSkip: EMU_SKIP });   // (newest wins: emu is the default where the core is behind)
 });
 
 // RemoteFM1 as a firmware to play: its released package, from this site's installer (the same origin as the page)
@@ -141,6 +102,7 @@ const catalog = {
   about: "Built by web/site/tools/build_catalog.mjs from the FM-1 Firmware Hub's catalog, FM1VST's cores and RemoteFM1's own release (web/installer/releases.json). Edit those, not this file.",
   generated: new Date().toISOString().slice(0, 10),
   hubUpdated: hub.updated || null,
+  hubSource: hubLive ? "live" : "snapshot",
   hub: HUB,
   layout,
   paths: PATHS[layout],

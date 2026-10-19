@@ -38,12 +38,15 @@ export class PanelMerge {   // the page's panel messages -> one setPanel per qua
   }
 }
 
+// the wall clock in ms (an AudioWorkletGlobalScope may have no performance object)
+const clock = () => (globalThis.performance && typeof globalThis.performance.now === "function" ? globalThis.performance.now() : Date.now());
 if (typeof AudioWorkletProcessor !== "undefined") {
   class Host extends AudioWorkletProcessor {
     constructor() {
       super();
       this.engine = null; this.loading = 0; this.panel = new PanelMerge();
       this.since = 0; this.seen = { screen: -1, leds: -1, flash: -1 }; this.haltSent = false;
+      this.mon = null;   // the render load: { busy, frames, wall0 } (a report every half second: page js/cpu.js)
       this.port.onmessage = (e) => this.onMessage(e.data);
     }
     post(m, transfer) { try { this.port.postMessage(m, transfer || []); } catch (_) { /* (the page went away) */ } }
@@ -60,6 +63,7 @@ if (typeof AudioWorkletProcessor !== "undefined") {
         this.seen = { screen: -1, leds: -1, flash: -1 };
         this.haltSent = false;
         this.panel.dirty = true;
+        this.mon = null;
         this.post({ type: "info", engine: m.engine, engineVersion: mod.ENGINE && mod.ENGINE.version, ...eng.info() });
       } catch (e) { this.fail("load", e); }
     }
@@ -84,7 +88,9 @@ if (typeof AudioWorkletProcessor !== "undefined") {
       if (!eng) { if (L) L.fill(0); if (R) R.fill(0); return true; }
       try {
         if (this.panel.dirty) eng.setPanel(this.panel.take());
+        const t0 = clock();
         eng.render(L, R);
+        this.measure(clock(), t0, L.length);
         this.since += L.length / sampleRate;
         if (this.since >= FRAME_EVERY_S) { this.since = 0; this.publish(eng); }
       } catch (e) {
@@ -92,6 +98,16 @@ if (typeof AudioWorkletProcessor !== "undefined") {
         this.drop();
       }
       return true;
+    }
+    // the share of the audio time spent rendering, and how far the wall clock ran ahead of the audio clock (late
+    // quanta: dropouts). A window whose wall time is over twice its audio time is a pause (a sleeping machine), not load.
+    measure(t1, t0, n) {
+      const m = this.mon || (this.mon = { busy: 0, frames: 0, wall0: t0 });
+      m.busy += t1 - t0; m.frames += n;
+      if (m.frames < sampleRate / 2) return;
+      const audioMs = (m.frames / sampleRate) * 1000, wallMs = t1 - m.wall0;
+      if (wallMs < 2 * audioMs) this.post({ type: "load", load: m.busy / audioMs, lateMs: Math.max(0, wallMs - audioMs - 20) });
+      this.mon = { busy: 0, frames: 0, wall0: t1 };
     }
     publish(eng) {
       const s = eng.screen();

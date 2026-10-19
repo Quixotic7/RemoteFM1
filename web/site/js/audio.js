@@ -73,6 +73,7 @@ export class Player {
     else if (m.type === "halted") this.emit("halted", m.code);
     else if (m.type === "midiOut") this.emit("midiOut", m.bytes);
     else if (m.type === "error") this.emit("error", m.message);
+    else if (m.type === "load") this.emit("load", m);
   }
 
   // add an engine's module to the worklet: a shim that imports it statically and registers it with host.js
@@ -129,7 +130,8 @@ export class Player {
   }
 
   // load a firmware on an engine; resolves once the worklet has it (info arrives as an event)
-  async load(entry, engine, flash = null) {
+  // extra: engine options (the emu engine's mhz)
+  async load(entry, engine, flash = null, extra = {}) {
     if (!this.ctx) throw new Error("start() first");
     this.emit("status", { state: "loading", entry, engine });
     await this.addEngine(engine);
@@ -137,7 +139,7 @@ export class Player {
     this.current = { entry, engine };
     this.node.port.postMessage({ type: "load", engine, files, flash: flash ? new Uint8Array(flash) : null,
                                  options: { id: entry.id, name: entry.name, version: entry.version, author: entry.authorFull || entry.author,
-                                            license: entry.license || null, source: entry.source || null, family: entry.category } });   // (copied, not transferred: a hook may cache its buffers)
+                                            license: entry.license || null, source: entry.source || null, family: entry.category, ...extra } });   // (copied, not transferred: a hook may cache its buffers)
   }
   unload() { if (this.node) this.node.port.postMessage({ type: "unload" }); this.current = null; }
   panel(p) { if (this.node) this.node.port.postMessage({ type: "panel", ...p }); }
