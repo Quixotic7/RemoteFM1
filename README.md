@@ -1,6 +1,13 @@
 # RemoteFM1
 
-**The M-VAVE FM-1 as a USB panel for an FM-1 firmware running on your computer.**
+https://quixotic7.github.io/RemoteFM1/
+
+Install here:
+
+https://quixotic7.github.io/RemoteFM1/installer/
+
+
+**The firmware for your firmware so you can run firmwares without installing firmwares**
 
 RemoteFM1 is a firmware for the FM-1 that does almost nothing by itself. It sends every key, button, encoder and the
 MASTER pot to the computer, and shows whatever the computer sends back on its LEDs and its 240×240 screen. On the
