@@ -87,17 +87,20 @@ async function sha256hex(bytes) {
 // The package bytes for an entry, fetched at play time from the Hub's mirror and checked against
 // the catalog's SHA-256. Returns { bytes: Uint8Array, url }. The stock firmware throws: use
 // stockFromFile with the visitor's own file.
-export async function fetchPackage(entry, fetchFn = fetch) {
+// One package is the site's own: RemoteFM1's, from the installer's firmware/ folder next to the page.
+// Its URL may be relative (to base, else the page); it is checked the same way.
+export async function fetchPackage(entry, fetchFn = fetch, base = globalThis.document?.baseURI ?? globalThis.location?.href) {
   if (entry.byo || !entry.package?.url) {
     throw new Error(`${entry.name}: not fetched; open your own ${entry.id === STOCK_ID ? "FM-1.fwsc" : ".fwsc"}`);
   }
-  const { url, sha256 } = entry.package;
+  const { sha256 } = entry.package;
+  const url = /^[a-z][\w+.-]*:/i.test(entry.package.url) || !base ? entry.package.url : new URL(entry.package.url, base).href;
   const r = await fetchFn(url);
   if (!r.ok) throw new Error(`${url}: ${r.status}`);
   const bytes = new Uint8Array(await r.arrayBuffer());
   if (sha256) {
     const got = await sha256hex(bytes);
-    if (got !== sha256) throw new Error(`${url}: SHA-256 ${got}, the Hub's catalog says ${sha256}`);
+    if (got !== sha256) throw new Error(`${url}: SHA-256 ${got}, the catalog says ${sha256}`);
   }
   return { bytes, url };
 }

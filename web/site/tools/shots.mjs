@@ -25,6 +25,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const MOCK_SRC = readFileSync(join(HERE, "fm1-mock.js"), "utf8");
 const REMOTE_UNIT = { midiName: "FM-1", bulk: true, paired: true };
 const fm1Click = `document.getElementById("fm1-btn").click()`;
+// until RemoteFM1's line is showing (the emulator has booted it), at most 30 s
+const waitSelf = `new Promise((res) => { const t0 = Date.now(), f = () => { const t = document.getElementById("toast");
+  if ((t.classList.contains("show") && /firmwares|remote/i.test(t.textContent)) || Date.now() - t0 > 30000) res(t.textContent); else setTimeout(f, 100); }; f(); })`;
 const SHOTS = [
   { name: "device", w: 1400, h: 860, url: "site/?fw=felucca", wait: 2500 },
   { name: "device-pressed", w: 1400, h: 860, url: "site/?fw=fomni", wait: 2000,
@@ -74,6 +77,12 @@ const SHOTS = [
   { name: "mobile-fm1-off", w: 390, h: 844, mobile: true, url: "site/?fw=felucca", wait: 2500, mock: { perm: "prompt", units: [REMOTE_UNIT] } },
   { name: "mobile-fm1-usb", w: 390, h: 844, mobile: true, url: "site/?fw=felucca", wait: 3500, mock: { perm: "granted", units: [REMOTE_UNIT] }, steps: [fm1Click], after: 500 },
   { name: "mobile-start-fm1", w: 390, h: 844, mobile: true, url: "site/?fw=felucca", wait: 2500, noAutoplay: true, mock: { perm: "prompt", units: [REMOTE_UNIT] } },
+  // RemoteFM1 itself, played: the card in the browser, then the player running it (emulated; the toast once it runs)
+  { name: "remotefm1-browser", w: 1400, h: 860, url: "site/?fw=remotefm1", wait: 2000,
+    steps: [`document.getElementById("fw-btn").click()`, `document.querySelector(".card.badged").scrollIntoView({ block: "center" })`], after: 600 },
+  { name: "remotefm1-player", w: 1400, h: 860, url: "site/?fw=remotefm1", wait: 1000, steps: [waitSelf], after: 2500 },
+  { name: "remotefm1-mobile", w: 390, h: 844, mobile: true, url: "site/?fw=remotefm1", wait: 1000, steps: [waitSelf], after: 2500 },
+  { name: "remotefm1-fm1", w: 1400, h: 860, url: "site/?fw=remotefm1", wait: 1000, mock: { perm: "granted", units: [REMOTE_UNIT] }, steps: [waitSelf], after: 2500 },
   { name: "installer", w: 1200, h: 1500, url: "installer/", wait: 1500 },
   { name: "installer-done", w: 1200, h: 1100, url: "installer/", wait: 1500,
     steps: [`(() => { const s = document.getElementById("status"); s.textContent = "Done: RemoteFM1 " + document.getElementById("ver").textContent + " is installed."; s.className = "status ok";

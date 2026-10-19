@@ -2,7 +2,12 @@
 // The site's logic in Node: the catalog, the panel's orders (label / role -> matrix), the worklet host's panel merge
 // (taps), the computer-key map, and the mock engine against web/engine/API.md.
 //   node web/site/test.mjs
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, unlinkSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Controls, labelToMatrix, roleToMatrix, B, E, SRC, KEYMAP, KM, hintText, ledIndexOf, DEFAULT_KEYMAP } from "./js/panel.js";
 import { PanelMerge } from "./worklet/host.js";
 import { createEngine, ENGINE } from "./mock/engine.js";
@@ -16,12 +21,45 @@ const ok = (c, what) => { checks++; if (!c) fails++; console.log(`${what.padEnd(
 const cat = JSON.parse(readFileSync(new URL("./catalog.json", import.meta.url), "utf8"));
 const natives = cat.firmwares.filter((f) => f.native).map((f) => f.id).sort();
 ok(natives.join() === "amb,coralflower,felucca,fimba,fomni,frodhes,ghoulbox,jiant,obervave,purplemonkey", "catalog: the 10 un-gated cores are native, no other");
-ok(cat.firmwares.every((f) => f.engines.includes("emu") && /^https:\/\/thefirmwarehub\.com\/fw\//.test(f.emu.pkg) && /^[0-9a-f]{64}$/.test(f.emu.sha256)),
-   "catalog: every firmware runs emulated, its package from the Hub with a SHA-256");
+ok(cat.firmwares.every((f) => f.engines.includes("emu") && /^[0-9a-f]{64}$/.test(f.emu.sha256)
+   && (f.id === "remotefm1" ? f.emu.from === "site" : /^https:\/\/thefirmwarehub\.com\/fw\//.test(f.emu.pkg) && !f.emu.from)),
+   "catalog: every firmware runs emulated, its package from the Hub (RemoteFM1's from the site) with a SHA-256");
 ok(new Set(cat.firmwares.map((f) => f.id)).size === cat.firmwares.length, "catalog: ids unique");
 ok(cat.firmwares.filter((f) => f.native).every((f) => f.defaultEngine === "native" && f.native.wasm.endsWith(`${f.native.core}.wasm`)), "catalog: native is the default where it exists");
 ok(["choralroot", "melodee", "x0x", "orbit"].every((id) => cat.firmwares.find((f) => f.id === id).nativeGated), "catalog: gated cores say why they are not native");
 ok(cat.firmwares.every((f) => cat.categories.includes(f.category)), "catalog: every category is a chip");
+
+// ---- RemoteFM1 itself, a firmware to play: its released package, from this site (not the Hub), checked
+{
+  const rel = JSON.parse(readFileSync(new URL("../installer/releases.json", import.meta.url), "utf8")), r0 = rel.releases[0];
+  const rf = cat.firmwares.find((f) => f.id === "remotefm1");
+  ok(rf && rf.name === "RemoteFM1" && rf.version === r0.version && rf.author === "Quixotic7" && rf.license === "GPL-3.0-only"
+     && rf.source === "https://github.com/Quixotic7/RemoteFM1" && rf.category === "Other", "remotefm1: in the catalog, the first release's version, author, licence, source, Other");
+  ok(rf.engines.join() === "emu" && rf.defaultEngine === "emu" && !rf.native && rf.badge === "meta" && rf.blurb, "remotefm1: emulated only, a meta badge and a blurb");
+  const pageUrl = "https://quixotic7.github.io/RemoteFM1/site/", pkgUrl = new URL(rf.emu.pkg, pageUrl);
+  ok(!/^[a-z][\w+.-]*:|^\/\//i.test(rf.emu.pkg) && pkgUrl.origin === new URL(pageUrl).origin && rf.emu.pkg === cat.paths.installer + `firmware/remote-${r0.version}.fwsc`,
+     `remotefm1: its package is same-origin, the installer's (${rf.emu.pkg})`);
+  const file = new URL(`../installer/firmware/remote-${r0.version}.fwsc`, import.meta.url), bytes = readFileSync(file);
+  const sha = createHash("sha256").update(bytes).digest("hex");
+  ok(rf.emu.sha256 === r0.sha256 && sha === r0.sha256 && rf.emu.size === bytes.length, "remotefm1: SHA-256 and size are releases.json's and the package file's");
+  // the published layout: the page at the root, the installer next to it
+  const tmp = join(tmpdir(), `catalog-pages-${process.pid}.json`);
+  execFileSync(process.execPath, [fileURLToPath(new URL("./tools/build_catalog.mjs", import.meta.url)), "--layout", "pages", "--out", tmp], { stdio: "ignore" });
+  const pc = JSON.parse(readFileSync(tmp, "utf8")), prf = pc.firmwares.find((f) => f.id === "remotefm1");
+  unlinkSync(tmp);
+  ok(new URL(prf.emu.pkg, "https://quixotic7.github.io/RemoteFM1/").href === `https://quixotic7.github.io/RemoteFM1/installer/firmware/remote-${r0.version}.fwsc`
+     && pc.firmwares.filter((f) => f.id !== "remotefm1").every((f) => f.emu.pkg.startsWith("https://thefirmwarehub.com/fw/")),
+     "remotefm1: Pages layout -> <site>/installer/firmware/remote-X.fwsc; every other package still the Hub's");
+  // the emu hook fetches a relative URL against the page and checks its SHA-256
+  const { fetchPackage } = await import("../engines/emu/catalog.mjs");
+  const asked = [];
+  const fakeFetch = async (u) => { asked.push(u); return { ok: true, status: 200, arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length) }; };
+  const got = await fetchPackage({ id: rf.id, name: rf.name, package: { url: rf.emu.pkg, sha256: rf.emu.sha256 } }, fakeFetch, "http://127.0.0.1:8731/site/");
+  let bad = null;
+  try { await fetchPackage({ id: rf.id, name: rf.name, package: { url: rf.emu.pkg, sha256: "0".repeat(64) } }, fakeFetch, "http://127.0.0.1:8731/site/"); } catch (e) { bad = e.message; }
+  ok(asked[0] === `http://127.0.0.1:8731/installer/firmware/remote-${r0.version}.fwsc` && got.bytes.length === bytes.length && /SHA-256/.test(bad || ""),
+     "remotefm1: the emu hook fetches it same-origin and refuses a wrong SHA-256");
+}
 
 // ---- orders
 ok([...Array(14).keys()].map(labelToMatrix).join() === "2,3,4,5,6,7,8,9,10,11,12,13,0,1", "buttons: label -> matrix (OCT- 0, OCT+ 1, FX 2 .. REC 13)");

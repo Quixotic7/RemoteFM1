@@ -105,12 +105,19 @@ function activity() {
 
 // ------------------------------------------------------------------ toast ---
 let toastTimer = 0;
-function toast(text, kind = "") {
+function toast(text, kind = "", ms = 0) {
   const t = $("toast");
   t.textContent = text; t.className = "toast show " + kind;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { t.className = "toast " + kind; }, kind === "bad" ? 7000 : 4000);
+  toastTimer = setTimeout(() => { t.className = "toast " + kind; }, ms || (kind === "bad" ? 7000 : 4000));
 }
+
+// RemoteFM1 itself, played (the catalog's "meta" entry): it makes no sound and waits for a host. One line when it
+// starts (the owner's), and when an FM-1 connects while it runs.
+const SELF_ID = "remotefm1";
+const playingSelf = () => !!state.entry && state.entry.id === SELF_ID && state.engine === "emu";
+const selfLine = (tone = fm1Tone) => tone === "on" ? "Your FM-1 is now remotely displaying a remote."
+  : "I heard you liked firmwares so I made a firmware for your firmware so you can run firmwares without installing firmwares";
 
 // --------------------------------------------------------------- firmware ---
 const versionOf = (e, engine) => (!e ? "" : engine === "native" && e.native ? e.native.version : e.version);
@@ -224,6 +231,7 @@ function makePlayer() {
         setStatus("Warming up the emulator...");
         setTimeout(() => { if (state.engine === "emu") creditStatus(); }, 1500);
       }
+      if (playingSelf()) toast(selfLine(), "", 6500);   // (the long one: time to read it)
       controls.emit();   // the panel as it stands, to the new engine
       invalidate();
       if (sheet) sheet.render();
@@ -292,7 +300,7 @@ function onFm1(v) {
   note.className = "start-note " + v.tone;
   note.textContent = v.tone === "on" ? `Your FM-1 is connected${v.via ? " over " + v.via : ""}: press Play and it plays this firmware.` : v.detail;
   if (fm1Tone !== null && v.tone !== fm1Tone) {
-    if (v.tone === "on") toast(`FM-1 connected${v.via ? " over " + v.via : ""}: its keys, knobs and screen are the panel.`, "ok");
+    if (v.tone === "on") toast(playingSelf() ? selfLine("on") : `FM-1 connected${v.via ? " over " + v.via : ""}: its keys, knobs and screen are the panel.`, "ok", playingSelf() ? 6500 : 0);
     else if (v.tone === "bad") toast(v.detail, "bad");
   }
   fm1Tone = v.tone;

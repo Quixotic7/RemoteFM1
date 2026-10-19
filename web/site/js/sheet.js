@@ -255,10 +255,11 @@ export class Sheet {
       const list = cat.firmwares.filter((f) => (c === "All" || f.categories.includes(c)) &&
         (!q || [f.name, f.author, f.authorFull, f.tag, f.what, f.id].some((s) => s && s.toLowerCase().includes(q))));
       grid.replaceChildren(...list.map((f) => {
-        const card = h("button", { class: "card" + (st.entry && f.id === st.entry.id ? " current" : ""), title: `${f.name} ${f.version}\n${f.what || ""}`,
+        // a card with a badge (RemoteFM1's "meta") is wider and shows its blurb in place of the tag
+        const card = h("button", { class: "card" + (f.badge ? " badged" : "") + (st.entry && f.id === st.entry.id ? " current" : ""), title: `${f.name} ${f.version}\n${f.what || ""}`,
           onclick: () => { a.openFirmware(f.id); this.close(); } },
-          h("span", { class: "card-top" }, h("b", {}, f.name), h("span", { class: "card-ver" }, f.version)),
-          h("span", { class: "card-meta" }, `${f.tag} · ${f.author}`),
+          h("span", { class: "card-top" }, h("b", {}, f.name), f.badge ? h("span", { class: "card-tag" }, f.badge) : null, h("span", { class: "card-ver" }, f.version)),
+          h("span", { class: "card-meta" }, f.blurb || `${f.tag} · ${f.author}`),
           f.native ? h("span", { class: "card-badge", title: "Runs natively (WebAssembly)" }) : null);
         return card;
       }), h("label", { class: "card file", title: "Run a package from your computer, emulated (for example M-VAVE's FM-1.fwsc)" },
@@ -275,7 +276,7 @@ export class Sheet {
     fill();
     return [search, chips, grid,
       h("p", { class: "note" }, "From ", link(cat.hub, "the FM-1 Firmware Hub"), ` (${cat.hubUpdated || "snapshot"}). Firmwares with a dot run natively, compiled from FM1VST's cores; every firmware also runs emulated on `,
-        link(cat.credits.fm1emu.source, "fm1-emu"), ", its package fetched from where the Hub points.")];
+        link(cat.credits.fm1emu.source, "fm1-emu"), ", its package fetched from where the Hub points (RemoteFM1's from this site).")];
   }
 
   // =============================================================== about ===
@@ -297,7 +298,7 @@ export class Sheet {
       out.push(heading("Engine"));
       out.push(h("p", { class: "note" }, a.engineNote()));
       if (shown === "emu")
-        out.push(h("p", { class: "note" }, "Emulated by ", link(cat.credits.fm1emu.source, "fm1-emu"), ` by ${cat.credits.fm1emu.author} (${cat.credits.fm1emu.license}): the FM-1's chip, so the firmware's own package runs unchanged. The package comes from where the FM-1 Firmware Hub points; this site hosts no firmware but its own.`));
+        out.push(h("p", { class: "note" }, "Emulated by ", link(cat.credits.fm1emu.source, "fm1-emu"), ` by ${cat.credits.fm1emu.author} (${cat.credits.fm1emu.license}): the FM-1's chip, so the firmware's own package runs unchanged. ${e.emu && e.emu.from === "site" ? "The package is this site's own, the one its installer writes." : "The package comes from where the FM-1 Firmware Hub points; this site hosts no firmware but its own."}`));
       if (shown === "native")
         out.push(h("p", { class: "note" }, "Built from ", link(cat.credits.fm1vst.source, "FM1VST"), "'s core of this firmware (GPL-3.0), compiled to WebAssembly from the firmware's own source."));
     }

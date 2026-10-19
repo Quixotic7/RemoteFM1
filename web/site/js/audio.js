@@ -10,7 +10,8 @@
 // The emulated engine's packages come from where the Hub points, at play time (thefirmwarehub.com's mirror: CORS *;
 // GitHub release downloads send no CORS header). W2's web/engines/emu/catalog.mjs is the hook: its fetchPackage()
 // fetches and checks a package; a hook may also export engineFiles({ entry, fetch, paths }) to take the whole job.
-// Without it the Hub's package URL from catalog.json is fetched and checked here.
+// Without it the Hub's package URL from catalog.json is fetched and checked here. RemoteFM1's own package (emu.from
+// "site") is the one exception: a path relative to the page, the installer's firmware/ folder on this same site.
 
 const abs = (p) => new URL(p, document.baseURI).href;
 
@@ -110,14 +111,16 @@ export class Player {
       let fwsc = entry.localBytes ? entry.localBytes.slice() : null;
       if (!fwsc) {
         if (!entry.emu || !entry.emu.pkg) throw new Error(`${entry.name} has no package to emulate.`);
+        // the Hub's mirror (an absolute URL), or this site's own package (RemoteFM1's, from: "site", relative to the page)
+        const own = entry.emu.from === "site", url = abs(entry.emu.pkg), where = own ? "this site" : "the FM-1 Firmware Hub";
         if (hook && typeof hook.fetchPackage === "function") {
-          // W2's web/engines/emu/catalog.mjs: the Hub's mirror, checked against the catalog's SHA-256
-          try { fwsc = (await hook.fetchPackage({ id: entry.id, name: entry.name, byo: false, package: { url: entry.emu.pkg, sha256: entry.emu.sha256 } })).bytes; }
-          catch (e) { throw new Error(`The package of ${entry.name} could not be downloaded from the FM-1 Firmware Hub (${e.message || e}).`); }
+          // W2's web/engines/emu/catalog.mjs: fetched and checked against the catalog's SHA-256
+          try { fwsc = (await hook.fetchPackage({ id: entry.id, name: entry.name, byo: false, package: { url, sha256: entry.emu.sha256 } })).bytes; }
+          catch (e) { throw new Error(`The package of ${entry.name} could not be downloaded from ${where} (${e.message || e}).`); }
         } else {
-          fwsc = await fetchBytes(entry.emu.pkg, `The package of ${entry.name}`);
+          fwsc = await fetchBytes(url, `The package of ${entry.name}`);
           if (entry.emu.sha256 && (await sha256hex(fwsc)) !== entry.emu.sha256)
-            throw new Error(`The package of ${entry.name} is not the one the Hub lists (its SHA-256 differs).`);
+            throw new Error(`The package of ${entry.name} is not the one ${own ? "the catalog" : "the Hub"} lists (its SHA-256 differs).`);
         }
       }
       return { wasm, fwsc };
