@@ -385,5 +385,70 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   }
 }
 
+
+// ---- the running firmware's source link (live.js sourceOf): the version that runs, for every kind of firmware
+{
+  const { sourceOf } = await import("./js/live.js");
+  const credits = cat.credits, F = (id) => cat.firmwares.find((f) => f.id === id);
+  const fe = sourceOf(F("felucca"), "emu", credits), fn = sourceOf(F("felucca"), "native", credits);
+  ok(fe.url === "https://github.com/hugelton/Felucca/tree/v1.6.1" && fe.ref === "v1.6.1" && !fe.glue
+     && fe.title === "Felucca 1.6.1 by Leo Kuroshita (Hügelton Instruments) · GPL-3.0 (engines MIT) · source at v1.6.1", "source: emulated, the Hub's tree/<tag> URL as it is; the tooltip says author, licence, version");
+  const bare = sourceOf({ id: "x", name: "X", version: "1.2", author: "a", source: "https://github.com/o/r", release: "https://github.com/o/r/releases/tag/v1.2" }, "emu");
+  const noTag = sourceOf({ id: "x", name: "X", version: "1.2", author: "a", source: "https://github.com/o/r.git", release: "https://o.example/" }, "emu");
+  ok(bare.url === "https://github.com/o/r/tree/v1.2" && bare.ref === "v1.2" && noTag.url === "https://github.com/o/r" && noTag.ref === null && /no release tag/.test(noTag.title),
+     "source: a bare repo with a release tag -> /tree/<tag>; without one, the repo as it is");
+  const jn = F("jiant").native;
+  ok(fn.url === `${F("felucca").native.repo}/tree/${F("felucca").native.commit}` && /^[0-9a-f]{40}$/.test(F("felucca").native.commit) && fn.refKind === "commit"
+     && fn.glue.url === `https://github.com/Quixotic7/FM1VST/tree/${credits.fm1vst.commit}/core-glue/felucca_web` && /source at commit [0-9a-f]{7}, the commit FM1VST builds/.test(fn.title)
+     && sourceOf(F("jiant"), "native", credits).url === `https://github.com/juanjiant-bit/JIANT/tree/${jn.commit}`,
+     "source: native, the core's pinned commit (FM1VST's submodule) and FM1VST's core-glue/<family>");
+  const rf = sourceOf(F("remotefm1"), "emu", credits);
+  ok(rf.url === "https://github.com/Quixotic7/RemoteFM1/tree/v" + F("remotefm1").version && / · GPL-3.0-only · source at v/.test(rf.title), "source: RemoteFM1, this repo at its release's tag");
+  ok(sourceOf({ id: "local-FM-1.fwsc", name: "FM-1", local: true, source: null }, "emu") === null && sourceOf({ id: "y", name: "Y", source: null, repo: null }, "emu") === null && sourceOf(null, "emu") === null,
+     "source: stock M-VAVE / a local .fwsc -> none");
+  const shtml = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  ok(/<a id="fw-src"[^>]*target="_blank" rel="noopener"/.test(shtml) && /<a id="site-src"[^>]*>Site source<\/a>/.test(shtml) && !/>Source<\/a>/.test(shtml),
+     "source: the header's firmware link opens a new tab (noopener); the site's own is \"Site source\"");
+}
+// ---- build_catalog: the native cores' commits from web/vendor/FM1VST (git ls-tree), data/cores.json's fallback in step
+{
+  const VST = fileURLToPath(new URL("../vendor/FM1VST/", import.meta.url));
+  if (!existsSync(join(VST, ".gitmodules"))) console.log("build_catalog: no web/vendor/FM1VST checkout, native commits not checked");
+  else {
+    const pins = new Map(execFileSync("git", ["-C", VST, "ls-tree", "HEAD", "cores/"], { encoding: "utf8" }).trim().split("\n")
+      .map((l) => /^160000 commit ([0-9a-f]{40})\t(\S+)$/.exec(l)).filter(Boolean).map((m) => [m[2], m[1]]));
+    const gm = readFileSync(join(VST, ".gitmodules"), "utf8"), urls = new Map([...gm.matchAll(/path = (\S+)\s+url = (\S+)/g)].map((m) => [m[1], m[2].replace(/\.git$/, "")]));
+    const nat = cat.firmwares.filter((f) => f.native);
+    ok(nat.length === 10 && nat.every((f) => [...pins].some(([path, c]) => c === f.native.commit && urls.get(path) === f.native.repo)) && nat.every((f) => existsSync(join(VST, "core-glue", f.native.glue))),
+       "build_catalog: each native core's commit is FM1VST's pin (ls-tree), its repo the submodule's, its glue folder there");
+    const cj = JSON.parse(readFileSync(new URL("./data/cores.json", import.meta.url), "utf8"));
+    const head = execFileSync("git", ["-C", VST, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    ok(cat.credits.fm1vst.commit === head && cj.fm1vst === head && nat.every((f) => { const c = cj.cores.find((x) => x.core === f.native.core); return c.commit === f.native.commit && c.repo === f.native.repo && c.glue === f.native.glue; }),
+       "build_catalog: data/cores.json's fallback commits agree with web/vendor/FM1VST (the Pages check job builds without it)");
+  }
+}
+
+// ---- the computer-key hints on the panel: off by default, remembered (prefs.js), drawn only when on
+{
+  const P = await import("./js/prefs.js");
+  const mem = () => { const m = new Map(); return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)) }; };
+  const st = mem();
+  ok(P.keyHintsOn(P.loadPrefs(st)) === false && P.keyHintsOn(P.loadPrefs(null)) === false, "hints: off by default (no record, or no storage at all)");
+  const pr = P.loadPrefs(st); pr.keyHints = true; P.savePrefs(st, pr);
+  const back = P.loadPrefs(st);
+  const throwing = { getItem() { throw new Error("blocked"); }, setItem() { throw new Error("quota"); } };
+  ok(P.keyHintsOn(back) === true && P.savePrefs(throwing, back) === false && P.keyHintsOn(P.loadPrefs(throwing)) === false, "hints: turned on, remembered; a blocked storage gives the default and throws nothing");
+  back.keyHints = false; P.savePrefs(st, back);
+  ok(P.keyHintsOn(P.loadPrefs(st)) === false, "hints: turned off again, remembered");
+  // the drawing: count the 5x7 font's cells (rect calls) and where the note name sits
+  const { DeviceView } = await import("./js/panel.js");
+  let rects = [];
+  const g = new Proxy({}, { get: (_, k) => (k === "rect" ? (x, y) => rects.push(y) : () => {}), set: () => true });
+  const dv = new DeviceView({ getContext: () => g }, new Controls(() => {}), null);
+  const draw = (on) => { dv.setHints(on); rects = []; dv.drawKey(g, dv.pal, 7, false, 0, 1); dv.drawButton(g, dv.pal, B.FX, false, 0, 0, 1); return rects.slice(); };
+  const off = draw(false), on = draw(true);
+  ok(dv.hints === true && on.length > off.length && Math.min(...off) > Math.min(...on), "hints: drawn only when on; off, the key's name and the button's name move to the middle (no gap)");
+}
+
 console.log(fails ? `site: ${fails} of ${checks} FAILED` : `site tests passed (${checks})`);
 process.exit(fails ? 1 : 0);

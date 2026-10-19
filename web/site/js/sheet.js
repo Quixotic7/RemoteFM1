@@ -3,7 +3,7 @@
 // scrim (180 ms, eased); a click on the scrim or Esc closes it. Pages:
 //   main      FIRMWARE, SAVES, USE MY FM-1, PLAYING, LOOK, VIEW, ENGINE, ABOUT
 //   firmware  the browser: a search field, category chips, a card per firmware (the loaded one outlined)
-//   about     the loaded firmware (author, licence, source), the engine, the credits and notices
+//   about     the loaded firmware (author, licence, its source at the version that runs), the engine, the credits
 // app (main.js) holds the state and the actions; the sheet re-renders its page on app.changed().
 import { PRESETS, accentOf, onAccent, css, hex } from "./theme.js";
 import { AUTOSAVE } from "./saves.js";
@@ -146,6 +146,7 @@ export class Sheet {
     out.push(row("MIDI input", m.error || (m.access ? `${m.inputs().length} found` : "a MIDI keyboard plays the keys"), midiCtl));
     out.push(row("MIDI notes play keys", null, toggle(st.notesPlayKeys, (v) => a.set("notesPlayKeys", v))));
     out.push(row("...and reach the firmware's MIDI in", null, toggle(st.reachFirmware, (v) => a.set("reachFirmware", v))));
+    out.push(row("Show computer-key hints", "the keyboard letters on the panel's keys and buttons", toggle(st.keyHints, (v) => a.set("keyHints", v))));
     out.push(h("p", { class: "note" }, "Keys: A S D F G H J K L ; ' ] white, W E T Y U O P black, 2 3 4 5 Tab F1-F4 the left block. Buttons: F5-F10 or C V B N M , and 7 8 9 0 - =. Z X octave. Page Up/Down pick a knob, arrows turn it. ` the screen view."));
 
     // LOOK
@@ -197,9 +198,22 @@ export class Sheet {
       h("span", { class: "fw-text" }, h("span", { class: "fw-top" }, h("b", {}, e ? `${e.name} and credits` : "Credits")),
         h("span", { class: "fw-meta" }, e ? `${e.author}${e.license ? " · " + e.license : ""}` : "")),
       h("span", { class: "chev", html: icon("right") })));
+    if (e) out.push(this.sourceLines(true));
     out.push(h("div", { class: "links" }, h("a", { href: a.installerUrl }, "Install RemoteFM1 on your FM-1"), " · ",
-      link("https://github.com/Quixotic7/RemoteFM1", "Source")));
+      link("https://github.com/Quixotic7/RemoteFM1", "RemoteFM1 (this site) on GitHub")));
     return out;
+  }
+  // the running firmware's source at the version that runs (the header's link), and a native core's FM1VST glue
+  sourceLines(compact) {
+    const a = this.app, e = a.state.entry, s = a.sourceNow();
+    const short = (r, kind) => kind === "commit" ? r.slice(0, 7) : r;
+    const srcLink = s ? h("a", { class: "src-inline", href: s.url, target: "_blank", rel: "noopener", title: s.title },
+      `${s.repo}${s.ref ? " @ " + short(s.ref, s.refKind) : ""} ↗`) : h("span", { class: "muted" }, "no public source (a package from your computer)");
+    const glue = s && s.glue ? link(s.glue.url, `FM1VST ${s.glue.path}`) : null;
+    if (!compact) return [srcLink, glue];
+    return h("div", { class: "src-lines" },
+      h("div", {}, h("span", { class: "muted" }, `${e.name}'s source: `), srcLink),
+      glue ? h("div", {}, h("span", { class: "muted" }, "built with FM1VST's glue: "), glue) : null);
   }
 
   savesSection() {
@@ -326,7 +340,9 @@ export class Sheet {
       out.push(kv("Version", a.versionOf(e, shown) + (shown === "native" && e.native.version !== e.version ? ` (the Hub's: ${e.version})` : "")));
       out.push(kv("Author", e.authorFull || e.author));
       out.push(kv("Licence", e.license || info.license || "see its source"));
-      if (e.source) out.push(kv("Source", link(e.source, e.source.replace(/^https?:\/\/(www\.)?/, ""))));
+      const [srcLink, glue] = this.sourceLines(false);
+      out.push(kv("Source", srcLink));
+      if (glue) out.push(kv("Glue", h("span", {}, "built with FM1VST's glue: ", glue)));
       if (e.release) out.push(kv("Release", link(e.release, "release page")));
       if (e.play) out.push(kv("Its own page", link(e.play, e.play.replace(/^https?:\/\//, ""))));
       if (info.credits && st.engine !== "mock") out.push(h("pre", { class: "credits" }, String(info.credits)));

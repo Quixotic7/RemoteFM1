@@ -11,6 +11,7 @@
 //   mergeLive(snapshot, hub)     the deployed catalog with the Hub's current versions, packages and firmwares
 //   liveCatalog(snapshot, opts)  mergeLive over a fetched Hub catalog, within a timeout; the snapshot when it fails
 //   packageFor(entry, opts)      a package's bytes; a gone one (404): the live catalog once more, then the snapshot's
+//   sourceOf(entry, engine, credits)   the running firmware's source at the version that runs (the header's link)
 
 export const HUB = "https://thefirmwarehub.com/";
 export const SELF_ID = "remotefm1";
@@ -222,6 +223,52 @@ export async function packageFor(entry, { fetchPackage, recheck = null }) {
     return attempt(newestWins(e));
   }
   throw first;
+}
+
+// ------------------------------------------------------------------ source ---
+// The source of the firmware that runs, at the version that runs: { url, repo, ref, refKind, title, glue } or null.
+//   native     the commit FM1VST pins for the core (its submodule: build_catalog.mjs), and FM1VST's glue folder for it
+//   emulated   the Hub's source: github.com/<owner>/<repo>/tree/<tag> as it is; a bare repo with a GitHub release tag
+//              gets /tree/<tag>; a bare repo with no tag stays bare (its default branch)
+//   RemoteFM1  the same rule: this repo, its release's tag
+//   a file     (M-VAVE's stock firmware or any .fwsc from the visitor's computer): null, no public source
+const GH_REPO = /^https?:\/\/(?:www\.)?github\.com\/([^/\s?#]+)\/([^/\s?#]+?)(?:\.git)?\/?$/;
+const GH_TREE = /^https?:\/\/(?:www\.)?github\.com\/([^/\s?#]+)\/([^/\s?#]+)\/(?:tree|commit|blob)\/([^?#]+?)\/?$/;
+const GH_TAG = /^https?:\/\/(?:www\.)?github\.com\/([^/\s?#]+)\/([^/\s?#]+)\/releases\/tag\/([^/?#]+)/;
+const isHash = (r) => /^[0-9a-f]{7,40}$/.test(r) && /[a-f]/.test(r) && /\d/.test(r);
+const dec = (r) => { try { return decodeURIComponent(r); } catch (_) { return r; } };
+const refLabel = (ref, kind) => !ref ? "its repository (no release tag)" : kind === "commit" ? `commit ${ref.slice(0, 7)}` : ref;
+function hubSource(e) {
+  const src = e.source || (e.repo ? `https://github.com/${e.repo}` : null);
+  if (!src) return null;
+  let m = GH_TREE.exec(src);
+  if (m) { const ref = dec(m[3]); return { url: src, repo: `${m[1]}/${m[2]}`, ref, refKind: isHash(ref) ? "commit" : "ref" }; }
+  m = GH_REPO.exec(src);
+  if (m) {
+    const t = GH_TAG.exec(e.release || "");
+    if (t && t[1].toLowerCase() === m[1].toLowerCase() && t[2].toLowerCase() === m[2].toLowerCase()) {
+      const ref = dec(t[3]);
+      return { url: `https://github.com/${m[1]}/${m[2]}/tree/${t[3]}`, repo: `${m[1]}/${m[2]}`, ref, refKind: "tag" };
+    }
+    return { url: `https://github.com/${m[1]}/${m[2]}`, repo: `${m[1]}/${m[2]}`, ref: null, refKind: null };
+  }
+  return { url: src, repo: src.replace(/^https?:\/\/(www\.)?/, ""), ref: null, refKind: null };   // (not GitHub: as the Hub gives it)
+}
+export function sourceOf(e, engine, credits = {}) {
+  if (!e || e.local) return null;
+  const nat = engine === "native" && e.native;
+  let s = null, glue = null;
+  if (nat && e.native.commit && e.native.repo) {
+    const m = GH_REPO.exec(e.native.repo);
+    s = { url: `${e.native.repo.replace(/\/$/, "")}/tree/${e.native.commit}`, repo: m ? `${m[1]}/${m[2]}` : e.native.repo, ref: e.native.commit, refKind: "commit" };
+  } else s = hubSource(e);
+  if (!s) return null;
+  const v = nat ? e.native.version : e.version, fv = credits.fm1vst;
+  if (nat && e.native.glue && fv && fv.source)
+    glue = { url: `${fv.source.replace(/\/$/, "")}/tree/${fv.commit || "main"}/core-glue/${e.native.glue}`, path: `core-glue/${e.native.glue}` };
+  const at = refLabel(s.ref, s.refKind) + (nat && s.refKind === "commit" ? ", the commit FM1VST builds" : "");
+  const title = `${e.name} ${v} by ${e.authorFull || e.author} · ${e.license || "licence: see its source"} · ${s.ref ? "source at " : "source: "}${at}`;
+  return { ...s, title, glue, native: !!nat };
 }
 
 // ------------------------------------------------------------------ the browser ---

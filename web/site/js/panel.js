@@ -279,8 +279,12 @@ export class DeviceView {
     this.setTheme(PRESETS.find((p) => p.name === DEFAULT_THEME));
     this.k = 1; this.ox = 0; this.oy = 0;
     this.base = null;
+    this.hints = false;
   }
   setTheme(t) { this.theme = t; this.pal = derive(t); this.base = null; }
+  // the computer-key hints (the green letters: the sheet's "Show computer-key hints", off by default); off, the keys'
+  // LED and note name and the buttons' names sit centred in the space the letters took
+  setHints(on) { this.hints = !!on; }
   setButtonNames(n) { this.names = (n && n.length === NB ? n : PANEL_LABELS).map((s) => String(s || "")); this.base = null; }
   setKeymap(km) { this.ledIdx = ledIndexOf(km); }
   setLeds(levels, playGreen) { this.levels = levels; this.playGreen = playGreen | 0; }
@@ -361,12 +365,13 @@ export class DeviceView {
     const r = KEYS[k], cx = r.x + KEY_W / 2;
     fillRR(g, r, 21, held ? p.pressed : p.cap);
     lineRR(g, r, 21, held ? p.hint : p.capOutline, 1, held ? 1.5 : 1, px);
-    if (ledLit(lv)) fillRR(g, { x: cx - 9, y: r.y + 9, w: 18, h: 40 }, 9, p.white, 0.16 * ledAlpha(lv));
-    const slot = { x: cx - 4, y: r.y + 14, w: 8, h: 30 };
+    const hint = this.hints && KEY_HINT[k], y = r.y + (hint ? 0 : 3);   // (no hint: the LED and the name 3 units lower, centred)
+    if (ledLit(lv)) fillRR(g, { x: cx - 9, y: y + 9, w: 18, h: 40 }, 9, p.white, 0.16 * ledAlpha(lv));
+    const slot = { x: cx - 4, y: y + 14, w: 8, h: 30 };
     fillRR(g, slot, 4, p.ledOff);
     if (lv) fillRR(g, slot, 4, p.white, ledAlpha(lv));
-    text(g, cx, r.y + 50, 6.5, noteName(k), p.noteText);
-    if (KEY_HINT[k]) text(g, cx, r.y + 61, 6.5, KEY_HINT[k], p.hint, 0.9);
+    text(g, cx, y + 50, 6.5, noteName(k), p.noteText);
+    if (hint) text(g, cx, r.y + 61, 6.5, hint, p.hint, 0.9);
   }
 
   drawButton(g, p, i, held, lv, green, px) {
@@ -378,8 +383,9 @@ export class DeviceView {
     lineRR(g, r, rad, held ? p.hint : p.capOutline, 1, held ? 2 : 1, px);
     const n = (this.names[i] || PANEL_LABELS[i]).toUpperCase();
     const base = oct ? 6.5 : 7.5, size = fitSize(n, base, r.w - 5);
-    text(g, r.x + r.w / 2, r.y + (oct ? 7.5 : 11) + (base - size) / 2, size, n, ledLit(lv) ? p.litText : lv ? p.capTextDim : p.capText);
-    const h = BTN_HINT[i];
+    const h = this.hints ? BTN_HINT[i] : "";
+    const ny = oct ? 7.5 : h ? 11 : (r.h - base) / 2;            // (no hint: the name centred on the cap)
+    text(g, r.x + r.w / 2, r.y + ny + (base - size) / 2, size, n, ledLit(lv) ? p.litText : lv ? p.capTextDim : p.capText);
     if (h && !oct) text(g, r.x + r.w / 2, r.y + 25, 5, h, ledLit(lv) ? p.hintLit : lv ? p.hintDim : p.hint, 0.9);
     else if (h) text(g, r.x + r.w / 2, r.y + r.h + 4, 5, h, p.hintBed, 0.9);
     if (i === B.PLAY) {

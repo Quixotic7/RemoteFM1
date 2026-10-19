@@ -61,6 +61,10 @@ const seedSrc = (recs) => `(() => {
   r.onsuccess = () => { const t = r.result.transaction("saves", "readwrite"), s = t.objectStore("saves");
     for (const x of ${JSON.stringify(recs)}) s.put({ ...x, key: [x.fw, x.engine, x.version, x.name].join("\u0001"), bytes: new Uint8Array(4100) }); t.oncomplete = () => r.result.close(); };
 })();`;
+// a package from the visitor's computer (as M-VAVE's stock FM-1.fwsc would be): the browser's "Open a file..." card
+const openLocal = [`document.getElementById("fw-btn").click()`, `new Promise((r) => setTimeout(r, 300)).then(async () => {
+  const b = await (await fetch("${OWN_PKG}")).arrayBuffer(), dt = new DataTransfer(), inp = document.querySelector(".card.file input");
+  dt.items.add(new File([b], "FM-1.fwsc")); inp.files = dt.files; inp.dispatchEvent(new Event("change", { bubbles: true })); })`];
 const FELUCCA_162 = { felucca: { version: "1.6.2", pkg: "fw/felucca-1.6.2.fwsc", release: "https://github.com/hugelton/Felucca/releases/tag/v1.6.2" } };
 const openBrowserAt = (id) => [`document.getElementById("fw-btn").click()`,
   `new Promise((r) => setTimeout(r, 300)).then(() => { const c = document.querySelector('.card[data-id="${id}"]'); if (c) c.scrollIntoView({ block: "center" }); })`];
@@ -137,6 +141,23 @@ const SHOTS = [
     steps: [engineSection, `[...document.querySelectorAll('.seg.wide button')].find((b) => b.textContent === "480").click()`], after: 5000 },
   { name: "release-mobile-sheet", w: 390, h: 844, mobile: true, url: "site/?fw=felucca", wait: 6000, hub: FELUCCA_162,
     steps: [`(() => { document.getElementById("menu-btn").click(); return new Promise((r) => setTimeout(() => { const hd = [...document.querySelectorAll(".sheet h3.heading")].find((x) => /^Engine/.test(x.textContent)); if (hd) hd.scrollIntoView({ block: "start" }); r(); }, 400)); })()`], after: 600 },
+  // the running firmware's source in the header (native: the pinned commit; emulated: the Hub's tag; a file: none)
+  { name: "source-native", w: 1400, h: 860, url: "site/?fw=felucca&engine=native", wait: 3000, hub: {} },
+  { name: "source-emulated", w: 1400, h: 860, url: "site/?fw=choralroot", wait: 3500, hub: {} },
+  { name: "source-stock", w: 1400, h: 860, url: "site/?fw=felucca", wait: 2500, hub: {}, steps: openLocal, after: 2500 },
+  { name: "source-mobile", w: 390, h: 844, mobile: true, url: "site/?fw=felucca&engine=native", wait: 3000, hub: {} },
+  { name: "source-mobile-stock", w: 390, h: 844, mobile: true, url: "site/?fw=felucca", wait: 2500, hub: {}, steps: openLocal, after: 2500 },
+  { name: "source-about-native", w: 1400, h: 860, url: "site/?fw=felucca&engine=native", wait: 3000, hub: {},
+    steps: [`document.getElementById("corner").click()`, `[...document.querySelectorAll(".fw-card")].at(-1).click()`], after: 600 },
+  { name: "source-sheet-about", w: 1400, h: 860, url: "site/?fw=jiant&engine=native", wait: 3000, hub: {},
+    steps: [`document.getElementById("corner").click()`, `document.querySelector(".sheet-body").scrollTop = 99999`], after: 600 },
+  // the computer-key hints: off (the default), and on (the visitor's choice, remembered)
+  { name: "hints-off", w: 1400, h: 860, url: "site/?fw=felucca", wait: 2500, hub: {} },
+  { name: "hints-on", w: 1400, h: 860, url: "site/?fw=felucca", wait: 2500, hub: {}, prefs: { keyHints: true } },
+  { name: "hints-switch", w: 1400, h: 860, url: "site/?fw=felucca", wait: 2500, hub: {},
+    steps: [`(() => { document.getElementById("corner").click(); return new Promise((r) => setTimeout(() => {
+      const row = [...document.querySelectorAll(".sheet .row")].find((x) => /computer-key hints/.test(x.textContent)); row.querySelector(".switch").click();
+      [...document.querySelectorAll(".sheet .row")].find((x) => /computer-key hints/.test(x.textContent)).scrollIntoView({ block: "center" }); r(); }, 400)); })()`], after: 600 },
   { name: "installer", w: 1200, h: 1500, url: "installer/", wait: 1500 },
   { name: "installer-done", w: 1200, h: 1100, url: "installer/", wait: 1500,
     steps: [`(() => { const s = document.getElementById("status"); s.textContent = "Done: RemoteFM1 " + document.getElementById("ver").textContent + " is installed."; s.className = "status ok";
@@ -203,6 +224,7 @@ async function shoot(s) {
     if (s.mock) await S("Page.addScriptToEvaluateOnNewDocument", { source: `window.__FM1_MOCK = ${JSON.stringify(s.mock)};\n${MOCK_SRC}` });
     if (s.hub) await S("Page.addScriptToEvaluateOnNewDocument", { source: hubMockSrc(s.hub) });
     if (s.seed) await S("Page.addScriptToEvaluateOnNewDocument", { source: seedSrc(s.seed) });
+    if (s.prefs) await S("Page.addScriptToEvaluateOnNewDocument", { source: `try { localStorage.setItem("remotefm1-player", ${JSON.stringify(JSON.stringify(s.prefs))}); } catch (_) {}` });
     await S("Page.navigate", { url: new URL(process.env.PAGES ? s.url.replace(/^site\//, "") : s.url, BASE).href });
     await sleep(s.wait || 2000);
     for (const js of s.steps || []) {

@@ -42,7 +42,8 @@
   "fm1vst": {
    "name": "FM1VST",
    "license": "GPL-3.0-only",
-   "source": "https://github.com/Quixotic7/FM1VST"
+   "source": "https://github.com/Quixotic7/FM1VST",
+   "commit": "81ebe55170cdf06dced6b530c9d174c0e7b6b574"
   },
   "hub": {
    "name": "The FM-1 Firmware Hub",
@@ -78,7 +79,10 @@
    "native": {
     "core": "amb",
     "version": "1.3",
-    "wasm": "../build/native/amb.wasm"
+    "wasm": "../build/native/amb.wasm",
+    "repo": "https://github.com/charlesvestal/fm1-amb",
+    "commit": "188b0a42f20a547864e732ae5ea1339d0fbcf395",
+    "glue": "fm1base"
    },
    "emu": {
     "pkg": "https://thefirmwarehub.com/fw/amb-1.3.fwsc",
@@ -212,7 +216,10 @@
    "native": {
     "core": "coralflower",
     "version": "0.2",
-    "wasm": "../build/native/coralflower.wasm"
+    "wasm": "../build/native/coralflower.wasm",
+    "repo": "https://github.com/FicusFicusov/CoralFlower",
+    "commit": "4542bebb26065b567e122a9b51b00dcb7e2e9352",
+    "glue": "choralroot"
    },
    "emu": {
     "pkg": "https://thefirmwarehub.com/fw/coralflower-0.2.fwsc",
@@ -440,7 +447,10 @@
    "native": {
     "core": "felucca",
     "version": "1.6.1",
-    "wasm": "../build/native/felucca.wasm"
+    "wasm": "../build/native/felucca.wasm",
+    "repo": "https://github.com/hugelton/Felucca",
+    "commit": "a53ecf428c29c780108fd70a31b71a32a6b5c313",
+    "glue": "felucca_web"
    },
    "emu": {
     "pkg": "https://thefirmwarehub.com/fw/felucca-1.6.1.fwsc",
@@ -542,7 +552,10 @@
    "native": {
     "core": "fimba",
     "version": "0.6.1",
-    "wasm": "../build/native/fimba.wasm"
+    "wasm": "../build/native/fimba.wasm",
+    "repo": "https://github.com/jadamsowers/fm1-fimba",
+    "commit": "0485ed0d387ce78216428c7b19f97d77bbe10b4d",
+    "glue": "plat"
    },
    "emu": {
     "pkg": "https://thefirmwarehub.com/fw/fimba-0.6.1.fwsc",
@@ -706,7 +719,10 @@
    "native": {
     "core": "fomni",
     "version": "0.4",
-    "wasm": "../build/native/fomni.wasm"
+    "wasm": "../build/native/fomni.wasm",
+    "repo": "https://github.com/charlesvestal/fm1-fomni",
+    "commit": "6ecd227013cc18def0e89d035b3760eb268b342b",
+    "glue": "plat"
    },
    "emu": {
     "pkg": "https://thefirmwarehub.com/fw/fomni-0.4.fwsc",
@@ -743,7 +759,10 @@
    "native": {
     "core": "frodhes",
     "version": "0.9.2",
-    "wasm": "../build/native/frodhes.wasm"
+    "wasm": "../build/native/frodhes.wasm",
+    "repo": "https://github.com/leonardoMirabal/frodhes",
+    "commit": "e49a49d29ac5344fbaa8d42bad6ceecca3d6ea6f",
+    "glue": "dinghy"
    },
    "emu": {
     "pkg": "https://thefirmwarehub.com/fw/frodhes-0.9.2.fwsc",
@@ -813,7 +832,10 @@
    "native": {
     "core": "ghoulbox",
     "version": "2.3.2",
-    "wasm": "../build/native/ghoulbox.wasm"
+    "wasm": "../build/native/ghoulbox.wasm",
+    "repo": "https://github.com/jasonpersinger/ghoulbox-fm1-dungeon-synth",
+    "commit": "71ac3f87e0a33b08831f11a89fbd6012de8024ce",
+    "glue": "felucca_web"
    },
    "emu": {
     "pkg": "https://thefirmwarehub.com/fw/ghoulbox-2.3.2.fwsc",
@@ -977,7 +999,10 @@
    "native": {
     "core": "jiant",
     "version": "0.9.9",
-    "wasm": "../build/native/jiant.wasm"
+    "wasm": "../build/native/jiant.wasm",
+    "repo": "https://github.com/juanjiant-bit/JIANT",
+    "commit": "0912abb2f0c71cd26252d441dc74f3cdf825e6fb",
+    "glue": "felucca_web"
    },
    "emu": {
     "pkg": "https://thefirmwarehub.com/fw/jiant-0.9.10-53173f3.fwsc",
@@ -1237,7 +1262,10 @@
    "native": {
     "core": "obervave",
     "version": "1.5.1",
-    "wasm": "../build/native/obervave.wasm"
+    "wasm": "../build/native/obervave.wasm",
+    "repo": "https://github.com/zvenson/obervave",
+    "commit": "b91d9c19627517b36ffddb099bd6307f7cae368c",
+    "glue": "dinghy"
    },
    "emu": {
     "pkg": "https://thefirmwarehub.com/fw/obervave-1.5.fwsc",
@@ -1403,7 +1431,10 @@
    "native": {
     "core": "purplemonkey",
     "version": "0.11",
-    "wasm": "../build/native/purplemonkey.wasm"
+    "wasm": "../build/native/purplemonkey.wasm",
+    "repo": "https://github.com/Quixotic7/PurpleMonkeyFM1",
+    "commit": "7590d4a5205bd4932b206d676c09b9521843a023",
+    "glue": "choralroot"
    },
    "emu": {
     "pkg": "https://thefirmwarehub.com/fw/purplemonkey-0.11.fwsc",

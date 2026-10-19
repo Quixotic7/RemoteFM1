@@ -12,7 +12,8 @@ import * as saves from "./saves.js";
 import { Sheet, icon } from "./sheet.js";
 import { makeSite } from "./remote-hook.js";
 import { createFm1, mountUseFm1, mountHeader } from "./use-fm1.js";
-import { liveCatalog, mergeLive, packageFor, chooseEngine, compareVersions } from "./live.js";
+import { liveCatalog, mergeLive, packageFor, chooseEngine, compareVersions, sourceOf } from "./live.js";
+import { loadPrefs, savePrefs as writePrefs, keyHintsOn } from "./prefs.js";
 import { mhzFor, pickMhz, stepDown, Governor, DEVICE_MHZ } from "./cpu.js";
 
 const $ = (id) => document.getElementById(id);
@@ -20,9 +21,9 @@ const params = new URLSearchParams(location.search);
 const EMBED = params.get("embed") === "1";
 
 // ------------------------------------------------------------------ prefs ---
-const PREF_KEY = "remotefm1-player";
-const prefs = (() => { try { return JSON.parse(localStorage.getItem(PREF_KEY)) || {}; } catch (_) { return {}; } })();
-const savePrefs = () => { try { localStorage.setItem(PREF_KEY, JSON.stringify(prefs)); } catch (_) { /* (private mode) */ } };
+const store = (() => { try { return window.localStorage; } catch (_) { return null; } })();   // (null: blocked; prefs.js copes)
+const prefs = loadPrefs(store);
+const savePrefs = () => { writePrefs(store, prefs); };
 
 // ------------------------------------------------------------------ state ---
 const state = {
@@ -30,6 +31,7 @@ const state = {
   theme: presetNamed(prefs.theme) || presetNamed(DEFAULT_THEME),
   view: params.get("view") === "screen" ? "screen" : params.get("view") === "device" ? "device" : prefs.view || "device",
   transpose: prefs.transpose | 0, notesPlayKeys: prefs.notesPlayKeys !== false, reachFirmware: !!prefs.reachFirmware,
+  keyHints: keyHintsOn(prefs),                              // the computer-key letters on the panel: off by default
   saves: [], selectedSave: null, carryOffer: null,
   mhz: DEVICE_MHZ, mhzChoice: "auto",                       // the emulated CPU clock of the running firmware (cpu.js)
   browseEngine: ["all", "native", "emu"].includes(prefs.browseEngine) ? prefs.browseEngine : "all",   // the browser's filter
@@ -40,6 +42,7 @@ const lcd = new Lcd();
 const controls = new Controls((p) => { if (player) player.panel(p); });
 const device = new DeviceView($("device"), controls, lcd);
 const screen = new ScreenView($("screen"), lcd);
+device.setHints(state.keyHints);
 
 // ------------------------------------------------------------------ drawing ---
 let drawQueued = false;
@@ -242,6 +245,7 @@ async function fallback(why) {
   if (state.wantEngine === "emu" && e.native && e.engines.includes("native") && !params.get("engine")) {
     toast(`${why} Playing the native core ${e.native.version} instead.`, "bad");
     state.wantEngine = "native";
+    updateTitle();
     return boot();
   }
   state.engine = "mock"; state.engineState = "mock";
@@ -256,6 +260,22 @@ function updateTitle() {
   document.title = e ? `${e.name} · FM-1 Player` : "FM-1 Player";
   $("fw-name").textContent = e ? e.name : "";
   $("fw-ver").textContent = e ? versionOf(e, state.wantEngine) : "";
+  updateSource();
+}
+// the header's link to the running firmware's own source, at the version that runs (live.js sourceOf); a file from the
+// visitor's computer (M-VAVE's stock firmware, any .fwsc) has none: the link shows so, disabled
+const sourceNow = () => sourceOf(state.entry, state.wantEngine, catalog && catalog.credits);   // (the engine picked: a test engine stands in for it)
+function updateSource() {
+  const a = $("fw-src"), e = state.entry, s = e ? sourceNow() : null;
+  a.hidden = !e;
+  if (!e) return;
+  a.classList.toggle("off", !s);
+  if (s) { a.href = s.url; a.title = s.title; a.setAttribute("aria-label", `${e.name}'s source code (opens GitHub)`); a.removeAttribute("aria-disabled"); }
+  else {
+    a.removeAttribute("href"); a.setAttribute("aria-disabled", "true");
+    a.title = `${e.name}: a package from your computer, no public source`; a.setAttribute("aria-label", a.title);
+  }
+  a.querySelector(".src-text").textContent = s ? "Source" : "No public source";
 }
 function setStatus(text) { $("status").textContent = text; }
 // every emulated run credits fm1-emu (its MIT licence asks for the notice; W2)
@@ -435,11 +455,12 @@ const app = {
   installerUrl: "",
   remoteMounted: false,
   remoteStatus: "",
-  versionOf, metaLine, engineNote, carryText, answerCarry,
+  versionOf, metaLine, engineNote, carryText, answerCarry, sourceNow,
   sheetChanged(open) { document.body.classList.toggle("sheet-open", open); if (open) document.body.classList.remove("chrome"); else $("stage").focus({ preventScroll: true }); },
   set(k, v) {
     if (k === "theme") { state.theme = presetNamed(v) || state.theme; prefs.theme = state.theme.name; applyTheme(); }
     else if (k === "view") { state.view = v; prefs.view = v; layout(); }
+    else if (k === "keyHints") { state.keyHints = !!v; prefs.keyHints = !!v; device.setHints(state.keyHints); invalidate(); }
     else { state[k] = v; prefs[k] = v; }
     savePrefs();
     if (sheet) sheet.render();

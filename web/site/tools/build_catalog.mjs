@@ -14,8 +14,9 @@
 //   dev    the page at web/site/ served from web/ (python3 -m http.server in web/): ../engines/.., ../build/..
 //   pages  the GitHub Pages artifact (.github/workflows/pages.yml): engines/, installer/, remote/ next to the page
 import { readFileSync, writeFileSync, readdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { dirname, join } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { siteEntry, CATEGORIES, HUB } from "../js/live.js";
 
@@ -50,10 +51,15 @@ const hubLive = /^https?:/.test(hubSrc);
 const hub = hubLive ? await (await fetch(hubSrc, { signal: AbortSignal.timeout(30000) })).json() : JSON.parse(readFileSync(hubSrc, "utf8"));
 if (!Array.isArray(hub.firmwares) || !hub.firmwares.length) { console.error(`build_catalog: ${hubSrc} has no firmwares`); process.exit(1); }
 const cores = JSON.parse(readFileSync(join(SITE, "data", "cores.json"), "utf8")).cores;
-// the native versions come from the FM1VST the site builds (web/vendor/FM1VST: each fm1_add_core(<id> ... VERSION x)),
-// so a submodule bump moves them; data/cores.json's versions are only the fallback when that tree is not checked out
+// the native versions and the source each core builds come from the FM1VST the site builds (web/vendor/FM1VST): each
+// fm1_add_core(<id> ... SOURCE .../cores/<dir> ... VERSION x) in core-glue/<glue>/, the submodule commit FM1VST pins
+// for cores/<dir> (git ls-tree), its URL (.gitmodules). So a submodule bump moves them; data/cores.json's versions,
+// commits, repos and glue folders are only the fallback when that tree is not checked out (the Pages "check" job), so
+// keep them in step (this script says where they differ).
+const FM1VST = join(SITE, "..", "vendor", "FM1VST");
+let fm1vstCommit = JSON.parse(readFileSync(join(SITE, "data", "cores.json"), "utf8")).fm1vst || null;
 {
-  const glue = join(SITE, "..", "vendor", "FM1VST", "core-glue");
+  const glueRoot = join(FM1VST, "core-glue");
   const found = new Map();
   const walk = (dir) => {
     let names = [];
@@ -62,20 +68,46 @@ const cores = JSON.parse(readFileSync(join(SITE, "data", "cores.json"), "utf8"))
       const p = join(dir, d.name);
       if (d.isDirectory()) walk(p);
       else if (d.name.endsWith(".cmake")) {
-        for (const call of readFileSync(p, "utf8").split("fm1_add_core(").slice(1)) {
+        const text = readFileSync(p, "utf8"), vars = {};
+        for (const m of text.matchAll(/^\s*set\((\w+)\s+([^\s)]+)/gm)) vars[m[1]] = m[2];
+        for (const call of text.split("fm1_add_core(").slice(1)) {
           const body = call.slice(0, call.indexOf(")") + 1 || call.length);
-          const id = /^\s*(\w+)/.exec(body), ver = /\bVERSION\s+"?([^\s")]+)"?/.exec(body);
-          if (id && ver) found.set(id[1], ver[1]);
+          const id = /^\s*(\w+)/.exec(body), ver = /\bVERSION\s+"?([^\s")]+)"?/.exec(body), src = /\bSOURCE\s+(\S+)/.exec(body);
+          if (!id) continue;
+          const path = src ? src[1].replace(/\$\{(\w+)\}/g, (m, v) => vars[v] ?? m) : "";
+          const dirM = /\/cores\/([^/\s)]+)/.exec(path);
+          found.set(id[1], { version: ver ? ver[1] : null, dir: dirM ? dirM[1] : null, glue: relative(glueRoot, dirname(p)).split(sep).join("/") });
         }
       }
     }
   };
-  walk(glue);
+  walk(glueRoot);
+  const git = (...a) => { try { return execFileSync("git", ["-C", FM1VST, ...a], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch (_) { return ""; } };
+  const urls = new Map();
+  try {
+    let cur = null;
+    for (const line of readFileSync(join(FM1VST, ".gitmodules"), "utf8").split("\n")) {
+      const pm = /^\s*path\s*=\s*(\S+)/.exec(line), um = /^\s*url\s*=\s*(\S+)/.exec(line);
+      if (/^\s*\[submodule/.test(line)) cur = {};
+      if (pm && cur) { cur.path = pm[1]; if (cur.url) urls.set(cur.path, cur.url); }
+      if (um && cur) { cur.url = um[1].replace(/\.git$/, "").replace(/\/$/, ""); if (cur.path) urls.set(cur.path, cur.url); }
+    }
+  } catch (_) { /* (no checkout) */ }
+  const head = found.size ? git("rev-parse", "HEAD") : "";
+  if (head && head !== fm1vstCommit) { console.log(`build_catalog: FM1VST ${head} (web/vendor), was ${fm1vstCommit} in data/cores.json`); fm1vstCommit = head; }
+  const was = (c, k, v) => { if (v && v !== c[k]) { console.log(`build_catalog: ${c.core} ${k} ${v} (FM1VST), was ${c[k] ?? "unset"} in data/cores.json`); c[k] = v; } };
   for (const c of cores) {
-    const v = found.get(c.core);
-    if (v && v !== c.version) { console.log(`build_catalog: ${c.core} native ${v} (FM1VST), was ${c.version} in data/cores.json`); c.version = v; }
+    const f = found.get(c.core);
+    if (!f) continue;
+    was(c, "version", f.version);
+    was(c, "glue", f.glue);
+    if (f.dir) {
+      const m = /^160000 commit ([0-9a-f]{40})\t/.exec(git("ls-tree", "HEAD", `cores/${f.dir}`));
+      was(c, "commit", m && m[1]);
+      was(c, "repo", urls.get(`cores/${f.dir}`));
+    }
   }
-  if (!found.size) console.log("build_catalog: no FM1VST checkout under web/vendor: native versions from data/cores.json");
+  if (!found.size) console.log("build_catalog: no FM1VST checkout under web/vendor: native versions and commits from data/cores.json");
 }
 const coreByHub = new Map(cores.map((c) => [c.hub || c.core, c]));
 
@@ -85,7 +117,9 @@ try { EMU_SKIP = (await import(new URL("../../engines/emu/catalog.mjs", import.m
 
 const firmwares = hub.firmwares.map((f) => {
   const core = coreByHub.get(f.id) || null;
-  const native = core && !core.gated ? { core: core.core, version: core.version, wasm: PATHS[layout].engines.native.wasm.replace("{core}", core.core) } : null;
+  // the native core's own source: the commit FM1VST pins (its submodule), and FM1VST's glue folder for it
+  const native = core && !core.gated ? { core: core.core, version: core.version, wasm: PATHS[layout].engines.native.wasm.replace("{core}", core.core),
+    repo: core.repo || null, commit: core.commit || null, glue: core.glue || null } : null;
   return siteEntry(f, { core, native, emuSkip: EMU_SKIP });   // (newest wins: emu is the default where the core is behind)
 });
 
@@ -137,7 +171,7 @@ const catalog = {
   credits: {
     fm1emu: { name: "fm1-emu", author: "Joakim Eriksson", license: "MIT", source: "https://github.com/joakimeriksson/fm1-emu",
               line: "Emulated by fm1-emu, the FM-1 emulator by Joakim Eriksson (MIT licence): https://github.com/joakimeriksson/fm1-emu" },
-    fm1vst: { name: "FM1VST", license: "GPL-3.0-only", source: "https://github.com/Quixotic7/FM1VST" },
+    fm1vst: { name: "FM1VST", license: "GPL-3.0-only", source: "https://github.com/Quixotic7/FM1VST", commit: fm1vstCommit },
     hub: { name: "The FM-1 Firmware Hub", source: HUB },
   },
   firmwares,
