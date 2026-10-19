@@ -6,6 +6,9 @@
 // volume at 0 a second take has the same level; the worklet's load with recording off and on; a take ended by an
 // engine switch. Screenshots (desktop 1280 x 800, phone 390 x 844): idle, recording, the Takes popover.
 //   node web/site/tools/rec-e2e.mjs [--shots=DIR] [--secs=6] [--rounds=2] [--engines=native,emu]
+//   node web/site/tools/rec-e2e.mjs --soak [--soak=fw:engine,...] [--soak-secs=60] [--throttle=4]
+// --soak (the owner's "it kept reloading the engine"): per firmware, a take of soak-secs while keys are played, then the
+// same with the page's CPU throttled; exactly one take per start / stop, no engine load, halt or worklet error in a take.
 // (the load: --rounds pairs of --secs with recording off, then on, a three-key chord held)
 // Needs web/build/native/felucca.wasm, web/build/emu/fm1_web.wasm and web/build/packages/felucca-1.6.1.fwsc (the
 // Hub's package; the Hub is mocked in the page, so nothing leaves the machine). Writes web/build/test/rec-*.png and
@@ -21,6 +24,10 @@ const OUT = join(WEB, "build", "test");
 const arg = (k, d) => { const a = process.argv.find((x) => x.startsWith(`--${k}=`)); return a ? a.slice(k.length + 3) : d; };
 const SHOTS2 = arg("shots", "");
 const SECS = +arg("secs", 6), ROUNDS = +arg("rounds", 2), ENGINES = arg("engines", "native,emu").split(",");
+// --soak: long takes played like a person, on real engines, plain and with the page's CPU throttled (x THROTTLE)
+const SOAK = arg("soak", process.argv.includes("--soak") ? "felucca:native,choralroot:native,choralroot:emu,melodee:emu,x0x:emu" : "");
+const SOAK_S = +arg("soak-secs", 60), THROTTLE = +arg("throttle", 4), NOREC = process.argv.includes("--norec");
+const EDITOR = process.argv.includes("--editor");   // (--editor: the firmware's hosted manager open in the Editor panel throughout)   // (--norec: the same play, no take: a baseline)
 const CHROMIUM = process.env.CHROMIUM || "/Applications/Chromium.app/Contents/MacOS/Chromium";
 const PORT = 8000 + Math.floor(Math.random() * 900), DEBUG = 9300 + Math.floor(Math.random() * 600);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -32,15 +39,24 @@ if (SHOTS2) mkdirSync(SHOTS2, { recursive: true });
 let fails = 0, checks = 0;
 const ok = (c, what) => { checks++; if (!c) fails++; console.log(`${what.padEnd(96)} ${c ? "ok" : "FAIL"}`); return c; };
 
-// the Hub, mocked in the page: its catalog is the snapshot; Felucca's package is the local copy; anything else a 404
-const hub = readFileSync(join(WEB, "site", "data", "hub-catalog.snapshot.json"), "utf8");
+// the Hub, mocked in the page: its catalog is the snapshot (Melodee at 1.4.4, the live Hub's); the packages in
+// web/build/packages are served as the Hub's (their SHA-256 must match the catalog's); anything else a 404
+const hubCat = JSON.parse(readFileSync(join(WEB, "site", "data", "hub-catalog.snapshot.json"), "utf8"));
+const LOCAL_PKGS = ["felucca-1.6.1", "melodee-1.4.4", "x0x-1.1.0", "choralroot-0.25.1"].filter((p) => existsSync(join(WEB, "build", "packages", p + ".fwsc")));
+{
+  const m = hubCat.firmwares.find((f) => f.id === "melodee");
+  if (m && LOCAL_PKGS.includes("melodee-1.4.4"))
+    Object.assign(m, { version: "1.4.4", pkg: "fw/melodee-1.4.4.fwsc", sha256: "d349a44dc5c29c2af2ad14b6fc76071fc9e218ad4a83dcd25948bd8479aa3607", tag: "v1.4.4",
+      release: "https://github.com/keremimo/melodee/releases/tag/v1.4.4", source: "https://github.com/keremimo/melodee/tree/v1.4.4" });
+}
 const HUB_MOCK = `(() => {
-  const HUB = ${hub}, real = window.fetch.bind(window);
+  const HUB = ${JSON.stringify(hubCat)}, PKGS = ${JSON.stringify(LOCAL_PKGS)}, real = window.fetch.bind(window);
   window.fetch = async (input, init) => {
     const u = String(input && input.url || input);
     if (!u.startsWith("https://thefirmwarehub.com/")) return real(input, init);
     if (u === "https://thefirmwarehub.com/catalog.json") return new Response(JSON.stringify(HUB), { status: 200, headers: { "content-type": "application/json" } });
-    if (u === "https://thefirmwarehub.com/fw/felucca-1.6.1.fwsc") return real("/web/build/packages/felucca-1.6.1.fwsc");
+    const p = PKGS.find((x) => u === "https://thefirmwarehub.com/fw/" + x + ".fwsc");
+    if (p) return real("/web/build/packages/" + p + ".fwsc");
     return new Response("not found", { status: 404 });
   };
 })();`;
@@ -70,7 +86,8 @@ async function until(expr, ms = 30000, what = expr) {
   throw new Error(`timed out: ${what}`);
 }
 // trusted key events through the DevTools protocol (the page's own Keyboard handler: panel.js KEYMAP)
-const KEYS = { KeyA: ["a", 65], KeyD: ["d", 68], KeyG: ["g", 71], KeyR: ["r", 82], ShiftLeft: ["Shift", 16] };
+const KEYS = { KeyA: ["a", 65], KeyS: ["s", 83], KeyD: ["d", 68], KeyF: ["f", 70], KeyG: ["g", 71], KeyH: ["h", 72], KeyJ: ["j", 74], KeyK: ["k", 75],
+  KeyR: ["r", 82], ShiftLeft: ["Shift", 16] };
 async function key(code, type, shift = false) {
   const [k, vk] = KEYS[code];
   await cdp("Input.dispatchKeyEvent", { type, code, key: shift && k.length === 1 ? k.toUpperCase() : k, windowsVirtualKeyCode: vk, modifiers: shift ? 8 : 0 });
@@ -134,6 +151,90 @@ function checkTake(eng, t, holdS) {
   ok(t.rmsKey > 0.003 && t.peak > 0.01, `${eng}: sound while the key is held (RMS ${(20 * Math.log10(t.rmsKey)).toFixed(1)} dBFS, peak ${t.peak.toFixed(3)})`);
   ok(t.decoded && t.decoded.frames === t.hdr.frames && t.decoded.channels === 2, `${eng}: Chromium's decodeAudioData reads it (${t.decoded && (t.decoded.frames ?? t.decoded.error)} frames)`);
 }
+// the soak's watch on the page: every engine load, halt, worklet error, load report and toast, with the recorder's phase
+const SOAK_HOOK = `(() => { const p = FM1Rec.o.getPlayer(), E = window.__soak = { loads: [], errors: [], halts: [], reports: [], toasts: [] };
+  const L = p.load.bind(p); p.load = (...a) => { E.loads.push({ t: performance.now(), phase: FM1Rec.phase, engine: a[1], extra: JSON.stringify(a[3] || {}),
+    stack: String(new Error().stack).split(String.fromCharCode(10)).slice(2, 7).map((x) => x.trim().replace(new RegExp("https?:[^ )]*/js/"), "")).join(" < ") }); return L(...a); };
+  E.toEngine = 0; E.sysex = []; const M = p.midi.bind(p);
+  p.midi = (b) => { E.toEngine++; if (b[0] === 0xF0 && E.sysex.length < 40) E.sysex.push(Array.from(b.slice(0, 8), (x) => x.toString(16)).join(" ")); return M(b); };
+  const fe = p.ev.error; p.ev.error = (m) => { E.errors.push({ t: performance.now(), phase: FM1Rec.phase, m: String(m) }); if (fe) fe(m); };
+  const fh = p.ev.halted; p.ev.halted = (c) => { E.halts.push({ t: performance.now(), phase: FM1Rec.phase, c }); if (fh) fh(c); };
+  const fl = p.ev.load; p.ev.load = (m) => { E.reports.push({ t: performance.now(), rec: FM1Rec.phase === "rec", load: m.load, peak: m.peak, lateMs: m.lateMs, glitches: m.glitches }); if (fl) fl(m); };
+  const tt = document.getElementById("toast");
+  new MutationObserver(() => { if (tt.classList.contains("show") && E.toasts.at(-1)?.text !== tt.textContent) E.toasts.push({ t: performance.now(), text: tt.textContent }); })
+    .observe(tt, { attributes: true, childList: true, characterData: true, subtree: true });
+  return true; })()`;
+async function soakOne(fw, eng, throttle) {
+  const tag = `${fw} ${eng}${throttle > 1 ? ` (CPU x${throttle})` : ""}${EDITOR ? " +editor" : ""}`;
+  await cdp("Emulation.setCPUThrottlingRate", { rate: 1 });
+  // each case from the default clock (Auto's step-downs are kept per firmware in the visitor's prefs)
+  await js(`(() => { try { localStorage.removeItem("remotefm1-player"); } catch (_) {} return true; })()`);
+  await cdp("Page.navigate", { url: `http://127.0.0.1:${PORT}/web/site/?fw=${fw}&engine=${eng}` });
+  try { await until(`window.FM1Rec && window.FM1Site && FM1Site.current().info && FM1Site.current().engine === "${eng}" && FM1Site.current().entry.id === "${fw}"`, 90000, `${tag} running`); }
+  catch (e) {
+    console.log("  page:", JSON.stringify(await js(`({ url: location.href, cur: window.FM1Site ? (({ entry, engine, info }) => ({ id: entry && entry.id, engine, info: !!info }))(FM1Site.current()) : null,
+      toast: document.getElementById("toast").textContent, status: document.getElementById("status").textContent })`)));
+    throw e;
+  }
+  await js(SOAK_HOOK);
+  if (EDITOR) {
+    await until(`!document.getElementById("ed-btn").hidden`, 10000, "the Editor button");
+    await js(`(document.getElementById("ed-btn").click(), true)`);
+    await sleep(5000);   // (the manager loads and talks to the firmware)
+    console.log(`  ${tag}: editor open: ${await js(`!document.getElementById("ed-panel").hidden`)}, frame ${await js(`!!document.querySelector("#ed-body iframe")`)}`);
+  }
+  await sleep(eng === "emu" ? 6000 : 1500);   // (the boot, the JIT, the clock governor's 4 s grace)
+  if (throttle > 1) await cdp("Emulation.setCPUThrottlingRate", { rate: throttle });
+  const n0 = await js("FM1Rec.takes.length");
+  if (!NOREC) { await shiftR(); await until(`FM1Rec.phase === "rec"`, 10000, `${tag}: recording`); }
+  const t0 = await js("performance.now()");
+  // played like a person: a note every 300 ms, a chord now and then, the octave buttons once
+  const NOTES = ["KeyA", "KeyS", "KeyD", "KeyF", "KeyG", "KeyH", "KeyJ", "KeyK"];
+  const end = Date.now() + SOAK_S * 1000;
+  for (let i = 0; Date.now() < end; i++) {
+    const chord = i % 9 === 0 ? [NOTES[i % 8], NOTES[(i + 2) % 8], NOTES[(i + 4) % 8]] : [NOTES[(i * 3) % 8]];
+    for (const k of chord) await key(k, "keyDown");
+    await sleep(i % 9 === 0 ? 700 : 220);
+    for (const k of chord) await key(k, "keyUp");
+    await sleep(80);
+  }
+  const t1 = await js("performance.now()");
+  if (NOREC) {
+    const E = await js("window.__soak");
+    console.log(`  ${tag} (no take): loads ${JSON.stringify(E.loads)}; toasts ${JSON.stringify(E.toasts.map((x) => x.text))}`);
+    console.log(`  ${tag} (no take): reports ${JSON.stringify(E.reports.map((r) => [Math.round(r.t), +r.load.toFixed(2), +(r.peak ?? 0).toFixed(2), Math.round(r.lateMs), r.glitches]))}`);
+    report.runs.push({ soak: tag, norec: true, loads: E.loads, toasts: E.toasts });
+    ok(!E.loads.length, `${tag} (no take): no engine load (${E.loads.length})`);
+    return;
+  }
+  const before = await js("FM1Rec.phase");   // ("rec", unless something ended the take meanwhile)
+  await shiftR();
+  await sleep(1500);
+  let restarted = false;
+  if (await js(`FM1Rec.phase === "rec"`)) { restarted = true; await shiftR(); }   // (that Stop started a new take: end it)
+  await until(`FM1Rec.phase === "idle" && FM1Rec.takes.length >= ${n0 + 1}`, 10000, `${tag}: the take`);
+  ok(before === "rec" && !restarted, `${tag}: still recording when Stop is pressed (${before}), and Stop stops`);
+  await sleep(3000);   // (a reload must not start another take by itself)
+  await cdp("Emulation.setCPUThrottlingRate", { rate: 1 });
+  const E = await js("window.__soak"), n1 = await js("FM1Rec.takes.length"), ph = await js("FM1Rec.phase");
+  const t = await js(READ_TAKE(0, 1));
+  const inTake = (a) => a.filter((x) => x.t >= t0 - 50 && x.t <= t1);
+  const rep = E.reports.filter((r) => r.rec), maxLoad = Math.max(0, ...rep.map((r) => r.load)), late = rep.reduce((s, r) => s + r.lateMs, 0);
+  console.log(`  ${tag}: loads ${JSON.stringify(E.loads)} halts ${JSON.stringify(E.halts)} errors ${JSON.stringify(E.errors)}`);
+  console.log(`  ${tag}: to the engine ${E.toEngine} messages, SysEx ${JSON.stringify(E.sysex.slice(0, 12))}`);
+  console.log(`  ${tag}: load while recording max ${(100 * maxLoad).toFixed(0)} %, late ${late.toFixed(0)} ms; toasts ${JSON.stringify(E.toasts.map((x) => x.text))}`);
+  ok(n1 === n0 + 1 && ph === "idle", `${tag}: one start / stop, exactly one take (${n1 - n0}), none started by itself`);
+  ok(!inTake(E.loads).length, `${tag}: no engine load during the take (${inTake(E.loads).length})`);
+  ok(!E.halts.length && !E.errors.length, `${tag}: no halt, no worklet error (${E.halts.length}, ${E.errors.length})`);
+  ok(Math.abs(t.hdr.frames / t.ctxRate - (t1 - t0) / 1000) < 1.5 && Math.abs(t.hdr.frames - (t.endFrame - t.startFrame)) <= 128 && t.decoded.frames === t.hdr.frames,
+     `${tag}: the take is the whole ${(t.hdr.frames / t.ctxRate).toFixed(1)} s, a valid WAV`);
+  // Auto's step-down, when this computer couldn't keep up: it waits for the take, then applies (one engine load)
+  const deferred = E.toasts.some((x) => /after this take/.test(x.text));
+  if (deferred) ok(E.loads.some((l) => l.t > t1 && /"mhz"/.test(l.extra)), `${tag}: Auto's step-down waited for the take's end, then applied`);
+  else console.log(`  ${tag}: Auto did not step down during the take`);
+  report.runs.push({ soak: tag, deferred, takes: n1 - n0, loads: E.loads, halts: E.halts, errors: E.errors, toasts: E.toasts, maxLoad, lateMs: late, seconds: t.hdr.frames / t.ctxRate });
+}
+
 async function loadCompare(eng) {
   await js(HOOK_LOADS);
   for (const k of ["KeyA", "KeyD", "KeyG"]) await key(k, "keyDown");
@@ -183,7 +284,13 @@ try {
   await cdp("Runtime.enable"); await cdp("Page.enable");
   await cdp("Page.addScriptToEvaluateOnNewDocument", { source: HUB_MOCK });
 
-  for (const eng of ENGINES) {
+  if (SOAK) {
+    for (const c of SOAK.split(",")) {
+      const [fw, eng] = c.split(":");
+      for (const th of [1, THROTTLE]) await soakOne(fw, eng, th);
+    }
+  }
+  for (const eng of SOAK ? [] : ENGINES) {
     const run = { engine: eng };
     report.runs.push(run);
     await viewport(1280, 800, false);
@@ -272,6 +379,12 @@ try {
       const t = await js(READ_TAKE(0.1, 1.0));
       ok(t.hdr.frames > 0.9 * t.ctxRate && Math.abs(t.hdr.frames - (t.endFrame - t.startFrame)) <= 128 && t.decoded.frames === t.hdr.frames,
          `emu -> native: the switch ended the take cleanly first (${(t.hdr.frames / t.ctxRate).toFixed(2)} s, valid WAV)`);
+      // the visitor, not knowing it ended, presses Stop: that must not start a new take
+      const n1 = await js("FM1Rec.takes.length");
+      await shiftR();
+      await sleep(600);
+      ok(await js(`FM1Rec.phase === "idle" && FM1Rec.takes.length === ${n1} && /already stopped/.test(document.getElementById("toast").textContent)`),
+         "a Stop pressed just after a take ended by itself starts no new take (it says so)");
     }
   }
   ok(!errors.length, `no page exceptions (${errors.length})`);

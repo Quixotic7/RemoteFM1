@@ -192,7 +192,8 @@ export class Sheet {
       // the emulated CPU clock (emu only): Auto, the device's range (320-360), an overclock (480, 640)
       if (shown === "emu") {
         const c = st.mhzChoice;
-        const sub = c === "auto" ? (st.mhz === DEVICE_MHZ ? `Auto: ${DEVICE_MHZ} MHz, the FM-1's own clock; lower if this computer can't keep up` : `Auto: stepped down to ${st.mhz} MHz for this computer`)
+        const sub = c === "auto" && st.mhzPending ? `Auto: ${st.mhz} MHz for now; steps down to ${st.mhzPending.mhz} MHz when the take ends`
+          : c === "auto" ? (st.mhz === DEVICE_MHZ ? `Auto: ${DEVICE_MHZ} MHz, the FM-1's own clock; lower if this computer can't keep up` : `Auto: stepped down to ${st.mhz} MHz for this computer`)
           : isOverclock(c) ? `${c} MHz, ${OVERCLOCK}` : inDeviceRange(c) ? `${c} MHz, the FM-1's own range` : `${c} MHz, under the FM-1's clock: lighter, may stutter`;
         out.push(row("Emulated CPU", sub, null));
         out.push(h("div", { class: "seg wide", role: "radiogroup", "aria-label": "Emulated CPU clock" }, MHZ_CHOICES.map((m) =>

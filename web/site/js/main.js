@@ -36,7 +36,7 @@ const state = {
   transpose: prefs.transpose | 0, notesPlayKeys: prefs.notesPlayKeys !== false, reachFirmware: !!prefs.reachFirmware,
   keyHints: keyHintsOn(prefs),                              // the computer-key letters on the panel: off by default
   saves: [], selectedSave: null, carryOffer: null,
-  mhz: DEVICE_MHZ, mhzChoice: "auto",                       // the emulated CPU clock of the running firmware (cpu.js)
+  mhz: DEVICE_MHZ, mhzChoice: "auto", mhzPending: null,     // the emulated CPU clock of the running firmware (cpu.js); mhzPending: Auto's step, waiting for a take to end
   browseEngine: ["all", "native", "emu"].includes(prefs.browseEngine) ? prefs.browseEngine : "all",   // the browser's filter
   pixels: null, frameSeq: 0, levels: new Uint8Array(44), playGreen: 0,
   volume: typeof prefs.volume === "number" ? Math.max(0, Math.min(1, prefs.volume)) : 1,   // the page's volume (not the recording's)
@@ -198,6 +198,7 @@ async function boot(fromSave = null) {
     const clk = mhzFor(state.entry.id, prefs, HOST);
     state.mhz = clk.mhz; state.mhzChoice = clk.choice;
     governor = eng === "emu" ? new Governor({ ...clk, now: performance.now() }) : null;
+    state.mhzPending = null;
     await player.load(e, eng, rec ? rec.bytes : null, eng === "emu" ? { mhz: clk.mhz } : {});
     if (!fromSave && !state.entry.local) offerCarry(state.entry, eng, ver);
   } catch (err) {
@@ -216,20 +217,38 @@ async function rebootKeepingFlash() {
   if (state.engine !== "mock" && state.info) { try { bytes = await currentFlash(); } catch (_) { bytes = null; } }
   await boot(bytes ? { name: saves.AUTOSAVE, bytes } : null);
 }
+// Auto never restarts the engine while a take records (as FM1VST in a DAW): the step waits for the take's end
+// (state.mhzPending: the sheet's clock line says so), then applies (stepAuto). The take itself stays clean meanwhile:
+// it is the rendered PCM, whole even when the device's output drops out.
 function onLoad(m) {
   if (!governor || state.engine !== "emu" || !state.entry) return;
   const r = governor.feed(m, performance.now());
   if (!r) return;
   const e = state.entry;
-  if (r.step) {
-    prefs.autoMhz = stepDown(prefs, e.id, r.step); savePrefs();
-    toast(`Your computer can't run this firmware at full speed: emulating at ${r.step} MHz.`, "bad", 7000);
-    rebootKeepingFlash();
-  } else if (r.warn) {
+  if (r.step && rec && rec.busy) {
+    state.mhzPending = { id: e.id, mhz: r.step };
+    toast(`Your computer can't run ${e.name} at full speed: Auto steps down to ${r.step} MHz after this take (expect dropouts until then; the take stays clean).`, "bad", 9000);
+  } else if (r.step) stepAuto(e, r.step);
+  else if (r.warn) {
     toast(state.mhzChoice === "auto" ? `Your computer can't keep up with ${e.name} even at ${state.mhz} MHz: expect dropouts.`
       : `Your computer can't keep up with ${e.name} at ${state.mhz} MHz: try Auto or a lower clock.`, "bad", 8000);
   }
   if (sheet) sheet.render();
+}
+
+function stepAuto(e, mhz) {
+  state.mhzPending = null;
+  prefs.autoMhz = stepDown(prefs, e.id, mhz); savePrefs();
+  toast(`Your computer can't run this firmware at full speed: emulating at ${mhz} MHz.`, "bad", 7000);
+  rebootKeepingFlash();
+}
+// a take ended: a step that waited for it applies now (if the same firmware still runs emulated on Auto)
+function recIdle() {
+  const p = state.mhzPending;
+  if (!p) return;
+  state.mhzPending = null;
+  if (state.entry && state.entry.id === p.id && state.engine === "emu" && state.mhzChoice === "auto") stepAuto(state.entry, p.mhz);
+  else if (sheet) sheet.render();
 }
 
 // the entry that played in place of the catalog's (a newer release found on a re-check, or the snapshot's version)
@@ -622,6 +641,7 @@ async function main() {
       ensureRunning: async () => state.running || start(),
       nameParts: () => ({ id: state.entry ? state.entry.id : "fm1", version: state.entry ? versionOf(state.entry, state.engine === "mock" ? state.wantEngine : state.engine) : "" }),
       settings: () => ({ bits: state.recBits, countIn: state.recCountIn }),
+      onIdle: recIdle,
       toast,
     });
     window.FM1Rec = rec;

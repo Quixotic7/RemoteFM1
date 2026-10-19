@@ -18,6 +18,7 @@ import { TakeWriter, chunkFrames, MAX_TAKE_S, WARN_TAKE_S, takeFileName, clock, 
 
 const $ = (id) => document.getElementById(id);
 const COUNT_IN_S = 3;
+const STOP_GRACE_MS = 4000;   // (a press this soon after a take ended by itself is taken as its Stop)
 const SVG = (d, fill = false) => `<svg viewBox="0 0 16 16" aria-hidden="true" fill="${fill ? "currentColor" : "none"}" stroke="${fill ? "none" : "currentColor"}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
 const IC = {
   play: SVG('<path d="M5 3.2v9.6L12.6 8z"/>', true),
@@ -61,6 +62,8 @@ export class RecUI {
     this.render();
   }
   get recording() { return this.phase === "rec"; }
+  get busy() { return this.phase !== "idle"; }   // (a take is starting, counting in, recording or ending)
+  idle() { if (this.o.onIdle) setTimeout(() => this.o.onIdle(), 0); }
   say(text) { this.live.textContent = ""; setTimeout(() => { this.live.textContent = text; }, 30); }
 
   // ------------------------------------------------------------ take ---
@@ -68,13 +71,20 @@ export class RecUI {
     if (this.phase === "count") return this.cancelCount();
     if (this.phase === "rec") return this.stop("stop");
     if (this.phase !== "idle") return;
+    // a take that ended by itself (the engine restarted, the cap) a moment ago: this press meant Stop, not a new take
+    if (this.endedAt && performance.now() - this.endedAt < STOP_GRACE_MS) {
+      this.endedAt = 0;
+      this.say("The take had already stopped");
+      this.o.toast("That take had already stopped: it is in Takes. Press again to record a new one.", "ok");
+      return;
+    }
     this.phase = "starting";   // (the audio may start now: this click is the gesture)
     this.render();
     let ok = false;
     try { ok = await this.o.ensureRunning(); } catch (_) { ok = false; }
     if (this.phase !== "starting") return;
     if (!ok || !this.o.getPlayer() || !this.o.getPlayer().sampleRate) {
-      this.phase = "idle"; this.render();
+      this.phase = "idle"; this.render(); this.idle();
       this.o.toast("The sound could not start, so there is nothing to record yet.", "bad");
       return;
     }
@@ -90,7 +100,7 @@ export class RecUI {
       this.say("Recording in 3 seconds");
     } else this.begin();
   }
-  cancelCount() { clearInterval(this.countTimer); this.countTimer = 0; this.phase = "idle"; this.render(); this.say("Recording cancelled"); }
+  cancelCount() { clearInterval(this.countTimer); this.countTimer = 0; this.phase = "idle"; this.render(); this.say("Recording cancelled"); this.idle(); }
   begin() {
     const p = this.o.getPlayer(), sr = p.sampleRate, s = this.o.settings(), np = this.o.nameParts();
     const id = ++this.seq;
@@ -146,6 +156,7 @@ export class RecUI {
     clearTimeout(this.stopTimer);
     this.cur = null; this.phase = "idle";
     const w = cur.writer;
+    this.idle();
     if (!w.frames) { this.render(); this.say("Stopped, nothing recorded"); return; }
     const blob = new Blob(w.parts(), { type: "audio/wav" });
     w.chunks = [];   // (the Blob holds the PCM now)
@@ -156,6 +167,7 @@ export class RecUI {
     this.render();
     this.say("Stopped, take saved");
     const why = cur.why || reason;
+    this.endedAt = why === "stop" ? 0 : performance.now();
     if (why === "cap") this.o.toast(`The take stopped at the ${MAX_TAKE_S / 60}-minute cap: it is in Takes.`, "bad", 8000);
     else if (why === "switch" || why === "engine") this.o.toast("The take ended before the firmware restarted: it is in Takes.", "ok");
     else if (why === "error" || why === "lost") this.o.toast("The engine stopped, so the take ended: it is in Takes.", "bad");
