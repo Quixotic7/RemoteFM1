@@ -976,7 +976,7 @@
    "defaultEngine": "emu",
    "native": {
     "core": "jiant",
-    "version": "0.8.5",
+    "version": "0.9.9",
     "wasm": "../build/native/jiant.wasm"
    },
    "emu": {
@@ -1233,10 +1233,10 @@
     "native",
     "emu"
    ],
-   "defaultEngine": "emu",
+   "defaultEngine": "native",
    "native": {
     "core": "obervave",
-    "version": "1.5",
+    "version": "1.5.1",
     "wasm": "../build/native/obervave.wasm"
    },
    "emu": {
@@ -1245,7 +1245,7 @@
     "size": 610110,
     "product": "FM-1_955"
    },
-   "nativeBehind": true
+   "nativeBehind": false
   },
   {
    "id": "orbit",

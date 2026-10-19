@@ -4,13 +4,13 @@
   "cores": [
     { "core": "felucca",      "version": "1.6.1",        "license": "GPL-3.0 (engines MIT)",          "category": "Synth",     "tag": "Multi-engine synth",     "author": "Hügelton" },
     { "core": "ghoulbox",     "version": "2.3.2",        "license": "GPL-3.0 (+ OFL fonts)",          "category": "Synth",     "tag": "Dungeon synth",          "author": "J. Persinger" },
-    { "core": "jiant",        "version": "0.8.5",        "license": "GPL-3.0 (+ CMUdict BSD-2)",      "category": "Groovebox", "tag": "Bio-synthetic OS",       "author": "juanjiant" },
+    { "core": "jiant",        "version": "0.9.9",        "license": "GPL-3.0 (+ CMUdict BSD-2)",      "category": "Groovebox", "tag": "Bio-synthetic OS",       "author": "juanjiant" },
     { "core": "purplemonkey", "version": "0.11",         "license": "GPL-3.0",                        "category": "Other",     "tag": "For a small child",      "author": "Quixotic7" },
     { "core": "coralflower",  "version": "0.2",          "license": "GPL-3.0",                        "category": "Chords",    "tag": "Chords, a flower grows", "author": "FicusFicusov" },
     { "core": "fomni",        "version": "0.4",          "license": "GPL-3.0",                        "category": "Chords",    "tag": "Chord harp",             "author": "C. Vestal" },
     { "core": "fimba",        "version": "0.6.1",        "license": "GPL-3.0",                        "category": "Synth",     "tag": "Kalimba",                "author": "J. Sowers" },
     { "core": "amb",          "version": "1.3",          "license": "MPL-2.0",                        "category": "Other",     "tag": "Generative ambient",     "author": "C. Vestal" },
-    { "core": "obervave",     "version": "1.5",          "license": "GPL-3.0",                        "category": "Synth",     "tag": "8-voice poly synth",     "author": "zvenson" },
+    { "core": "obervave",     "version": "1.5.1",        "license": "GPL-3.0",                        "category": "Synth",     "tag": "8-voice poly synth",     "author": "zvenson" },
     { "core": "frodhes",      "version": "0.9.2",        "license": "GPL-3.0",                        "category": "Synth",     "tag": "Electric piano",         "author": "L. Mirabal" },
 
     { "core": "choralroot",   "version": "0.25.1",       "license": "GPL-3.0",                        "category": "Chords",    "tag": "Chord instrument",       "author": "Quixotic7",    "gated": "Casio CZ-1 tones and Prophet-5 programs" },

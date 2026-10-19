@@ -13,7 +13,7 @@
 // layout: where the engines, the remote module and the installer are, seen from the page:
 //   dev    the page at web/site/ served from web/ (python3 -m http.server in web/): ../engines/.., ../build/..
 //   pages  the GitHub Pages artifact (.github/workflows/pages.yml): engines/, installer/, remote/ next to the page
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -50,6 +50,33 @@ const hubLive = /^https?:/.test(hubSrc);
 const hub = hubLive ? await (await fetch(hubSrc, { signal: AbortSignal.timeout(30000) })).json() : JSON.parse(readFileSync(hubSrc, "utf8"));
 if (!Array.isArray(hub.firmwares) || !hub.firmwares.length) { console.error(`build_catalog: ${hubSrc} has no firmwares`); process.exit(1); }
 const cores = JSON.parse(readFileSync(join(SITE, "data", "cores.json"), "utf8")).cores;
+// the native versions come from the FM1VST the site builds (web/vendor/FM1VST: each fm1_add_core(<id> ... VERSION x)),
+// so a submodule bump moves them; data/cores.json's versions are only the fallback when that tree is not checked out
+{
+  const glue = join(SITE, "..", "vendor", "FM1VST", "core-glue");
+  const found = new Map();
+  const walk = (dir) => {
+    let names = [];
+    try { names = readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
+    for (const d of names) {
+      const p = join(dir, d.name);
+      if (d.isDirectory()) walk(p);
+      else if (d.name.endsWith(".cmake")) {
+        for (const call of readFileSync(p, "utf8").split("fm1_add_core(").slice(1)) {
+          const body = call.slice(0, call.indexOf(")") + 1 || call.length);
+          const id = /^\s*(\w+)/.exec(body), ver = /\bVERSION\s+"?([^\s")]+)"?/.exec(body);
+          if (id && ver) found.set(id[1], ver[1]);
+        }
+      }
+    }
+  };
+  walk(glue);
+  for (const c of cores) {
+    const v = found.get(c.core);
+    if (v && v !== c.version) { console.log(`build_catalog: ${c.core} native ${v} (FM1VST), was ${c.version} in data/cores.json`); c.version = v; }
+  }
+  if (!found.size) console.log("build_catalog: no FM1VST checkout under web/vendor: native versions from data/cores.json");
+}
 const coreByHub = new Map(cores.map((c) => [c.hub || c.core, c]));
 
 // Hub firmwares known not to run in fm1-emu: W2's web/engines/emu/catalog.mjs EMU_SKIP when it is there
