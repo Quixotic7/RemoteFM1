@@ -15,6 +15,7 @@ import { createFm1, mountUseFm1, mountHeader } from "./use-fm1.js";
 import { liveCatalog, mergeLive, packageFor, chooseEngine, compareVersions, sourceOf } from "./live.js";
 import { loadPrefs, savePrefs as writePrefs, keyHintsOn } from "./prefs.js";
 import { mhzFor, pickMhz, stepDown, Governor, DEVICE_MHZ } from "./cpu.js";
+import { EditorPanel } from "./editor-panel.js";
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -39,6 +40,8 @@ const state = {
   pixels: null, frameSeq: 0, levels: new Uint8Array(44), playGreen: 0,
 };
 let catalog = null, snapshot = null, emuHook = null, player = null, sheet = null, site = null, siteEmit = () => {}, fm1 = null;
+let editor = null;   // the Editor button and panel: the firmware's own manager, hosted (editor-panel.js)
+const editorChanged = () => { if (editor) editor.update(); };
 const lcd = new Lcd();
 const controls = new Controls((p) => { if (player) player.panel(p); });
 const device = new DeviceView($("device"), controls, lcd);
@@ -175,6 +178,7 @@ async function boot(fromSave = null) {
   state.engine = eng; state.engineState = "loading"; state.info = null;
   setStatus(`Loading ${e.name}...`);
   if (sheet) sheet.render();
+  editorChanged();
   try {
     // an emulated firmware's package from where the Hub points now (a gone one: the Hub once more, then the snapshot's)
     if (eng === "emu" && !e.localBytes && e.emu && e.emu.pkg && emuHook && emuHook.fetchPackage) {
@@ -250,6 +254,7 @@ async function fallback(why) {
     return boot();
   }
   state.engine = "mock"; state.engineState = "mock";
+  editorChanged();
   toast(`${why} Playing a test engine instead.`, "bad");
   setStatus("");
   try { await player.load({ ...e, name: e.name }, "mock", null); } catch (err) { toast(String(err.message || err), "bad"); }
@@ -262,6 +267,7 @@ function updateTitle() {
   $("fw-name").textContent = e ? e.name : "";
   $("fw-ver").textContent = e ? versionOf(e, state.wantEngine) : "";
   updateSource();
+  editorChanged();
 }
 // the header's link to the running firmware's own source, at the version that runs (live.js sourceOf); a file from the
 // visitor's computer (M-VAVE's stock firmware, any .fwsc) has none: the link shows so, disabled
@@ -359,6 +365,7 @@ function makePlayer() {
       invalidate();
       if (sheet) sheet.render();
       siteEmit("info", info); siteEmit("firmware", { entry: state.entry, engine: state.engine });
+      editorChanged();
     },
     flash(m) {
       if (state.engine === "mock" || !state.entry) return;
@@ -370,8 +377,14 @@ function makePlayer() {
       }
       if (pendingSave) { const f = pendingSave; pendingSave = null; f(m.bytes); }
     },
-    halted(code) { toast(`${state.entry ? state.entry.name : "The firmware"} restarted (code ${code}).`); boot(); },
-    midiOut(bytes) { siteEmit("midiOut", bytes); },
+    // a reboot (a manager's RESTART, the firmware's own reset): it comes back from its flash as it stands, as an FM-1 does
+    // (the autosave follows: the flash read is saved, flash() below); the port goes and comes back (boot -> info)
+    halted(code) {
+      toast(`${state.entry ? state.entry.name : "The firmware"} restarted (code ${code}).`);
+      const was = state.entry;
+      currentFlash().catch(() => null).then((bytes) => { if (state.entry === was) boot(bytes ? { name: saves.AUTOSAVE, bytes } : null); });
+    },
+    midiOut(bytes) { siteEmit("midiOut", bytes); if (editor) editor.bridge.fromEngine(bytes); },
     load: onLoad,
     error(msg) {
       console.warn("worklet:", msg);
@@ -560,6 +573,13 @@ async function main() {
       fetchHub: (signal) => emuHook.fetchHubCatalog((u) => fetch(u, { signal })) });
     if (!catalog.live) console.warn("the Hub's catalog:", catalog.liveError, "- using the deployed snapshot");
   }
+  // the hosted managers (web/managers/build.mjs: managers/index.json); none: the Editor button shows only links
+  const mbase = new URL(catalog.paths.managers || "managers/", document.baseURI);
+  let mindex = null;
+  try { const r = await fetch(new URL("index.json", mbase), { cache: "no-cache" }); if (r.ok) mindex = await r.json(); } catch (_) { mindex = null; }
+  editor = new EditorPanel({ getState: () => state, index: mindex, base: mbase.href, onLayout: layout,
+    toEngine: (b) => { if (player && state.engine === "native") player.midi(b); }, setEngine: (n) => app.setEngine(n) });
+  window.FM1Editor = editor;
   app.installerUrl = catalog.paths.installer;
   $("install-link").href = catalog.paths.installer;
   sheet = new Sheet(app);

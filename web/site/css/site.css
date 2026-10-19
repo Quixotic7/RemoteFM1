@@ -57,6 +57,35 @@ body.embed #top { display: none; }
 .src-arrow { font-size: 12px; opacity: .85; margin-left: -1px; }
 .src-link.off { border-color: var(--line); background: none; color: var(--muted); cursor: default; }
 .src-link.off .src-arrow { display: none; }
+/* the running firmware's own editor (js/editor-panel.js): a button beside Source, and its panel beside the FM-1 */
+.ed-btn { cursor: pointer; font: inherit; font-weight: 600; font-size: 13px; }
+.ed-btn svg circle { fill: currentColor; stroke: none; }
+.ed-btn.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+:root { --ed-w: min(880px, 58vw); --ed-h: 60vh; }
+body.ed-open #stage { width: calc(100% - var(--ed-w)); }
+.ed-panel {
+  position: fixed; top: var(--head-h); right: 0; bottom: 0; width: var(--ed-w); z-index: 4; display: flex; flex-direction: column;
+  background: var(--surface); border-left: 1px solid var(--border); box-shadow: -10px 0 30px rgba(0,0,0,.35);
+}
+.ed-panel[hidden] { display: none; }
+.ed-head { height: 44px; flex: none; display: flex; align-items: center; gap: 9px; padding: 0 8px 0 14px; border-bottom: 1px solid var(--divider); min-width: 0; }
+.ed-head b { font-size: 14px; white-space: nowrap; }
+.ed-sub { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+.ed-src { color: var(--muted); font-size: 12px; font-weight: 600; text-decoration: none; padding: 6px 6px; border-radius: 6px; }
+.ed-src:hover { color: var(--text); background: var(--raised); }
+.ed-src[hidden], .ed-pop[hidden] { display: none; }
+.ed-pop { height: 28px; padding: 0 10px; flex: none; }
+.ed-body { flex: 1; min-height: 0; display: flex; background: #fff; }
+.ed-frame { flex: 1; width: 100%; height: 100%; border: 0; background: #fff; }
+.ed-note { margin: auto; max-width: 440px; padding: 24px; color: var(--row-text); }
+.ed-body:has(.ed-note) { background: var(--surface); }
+.ed-note p { margin: 0 0 12px; font-size: 13px; line-height: 1.5; }
+.ed-note .ed-lead { font-size: 17px; font-weight: 700; color: var(--text); line-height: 1.35; }
+.ed-note .pill { padding: 0 14px; height: 36px; margin-top: 6px; }
+@media (max-width: 900px) {
+  body.ed-open #stage { width: auto; height: calc(100% - var(--head-h) - var(--ed-h)); }
+  .ed-panel { top: auto; left: 0; width: auto; height: var(--ed-h); border-left: 0; border-top: 1px solid var(--border); box-shadow: 0 -10px 30px rgba(0,0,0,.35); }
+}
 #status { color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
 #status a { color: var(--row-text); font-weight: 600; text-decoration: none; }
 #status a:hover { text-decoration: underline; }
@@ -353,6 +382,9 @@ kbd { font: 600 11px/1 "Inter Tight", sans-serif; border: 1px solid var(--line);
   #top nav a:last-child, #top nav #vst-link, #install-link .long { display: none; }
   .src-link { width: 34px; padding: 0; justify-content: center; }
   .src-link .src-text, .src-link .src-arrow { display: none; }
+  .ed-sub, .ed-src { display: none; }
+  .ed-head { gap: 8px; }
+  .ed-head b { flex: 1; overflow: hidden; text-overflow: ellipsis; }
   .src-link svg { width: 16px; height: 16px; }
   #top nav { gap: 2px; }
   #top nav a { padding: 6px 7px; }

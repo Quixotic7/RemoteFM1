@@ -9,6 +9,7 @@
 #   engines/emu/engine.js catalog.mjs fm1_web.wasm LICENSE-fm1-emu.txt   W2 (needs web/vendor/fm1-emu)
 #   remote/remote.js, build/remote/remotefm1.mjs                 W4 (Use my FM-1)
 #   installer/                                                   the RemoteFM1 installer and its package
+#   managers/<id>/ fm1-shim.js index.json                         the firmwares' own managers, hosted (web/managers; FM1VST's core trees)
 # A part whose sources are missing is skipped: the page then falls back to its test engine for that engine, or keeps
 # the Use my FM-1 stub.
 #
@@ -75,6 +76,7 @@ jobs:
         run: |
           node web/site/test.mjs
           node web/installer/test_installer.mjs
+          node web/managers/test.mjs
 
       - name: Which parts can be built
         id: parts
@@ -147,6 +149,9 @@ jobs:
           (cd _site/installer/firmware && sha256sum -c SHA256SUMS)
           # RemoteFM1 in the player: its package is the catalog's only same-origin one; it must be published
           node -e 'const c=require("./_site/catalog.json");for(const f of c.firmwares)if(f.emu.from==="site"&&!require("fs").existsSync("_site/"+f.emu.pkg)){console.error("missing _site/"+f.emu.pkg);process.exit(1)}'
+          # the firmwares' own managers / editors (web/managers/build.mjs), copied from FM1VST's core trees at the commit it
+          # pins, each with its licence, its source link and the player's Web MIDI shim; none of theirs is in this repo
+          node web/managers/build.mjs --cores web/vendor/FM1VST/cores --out _site/managers
           # what is deployed: the commit and the catalog's hash (the nightly run compares them: release_report.mjs)
           node web/site/tools/release_report.mjs --catalog _site/catalog.json --stamp _site/deployed.json --commit "${{ github.sha }}"
           touch _site/.nojekyll

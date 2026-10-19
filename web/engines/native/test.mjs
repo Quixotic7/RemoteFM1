@@ -361,6 +361,25 @@ async function testCore(id) {
     console.log(`${ok ? "ok  " : "FAIL"}  MIDI bytes -> ${pk.length} USB-MIDI packets -> bytes${ok ? "" : ": " + back.join(" ")}`);
     if (!ok) process.exitCode = 1;
 }
+// a manager's frames (web/managers): long SysEx of every length mod 3 (a BACKUP_PUT's ~300 bytes), every data value,
+// intact through the packets (CIN 4 runs, then 5 / 6 / 7), with a clock byte inside one (USB-MIDI: its own packet)
+{
+    let all = true, packets = 0;
+    for (const n of [299, 300, 301, 4000]) {
+        const body = Array.from({ length: n }, (_, i) => (i * 37 + n) & 0x7f);
+        const frame = [0xf0, 0x7d, 0x46, 0x4c, ...body, 0xf7];
+        const p = new _midi.MidiParser(), pk = [], back = [];
+        const input = [...frame.slice(0, 50), 0xf8, ...frame.slice(50)];
+        for (const b of input) p.push(b, pk);
+        for (const x of pk) _midi.packetBytes(x, back);
+        packets += pk.length;
+        const got = back.filter((v) => v !== 0xf8);  // (the clock comes out between two packets of the SysEx)
+        if (back.length !== got.length + 1 || got.length !== frame.length || got.some((v, i) => v !== frame[i])) all = false;
+        if (!pk.every((x) => [4, 5, 6, 7, 15].includes(x & 15))) all = false;
+    }
+    console.log(`${all ? "ok  " : "FAIL"}  SysEx of 305..4006 bytes -> ${packets} USB-MIDI packets -> the same bytes`);
+    if (!all) process.exitCode = 1;
+}
 
 const ids = process.argv.slice(2).length ? process.argv.slice(2)
     : JSON.parse(fs.readFileSync(path.join(BUILD, "cores.json"), "utf8")).map((c) => c.id);

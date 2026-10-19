@@ -134,6 +134,7 @@ export function siteEntry(f, { core = null, native = null, emuSkip = {} } = {}) 
     release: f.release || null,
     site: f.site || null,
     play: f.play || null,
+    editor: f.editor || null,                       // the firmware's own editor on its site (for an FM-1 on USB)
     beta: !!f.beta,
     engines: native ? ["native", "emu"] : ["emu"],
     defaultEngine: native ? "native" : "emu",

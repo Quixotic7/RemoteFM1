@@ -91,6 +91,10 @@ if (typeof AudioWorkletProcessor !== "undefined") {
         const t0 = clock();
         eng.render(L, R);
         this.measure(clock(), t0, L.length);
+        // the firmware's MIDI out every quantum, posted at once: a manager's reply (SysEx) waits ~3 ms, not a screen
+        // frame, and the core's own out queue never has to hold more than a quantum's worth
+        const mo = eng.midiOut();
+        if (mo && mo.length) this.post({ type: "midiOut", bytes: Uint8Array.from(mo) });
         this.since += L.length / sampleRate;
         if (this.since >= FRAME_EVERY_S) { this.since = 0; this.publish(eng); }
       } catch (e) {
@@ -133,8 +137,6 @@ if (typeof AudioWorkletProcessor !== "undefined") {
         this.seen.leds = l.seq;
         this.post({ type: "leds", levels: Uint8Array.from(l.levels), playGreen: l.playGreen | 0 });
       }
-      const mo = eng.midiOut();
-      if (mo && mo.length) this.post({ type: "midiOut", bytes: Uint8Array.from(mo) });
       const f = eng.flash();
       if (f && f.seq !== this.seen.flash) {
         const first = this.seen.flash === -1;

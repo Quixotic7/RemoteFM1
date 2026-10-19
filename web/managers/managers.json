@@ -1,0 +1,87 @@
+{
+  "about": "The firmwares' own preset managers / editors the site hosts (web/managers/build.mjs copies them from FM1VST's core trees at the commit it pins, web/vendor/FM1VST/cores). ports: each native firmware's real USB MIDI port name (FM1VST research/managers-2026-10-19/MANAGERS.md section 3), the name the in-page port takes.",
+  "ports": {
+    "choralroot": "ChoralRoot FM-1",
+    "purplemonkey": "ChoralRoot FM-1",
+    "coralflower": "CoralFlower FM-1",
+    "felucca": "Felucca",
+    "ghoulbox": "Felucca",
+    "amb": "Felucca",
+    "obervave": "Felucca",
+    "frodhes": "Felucca",
+    "melodee": "Melodee",
+    "jiant": "JIANT FM",
+    "fomni": "FoMni FM-1",
+    "fimba": "FiMba FM-1"
+  },
+  "managers": [
+    {
+      "id": "choralroot",
+      "title": "ChoralRoot device manager",
+      "firmwares": ["choralroot"],
+      "tree": "ChoralRootFM1",
+      "kind": "choralroot-manager",
+      "page": "web/manager.html",
+      "lib": ["web/fm1backup.js", "web/fm1dnsnd.js", "web/fm1sounds.js", "web/fm1manager.js"],
+      "packs": "web/packs",
+      "dropPacks": { "factory-cz-1.json": "Casio's CZ-1 preset tones: they reach the site only compiled into the firmware" },
+      "files": [],
+      "licence": "GPL-3.0-only",
+      "author": "Quixotic7 (ChoralRoot FM-1 contributors, a fork of Felucca by Leo Kuroshita, Hügelton Instruments)",
+      "repo": "https://github.com/Quixotic7/ChoralRootFM1",
+      "upstream": "https://quixotic7.github.io/ChoralRootFM1/webapp/installer/manager.html"
+    },
+    {
+      "id": "felucca",
+      "title": "Felucca editor",
+      "firmwares": ["felucca"],
+      "tree": "Felucca",
+      "page": "web/editor.html",
+      "files": ["web/fukiai.ttf", "web/FUKIAI-LICENSE.txt", "web/fm1backup.js"],
+      "licence": "GPL-3.0-only",
+      "author": "Leo Kuroshita (@kurogedelic), Hügelton Instruments",
+      "repo": "https://github.com/hugelton/Felucca",
+      "upstream": "https://hugelton.github.io/Felucca/webapp/editor/"
+    },
+    {
+      "id": "melodee",
+      "title": "Melodee editor",
+      "firmwares": ["melodee"],
+      "tree": "melodee",
+      "page": "web/editor.html",
+      "files": ["web/fukiai.ttf", "web/FUKIAI-LICENSE.txt", "web/fm1backup.js"],
+      "strip": [
+        { "begin": "/*P5-FACTORY-BEGIN*/", "end": "/*P5-FACTORY-END*/", "with": "const P5_FACTORY = [];",
+          "why": "Sequential's Prophet-5 factory programs (tools/gen_prophet_factory.py): they reach the site only compiled into the firmware" }
+      ],
+      "licence": "GPL-3.0-only",
+      "author": "Kerem Kilic (keremimo, Ellic Studio); portions Leo Kuroshita, Hügelton Instruments",
+      "repo": "https://github.com/keremimo/melodee",
+      "upstream": "https://keremimo.github.io/melodee/webapp/editor/"
+    },
+    {
+      "id": "jiant",
+      "title": "JIANT FM editor",
+      "firmwares": ["jiant"],
+      "tree": "JIANT",
+      "page": "web/editor.html",
+      "files": ["web/fukiai.ttf", "web/FUKIAI-LICENSE.txt", "web/fm1backup.js"],
+      "licence": "GPL-3.0-only",
+      "author": "juanjiant-bit, a fork of Felucca by Leo Kuroshita, Hügelton Instruments",
+      "repo": "https://github.com/juanjiant-bit/JIANT",
+      "upstream": "https://juanjiant-bit.github.io/JIANT/webapp/editor/"
+    },
+    {
+      "id": "ghoulbox",
+      "title": "GHOULBOX editor",
+      "firmwares": ["ghoulbox"],
+      "tree": "ghoulbox-fm1-dungeon-synth",
+      "page": "web/editor.html",
+      "files": ["web/fukiai.ttf", "web/FUKIAI-LICENSE.txt", "web/fm1backup.js"],
+      "licence": "GPL-3.0-only",
+      "author": "Jason Persinger, a fork of Felucca by Leo Kuroshita, Hügelton Instruments",
+      "repo": "https://github.com/jasonpersinger/ghoulbox-fm1-dungeon-synth",
+      "upstream": "https://jasonpersinger.me/ghoulbox-fm1-dungeon-synth/webapp/editor/"
+    }
+  ]
+}

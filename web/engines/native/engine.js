@@ -418,15 +418,16 @@ class NativeEngine {
         if (this.midiPending.length > 4096) this.midiPending.splice(0, this.midiPending.length - 4096);
     }
 
+    // (called every render quantum by the page's worklet: one 4-byte cell kept for the packets, freed with the module)
     midiOut() {
         const ex = this.ex;
+        if (this.disposed) return new Uint8Array(0);
+        const cell = this.outCell || (this.outCell = ex.fmw_malloc(4));
         const out = [];
-        const cell = ex.fmw_malloc(4);
         for (let i = 0; i < 4096 && ex.fmw_midi_out(cell); i++) {
             const { dv } = this.rt.mem();
             packetBytes(dv.getUint32(cell, true), out);
         }
-        ex.fmw_free(cell);
         return Uint8Array.from(out);
     }
 

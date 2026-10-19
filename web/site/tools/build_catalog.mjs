@@ -34,6 +34,7 @@ const PATHS = {
     },
     remote: "../remote/remote.js",
     installer: "../installer/",
+    managers: "../build/managers/",
   },
   pages: {
     engines: {
@@ -43,6 +44,7 @@ const PATHS = {
     },
     remote: "remote/remote.js",
     installer: "installer/",
+    managers: "managers/",
   },
 };
 if (!PATHS[layout]) { console.error(`build_catalog: --layout dev or pages, not ${layout}`); process.exit(2); }
