@@ -1,0 +1,93 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>emu engine: browser bench</title>
+<!-- For bench-browser.mjs: the site's own worklet host (web/site/worklet/host.js) runs the emu engine on a local
+     package (web/build/packages/<pkg>), as the Player does. At 3 s PLAY is tapped, from 4 s a three-note chord is held;
+     from 6 s the host's half-second load reports (mean, p99, slowest quantum, late audio, the engine's underruns) and
+     the LED messages are collected for `secs` seconds. ?pkg=x0x-1.1.0.fwsc&mhz=360&secs=10 -->
+<pre id="out">starting…</pre>
+<script type="module">
+const q = new URLSearchParams(location.search);
+const out = document.getElementById("out");
+const log = (s) => { out.textContent += "\n" + s; };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+window.__result = (async () => {
+  const mhz = +(q.get("mhz") || 360), secs = +(q.get("secs") || 10), opts = JSON.parse(q.get("opts") || "{}");
+  const [wasm, pkg] = await Promise.all([
+    fetch("../../build/" + (q.get("wasm") || "emu/fm1_web.wasm")).then((r) => r.arrayBuffer()),
+    fetch("../../build/packages/" + q.get("pkg")).then((r) => { if (!r.ok) throw new Error("no package " + q.get("pkg")); return r.arrayBuffer(); }),
+  ]);
+  const ac = new AudioContext({ latencyHint: "interactive" });
+  await ac.audioWorklet.addModule("../../site/worklet/host.js");
+  const shim = `import * as E from ${JSON.stringify(new URL(q.get("engine") || "engine.js", location.href).href)};\n(globalThis.FM1_ENGINES = globalThis.FM1_ENGINES || {}).emu = E;\n`;
+  await ac.audioWorklet.addModule(URL.createObjectURL(new Blob([shim], { type: "text/javascript" })));
+  const node = new AudioWorkletNode(ac, "fm1-host", { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
+  node.connect(ac.destination);
+  await ac.resume();
+  let t0 = null, info = null, err = null, frames = 0;
+  const loads = [], leds = [];
+  node.port.onmessage = (e) => {
+    const m = e.data, t = performance.now() - (t0 ?? 0);
+    if (m.type === "info") info = m;
+    else if (m.type === "error") err = m.message;
+    else if (m.type === "load") loads.push({ t, ...m });
+    else if (m.type === "leds") leds.push({ t, levels: m.levels });
+    else if (m.type === "frame") frames++;
+  };
+  const panel = (p) => node.port.postMessage({ type: "panel", keys: 0, buttons: 0, master: 900, enc: new Int32Array(7), keyVel: new Uint8Array(27), ...p });
+  node.port.postMessage({ type: "load", engine: "emu", files: { wasm, fwsc: new Uint8Array(pkg) }, flash: null, options: { id: "bench", mhz, ...opts } });
+  for (let i = 0; i < 100 && !info && !err; i++) await sleep(50);
+  if (err) throw new Error(err);
+  t0 = performance.now();
+  log(`booted, latencyFrames ${info.latencyFrames}, context ${ac.sampleRate} Hz, base latency ${ac.baseLatency}`);
+  panel({});
+  await sleep(3000);
+  panel({ buttons: 1 << 12 }); await sleep(60); panel({});
+  await sleep(940);
+  const CHORD = (1 << 7) | (1 << 11) | (1 << 14);
+  panel({ keys: CHORD });
+  await sleep(2000);
+  // Chrome's own count of glitches (frames the device got no audio for): AudioContext.playoutStats
+  const stats = () => { const p = ac.playoutStats || ac.playbackStats; if (!p) return null;
+    return { events: p.fallbackFramesEvents ?? p.underrunEvents, ms: p.fallbackFramesDuration ?? p.underrunDuration, total: p.totalFramesDuration ?? p.totalDuration }; };
+  const from = performance.now() - t0, frames0 = frames, ps0 = stats();
+  await sleep(secs * 1000);
+  const to = performance.now() - t0, ps1 = stats();
+  panel({});
+  const win = loads.filter((l) => l.t > from + 400 && l.t <= to + 100);
+  const L = leds.filter((l) => l.t > from && l.t <= to);
+  // LED flicker: one LED's level going up then down (or down then up) by >= 40 of 255 in consecutive messages
+  let flips = 0, changes = 0;
+  for (let k = 1; k < L.length; k++) {
+    for (let i = 0; i < 44; i++) {
+      const d = L[k].levels[i] - L[k - 1].levels[i];
+      if (d) changes++;
+      if (k >= 2) {
+        const d0 = L[k - 1].levels[i] - L[k - 2].levels[i];
+        if (Math.abs(d) >= 40 && Math.abs(d0) >= 40 && Math.sign(d) !== Math.sign(d0)) flips++;
+      }
+    }
+  }
+  const dur = (to - from) / 1000;
+  const shorts = win.map((l) => l.short).filter((v) => typeof v === "number");
+  const r = {
+    pkg: q.get("pkg"), mhz, sampleRate: ac.sampleRate, latencyFrames: info.latencyFrames, opts, baseLatency: ac.baseLatency, outputLatency: ac.outputLatency,
+    reports: win.length,
+    loadMean: +(win.reduce((s, l) => s + l.load, 0) / Math.max(1, win.length)).toFixed(3),
+    loadMax: +Math.max(0, ...win.map((l) => l.load)).toFixed(3),
+    p99Ms: +Math.max(0, ...win.map((l) => l.p99Ms ?? 0)).toFixed(2),
+    p99MedMs: +(win.map((l) => l.p99Ms ?? 0).sort((a, b) => a - b)[Math.floor(win.length / 2)] ?? 0).toFixed(2),
+    maxMs: +Math.max(0, ...win.map((l) => l.maxMs ?? 0)).toFixed(2),
+    peak: +Math.max(0, ...win.map((l) => l.peak ?? 0)).toFixed(3),
+    lateMs: +win.reduce((s, l) => s + l.lateMs, 0).toFixed(1),
+    underruns: shorts.length ? shorts[shorts.length - 1] - shorts[0] : null,
+    ledMsgsPerS: +(L.length / dur).toFixed(1), ledFlipsPerS: +(flips / dur).toFixed(1), ledChangesPerS: +(changes / dur).toFixed(1),
+    framesPerS: +((frames - frames0) / dur).toFixed(1), error: err,
+    glitches: ps0 && ps1 ? ps1.events - ps0.events : null, glitchMs: ps0 && ps1 ? +(ps1.ms - ps0.ms).toFixed(1) : null,
+  };
+  log(JSON.stringify(r, null, 1));
+  node.port.postMessage({ type: "unload" });
+  await ac.close();
+  return r;
+})().catch((e) => { log("ERROR " + e); return { error: String(e) }; });
+</script>

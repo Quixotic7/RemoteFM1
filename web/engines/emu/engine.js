@@ -11,8 +11,14 @@
 // off the main thread, so in a worklet) and installed in the crate's exported function table. That
 // is what fm1-emu's own page does in its AudioWorklet (web/worklet.js); no Worker is needed.
 //
-// Audio: the machine produces 44.1 kHz (the firmware's I2S DMA); render() runs it until enough
-// frames are there and resamples (4-point Hermite) to the context rate, a straight copy at 44.1 kHz.
+// Audio: the machine produces 44.1 kHz (the firmware's I2S DMA); render() resamples it (4-point
+// Hermite) to the context rate, a straight copy at 44.1 kHz. The machine is paced by time: each
+// quantum runs it for the quantum's own span of emulated time (fm1_run_frames), nudged so that
+// `leadMs` (40 ms) of audio stays buffered ahead of what plays. The work per quantum is then even
+// (run until a quantum's audio is there, a firmware with 512-frame DMA halves, X0X, cost nothing
+// for three quanta and a whole half, 10 ms of a 2.7 ms quantum, in the fourth), and a slow quantum
+// (a JIT compile, a GC) is absorbed by the buffer. The lead is the added latency (latencyFrames).
+// options.pace = false (or a build without fm1_run_frames): run until the audio is there, as before.
 
 export const ENGINE = { name: "emu", version: "0.1" };
 
@@ -22,8 +28,10 @@ const NKEY = 27, NBTN = 14, NENC = 7;
 const KEY0 = 14;                 // matrix id of note key 0 (F3): ids 0..13 buttons, 14..40 keys
 const MIN_HOLD_MS = 30;          // a press is held at least this long in emulated time (debounce)
 const LED_HZ = 30;
+const LED_AVG = 3;               // LED samples averaged: 100 ms at LED_HZ
 const SECTOR = 4096, RECORD = 4 + SECTOR;
 const FLASH_QUIET_MS = 250;      // emulated ms without flash writes before a save is offered
+const LEAD_MS = 40;              // audio buffered ahead when the machine is paced by time
 
 // hal/fm1_input.h FM1_KEYMAP (fm1-soc periph.rs KEYMAP): key id at (row, column). LED line l of a
 // column is row l + 1; fm1-emu reports one lit fraction per key id.
@@ -144,13 +152,19 @@ export async function createEngine({ sampleRate, files, flash = null, options = 
   const step = FS / sampleRate;
   const direct = Math.abs(step - 1) < 1e-9;
   // source FIFO (44.1 kHz), in frames
-  const CAP = 8192;
+  const CAP = 16384;
   const fl = new Float32Array(CAP), fr = new Float32Array(CAP);
   let rd = 0, avail = 0, frac = 0;
   // history for the interpolator: the frame before the read position
   let hl = 0, hr = 0;
-  // frames run ahead: the FIFO's residue (< one 128-frame chunk) and the interpolator's 2 frames
-  const latencyFrames = direct ? QUANTUM : Math.ceil((QUANTUM + 2) / step);
+  // pacing by time (see the top): the lead in source frames, and whether it has been reached once
+  const pace = options.pace !== false && typeof x.fm1_run_frames === "function";
+  const LEAD = pace ? Math.round(Math.max(5, Math.min(200, options.leadMs ?? LEAD_MS)) * FS / 1000) : 0;
+  let primed = !pace;
+  const cyclesPerFrame = (mhz * 1e6) / FS;
+  // frames run ahead: the lead (paced), else the FIFO's residue (< one 128-frame chunk); and the
+  // interpolator's 2 frames
+  const latencyFrames = pace ? Math.ceil((LEAD + 2) / step) : direct ? QUANTUM : Math.ceil((QUANTUM + 2) / step);
 
   let outL = null, outR = null, outBuf = null;
   const views = () => {
@@ -175,6 +189,33 @@ export async function createEngine({ sampleRate, files, flash = null, options = 
     return have;
   }
   const at = (buf, k) => buf[(rd + k) % CAP];
+  // the queued audio (fm1_run_frames) into the FIFO
+  function drain() {
+    let have;
+    while ((have = x.fm1_render(1024, 0)) > 0) {
+      views();
+      const k = Math.min(have, CAP - avail);
+      for (let i = 0; i < k; i++) {
+        const w = (rd + avail + i) % CAP;
+        fl[w] = outL[i];
+        fr[w] = outR[i];
+      }
+      avail += k;
+      if (have < 1024) break;
+    }
+  }
+  // one quantum's span of emulated time (`span` source frames), plus a share of the distance to
+  // the lead: a twentieth per quantum, so a DMA half arriving (the FIFO jumps by a half, then
+  // drains) moves the work per quantum by a few percent only; at most twice the span (catching up)
+  function paced(span) {
+    if (!primed && avail >= LEAD) primed = true;
+    const want = primed ? Math.max(0, Math.min(2 * span, span + (LEAD - avail) / 20)) : 3 * span;
+    if (want >= 1) {
+      const frames = Math.ceil(want);
+      x.fm1_run_frames(frames, Math.ceil(frames * cyclesPerFrame) + 40000);
+      drain();
+    }
+  }
 
   // ---- panel state
   const emuDown = new Uint8Array(41), wantDown = new Uint8Array(41);
@@ -204,15 +245,25 @@ export async function createEngine({ sampleRate, files, flash = null, options = 
     }
   }
 
-  // ---- LEDs, sampled at 30 Hz of rendered audio
+  // ---- LEDs, sampled at 30 Hz of rendered audio. fm1-emu reports each LED's lit fraction since the
+  // last call; a level is the mean of the last LED_AVG samples (100 ms), so a dim or multiplexed LED
+  // whose fraction jitters from one 33 ms window to the next (the firmware's scan against the
+  // window's edges) holds steady instead of flickering. options.ledAvg: samples averaged (1: none).
   const levels = new Uint8Array(44);
-  let ledSeq = 0, ledFrames = 0;
+  const ledAvg = Math.max(1, Math.min(8, Math.round(options.ledAvg ?? LED_AVG)));
+  const ledHist = new Float32Array(ledAvg * 41);
+  let ledSeq = 0, ledFrames = 0, ledAt = 0, ledHad = 0;
   function sampleLeds() {
     const f = new Float32Array(x.memory.buffer, x.fm1_leds(), 41);
+    ledHist.set(f, ledAt * 41);
+    ledAt = (ledAt + 1) % ledAvg;
+    ledHad = Math.min(ledAvg, ledHad + 1);
     let changed = false;
     for (let k = 0; k < 44; k++) {
       const id = LED_ID[k];
-      const v = id < 0 ? 0 : Math.round(Math.min(1, f[id] / LED_FULL) * 255);
+      let sum = 0;
+      if (id >= 0) for (let j = 0; j < ledHad; j++) sum += ledHist[j * 41 + id];
+      const v = id < 0 ? 0 : Math.round(Math.min(1, sum / ledHad / LED_FULL) * 255);
       if (v !== levels[k]) { levels[k] = v; changed = true; }
     }
     if (changed) ledSeq++;
@@ -283,7 +334,13 @@ export async function createEngine({ sampleRate, files, flash = null, options = 
       pendingReleases();
       // frames needed past the read position: n outputs at `step`, plus the interpolator's two ahead
       const need = direct ? n : Math.floor(frac + (n - 1) * step) + 3;
-      while (avail < need) if (pull() < QUANTUM) { short++; break; }   // the machine ran out of budget
+      if (pace) {
+        paced(n * step);
+        if (!primed) { left.fill(0); right.fill(0); ledFrames += n; return; }   // (filling the lead: silence)
+        if (avail < need) short++;
+      } else {
+        while (avail < need) if (pull() < QUANTUM) { short++; break; }   // the machine ran out of budget
+      }
       if (direct) {
         const k = Math.min(n, avail);
         for (let i = 0; i < k; i++) { left[i] = at(fl, i); right[i] = at(fr, i); }
@@ -356,7 +413,7 @@ export async function createEngine({ sampleRate, files, flash = null, options = 
     // not in API.md: test and diagnostics only
     _stats() {
       if (disposed) return null;
-      return { ms: x.fm1_ms(), minsns: x.fm1_minsns(), jit: { ...jit }, avail, short };
+      return { ms: x.fm1_ms(), minsns: x.fm1_minsns(), jit: { ...jit }, avail, short, pace, lead: LEAD };
     },
   };
   return engine;

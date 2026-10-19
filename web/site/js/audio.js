@@ -73,7 +73,17 @@ export class Player {
     else if (m.type === "halted") this.emit("halted", m.code);
     else if (m.type === "midiOut") this.emit("midiOut", m.bytes);
     else if (m.type === "error") this.emit("error", m.message);
-    else if (m.type === "load") this.emit("load", m);
+    else if (m.type === "load") this.emit("load", { ...m, glitches: this.glitches() });
+  }
+
+  // the browser's running count of audio glitches (frames the device got no audio for), where it has one: Chrome's
+  // AudioContext.playoutStats; null elsewhere
+  glitches() {
+    try {
+      const p = this.ctx && (this.ctx.playoutStats || this.ctx.playbackStats);
+      const n = p && (p.fallbackFramesEvents ?? p.underrunEvents);
+      return typeof n === "number" ? n : null;
+    } catch (_) { return null; }
   }
 
   // add an engine's module to the worklet: a shim that imports it statically and registers it with host.js

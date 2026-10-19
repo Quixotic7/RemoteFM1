@@ -203,7 +203,7 @@ ok(cat.firmwares.every((f) => cat.categories.includes(f.category)), "catalog: ev
   const saved = JSON.parse(JSON.stringify(prefs));                           // (through localStorage)
   ok(P.mhzFor("choralroot", saved).mhz === 640 && P.mhzFor("choralroot", saved).choice === 640 && P.mhzFor("felucca", saved).mhz === 360
      && P.mhzFor("x", { mhz: { x: 100 } }).mhz === 360, "cpu: a pick is kept per firmware, before the default (100 is no choice)");
-  // Auto, too slow: load above 75 % for 2 s (after the 4 s grace) -> 320
+  // Auto, too slow: load above 80 % for 2 s (after the 4 s grace) -> 320
   const run = (g, samples) => { for (const [t, load, late] of samples) { const r = g.feed({ load, lateMs: late || 0 }, t); if (r) return [t, r]; } return null; };
   const busy = (from, to, load, late = 0) => { const s = []; for (let t = from; t <= to; t += 500) s.push([t, load, late]); return s; };
   const g = new P.Governor({ choice: "auto", mhz: 360, now: 0 });
@@ -220,6 +220,21 @@ ok(cat.firmwares.every((f) => cat.categories.includes(f.category)), "catalog: ev
   const gm = new P.Governor({ choice: 640, mhz: 640, now: 0 }), rm = run(gm, busy(4000, 9000, 0.95));
   ok(rm && rm[1].warn && !rm[1].step && gm.feed({ load: 0.99 }, 10000) === null, "cpu: a manual 640 never changes; it warns once");
   ok(run(new P.Governor({ choice: "auto", mhz: 120, now: 0 }), busy(4000, 9000, 0.95))[1].warn, "cpu: Auto at the 120 MHz floor, still too slow -> a warning, no lower step");
+  // headroom before the audio breaks: the busiest stretch (peak) or the browser's glitch count
+  const feed = (g, samples) => { for (const [t, m] of samples) { const r = g.feed(m, t); if (r) return [t, r]; } return null; };
+  const peaky = []; for (let t = 4000; t <= 9000; t += 500) peaky.push([t, { load: 0.6, peak: 0.97 }]);
+  const rp = feed(new P.Governor({ choice: "auto", mhz: 360, now: 0 }), peaky);
+  ok(rp && rp[1].step === 320 && rp[0] === 5000, `cpu: Auto, mean 60 % but its busiest 21 ms above 95 % in 3 of 4 reports -> 320 (at ${rp && rp[0]} ms)`);
+  const oneSpike = []; for (let t = 4000; t <= 20000; t += 500) oneSpike.push([t, { load: 0.7, peak: t % 2500 ? 0.8 : 1.2 }]);
+  ok(feed(new P.Governor({ choice: "auto", mhz: 360, now: 0 }), oneSpike) === null, "cpu: Auto, a peak now and then (1 report in 5) -> stays");
+  const gl3 = []; let n = 40; for (let t = 1000; t <= 9000; t += 500) { if (t >= 6000) n += 1; gl3.push([t, { load: 0.5, peak: 0.6, glitches: t < 4000 ? (n += 10) : n }]); }
+  const rg = feed(new P.Governor({ choice: "auto", mhz: 360, now: 0 }), gl3);
+  ok(rg && rg[1].step === 320 && rg[0] === 7000, `cpu: Auto, 3 glitches within 3 s (the browser's count; boot glitches don't count) -> 320 (at ${rg && rg[0]} ms)`);
+  ok(feed(new P.Governor({ choice: "auto", mhz: 360, now: 0 }), busy(4000, 9000, 0.78).map(([t, l]) => [t, { load: l, peak: 0.9, glitches: 5 }])) === null,
+     "cpu: Auto, 78 % with a 90 % peak and no new glitches -> stays");
+  ok(P.mhzFor("melodee", {}, { cores: 4 }).mhz === 320 && P.mhzFor("felucca", {}, { cores: 4 }).mhz === 360 && P.mhzFor("melodee", {}, { cores: 8 }).mhz === 360
+     && P.mhzFor("melodee", {}, {}).mhz === 360 && P.mhzFor("melodee", { mhz: { melodee: 360 } }, { cores: 2 }).mhz === 360,
+     "cpu: a weak host (4 cores or fewer) starts Auto one step lower for a dual-core firmware; a pick or an unknown host does not");
   Object.assign(prefs, P.pickMhz(prefs, "x", "auto"));
   ok(P.mhzFor("x", prefs).mhz === 360, "cpu: picking Auto again starts at 360");
   ok(["choralroot", "melodee", "sloopdx", "fm106", "coralflower"].every((id) => P.DUAL_CORE.has(id) && cat.firmwares.some((f) => f.id === id)), "cpu: the dual-core firmwares (CPU-heavy) are in the catalog");

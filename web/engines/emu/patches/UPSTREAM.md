@@ -7,6 +7,21 @@ submodule stays at upstream's commit. When upstream merges a fix, bump the pin a
 | Patch | Fixes | Upstream |
 | --- | --- | --- |
 | `0001-fm1-soc-model-the-P33-power-domain-bridge-and-its-re.patch` | Melodee 1.4.4 never draws | PR not opened yet (text below) |
+| `0002-fm1-core-the-wasm-JIT-compiles-the-FPU-float-if-bloc.patch` | Melodee 1.4.4 can't keep up at 360 MHz in the browser | PR not opened yet (text below) |
+| `0003-fm1-soc-the-TIMER4-count-without-a-u128-division.patch` | 1.5 % of a busy firmware's time in one division | PR not opened yet (text below) |
+| `0004-fm1-web-run-for-a-span-of-emulated-time-fm1_run_fram.patch` | X0X 1.1.0 sounds garbled in Chrome (bursty rendering) | PR not opened yet (text below) |
+
+0002-0004 are one performance pass (2026-10-18), measured in headless Chromium with a real
+AudioWorklet (`web/engines/emu/bench-browser.mjs`) and in Node, profiled with V8's profiler and
+the JIT's own counts. The cycles went to: compiled code ~40-50 %; the dispatcher (`run_fast`
+between compiled regions) 14-25 %; helper calls out of compiled code, the FPU's above all; and
+`step` / `exec_syntax` for `call R`. Idle time is not where they went: the web build already has
+`skip_idle` on (`idle` and TIMER4 polls skip to the next event), which takes 2-2.5 % of the cycles,
+and the firmwares' main loops never wait. A probe that looked for main-loop passes that change
+nothing (same registers, every write storing what memory held, no peripheral read) found such
+passes in ChoralRoot 0.25.1 only, 0.3 % of its cycles (its idle loop renders GRAIN slices and
+keeps counters; Felucca reads TIMER4 every pass; X0X and Melodee change memory every pass), so
+no idle patch is proposed: an exact one has nothing left to skip.
 
 ## 0001: the P33 power-domain bridge
 
@@ -93,3 +108,74 @@ node web/engines/emu/test.mjs --mhz=360 --only=melodee --wasm=web/build/emu-base
   unaffected.
 - The registers have no analog effects: no watchdog reset, no P33 soft reset, and the reset
   source reads 0 (no power-on bit).
+
+## 0002: the wasm JIT compiles the FPU, float if-blocks and calls through a register
+
+### Pull request text (ready to paste)
+
+Title: `fm1-core: the wasm JIT compiles the FPU, float if-blocks and calls through a register`
+
+Body:
+
+> Profiling the browser build (V8's profiler and the JIT's helper counts) showed three kinds of
+> instruction keeping busy firmwares out of compiled code:
+>
+> - Every FPU op (`3f e5`) was a helper call: ~18 M a second in Melodee 1.4.4 with a chord held.
+> - An `iff (R op R) {` block with a float compare was a helper call, and an if-else one was not
+>   compiled at all (its then-part ran interpreted).
+> - `call R` and `goto R` had no micro-op, so each went through `step` and `exec_syntax` and ended
+>   the compiled run (Melodee's UI calls through function pointers, ~2 M a second).
+>
+> The FPU ops now compile to the wasm float instructions `fpu_d` itself compiles to (f32
+> add/sub/mul/div; for ops 7 and 8 a multiply then an add or subtract, not fused; the saturating
+> truncations; the conversions), so the results are the same bits. fmin and fmax (Rust's NaN rules)
+> and unknown unary codes stay with the helper. If-blocks of families 8 and up use `cmp`'s float
+> compares, as `cmp_cond` does, and an if-else block's then-part now comes along for any family.
+> `call R` / `goto R` become micro-ops (`CallR` / `GotoR`, the same effect as exec_syntax's arms):
+> they end a block, and compiled code goes on through the region's jump table as a return does.
+> The AArch64 JIT runs them through its helper.
+>
+> Melodee 1.4.4 in Node at 360 MHz: 0.97 → 0.69 of real time (in Chromium's AudioWorklet 0.99 →
+> 0.71, from 1470 audio glitches in 10 s to none). X0X, Felucca and ChoralRoot: unchanged to a few
+> percent faster. Screens and audio are identical to before for Felucca 1.6.1, X0X 1.1.0,
+> SLOOP 2.7.1, sloopDX 4.0, ORBIT 0.7.1, ChoralRoot 0.25.1 and stock V15 (8 s with PLAY, a chord
+> and an encoder turn). Melodee is identical for 10 s of PLAY and a chord; after an encoder turn
+> and a release its last second differs: cpu1 runs after each 1024-instruction slice of cpu0, and
+> the slices now end at other block boundaries. (With this change Melodee's compiled and
+> interpreted runs agree with each other, which they did not before.) LED levels of V15 and
+> Melodee differ slightly for the same reason. `cargo test -p fm1-core` passes, with a new test of
+> `call R`.
+
+## 0003: the TIMER4 count without a u128 division
+
+### Pull request text (ready to paste)
+
+Title: `fm1-soc: the TIMER4 count without a u128 division`
+
+Body:
+
+> Every TIMER4 CNT read (0x10804, the firmwares' microsecond clock, polled in their main loops)
+> computed `cycles * 24 MHz / hz` in u128: in wasm a compiler-rt call, 1.5 % of Melodee's time in
+> the browser. Split into whole seconds and the rest it stays in u64 and gives the same value. A
+> new test checks it against the u128 form at 100-640 MHz and up to 10^12 cycles.
+
+## 0004: run for a span of emulated time
+
+### Pull request text (ready to paste)
+
+Title: `fm1-web: run for a span of emulated time (fm1_run_frames, fm1_time_frames)`
+
+Body:
+
+> `fm1_render` runs the machine until the I2S DMA has produced the frames asked for. With
+> 512-frame DMA halves (X0X 1.1.0) a host's 128-frame quanta then cost nothing three times and a
+> whole half's emulation, 10 ms of a 2.7 ms quantum, the fourth time. Chrome's 256-frame audio
+> callbacks miss their deadline every 11.6 ms: 156 glitches in 10 s at 360 MHz, heard as garbled,
+> distorted audio, though the machine keeps up on average (load 0.68).
+>
+> `fm1_run_frames(frames, max_insns)` runs a span of emulated time and queues the audio;
+> `fm1_render(n, 0)` hands it out without running; `fm1_time_frames()` reports the emulated time.
+> A host can then pace the machine by time: a quantum's span per quantum, with a few tens of ms
+> buffered ahead, so the work per quantum is even. RemoteFM1's engine buffers 40 ms: X0X has no
+> glitches left at 240-360 MHz, and Melodee's LEDs stop flickering (their on-fractions are taken
+> over even stretches of emulated time).

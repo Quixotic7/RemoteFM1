@@ -101,13 +101,25 @@ if (typeof AudioWorkletProcessor !== "undefined") {
     }
     // the share of the audio time spent rendering, and how far the wall clock ran ahead of the audio clock (late
     // quanta: dropouts). A window whose wall time is over twice its audio time is a pause (a sleeping machine), not load.
+    // peak: the busiest stretch of eight quanta (21 ms), its render time over its audio time (above 1: those quanta
+    // were late unless the device's buffer hid it; eight, as the worklet's clock may tick in whole milliseconds);
+    // p99Ms / maxMs the 99th-percentile and the slowest quantum; short the engine's own underruns (when it counts them).
     measure(t1, t0, n) {
-      const m = this.mon || (this.mon = { busy: 0, frames: 0, wall0: t0 });
-      m.busy += t1 - t0; m.frames += n;
+      const m = this.mon || (this.mon = { busy: 0, frames: 0, wall0: t0, q: 0, g: 0, gn: 0, peak: 0 });
+      const dt = t1 - t0;
+      m.busy += dt; m.frames += n;
+      if (!this.qt) this.qt = new Float32Array(512);
+      if (m.q < this.qt.length) this.qt[m.q++] = dt;
+      m.g += dt;
+      if (++m.gn === 8) { m.peak = Math.max(m.peak, m.g / ((8000 * n) / sampleRate)); m.g = 0; m.gn = 0; }
       if (m.frames < sampleRate / 2) return;
       const audioMs = (m.frames / sampleRate) * 1000, wallMs = t1 - m.wall0;
-      if (wallMs < 2 * audioMs) this.post({ type: "load", load: m.busy / audioMs, lateMs: Math.max(0, wallMs - audioMs - 20) });
-      this.mon = { busy: 0, frames: 0, wall0: t1 };
+      const q = this.qt.subarray(0, m.q).sort(), p99 = q[Math.min(q.length - 1, Math.floor(q.length * 0.99))];
+      const st = typeof this.engine?._stats === "function" ? this.engine._stats() : null;
+      const short = st && typeof st.short === "number" ? st.short : null;
+      if (wallMs < 2 * audioMs) this.post({ type: "load", load: m.busy / audioMs, lateMs: Math.max(0, wallMs - audioMs - 20),
+        peak: m.peak, p99Ms: p99, maxMs: q[q.length - 1], short });
+      this.mon = { busy: 0, frames: 0, wall0: t1, q: 0, g: 0, gn: 0, peak: 0 };
     }
     publish(eng) {
       const s = eng.screen();

@@ -23,6 +23,7 @@ const EMBED = params.get("embed") === "1";
 // ------------------------------------------------------------------ prefs ---
 const store = (() => { try { return window.localStorage; } catch (_) { return null; } })();   // (null: blocked; prefs.js copes)
 const prefs = loadPrefs(store);
+const HOST = { cores: typeof navigator !== "undefined" ? navigator.hardwareConcurrency : undefined };   // (cpu.js weakHost)
 const savePrefs = () => { writePrefs(store, prefs); };
 
 // ------------------------------------------------------------------ state ---
@@ -186,7 +187,7 @@ async function boot(fromSave = null) {
     }
     const ver = versionOf(state.entry, eng);
     const rec = fromSave || (await saves.get(state.entry.id, eng, ver, saves.AUTOSAVE));
-    const clk = mhzFor(state.entry.id, prefs);
+    const clk = mhzFor(state.entry.id, prefs, HOST);
     state.mhz = clk.mhz; state.mhzChoice = clk.choice;
     governor = eng === "emu" ? new Governor({ ...clk, now: performance.now() }) : null;
     await player.load(e, eng, rec ? rec.bytes : null, eng === "emu" ? { mhz: clk.mhz } : {});
@@ -478,7 +479,7 @@ const app = {
     const e = state.entry;
     if (!e) return;
     Object.assign(prefs, pickMhz(prefs, e.id, choice)); savePrefs();
-    const clk = mhzFor(e.id, prefs);
+    const clk = mhzFor(e.id, prefs, HOST);
     const reload = clk.mhz !== state.mhz;
     state.mhzChoice = clk.choice;
     if (sheet) sheet.render();
