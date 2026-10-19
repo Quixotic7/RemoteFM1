@@ -17,6 +17,12 @@
     <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg></button>
   <a id="fw-src" class="src-link" target="_blank" rel="noopener" hidden><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 4.5 2 8l3.5 3.5M10.5 4.5 14 8l-3.5 3.5M9 3 7 13"/></svg><span class="src-text">Source</span><span class="src-arrow" aria-hidden="true">&#8599;</span></a>
   <button id="ed-btn" class="src-link ed-btn" aria-controls="ed-panel" aria-expanded="false" hidden><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4.5h10M3 8h10M3 11.5h10"/><circle cx="6" cy="4.5" r="1.4"/><circle cx="10.5" cy="8" r="1.4"/><circle cx="5" cy="11.5" r="1.4"/></svg><span class="src-text">Editor</span></button>
+  <div id="rec" class="rec" hidden>
+    <button id="rec-btn" class="rec-btn" aria-pressed="false" aria-label="Record" title="Record (Shift+R)"><span class="rec-dot"></span></button>
+    <span id="rec-time" class="rec-time" hidden>0:00</span>
+    <span id="rec-meter" class="rec-meter" aria-hidden="true" hidden><i></i><i></i></span>
+    <button id="takes-btn" class="takes-btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="takes" hidden><span class="takes-label">Takes</span><b id="takes-n">0</b></button>
+  </div>
   <span id="status" role="status"></span>
   <nav>
     <button id="fm1-btn" class="fm1-btn" aria-haspopup="dialog" aria-expanded="false" hidden><span class="fm1-dot off"></span><span class="fm1-label">Connect FM-1</span><span class="fm1-short">FM-1</span><span class="fm1-via" hidden></span></button>
@@ -43,6 +49,8 @@
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 </main>
+<div id="takes" class="takes-pop" role="dialog" aria-label="Takes" hidden></div>
+<span id="rec-live" class="sr-only" aria-live="polite"></span>
 <aside id="ed-panel" class="ed-panel" aria-label="The firmware's editor" hidden>
   <div class="ed-head"><span id="ed-dot" class="fm1-dot off"></span><b id="ed-title">Editor</b><span id="ed-sub" class="ed-sub"></span>
     <a id="ed-src" class="ed-src" target="_blank" rel="noopener" hidden>Editor source</a><button id="ed-pop" class="pill ed-pop">Pop out &#8599;</button>

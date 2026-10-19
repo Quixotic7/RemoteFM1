@@ -6,6 +6,8 @@
 //   await p.start();                         // in a user gesture (the autoplay policy)
 //   await p.load(entry, "native" | "emu" | "mock", flashBytes | null)
 //   p.panel(msg); p.midi(bytes); p.flashReq();
+//   p.setVolume(0..1)                         the page's volume: a GainNode after the worklet (recordings are taken before it)
+//   p.recStart({ id, chunkFrames, maxFrames }); p.recStop(); p.recBuf(l, r)   the recorder (js/rec-ui.js); events: rec(m)
 //
 // The emulated engine's packages come from where the Hub points, at play time (thefirmwarehub.com's mirror: CORS *;
 // GitHub release downloads send no CORS header). W2's web/engines/emu/catalog.mjs is the hook: its fetchPackage()
@@ -30,7 +32,7 @@ export class Player {
   constructor(catalog, events = {}) {
     this.catalog = catalog;
     this.ev = events;
-    this.ctx = null; this.node = null;
+    this.ctx = null; this.node = null; this.out = null; this.volume = 1;
     this.added = new Map();      // engine name -> Promise (its module added to the worklet)
     this.hook = undefined;       // W2's catalog.mjs (null: none)
     this.current = null;         // { entry, engine }
@@ -48,7 +50,10 @@ export class Player {
       await this.ctx.audioWorklet.addModule(abs("worklet/host.js"));
       this.node = new AudioWorkletNode(this.ctx, "fm1-host", { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
       this.node.port.onmessage = (e) => this.onMessage(e.data);
-      this.node.connect(this.ctx.destination);
+      this.out = this.ctx.createGain();
+      this.out.gain.value = this.volume;
+      this.node.connect(this.out);
+      this.out.connect(this.ctx.destination);
     }
     if (this.ctx.state !== "running") { try { await this.ctx.resume(); } catch (_) { /* (no gesture yet) */ } }
     return this.ctx.state === "running";
@@ -74,6 +79,7 @@ export class Player {
     else if (m.type === "midiOut") this.emit("midiOut", m.bytes);
     else if (m.type === "error") this.emit("error", m.message);
     else if (m.type === "load") this.emit("load", { ...m, glitches: this.glitches() });
+    else if (m.type === "recChunk" || m.type === "recLevel") this.emit("rec", m);
   }
 
   // the browser's running count of audio glitches (frames the device got no audio for), where it has one: Chrome's
@@ -143,6 +149,7 @@ export class Player {
   // extra: engine options (the emu engine's mhz)
   async load(entry, engine, flash = null, extra = {}) {
     if (!this.ctx) throw new Error("start() first");
+    this.emit("beforeLoad");   // (the recorder ends a take: the engine is about to be replaced)
     this.emit("status", { state: "loading", entry, engine });
     await this.addEngine(engine);
     const files = await this.files(entry, engine);
@@ -151,7 +158,15 @@ export class Player {
                                  options: { id: entry.id, name: entry.name, version: entry.version, author: entry.authorFull || entry.author,
                                             license: entry.license || null, source: entry.source || null, family: entry.category, ...extra } });   // (copied, not transferred: a hook may cache its buffers)
   }
-  unload() { if (this.node) this.node.port.postMessage({ type: "unload" }); this.current = null; }
+  unload() { this.emit("beforeLoad"); if (this.node) this.node.port.postMessage({ type: "unload" }); this.current = null; }
+  setVolume(v) {
+    this.volume = Math.max(0, Math.min(1, +v || 0));
+    if (this.out) this.out.gain.setTargetAtTime(this.volume, this.ctx.currentTime, 0.015);
+  }
+  get sampleRate() { return this.ctx ? this.ctx.sampleRate : 0; }
+  recStart(o) { if (this.node) this.node.port.postMessage({ type: "rec", on: true, ...o }); }
+  recStop() { if (this.node) this.node.port.postMessage({ type: "rec", on: false }); }
+  recBuf(l, r) { if (this.node && l && l.buffer.byteLength) this.node.port.postMessage({ type: "recBuf", l, r }, [l.buffer, r.buffer]); }
   panel(p) { if (this.node) this.node.port.postMessage({ type: "panel", ...p }); }
   midi(bytes) { if (this.node) this.node.port.postMessage({ type: "midi", bytes: Uint8Array.from(bytes) }); }
   flashReq() { if (this.node) this.node.port.postMessage({ type: "flashReq" }); }

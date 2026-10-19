@@ -16,6 +16,7 @@ import { liveCatalog, mergeLive, packageFor, chooseEngine, compareVersions, sour
 import { loadPrefs, savePrefs as writePrefs, keyHintsOn } from "./prefs.js";
 import { mhzFor, pickMhz, stepDown, Governor, DEVICE_MHZ } from "./cpu.js";
 import { EditorPanel } from "./editor-panel.js";
+import { RecUI } from "./rec-ui.js";
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -38,9 +39,12 @@ const state = {
   mhz: DEVICE_MHZ, mhzChoice: "auto",                       // the emulated CPU clock of the running firmware (cpu.js)
   browseEngine: ["all", "native", "emu"].includes(prefs.browseEngine) ? prefs.browseEngine : "all",   // the browser's filter
   pixels: null, frameSeq: 0, levels: new Uint8Array(44), playGreen: 0,
+  volume: typeof prefs.volume === "number" ? Math.max(0, Math.min(1, prefs.volume)) : 1,   // the page's volume (not the recording's)
+  recBits: prefs.recBits === 16 ? 16 : 24, recCountIn: prefs.recCountIn === true,          // the recorder (js/rec-ui.js)
 };
 let catalog = null, snapshot = null, emuHook = null, player = null, sheet = null, site = null, siteEmit = () => {}, fm1 = null;
 let editor = null;   // the Editor button and panel: the firmware's own manager, hosted (editor-panel.js)
+let rec = null;      // the recorder: the header's record button and Takes (rec-ui.js)
 const editorChanged = () => { if (editor) editor.update(); };
 const lcd = new Lcd();
 const controls = new Controls((p) => { if (player) player.panel(p); });
@@ -386,12 +390,15 @@ function makePlayer() {
     },
     midiOut(bytes) { siteEmit("midiOut", bytes); if (editor) editor.bridge.fromEngine(bytes); },
     load: onLoad,
+    rec(m) { if (rec) rec.onRec(m); else if (m.type === "recChunk") player.recBuf(m.l, m.r); },
+    beforeLoad() { if (rec) rec.beforeLoad(); },
     error(msg) {
       console.warn("worklet:", msg);
       if (/^load:/.test(msg) && state.engine !== "mock") fallback(msg.replace(/^load:\s*/, "The engine could not start: ") + ".");
       else if (/^render:/.test(msg)) toast(`The engine stopped: ${msg}`, "bad");
     },
   });
+  player.setVolume(state.volume);
 }
 let flashTimer = 0, pendingSave = null;
 const lastSaved = new Map();
@@ -487,6 +494,12 @@ const app = {
       return openFirmware(e, engine);
     }
     openFirmware(id);
+  },
+  // the page's volume: while the slider moves (no re-render), and kept when it is let go
+  setVolume(v, keep) {
+    state.volume = Math.max(0, Math.min(1, +v || 0));
+    if (player) player.setVolume(state.volume);
+    if (keep) { prefs.volume = state.volume; savePrefs(); }
   },
   setMhz(choice) {
     const e = state.entry;
@@ -601,6 +614,18 @@ async function main() {
       fm1.auto();                                          // connects now if MIDI was allowed before (no prompt)
     } else if (m && typeof m.mount === "function") { app.remoteMounted = true; sheet.remoteSlot.replaceChildren(); m.mount(sheet.remoteSlot, site); sheet.render(); }
   }).catch(() => { /* (web/remote is W4's: the stub stays) */ });
+
+  // the recorder
+  if (!EMBED) {
+    rec = new RecUI({
+      getPlayer: () => player,
+      ensureRunning: async () => state.running || start(),
+      nameParts: () => ({ id: state.entry ? state.entry.id : "fm1", version: state.entry ? versionOf(state.entry, state.engine === "mock" ? state.wantEngine : state.engine) : "" }),
+      settings: () => ({ bits: state.recBits, countIn: state.recCountIn }),
+      toast,
+    });
+    window.FM1Rec = rec;
+  }
 
   // input
   new Keyboard({

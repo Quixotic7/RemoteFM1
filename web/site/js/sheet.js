@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // The settings sheet: FM1VST plugin/Sheet.cpp's Graphite sheet, as DOM. It slides in from the right over a dimmed
 // scrim (180 ms, eased); a click on the scrim or Esc closes it. Pages:
-//   main      FIRMWARE, SAVES, USE MY FM-1, PLAYING, LOOK, VIEW, ENGINE, ABOUT
+//   main      FIRMWARE, SAVES, USE MY FM-1, PLAYING, RECORDING, LOOK, VIEW, ENGINE, ABOUT
 //   firmware  the browser: a search field, category chips, a card per firmware (the loaded one outlined)
 //   about     the loaded firmware (author, licence, its source at the version that runs), the engine, the credits
 // app (main.js) holds the state and the actions; the sheet re-renders its page on app.changed().
@@ -131,6 +131,13 @@ export class Sheet {
 
     // PLAYING
     out.push(heading("Playing"));
+    {
+      const pct = Math.round(st.volume * 100), val = h("span", { class: "vol-val" }, `${pct}%`);
+      const range = h("input", { type: "range", class: "vol", min: "0", max: "100", step: "1", value: String(pct), "aria-label": "Page volume",
+        oninput: (ev) => { val.textContent = ev.target.value + "%"; a.setVolume(ev.target.value / 100, false); },
+        onchange: (ev) => a.setVolume(ev.target.value / 100, true) });
+      out.push(row("Volume", "this page's output; recordings keep the firmware's own level", h("div", { class: "vol-wrap" }, range, val)));
+    }
     out.push(row("Transpose", "octaves, for MIDI notes", stepper(String(st.transpose), (d) => a.set("transpose", Math.max(-3, Math.min(3, st.transpose + d))))));
     const m = a.midi;
     let midiCtl;
@@ -148,6 +155,12 @@ export class Sheet {
     out.push(row("...and reach the firmware's MIDI in", null, toggle(st.reachFirmware, (v) => a.set("reachFirmware", v))));
     out.push(row("Show computer-key hints", "the keyboard letters on the panel's keys and buttons", toggle(st.keyHints, (v) => a.set("keyHints", v))));
     out.push(h("p", { class: "note" }, "Keys: A S D F G H J K L ; ' ] white, W E T Y U O P black, 2 3 4 5 Tab F1-F4 the left block. Buttons: F5-F10 or C V B N M , and 7 8 9 0 - =. Z X octave. Page Up/Down pick a knob, arrows turn it. ` the screen view."));
+
+    // RECORDING (js/rec-ui.js: the header's record button, Shift+R)
+    out.push(heading("Recording"));
+    out.push(row("WAV format", "PCM, stereo, at the sound card's rate", segmented(["24-bit", "16-bit"], st.recBits === 16 ? 1 : 0, (i) => a.set("recBits", i ? 16 : 24))));
+    out.push(row("Count-in", "3 seconds before a take starts", toggle(st.recCountIn, (v) => a.set("recCountIn", v))));
+    out.push(h("p", { class: "note" }, "The record button (or Shift+R) records the firmware's sound exactly as it renders, before this page's volume; the FM-1's MASTER knob counts. Takes stay in this page until you close it (up to 30 minutes each): save the ones to keep."));
 
     // LOOK
     out.push(heading("Look", h("span", { class: "heading-val" }, st.theme.name)));

@@ -47,12 +47,14 @@ if (typeof AudioWorkletProcessor !== "undefined") {
       this.engine = null; this.loading = 0; this.panel = new PanelMerge();
       this.since = 0; this.seen = { screen: -1, leds: -1, flash: -1 }; this.haltSent = false;
       this.mon = null;   // the render load: { busy, frames, wall0 } (a report every half second: page js/cpu.js)
+      this.rec = null; this.recFree = [];   // the recorder's take, and its spare chunk buffers (see recStart)
       this.port.onmessage = (e) => this.onMessage(e.data);
     }
     post(m, transfer) { try { this.port.postMessage(m, transfer || []); } catch (_) { /* (the page went away) */ } }
     fail(where, e) { this.post({ type: "error", message: `${where}: ${(e && e.message) || e}` }); }
     async load(m) {
       const ticket = ++this.loading;
+      this.recStop("engine");   // (the page ends a take before it loads: this is the backstop)
       this.drop();
       const mod = ENGINES[m.engine];
       if (!mod || typeof mod.createEngine !== "function") return this.fail("load", `no engine "${m.engine}" registered`);
@@ -71,8 +73,10 @@ if (typeof AudioWorkletProcessor !== "undefined") {
     onMessage(m) {
       if (!m || !m.type) return;
       if (m.type === "load") return this.load(m);
-      if (m.type === "unload") { this.loading++; this.drop(); return; }
+      if (m.type === "unload") { this.loading++; this.recStop("engine"); this.drop(); return; }
       if (m.type === "panel") return this.panel.add(m);
+      if (m.type === "rec") return m.on ? this.recStart(m) : this.recStop("stop");
+      if (m.type === "recBuf") { if (this.rec && m.l && m.l.length === this.rec.n) this.recFree.push([m.l, m.r]); return; }
       if (!this.engine) return;
       try {
         if (m.type === "midi") this.engine.midiIn(m.bytes instanceof Uint8Array ? m.bytes : Uint8Array.from(m.bytes));
@@ -90,6 +94,7 @@ if (typeof AudioWorkletProcessor !== "undefined") {
         if (this.panel.dirty) eng.setPanel(this.panel.take());
         const t0 = clock();
         eng.render(L, R);
+        if (this.rec) this.capture(L, R);   // (inside the measured time: the load reports include it)
         this.measure(clock(), t0, L.length);
         // the firmware's MIDI out every quantum, posted at once: a manager's reply (SysEx) waits ~3 ms, not a screen
         // frame, and the core's own out queue never has to hold more than a quantum's worth
@@ -99,9 +104,47 @@ if (typeof AudioWorkletProcessor !== "undefined") {
         if (this.since >= FRAME_EVERY_S) { this.since = 0; this.publish(eng); }
       } catch (e) {
         this.fail("render", e);
+        this.recStop("error");
         this.drop();
       }
       return true;
+    }
+    // The recorder (page js/rec-ui.js, js/recorder.js): the exact PCM the engine rendered, before the page's volume,
+    // copied into chunk buffers of m.n frames (about 0.25 s); a full chunk is posted with its buffers transferred, and
+    // the page sends them back (recBuf) for the next one, so nothing is allocated while rendering (two spare pairs up
+    // front; a missing one is made). The take starts at the next quantum and stops at m.max frames (the cap) or at a
+    // stop, when the part-filled chunk goes as the final one. The meter: each channel's peak, with publish() (30 Hz).
+    recStart(m) {
+      if (this.rec) this.recStop("restart");
+      const n = m.chunkFrames | 0;
+      this.recFree = this.recFree.filter((p) => p[0].length === n);
+      while (this.recFree.length < 2) this.recFree.push([new Float32Array(n), new Float32Array(n)]);
+      const [l, r] = this.recFree.pop();
+      this.rec = { id: m.id, n, max: m.maxFrames > 0 ? m.maxFrames : Infinity, frames: 0, at: 0, l, r, start: -1, pl: 0, pr: 0 };
+    }
+    recChunk(final, reason) {
+      const r = this.rec;
+      this.post({ type: "recChunk", id: r.id, l: r.l, r: r.r, frames: r.at, total: r.frames, final, reason: reason || null,
+                  startFrame: r.start, endFrame: r.start < 0 ? -1 : r.start + r.frames }, [r.l.buffer, r.r.buffer]);
+      if (final) { this.rec = null; return; }
+      const p = this.recFree.pop() || [new Float32Array(r.n), new Float32Array(r.n)];
+      r.l = p[0]; r.r = p[1]; r.at = 0;
+    }
+    recStop(reason) { if (this.rec) this.recChunk(true, reason); }
+    capture(L, R) {
+      const r = this.rec, n = L.length;
+      if (r.start < 0) r.start = currentFrame;
+      let off = 0, pl = r.pl, pr = r.pr;
+      for (let i = 0; i < n; i++) { const a = L[i] < 0 ? -L[i] : L[i], b = R[i] < 0 ? -R[i] : R[i]; if (a > pl) pl = a; if (b > pr) pr = b; }
+      r.pl = pl; r.pr = pr;
+      while (off < n) {
+        const k = Math.min(n - off, r.n - r.at, r.max - r.frames);
+        if (k === n) { r.l.set(L, r.at); r.r.set(R, r.at); }
+        else { r.l.set(L.subarray(off, off + k), r.at); r.r.set(R.subarray(off, off + k), r.at); }
+        r.at += k; r.frames += k; off += k;
+        if (r.frames >= r.max) return this.recStop("cap");
+        if (r.at === r.n) this.recChunk(false);
+      }
     }
     // the share of the audio time spent rendering, and how far the wall clock ran ahead of the audio clock (late
     // quanta: dropouts). A window whose wall time is over twice its audio time is a pause (a sleeping machine), not load.
@@ -126,6 +169,8 @@ if (typeof AudioWorkletProcessor !== "undefined") {
       this.mon = { busy: 0, frames: 0, wall0: t1, q: 0, g: 0, gn: 0, peak: 0 };
     }
     publish(eng) {
+      const rc = this.rec;
+      if (rc && rc.start >= 0) { this.post({ type: "recLevel", id: rc.id, peak: [rc.pl, rc.pr], frames: rc.frames }); rc.pl = 0; rc.pr = 0; }
       const s = eng.screen();
       if (s && s.seq !== this.seen.screen) {
         this.seen.screen = s.seq;

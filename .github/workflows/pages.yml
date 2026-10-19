@@ -75,6 +75,7 @@ jobs:
       - name: Tests (the site's logic, the installer against a simulated FM-1)
         run: |
           node web/site/test.mjs
+          node web/site/test-wav.mjs
           node web/installer/test_installer.mjs
           node web/managers/test.mjs
 
