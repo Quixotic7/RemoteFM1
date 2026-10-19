@@ -5,6 +5,11 @@
 // web/build/test/emu-<id>.png and measures the real-time factor.
 //
 //   web/engines/emu/build.sh && node web/engines/emu/test.mjs [--only=id,id] [--mhz=100] [--stock=path]
+//       [--local=id=path.fwsc,...] [--wasm=path]
+//
+// --only may name any Hub id, not only the default list (at the Hub's current version). --local tests
+// a package from a local file instead of the Hub's (an id the Hub doesn't list gets a bare entry).
+// --wasm tests another build (a baseline: `EMU_PATCHES=0 web/engines/emu/build.sh web/build/emu-base`).
 //
 // Packages are downloaded once into web/build/packages/ (gitignored, never committed) from the Hub's
 // mirror, the same URLs the page fetches at play time; the Hub's catalog is cached in
@@ -21,14 +26,22 @@ const MHZ = +arg("mhz", 100);
 const RATE = 48000;
 const STOCK = arg("stock", "/Volumes/Q7Media-2025/Projects/Github/ChoralRootFM1/MvaveFM1Unbricker/FM-1.fwsc");
 // the firmwares to test: Hub id and, where pinned, version
-const WANT = [["felucca", "1.6.1"], ["x0x", "1.1.0"], ["sloop", "2.7.1"], ["sloopdx"], ["orbit"], ["choralroot", "0.25.1"], ["mvave"]];
+const WANT = [["felucca", "1.6.1"], ["x0x", "1.1.0"], ["sloop", "2.7.1"], ["sloopdx"], ["orbit"], ["choralroot", "0.25.1"],
+  ["melodee", "1.4.4"], ["mvave"]];
 const only = arg("only", "").split(",").filter(Boolean);
+for (const id of only) if (!WANT.some(([w]) => w === id)) WANT.push([id]);
+// --local=id=path: that firmware's package from a local file
+const LOCAL = new Map(arg("local", "").split(",").filter(Boolean).map((kv) => {
+  const i = kv.indexOf("=");
+  return [kv.slice(0, i), kv.slice(i + 1)];
+}));
+for (const id of LOCAL.keys()) if (!WANT.some(([w]) => w === id)) WANT.push([id]);
 
 mkdirSync(new URL("test/", BUILD), { recursive: true });
 mkdirSync(new URL("packages/", BUILD), { recursive: true });
 
-const wasmPath = new URL("emu/fm1_web.wasm", BUILD);
-if (!existsSync(wasmPath)) throw new Error("no web/build/emu/fm1_web.wasm: run web/engines/emu/build.sh");
+const wasmPath = arg("wasm", null) ?? new URL("emu/fm1_web.wasm", BUILD);
+if (!existsSync(wasmPath)) throw new Error(`no ${wasmPath}: run web/engines/emu/build.sh`);
 const wasm = readFileSync(wasmPath);
 const wasmBuf = wasm.buffer.slice(wasm.byteOffset, wasm.byteOffset + wasm.byteLength);
 
@@ -177,15 +190,18 @@ const entries = entriesFromHub(hub);
 const results = [];
 for (const [id, version] of WANT) {
   if (only.length && !only.includes(id)) continue;
-  const entry = entries.find((f) => f.id === id);
+  const local = LOCAL.get(id);
+  const entry = entries.find((f) => f.id === id) ?? (local ? { id, name: id, version: "local", byo: false } : null);
   if (!entry) { results.push({ id, ok: false, error: "not in the Hub's catalog" }); continue; }
-  if (version && entry.version !== version) {
+  if (local) entry.version = `${entry.version} (local)`;
+  else if (version && entry.version !== version) {
     results.push({ id, ok: false, error: `the Hub has ${entry.version}, not ${version}` });
     continue;
   }
   try {
     let fwsc;
-    if (entry.byo) {
+    if (local) fwsc = new Uint8Array(readFileSync(local));
+    else if (entry.byo) {
       if (!existsSync(STOCK)) { results.push({ id, ok: false, error: `no local ${STOCK}` }); continue; }
       const own = await stockFromFile(new Uint8Array(readFileSync(STOCK)), hub);
       fwsc = own.bytes;
