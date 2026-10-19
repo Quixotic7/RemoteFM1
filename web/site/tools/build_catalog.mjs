@@ -2,12 +2,12 @@
 // Build web/site/catalog.json (web/engine/API.md section 5) from:
 //   - the FM-1 Firmware Hub's catalog (a snapshot: data/hub-catalog.snapshot.json, from
 //     https://thefirmwarehub.com/catalog.json; --hub <file|url> to use another);
-//   - FM1VST's cores (data/cores.json: the 21, their pinned versions and licences, the ten un-gated ones built for the
-//     web, the licensing gate of FM1VST CORES-PLAN.md section 6);
+//   - FM1VST's cores (data/cores.json: the 21, their pinned versions and licences, the twelve un-gated ones built for
+//     the web, the licensing gate of FM1VST CORES-PLAN.md section 6);
 //   - RemoteFM1 itself (web/installer/releases.json, its first release): the one package this site hosts, fetched from
 //     the installer's firmware/ folder on the same site, not from the Hub. It plays nothing; it waits for a host.
-// Every Hub firmware gets the emulated engine (its package fetched at play time from where the Hub points); the ten
-// un-gated cores also get the native one, which is then their default while it is the Hub's version (newest wins:
+// Every Hub firmware gets the emulated engine (its package fetched at play time from where the Hub points); the
+// twelve un-gated cores also get the native one, which is then their default while it is the Hub's version (newest wins:
 // web/site/js/live.js, which builds the entries; the page merges the Hub's live catalog over this one at load).
 //   node web/site/tools/build_catalog.mjs [--layout dev|pages] [--hub FILE|URL] [--out FILE]
 // layout: where the engines, the remote module and the installer are, seen from the page:
@@ -71,12 +71,36 @@ let fm1vstCommit = JSON.parse(readFileSync(join(SITE, "data", "cores.json"), "ut
         const text = readFileSync(p, "utf8"), vars = {};
         for (const m of text.matchAll(/^\s*set\((\w+)\s+([^\s)]+)/gm)) vars[m[1]] = m[2];
         for (const call of text.split("fm1_add_core(").slice(1)) {
-          const body = call.slice(0, call.indexOf(")") + 1 || call.length);
+          // (the call's arguments up to its own closing parenthesis: parentheses inside quoted arguments, a CREDITS
+          // text or a VERSION_REGEX group, do not end it)
+          let end = call.length;
+          for (let i = 0, depth = 0, q = false; i < call.length; i++) {
+            const ch = call[i];
+            if (q) { if (ch === "\\") i++; else if (ch === '"') q = false; }
+            else if (ch === '"') q = true;
+            else if (ch === "(") depth++;
+            else if (ch === ")" && depth-- === 0) { end = i + 1; break; }
+          }
+          const body = call.slice(0, end);
           const id = /^\s*(\w+)/.exec(body), ver = /\bVERSION\s+"?([^\s")]+)"?/.exec(body), src = /\bSOURCE\s+(\S+)/.exec(body);
           if (!id) continue;
           const path = src ? src[1].replace(/\$\{(\w+)\}/g, (m, v) => vars[v] ?? m) : "";
           const dirM = /\/cores\/([^/\s)]+)/.exec(path);
-          found.set(id[1], { version: ver ? ver[1] : null, dir: dirM ? dirM[1] : null, glue: relative(glueRoot, dirname(p)).split(sep).join("/") });
+          // (VERSION_FILE <file> VERSION_REGEX "<re>" [VERSION_GROUP n]: the group of the file's first matching line, as
+          // cmake/FM1Cores.cmake reads it; the file is in the core's tree, a submodule of FM1VST: checked out recursively)
+          let fver = null;
+          const vf = /\bVERSION_FILE\s+(\S+)/.exec(body), vr = /\bVERSION_REGEX\s+"((?:[^"\\]|\\.)*)"/.exec(body);
+          if (!ver && vf && vr && dirM) {
+            const group = Number((/\bVERSION_GROUP\s+(\d+)/.exec(body) || [0, 1])[1]);
+            try {
+              const re = new RegExp(vr[1].replace(/\\"/g, '"'));
+              for (const line of readFileSync(join(FM1VST, "cores", dirM[1], vf[1]), "utf8").split("\n")) {
+                const m = re.exec(line);
+                if (m) { fver = m[group] ?? null; break; }
+              }
+            } catch (_) { /* (the tree not checked out: data/cores.json's version) */ }
+          }
+          found.set(id[1], { version: ver ? ver[1] : fver, dir: dirM ? dirM[1] : null, glue: relative(glueRoot, dirname(p)).split(sep).join("/") });
         }
       }
     }
@@ -179,4 +203,4 @@ const catalog = {
 writeFileSync(out, JSON.stringify(catalog, null, 1) + "\n");
 const nNative = firmwares.filter((f) => f.native).length;
 console.log(`catalog: ${firmwares.length} firmwares (${nNative} native + emulated, ${firmwares.length - nNative} emulated, RemoteFM1 among them), layout ${layout} -> ${out}`);
-if (nNative !== 10) { console.error(`build_catalog: expected the 10 un-gated native cores, found ${nNative}`); process.exit(1); }
+if (nNative !== 12) { console.error(`build_catalog: expected the 12 un-gated native cores, found ${nNative}`); process.exit(1); }

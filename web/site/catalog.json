@@ -43,7 +43,7 @@
    "name": "FM1VST",
    "license": "GPL-3.0-only",
    "source": "https://github.com/Quixotic7/FM1VST",
-   "commit": "81ebe55170cdf06dced6b530c9d174c0e7b6b574"
+   "commit": "afb7230e1ffd8fe8b1d10055aa1b60fa2cf8937f"
   },
   "hub": {
    "name": "The FM-1 Firmware Hub",
@@ -177,17 +177,25 @@
    "play": "https://quixotic7.github.io/ChoralRootFM1/emu/",
    "beta": true,
    "engines": [
+    "native",
     "emu"
    ],
-   "defaultEngine": "emu",
-   "native": null,
+   "defaultEngine": "native",
+   "native": {
+    "core": "choralroot",
+    "version": "0.25.1",
+    "wasm": "../build/native/choralroot.wasm",
+    "repo": "https://github.com/Quixotic7/ChoralRootFM1",
+    "commit": "15ca8d06554639ed50e4300d8e7ee7d0621cdedd",
+    "glue": "choralroot"
+   },
    "emu": {
     "pkg": "https://thefirmwarehub.com/fw/choralroot-0.25.1.fwsc",
     "sha256": "1dcac28c65d88888fc690f887971d419cd63014131476bdb73aca4f746bf0902",
     "size": 610313,
     "product": "FM-1_920"
    },
-   "nativeGated": "Casio CZ-1 tones and Prophet-5 programs"
+   "nativeBehind": false
   },
   {
    "id": "coralflower",
@@ -1096,17 +1104,25 @@
    "play": null,
    "beta": false,
    "engines": [
+    "native",
     "emu"
    ],
-   "defaultEngine": "emu",
-   "native": null,
+   "defaultEngine": "native",
+   "native": {
+    "core": "melodee",
+    "version": "1.4.4",
+    "wasm": "../build/native/melodee.wasm",
+    "repo": "https://github.com/keremimo/melodee",
+    "commit": "4f5fb6df7cb5573bd4694df78f81a0a416c0dfd2",
+    "glue": "melodee"
+   },
    "emu": {
     "pkg": "https://thefirmwarehub.com/fw/melodee-1.4.3.fwsc",
     "sha256": "efa44743be492278e25261f012b02425f373b8f31e9e396ef5e47b240a79be80",
     "size": 610534,
     "product": "FM-1_91043"
    },
-   "nativeGated": "Casio CZ-1 tones and Prophet-5 programs"
+   "nativeBehind": false
   },
   {
    "id": "min1",

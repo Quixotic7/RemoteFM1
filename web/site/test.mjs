@@ -21,14 +21,16 @@ const ok = (c, what) => { checks++; if (!c) fails++; console.log(`${what.padEnd(
 // ---- the catalog
 const cat = JSON.parse(readFileSync(new URL("./catalog.json", import.meta.url), "utf8"));
 const natives = cat.firmwares.filter((f) => f.native).map((f) => f.id).sort();
-ok(natives.join() === "amb,coralflower,felucca,fimba,fomni,frodhes,ghoulbox,jiant,obervave,purplemonkey", "catalog: the 10 un-gated cores are native, no other");
+ok(natives.join() === "amb,choralroot,coralflower,felucca,fimba,fomni,frodhes,ghoulbox,jiant,melodee,obervave,purplemonkey", "catalog: the 12 un-gated cores are native, no other");
 ok(cat.firmwares.every((f) => f.engines.includes("emu") && /^[0-9a-f]{64}$/.test(f.emu.sha256)
    && (f.id === "remotefm1" ? f.emu.from === "site" : /^https:\/\/thefirmwarehub\.com\/fw\//.test(f.emu.pkg) && !f.emu.from)),
    "catalog: every firmware runs emulated, its package from the Hub (RemoteFM1's from the site) with a SHA-256");
 ok(new Set(cat.firmwares.map((f) => f.id)).size === cat.firmwares.length, "catalog: ids unique");
 ok(cat.firmwares.filter((f) => f.native).every((f) => f.defaultEngine === (f.nativeBehind ? "emu" : "native") && f.native.wasm.endsWith(`${f.native.core}.wasm`)),
    "catalog: native is the default where it exists, unless the Hub's version is newer (newest wins)");
-ok(["choralroot", "melodee", "x0x", "orbit"].every((id) => cat.firmwares.find((f) => f.id === id).nativeGated), "catalog: gated cores say why they are not native");
+ok(["x0x", "orbit"].every((id) => cat.firmwares.find((f) => f.id === id).nativeGated), "catalog: gated cores say why they are not native");
+ok(["choralroot", "melodee"].every((id) => { const f = cat.firmwares.find((x) => x.id === id); return f.native && !f.nativeGated && f.engines.join() === "native,emu" && f.defaultEngine === "native"; }),
+   "catalog: ChoralRoot and Melodee play native by default, emulated (the Hub's package) one switch away");
 ok(cat.firmwares.every((f) => cat.categories.includes(f.category)), "catalog: every category is a chip");
 
 // ---- RemoteFM1 itself, a firmware to play: its released package, from this site (not the Hub), checked
@@ -148,8 +150,8 @@ ok(cat.firmwares.every((f) => cat.categories.includes(f.category)), "catalog: ev
   ok(all.length === m.firmwares.length && nativeOnly.every((f) => f.native) && nativeOnly.length === m.firmwares.filter((f) => f.native).length
      && emuOnly.every((f) => f.engines.includes("emu") && !f.emuNote) && !emuOnly.some((f) => f.id === "bubba" || f.id === "amb") && emuOnly.some((f) => f.id === "felucca"),
      "filter: All everything; Native the cores; Emulated what fm1-emu runs (not bubba, not a native-only one)");
-  ok(L.browse(m.firmwares, { engine: "native", cat: "Groovebox", q: "fel" }).map((f) => f.id).join() === "felucca" && L.browse(m.firmwares, { engine: "emu", q: "zzzz" }).length === 0,
-     "filter: combines with a category chip and the search");
+  ok(L.browse(m.firmwares, { engine: "native", cat: "Groovebox", q: "fel" }).map((f) => f.id).join() === "felucca,melodee" && L.browse(m.firmwares, { engine: "emu", q: "zzzz" }).length === 0,
+     "filter: combines with a category chip and the search (Melodee's blurb names Felucca)");
   const cvN = L.cardView(mf, "native"), cvE = L.cardView(mf, "emu"), cvA = L.cardView(mf, "all");
   ok(cvN.version === mf.native.version && cvN.note === "Hub: 1.6.2" && cvN.engine === "native" && cvE.version === "1.6.2" && cvE.engine === "emu" && !cvE.note
      && cvA.version === "1.6.2" && cvA.note === `native: ${mf.native.version}` && cvA.engine === null && L.cardView(snap.firmwares.find((f) => f.id === "fimba"), "native").note === null,
@@ -425,6 +427,20 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   ok(/<a id="fw-src"[^>]*target="_blank" rel="noopener"/.test(shtml) && /<a id="site-src"[^>]*>Site source<\/a>/.test(shtml) && !/>Source<\/a>/.test(shtml),
      "source: the header's firmware link opens a new tab (noopener); the site's own is \"Site source\"");
 }
+// ---- no raw preset source in what the site publishes (tools/no_raw_presets.mjs; pages.yml runs it on _site): the
+// page's own files and the native cores built here. The content checks need web/vendor/FM1VST's core trees
+{
+  const tool = fileURLToPath(new URL("./tools/no_raw_presets.mjs", import.meta.url));
+  const trees = existsSync(fileURLToPath(new URL("../vendor/FM1VST/cores/melodee/assets", import.meta.url)));
+  for (const d of ["./", "../build/native/"]) {
+    const dir = fileURLToPath(new URL(d, import.meta.url));
+    if (!existsSync(dir)) continue;
+    let out = "", st = 0;
+    try { out = execFileSync("node", [tool, dir, ...(trees ? [] : ["--names-only"]), ...(d === "./" ? [] : ["--top"])], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }); }
+    catch (e) { st = e.status || 1; out = String(e.stderr || e.stdout); }
+    ok(st === 0, `no raw presets: web/${d === "./" ? "site" : "build/native"}${trees ? "" : " (names only: no FM1VST core trees)"}${st ? ": " + out.trim().split("\n")[0] : ""}`);
+  }
+}
 // ---- build_catalog: the native cores' commits from web/vendor/FM1VST (git ls-tree), data/cores.json's fallback in step
 {
   const VST = fileURLToPath(new URL("../vendor/FM1VST/", import.meta.url));
@@ -434,11 +450,11 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
       .map((l) => /^160000 commit ([0-9a-f]{40})\t(\S+)$/.exec(l)).filter(Boolean).map((m) => [m[2], m[1]]));
     const gm = readFileSync(join(VST, ".gitmodules"), "utf8"), urls = new Map([...gm.matchAll(/path = (\S+)\s+url = (\S+)/g)].map((m) => [m[1], m[2].replace(/\.git$/, "")]));
     const nat = cat.firmwares.filter((f) => f.native);
-    ok(nat.length === 10 && nat.every((f) => [...pins].some(([path, c]) => c === f.native.commit && urls.get(path) === f.native.repo)) && nat.every((f) => existsSync(join(VST, "core-glue", f.native.glue))),
+    ok(nat.length === 12 && nat.every((f) => [...pins].some(([path, c]) => c === f.native.commit && urls.get(path) === f.native.repo)) && nat.every((f) => existsSync(join(VST, "core-glue", f.native.glue))),
        "build_catalog: each native core's commit is FM1VST's pin (ls-tree), its repo the submodule's, its glue folder there");
     const cj = JSON.parse(readFileSync(new URL("./data/cores.json", import.meta.url), "utf8"));
     const head = execFileSync("git", ["-C", VST, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
-    ok(cat.credits.fm1vst.commit === head && cj.fm1vst === head && nat.every((f) => { const c = cj.cores.find((x) => x.core === f.native.core); return c.commit === f.native.commit && c.repo === f.native.repo && c.glue === f.native.glue; }),
+    ok(cat.credits.fm1vst.commit === head && cj.fm1vst === head && nat.every((f) => { const c = cj.cores.find((x) => x.core === f.native.core); return c.commit === f.native.commit && c.repo === f.native.repo && c.glue === f.native.glue && c.version === f.native.version; }),
        "build_catalog: data/cores.json's fallback commits agree with web/vendor/FM1VST (the Pages check job builds without it)");
   }
 }

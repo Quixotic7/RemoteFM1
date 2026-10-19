@@ -2,7 +2,9 @@
 // site's own worklet host (bench-browser.html). For each package and clock: the worklet's render time per 128-frame
 // quantum (mean load, p99, slowest), late audio, the engine's underruns and how often LED levels flip.
 //   node web/engines/emu/bench-browser.mjs [--pkgs=melodee-1.4.4,x0x-1.1.0] [--mhz=240,320,360] [--secs=10]
-//       [--opts='{"jitPerRender":16}'] [--wasm=emu/fm1_web.wasm] [--out=emu-bench]
+//       [--opts='{"jitPerRender":16}'] [--wasm=emu/fm1_web.wasm] [--out=emu-bench] [--native=choralroot,melodee]
+// --native: also each named core on the native engine (web/build/native/<core>.wasm: web/engines/native/build.sh), once
+// (no clock), the same steps and measures; --pkgs= (empty) for the native ones alone.
 // Packages are read from web/build/packages/<name>.fwsc (test.mjs downloads the Hub's there). Serves the worktree
 // with python3 -m http.server on 127.0.0.1, drives Chromium over the DevTools protocol, stops both by PID. Writes
 // web/build/test/<out>.json.
@@ -13,7 +15,8 @@ import { fileURLToPath } from "node:url";
 const ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 const BUILD = new URL("../../build/", import.meta.url);
 const arg = (k, d) => { const a = process.argv.find((x) => x.startsWith(`--${k}=`)); return a ? a.slice(k.length + 3) : d; };
-const PKGS = arg("pkgs", "melodee-1.4.4,x0x-1.1.0,felucca-1.6.1,choralroot-0.25.1").split(",");
+const PKGS = arg("pkgs", "melodee-1.4.4,x0x-1.1.0,felucca-1.6.1,choralroot-0.25.1").split(",").filter(Boolean);
+const NATIVE = arg("native", "").split(",").filter(Boolean);
 const MHZ = arg("mhz", "240,320,360").split(",").map(Number);
 const SECS = +arg("secs", 10), OPTS = arg("opts", "{}"), WASM = arg("wasm", "emu/fm1_web.wasm"), OUT = arg("out", "emu-bench");
 const ENGINE = arg("engine", "engine.js");
@@ -51,9 +54,10 @@ try {
   const cdp = (method, params = {}) => new Promise((r) => { const i = ++id; waiting.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
   await cdp("Runtime.enable");
   await cdp("Page.enable");
-  for (const pkg of PKGS) {
-    for (const mhz of MHZ) {
-      const qs = new URLSearchParams({ pkg: `${pkg}.fwsc`, mhz, secs: SECS, opts: OPTS, wasm: WASM, engine: ENGINE });
+  const runs = [...PKGS.flatMap((pkg) => MHZ.map((mhz) => ({ pkg, mhz }))), ...NATIVE.map((core) => ({ pkg: core, core, mhz: 0 }))];
+  for (const { pkg, mhz, core } of runs) {
+    {
+      const qs = new URLSearchParams(core ? { core, secs: SECS } : { pkg: `${pkg}.fwsc`, mhz, secs: SECS, opts: OPTS, wasm: WASM, engine: ENGINE });
       await cdp("Page.navigate", { url: `http://127.0.0.1:${PORT}/web/engines/emu/bench-browser.html?${qs}` });
       await sleep(1000);
       let r;

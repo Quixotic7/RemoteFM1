@@ -4,7 +4,8 @@
 <!-- For bench-browser.mjs: the site's own worklet host (web/site/worklet/host.js) runs the emu engine on a local
      package (web/build/packages/<pkg>), as the Player does. At 3 s PLAY is tapped, from 4 s a three-note chord is held;
      from 6 s the host's half-second load reports (mean, p99, slowest quantum, late audio, the engine's underruns) and
-     the LED messages are collected for `secs` seconds. ?pkg=x0x-1.1.0.fwsc&mhz=360&secs=10 -->
+     the LED messages are collected for `secs` seconds. ?pkg=x0x-1.1.0.fwsc&mhz=360&secs=10; ?core=melodee: the native
+     engine instead (web/build/native/<core>.wasm, web/engines/native/engine.js), the same steps and measures -->
 <pre id="out">starting…</pre>
 <script type="module">
 const q = new URLSearchParams(location.search);
@@ -13,13 +14,14 @@ const log = (s) => { out.textContent += "\n" + s; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 window.__result = (async () => {
   const mhz = +(q.get("mhz") || 360), secs = +(q.get("secs") || 10), opts = JSON.parse(q.get("opts") || "{}");
+  const core = q.get("core"), engName = core ? "native" : "emu";
   const [wasm, pkg] = await Promise.all([
-    fetch("../../build/" + (q.get("wasm") || "emu/fm1_web.wasm")).then((r) => r.arrayBuffer()),
-    fetch("../../build/packages/" + q.get("pkg")).then((r) => { if (!r.ok) throw new Error("no package " + q.get("pkg")); return r.arrayBuffer(); }),
+    fetch("../../build/" + (core ? `native/${core}.wasm` : q.get("wasm") || "emu/fm1_web.wasm")).then((r) => { if (!r.ok) throw new Error("no wasm"); return r.arrayBuffer(); }),
+    core ? null : fetch("../../build/packages/" + q.get("pkg")).then((r) => { if (!r.ok) throw new Error("no package " + q.get("pkg")); return r.arrayBuffer(); }),
   ]);
   const ac = new AudioContext({ latencyHint: "interactive" });
   await ac.audioWorklet.addModule("../../site/worklet/host.js");
-  const shim = `import * as E from ${JSON.stringify(new URL(q.get("engine") || "engine.js", location.href).href)};\n(globalThis.FM1_ENGINES = globalThis.FM1_ENGINES || {}).emu = E;\n`;
+  const shim = `import * as E from ${JSON.stringify(new URL(core ? "../native/engine.js" : q.get("engine") || "engine.js", location.href).href)};\n(globalThis.FM1_ENGINES = globalThis.FM1_ENGINES || {}).${engName} = E;\n`;
   await ac.audioWorklet.addModule(URL.createObjectURL(new Blob([shim], { type: "text/javascript" })));
   const node = new AudioWorkletNode(ac, "fm1-host", { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
   node.connect(ac.destination);
@@ -35,7 +37,7 @@ window.__result = (async () => {
     else if (m.type === "frame") frames++;
   };
   const panel = (p) => node.port.postMessage({ type: "panel", keys: 0, buttons: 0, master: 900, enc: new Int32Array(7), keyVel: new Uint8Array(27), ...p });
-  node.port.postMessage({ type: "load", engine: "emu", files: { wasm, fwsc: new Uint8Array(pkg) }, flash: null, options: { id: "bench", mhz, ...opts } });
+  node.port.postMessage({ type: "load", engine: engName, files: core ? { wasm } : { wasm, fwsc: new Uint8Array(pkg) }, flash: null, options: { id: "bench", mhz, ...opts } });
   for (let i = 0; i < 100 && !info && !err; i++) await sleep(50);
   if (err) throw new Error(err);
   t0 = performance.now();
@@ -71,7 +73,7 @@ window.__result = (async () => {
   const dur = (to - from) / 1000;
   const shorts = win.map((l) => l.short).filter((v) => typeof v === "number");
   const r = {
-    pkg: q.get("pkg"), mhz, sampleRate: ac.sampleRate, latencyFrames: info.latencyFrames, opts, baseLatency: ac.baseLatency, outputLatency: ac.outputLatency,
+    pkg: core ? `${core} (native)` : q.get("pkg"), mhz: core ? "-" : mhz, sampleRate: ac.sampleRate, latencyFrames: info.latencyFrames, opts, baseLatency: ac.baseLatency, outputLatency: ac.outputLatency,
     reports: win.length,
     loadMean: +(win.reduce((s, l) => s + l.load, 0) / Math.max(1, win.length)).toFixed(3),
     loadMax: +Math.max(0, ...win.map((l) => l.load)).toFixed(3),

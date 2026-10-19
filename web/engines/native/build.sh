@@ -1,8 +1,8 @@
 #!/bin/bash
 # SPDX-License-Identifier: GPL-3.0-only
-# The native engine's build: FM1VST's 10 un-gated cores compiled to WebAssembly with Emscripten.
+# The native engine's build: FM1VST's 12 un-gated cores compiled to WebAssembly with Emscripten.
 #
-#   web/engines/native/build.sh [id ...]        (default: all ten)
+#   web/engines/native/build.sh [id ...]        (default: all twelve)
 #
 # Environment:
 #   FM1VST_DIR   FM1VST's tree, read only (default: the cores-all worktree here; in CI the submodule)
@@ -18,7 +18,8 @@
 #   2. FM1VST's own cmake/FM1Cores.cmake and core-glue/<family>/core_<id>.cmake under emcmake (cmake/CMakeLists.txt
 #      here: the generate steps and the units exactly as FM1VST builds them; coro.c replaced by coro_wasm.c);
 #   3. each core's static library linked with wasm_glue.c into a standalone module, web/build/native/<id>.wasm (no
-#      Emscripten JavaScript: engine.js gives it its few imports); the Dinghy cores (OberVave, Frodhes) then get
+#      Emscripten JavaScript: engine.js gives it its few imports); the cores whose main loop runs on the coroutine
+#      (the Dinghy cores OberVave and Frodhes, Melodee: their module imports fm1w_co_yield) then get
 #      Binaryen's Asyncify pass for their coroutine (coro_wasm.c);
 #   4. web/build/native/cores.json: id, size, family, version, commit per core.
 set -euo pipefail
@@ -46,6 +47,8 @@ ghoulbox     felucca_web/core_ghoulbox.cmake      ghoulbox-fm1-dungeon-synth  fe
 jiant        felucca_web/core_jiant.cmake         JIANT                       felucca_web
 purplemonkey choralroot/core_purplemonkey.cmake   PurpleMonkeyFM1             choralroot
 coralflower  choralroot/core_coralflower.cmake    CoralFlower                 choralroot
+choralroot   choralroot/core_choralroot.cmake     ChoralRootFM1               choralroot
+melodee      melodee/core.cmake                   melodee                     melodee
 fomni        plat/core_fomni.cmake                fm1-fomni                   plat
 fimba        plat/core_fimba.cmake                fm1-fimba                   plat
 amb          fm1base/core_amb.cmake               fm1-amb                     fm1base
@@ -112,7 +115,8 @@ for e in "${sel[@]}"; do
     echo "== link $id"
     lib="$BLD/libcore_$id.a"
     emcc "${LDFLAGS[@]}" -I"$SRC/core-api" -Wall -Wextra "$HERE/wasm_glue.c" "$lib" -o "$OUT/$id.wasm"
-    if [ "$fam" = dinghy ]; then
+    # (a core that runs its main loop on the coroutine imports fm1w_co_yield: the Dinghy cores, Melodee)
+    if node -e 'const m=new WebAssembly.Module(require("fs").readFileSync(process.argv[1]));process.exit(WebAssembly.Module.imports(m).some(i=>i.name==="fm1w_co_yield")?0:1)' "$OUT/$id.wasm"; then
         # the coroutine (coro_wasm.c): Asyncify, with fm1w_co_yield the only import that unwinds
         "$WASM_OPT" "$OUT/$id.wasm" --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext \
             --enable-mutable-globals --asyncify --pass-arg=asyncify-imports@env.fm1w_co_yield \

@@ -9,7 +9,7 @@
 //      conformance/<id>.ppm, when one exists); PNGs in web/build/test/: native-<id>-boot.png (that first picture),
 //      native-<id>.png (at 3 s, rendered through render()) and native-<id>-saved.png (the flash round trip's)
 //   3. sound: the core's conformance file (FM1VST core-glue/<family>/conformance_<id>.txt): its `sound` prelude
-//      (none of the ten has one), settle_ms, then key D4 held 500 ms through setPanel; render() output at 44.1 kHz
+//      (none of them has one), settle_ms, then key D4 held 500 ms through setPanel; render() output at 44.1 kHz
 //      must peak above 64 / 32768 within 1 s of the press
 //   4. flash: the conformance file's `save` script on a fresh unit, flash().bytes, a second unit booted from them
 //      runs `saved`; its screen must differ from a fresh unit's after the same script (saved-lcd-differs);

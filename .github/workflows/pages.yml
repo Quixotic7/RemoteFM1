@@ -95,7 +95,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Native cores (W1), FM1VST's 10 un-gated cores in WebAssembly
+      - name: Native cores (W1), FM1VST's 12 un-gated cores in WebAssembly
         id: native
         if: steps.parts.outputs.native == '1'
         continue-on-error: true                  # a failed engine leaves the site up with its fallback
@@ -151,6 +151,9 @@ jobs:
           node web/site/tools/release_report.mjs --catalog _site/catalog.json --stamp _site/deployed.json --commit "${{ github.sha }}"
           touch _site/.nojekyll
           find _site -type f | sort
+          # no raw preset source is published: ChoralRoot's and Melodee's CZ-1 / Prophet-5 presets go out compiled
+          # into their .wasm only (no .syx, no cz1-factory / prophet5-factory file, no file or byte run of a .syx)
+          node web/site/tools/no_raw_presets.mjs _site --cores web/vendor/FM1VST/cores
 
       - name: What was built
         run: |
