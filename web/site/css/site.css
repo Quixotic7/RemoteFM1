@@ -350,7 +350,7 @@ kbd { font: 600 11px/1 "Inter Tight", sans-serif; border: 1px solid var(--line);
   #top { gap: 6px; padding: 0 6px; }
   #top .brand b { display: none; }
   #status { display: none; }
-  #top nav a:last-child { display: none; }
+  #top nav a:last-child, #top nav #vst-link, #install-link .long { display: none; }
   .src-link { width: 34px; padding: 0; justify-content: center; }
   .src-link .src-text, .src-link .src-arrow { display: none; }
   .src-link svg { width: 16px; height: 16px; }
