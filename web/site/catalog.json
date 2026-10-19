@@ -44,7 +44,7 @@
    "name": "FM1VST",
    "license": "GPL-3.0-only",
    "source": "https://github.com/Quixotic7/FM1VST",
-   "commit": "7b86111f9475bbe12a5620f6ebe345ad39e8a69b"
+   "commit": "66c017b85f619b4a4ae202ab4bdbdbd8ca80c658"
   },
   "hub": {
    "name": "The FM-1 Firmware Hub",

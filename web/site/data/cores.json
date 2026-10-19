@@ -1,7 +1,7 @@
 {
   "about": "FM1VST's cores (CORES-PLAN.md, branch cores-all, 2026-10-18): the firmware each core builds, at FM1VST's pinned version, its licence (CORES-PLAN section 1), the browser's category / tag / author (FM1VST plugin/Sheet.cpp FirmwareMeta), and the licensing gate (section 6). Only the un-gated twelve are built for the web and hosted (native; ChoralRoot and Melodee un-gated 2026-10-19: their CZ-1 and Prophet-5 presets ship compiled into the firmware, no raw .syx is published); every Hub firmware also runs emulated, fetched from where the Hub points at play time. hub: the Hub's id where it differs from FM1VST's core id. glue / commit / repo: the core-glue folder, the submodule commit FM1VST pins and its URL (the native source link), and fm1vst: FM1VST's own commit; build_catalog.mjs reads all of them from web/vendor/FM1VST and uses these only when it is not checked out.",
   "source": "https://github.com/Quixotic7/FM1VST",
-  "fm1vst": "7b86111f9475bbe12a5620f6ebe345ad39e8a69b",
+  "fm1vst": "66c017b85f619b4a4ae202ab4bdbdbd8ca80c658",
   "cores": [
     { "core": "felucca",      "version": "1.6.1",        "license": "GPL-3.0 (engines MIT)",          "category": "Synth",     "tag": "Multi-engine synth",     "author": "Hügelton", "glue": "felucca_web", "commit": "a53ecf428c29c780108fd70a31b71a32a6b5c313", "repo": "https://github.com/hugelton/Felucca" },
     { "core": "ghoulbox",     "version": "2.3.2",        "license": "GPL-3.0 (+ OFL fonts)",          "category": "Synth",     "tag": "Dungeon synth",          "author": "J. Persinger", "glue": "felucca_web", "commit": "71ac3f87e0a33b08831f11a89fbd6012de8024ce", "repo": "https://github.com/jasonpersinger/ghoulbox-fm1-dungeon-synth" },
