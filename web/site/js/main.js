@@ -56,8 +56,10 @@ device.setHints(state.keyHints);
 let drawQueued = false;
 const invalidate = () => { if (!drawQueued) { drawQueued = true; requestAnimationFrame(draw); } };
 controls.onDraw = invalidate;
+let laidOut = false;   // (no draw before the first layout: the canvases' default 300 x 150 bitmaps, stretched over the stage)
 function draw() {
   drawQueued = false;
+  if (!laidOut) return;
   if (!$("device-wrap").hidden) device.draw();
   if (!$("screen-wrap").hidden) screen.draw();
 }
@@ -84,6 +86,7 @@ function layout() {
     if (showScreen) screen.layout(W, H, dpr);
   }
   placeCorner();
+  laidOut = true;
   invalidate();
 }
 // the corner button: on the body's empty top-right corner (units 860, 46), or the screen view's bezel corner
@@ -589,6 +592,11 @@ async function main() {
   $("corner").innerHTML = icon("dots");
   if (EMBED) document.body.classList.add("embed");
   applyTheme();
+  // the FM-1 at its size from the first frame on (before any await: the catalog can take seconds on a slow connection)
+  layout();
+  addEventListener("resize", layout);
+  new ResizeObserver(layout).observe($("stage"));
+  matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`).addEventListener?.("change", layout);
   try {
     const r = await fetch("catalog.json", { cache: "no-cache" });
     snapshot = catalog = await r.json();
@@ -670,9 +678,6 @@ async function main() {
     e.stopImmediatePropagation(); e.preventDefault();
     if (sheet.inline) { sheet.inline = null; sheet.render(); } else if (sheet.page !== "main") sheet.show("main"); else sheet.close();
   }, true);
-  addEventListener("resize", layout);
-  new ResizeObserver(layout).observe($("stage"));
-  matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`).addEventListener?.("change", layout);
 
   // the firmware: the deep link, the last one, or the first native one
   const want = params.get("fw") || prefs.last;
