@@ -1088,14 +1088,16 @@
     "native",
     "emu"
    ],
-   "defaultEngine": "emu",
+   "defaultEngine": "native",
    "native": {
     "core": "jiant",
     "version": "0.9.9",
     "wasm": "../build/native/jiant.wasm",
     "repo": "https://github.com/juanjiant-bit/JIANT",
     "commit": "0912abb2f0c71cd26252d441dc74f3cdf825e6fb",
-    "glue": "felucca_web"
+    "glue": "felucca_web",
+    "preferred": true,
+    "preferredWhy": "the Hub's 0.9.9-6968b20 is the same 0.9.9 release, one commit before the 0912abb FM1VST builds, and the native core is far lighter on the CPU"
    },
    "emu": {
     "pkg": "https://thefirmwarehub.com/fw/jiant-0.9.10-53173f3.fwsc",
