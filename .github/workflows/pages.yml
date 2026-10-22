@@ -14,6 +14,9 @@
 #   native/                                                      how authors publish one (web/site/native, docs/NATIVE-AUTHORS.md)
 # A part whose sources are missing is skipped: the page then falls back to its test engine for that engine, or keeps
 # the Use my FM-1 stub.
+# A native core that fails to build is left out alone (its firmware runs emulated, a native-only one is not listed);
+# the deploy guard (web/site/tools/site_guard.mjs) fails the build job, so the deployed site stays, when the catalog
+# names anything the site lacks or more than a third of the native cores are missing.
 #
 # Nightly (schedule): the Hub deletes a firmware's old package when it releases a new version, and the page follows it
 # live anyway (web/site/js/live.js); the nightly run rebuilds the catalog from the Hub, reports every native core
@@ -112,6 +115,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      # each core is built on its own (build.sh exits 3 when some failed and the rest built): a core that fails gets a
+      # warning with its log's tail and is left out; the catalog then lists only the cores published here
+      # (build_catalog.mjs --native-dir), and the deploy guard below keeps the deployed site when most are missing
       - name: Native cores (W1), FM1VST's 21 un-gated cores in WebAssembly
         id: native
         if: steps.parts.outputs.native == '1'
@@ -124,10 +130,15 @@ jobs:
           python -m pip install --upgrade pillow fonttools numpy
           python -c "from PIL import features; print('raqm', features.check('raqm'))"
           export CR_PYTHON="$(command -v python)"
-          .github/scripts/logged.sh native bash web/engines/native/build.sh
-          mkdir -p _site/engines/native
-          cp web/engines/native/engine.js _site/engines/native/
-          cp web/build/native/*.wasm _site/engines/native/
+          st=0
+          LOGGED_OK=3 .github/scripts/logged.sh native bash web/engines/native/build.sh || st=$?
+          node web/site/tools/site_guard.mjs native-result web/build/native/result.json
+          if [ -f web/build/native/result.json ]; then
+            mkdir -p _site/engines/native
+            cp web/engines/native/engine.js _site/engines/native/
+            node -e 'for (const id of require("./web/build/native/result.json").built) require("fs").copyFileSync("web/build/native/" + id + ".wasm", "_site/engines/native/" + id + ".wasm")'
+          fi
+          if [ "$st" -ne 0 ] && [ "$st" -ne 3 ]; then exit "$st"; fi
 
       - name: Emulated engine (W2), fm1-emu's web crate
         id: emu
@@ -165,16 +176,14 @@ jobs:
           cp -R web/site/index.html web/site/css web/site/js web/site/worklet web/site/mock web/site/fonts web/site/native _site/
           ext=()
           if [ -f web/build/native-ext/index.json ]; then ext=(--native-ext web/build/native-ext/index.json); fi
-          # the catalog: the Hub's live one, else the snapshot in the tree
-          node web/site/tools/build_catalog.mjs --layout pages --hub https://thefirmwarehub.com/catalog.json --out _site/catalog.json "${ext[@]}" \
-            || node web/site/tools/build_catalog.mjs --layout pages --out _site/catalog.json "${ext[@]}"
+          # the catalog: the Hub's live one, else the snapshot in the tree; native only where the core's .wasm is here
+          node web/site/tools/build_catalog.mjs --layout pages --hub https://thefirmwarehub.com/catalog.json --out _site/catalog.json --native-dir _site/engines/native "${ext[@]}" \
+            || node web/site/tools/build_catalog.mjs --layout pages --out _site/catalog.json --native-dir _site/engines/native "${ext[@]}"
           mkdir -p _site/installer
           cp -R web/installer/index.html web/installer/installer.js web/installer/fm1ota.js web/installer/fm1pkg.js \
                 web/installer/releases.json web/installer/firmware _site/installer/
           # the package the page installs is the one its release list names
           (cd _site/installer/firmware && sha256sum -c SHA256SUMS)
-          # RemoteFM1 in the player: its package is the catalog's only same-origin one; it must be published
-          node -e 'const c=require("./_site/catalog.json");for(const f of c.firmwares)if(f.emu&&f.emu.from==="site"&&!require("fs").existsSync("_site/"+f.emu.pkg)){console.error("missing _site/"+f.emu.pkg);process.exit(1)}'
           # the firmwares' own managers / editors (web/managers/build.mjs), copied from FM1VST's core trees at the commit it
           # pins, each with its licence, its source link and the player's Web MIDI shim; none of theirs is in this repo
           node web/managers/build.mjs --cores web/vendor/FM1VST/cores --out _site/managers
@@ -193,6 +202,12 @@ jobs:
             echo "$1: $2" | tee -a "$GITHUB_STEP_SUMMARY"
             if [ "$2" = failure ]; then echo "::warning title=$1 engine not published::the $1 build failed; the site falls back without it"; fi
           done
+
+      # the deploy guard (web/site/tools/site_guard.mjs): nothing the catalog names may be missing (a native core's .wasm,
+      # the emulated engine, RemoteFM1's package, a listed manager's page), and more than a third of the native cores
+      # missing is a systemic failure: the job fails, the deploy job does not run, and the deployed site stays
+      - name: Deploy guard
+        run: node web/site/tools/site_guard.mjs check _site
 
       - uses: actions/upload-pages-artifact@v3
         with:

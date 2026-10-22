@@ -16,15 +16,21 @@
 // (newest wins: web/site/js/live.js, which builds the entries; the page merges the Hub's live catalog over this one at
 // load).
 //   node web/site/tools/build_catalog.mjs [--layout dev|pages] [--hub FILE|URL] [--out FILE] [--native-ext FILE]
+//                                         [--native-dir DIR]
+// --native-dir: the folder the native cores' .wasm are published in (the Pages build: _site/engines/native). Only the
+// cores whose <core>.wasm is there are listed as native (a warning names each one that is not): a Hub firmware whose
+// core is missing runs emulated only (or on its author's native build), a native-only entry (LOOM-8, Speak37) is left
+// out. Without it (the dev layout, the Pages check job) every un-gated core is listed, built or not.
 // layout: where the engines, the remote module and the installer are, seen from the page:
 //   dev    the page at web/site/ served from web/ (python3 -m http.server in web/): ../engines/.., ../build/..
 //   pages  the GitHub Pages artifact (.github/workflows/pages.yml): engines/, installer/, remote/ next to the page
-import { readFileSync, writeFileSync, readdirSync } from "node:fs";
+import { readFileSync, writeFileSync, readdirSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { siteEntry, CATEGORIES, HUB, authorNative, preferNative } from "../js/live.js";
+import { nativeAvailability, ungatedCores, annotate } from "./site_guard.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url)), SITE = join(HERE, "..");
 const arg = (n, d) => { const i = process.argv.indexOf(n); return i > 0 ? process.argv[i + 1] : d; };
@@ -145,6 +151,12 @@ let fm1vstCommit = JSON.parse(readFileSync(join(SITE, "data", "cores.json"), "ut
 }
 const coreByHub = new Map(cores.map((c) => [c.hub || c.core, c]));
 
+// the native cores the site has (--native-dir): a core whose .wasm is not there is not listed as native
+const nativeDir = arg("--native-dir", null);
+const nativeMissing = new Set(nativeDir ? nativeAvailability(ungatedCores(cores), (id) => existsSync(join(nativeDir, `${id}.wasm`))).missing : []);
+if (nativeMissing.size) annotate({ level: "warning", title: `native cores not published: ${[...nativeMissing].join(" ")}`,
+  message: `build_catalog: no .wasm in ${nativeDir} for ${[...nativeMissing].join(", ")}: not listed as native (their firmwares run emulated; a native-only entry is left out)` });
+
 // the authors' own native builds (native_sync.mjs's index): by the site's id
 const extFile = arg("--native-ext", null);
 const ext = extFile ? JSON.parse(readFileSync(extFile, "utf8")) : null;
@@ -164,7 +176,7 @@ try { EMU_SKIP = (await import(new URL("../../engines/emu/catalog.mjs", import.m
 // the native core's own source: the commit FM1VST pins (its submodule), and FM1VST's glue folder for it
 // (nativeName: the name the native build goes by, where it differs from the Hub's; hubVersion: the Hub's name for the
 // version it builds; nativeDefault: why it stays the default engine though the Hub's version is newer: live.js newestWins)
-const nativeOf = (core) => core && !core.gated ? { core: core.core, version: core.version, wasm: PATHS[layout].engines.native.wasm.replace("{core}", core.core),
+const nativeOf = (core) => core && !core.gated && !nativeMissing.has(core.core) ? { core: core.core, version: core.version, wasm: PATHS[layout].engines.native.wasm.replace("{core}", core.core),
   repo: core.repo || null, commit: core.commit || null, glue: core.glue || null,
   ...(core.nativeName ? { name: core.nativeName } : {}), ...(core.hubVersion ? { hubVersion: core.hubVersion } : {}),
   ...(core.nativeDefault ? { preferred: true, preferredWhy: core.nativeDefault } : {}) } : null;
@@ -182,6 +194,7 @@ for (const core of cores) {
   if (!core.name || !core.what) { console.error(`build_catalog: ${core.core} is not on the Hub: data/cores.json needs its name and what`); process.exit(1); }
   const gh = /^https:\/\/github\.com\/([^/]+\/[^/]+?)\/?$/.exec(core.repo || "");
   const pick = pickNative(id, core);
+  if (!pick.native) { console.log(`build_catalog: ${core.core} (not on the Hub, native only) has no native build here: left out`); continue; }
   const e = withNative(siteEntry({ id, name: core.name, version: core.version, author: core.authorFull || core.author, what: core.what,
     source: core.repo || null, repo: gh ? gh[1] : null, release: core.release || null, beta: /\b(alpha|beta|rc)\b/i.test(core.version) },
     { core, native: pick.native, emuSkip: EMU_SKIP }), pick);
@@ -251,4 +264,8 @@ const nAuthor = firmwares.filter((f) => f.native && f.native.by === "author").le
 // FM1VST's own native cores: running, or named as the other build where the author's runs
 const nFm1vst = firmwares.filter((f) => (f.native && f.native.by !== "author") || (f.nativeAlt && f.nativeAlt.by === "fm1vst")).length;
 console.log(`catalog: ${firmwares.length} firmwares (${nNative - nOff} native + emulated, ${nOff} native only, ${firmwares.length - nNative} emulated, RemoteFM1 among them; ${nAuthor} native built by the author), layout ${layout} -> ${out}`);
-if (nFm1vst !== 21) { console.error(`build_catalog: expected the 21 un-gated native cores, found ${nFm1vst}`); process.exit(1); }
+// (the 21 un-gated cores, less those --native-dir does not have)
+const nUngated = ungatedCores(cores).length;
+if (nUngated !== 21) { console.error(`build_catalog: data/cores.json has ${nUngated} un-gated cores, expected 21`); process.exit(1); }
+if (nFm1vst !== nUngated - nativeMissing.size) { console.error(`build_catalog: expected ${nUngated - nativeMissing.size} native cores (${nUngated} un-gated, ${nativeMissing.size} missing), found ${nFm1vst}`); process.exit(1); }
+if (nativeMissing.size) console.log(`build_catalog: ${nativeMissing.size} native cores left out (no .wasm in ${nativeDir}): ${[...nativeMissing].join(", ")}`);

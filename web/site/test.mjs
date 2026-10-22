@@ -494,6 +494,67 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   }
 }
 
+// ---- what may be deployed (tools/site_guard.mjs, pages.yml): the catalog lists only the native cores the site has
+// (build_catalog.mjs --native-dir), and the deploy guard refuses a site that lacks what its catalog names
+{
+  const G = await import("./tools/site_guard.mjs");
+  const fs = await import("node:fs");
+  const exp = G.ungatedCores(JSON.parse(readFileSync(new URL("./data/cores.json", import.meta.url), "utf8")).cores);
+  ok(exp.length === 21 && exp.includes("speak37") && !exp.includes("x0x"), "guard: the expected native cores are the 21 un-gated ones");
+  // the catalog filter: a published folder without felucca's (a Hub firmware) and speak37's (native only off the Hub)
+  const dir = fs.mkdtempSync(join(tmpdir(), "native-dir-")), outF = join(dir, "catalog.json"), outA = join(dir, "catalog-all.json");
+  for (const id of exp) if (id !== "felucca" && id !== "speak37") fs.writeFileSync(join(dir, `${id}.wasm`), "");
+  const BC = fileURLToPath(new URL("./tools/build_catalog.mjs", import.meta.url));
+  const log = execFileSync(process.execPath, [BC, "--layout", "pages", "--out", outF, "--native-dir", dir], { encoding: "utf8", env: { ...process.env, GITHUB_ACTIONS: "" } });
+  execFileSync(process.execPath, [BC, "--layout", "pages", "--out", outA], { stdio: "ignore" });
+  const cf = JSON.parse(readFileSync(outF, "utf8")), ca = JSON.parse(readFileSync(outA, "utf8"));
+  const byF = new Map(cf.firmwares.map((f) => [f.id, f])), fe = byF.get("felucca");
+  ok(cf.firmwares.filter((f) => f.native).map((f) => f.id).sort().join() === ca.firmwares.filter((f) => f.native && !["felucca", "speak37"].includes(f.id)).map((f) => f.id).sort().join()
+     && cf.firmwares.filter((f) => f.native).length === 19,
+     "catalog filter: --native-dir lists as native only the 19 cores whose .wasm is there");
+  ok(fe && fe.native === null && fe.engines.join() === "emu" && fe.defaultEngine === "emu" && fe.emu.pkg.startsWith("https://thefirmwarehub.com/fw/"),
+     "catalog filter: Felucca, its core missing, falls back to the emulated engine alone");
+  ok(!byF.has("speak37") && cf.firmwares.length === ca.firmwares.length - 1 && ca.firmwares.every((f) => f.id === "speak37" || byF.has(f.id)),
+     "catalog filter: Speak37 (native only, off the Hub) is left out; every other entry stays");
+  ok(/warning: native cores not published: felucca speak37:/.test(log) && /2 native cores left out/.test(log),
+     "catalog filter: a warning names the missing cores");
+  // the guard on a fake site: what the filtered catalog names, and the engines, managers, installer
+  const mgr = { managers: [{ id: "choralroot", path: "choralroot/" }, { id: "pigeon", path: "pigeon/webapp/pigeon/" }] };
+  const siteOf = (c) => new Set([...c.firmwares.filter((f) => f.native).map((f) => f.native.wasm), "engines/native/engine.js",
+    "engines/emu/engine.js", "engines/emu/fm1_web.wasm", "engines/emu/catalog.mjs", ...c.firmwares.filter((f) => f.emu && f.emu.from === "site").map((f) => f.emu.pkg),
+    "installer/index.html", "managers/fm1-shim.js", "managers/choralroot/index.html", "managers/pigeon/webapp/pigeon/index.html", "remote/remote.js", "build/remote/remotefm1.mjs"]);
+  const guard = (c, files, managers = mgr) => G.guardSite({ catalog: c, has: (p) => files.has(p), expected: exp, managers });
+  const g0 = guard(cf, siteOf(cf));
+  ok(!g0.errors.length && g0.missing.join() === "felucca,speak37" && g0.warnings.some((w) => /2 of 21 native cores are missing/.test(w)),
+     "guard: two cores missing, the catalog without them: deployed, with a warning");
+  const g1 = guard(ca, siteOf(cf));
+  ok(g1.errors.length === 2 && g1.errors.every((e) => /^(felucca|speak37): the catalog's native engine/.test(e)),
+     "guard: a catalog naming a native .wasm the site lacks is not deployed");
+  const drop = (n) => { const s = siteOf(ca); exp.slice(0, n).forEach((id) => s.delete(`engines/native/${id}.wasm`)); return s; };
+  const c7 = { ...ca, firmwares: ca.firmwares.map((f) => (f.native && exp.slice(0, 7).includes(f.native.core) ? { ...f, native: null, engines: ["emu"] } : f)) };
+  const c8 = { ...ca, firmwares: ca.firmwares.map((f) => (f.native && exp.slice(0, 8).includes(f.native.core) ? { ...f, native: null, engines: ["emu"] } : f)) };
+  const g7 = guard(c7, drop(7)), g8 = guard(c8, drop(8)), gAll = guard({ ...ca, firmwares: ca.firmwares.filter((f) => !f.offHub).map((f) => ({ ...f, native: null, engines: ["emu"] })) }, drop(21));
+  ok(!g7.errors.length && g8.errors.length === 1 && /8 of 21 native cores are missing \(more than a third/.test(g8.errors[0]) && gAll.errors.length === 1,
+     "guard: 7 of 21 cores missing deploys; 8 (more than a third), or all (no emcc), fail the job");
+  const noEmu = siteOf(cf); noEmu.delete("engines/emu/fm1_web.wasm");
+  const noPkg = siteOf(cf); [...noPkg].filter((p) => p.startsWith("installer/firmware/")).forEach((p) => noPkg.delete(p));
+  ok(guard(cf, noEmu).errors.some((e) => /emulated engine's wasm engines\/emu\/fm1_web\.wasm/.test(e)) && guard(cf, noPkg).errors.some((e) => /^remotefm1: its package/.test(e)),
+     "guard: the emulated engine's fm1_web.wasm, or RemoteFM1's own package, missing: not deployed");
+  const noMgr = siteOf(cf); noMgr.delete("managers/pigeon/webapp/pigeon/index.html");
+  const noShim = siteOf(cf); noShim.delete("managers/fm1-shim.js");
+  const noMod = siteOf(cf); noMod.delete("build/remote/remotefm1.mjs");
+  const noRemote = siteOf(cf); noRemote.delete("build/remote/remotefm1.mjs"); noRemote.delete("remote/remote.js");
+  ok(guard(cf, noMgr).errors.some((e) => /manager pigeon: managers\/pigeon\/webapp\/pigeon\/index\.html/.test(e)) && guard(cf, noShim).errors.length === 1
+     && guard(cf, noMod).errors.length === 1 && !guard(cf, noRemote).errors.length && !guard(cf, siteOf(cf), null).errors.length,
+     "guard: a listed manager's page, the shim, remote.js's module missing: not deployed (no managers, no remote: deployed)");
+  const ann = G.nativeAnnotations({ built: ["felucca"], failed: [{ id: "speak37", stage: "configure", log: "ModuleNotFoundError: No module named 'numpy'" }] });
+  const none = G.nativeAnnotations(null);
+  ok(ann.length === 1 && ann[0].level === "warning" && /speak37/.test(ann[0].title) && /numpy/.test(ann[0].message) && none.length === 1 && none[0].level === "error",
+     "guard: build.sh's result.json -> a warning per failed core with its log; none -> an error");
+  for (const f of fs.readdirSync(dir)) fs.unlinkSync(join(dir, f));
+  fs.rmdirSync(dir);
+}
+
 // ---- authors' own native builds (docs/NATIVE-AUTHORS.md): the engine's import whitelist, the .fm1web checks, the
 // site's sync with a recorded gh (tools/fixtures/gh-mock.mjs), the catalog's choice between two native builds
 {
