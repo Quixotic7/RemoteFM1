@@ -491,5 +491,91 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   ok(dv.hints === true && on.length > off.length && Math.min(...off) > Math.min(...on), "hints: drawn only when on; off, the key's name and the button's name move to the middle (no gap)");
 }
 
+// ---- Shift-click latches on the drawn panel (input.js attachPointer, Keyboard): the engine sees held keys and buttons
+{
+  const { attachPointer, Keyboard } = await import("./js/input.js");
+  const P = await import("./js/prefs.js");
+  const on = () => { const L = {}; return { L, addEventListener: (t, f) => { (L[t] = L[t] || []).push(f); }, fire: (t, e = {}) => (L[t] || []).forEach((f) => f(e)) }; };
+  const canvas = Object.assign(on(), { getBoundingClientRect: () => ({ left: 0, top: 0 }), setPointerCapture() {} });
+  const doc = Object.assign(on(), { focused: false, hidden: false, hasFocus() { return this.focused; } });
+  const win = Object.assign(on(), { document: doc });
+  // the stand-in view: x picks the control (y is the pointer's height, for the knob's drag)
+  const AT = { 1: { kind: KM.BTN, idx: B.HOME }, 2: { kind: KM.BTN, idx: B.SEL }, 3: { kind: KM.KEY, idx: 5 }, 4: { kind: KM.SELECT, idx: E.K1 }, 5: null };
+  const view = { toUnits: (x, y) => ({ x, y }), hit: (x) => AT[x] };
+  let last = null, hints = 0, turned = 0;
+  const c = new Controls((s) => { last = s; turned += s.enc[roleToMatrix(E.K1)]; });
+  attachPointer(canvas, view, c, { win, onShiftHint: () => hints++ });
+  let pid = 0;
+  const click = (x, { shift = false, button = 0, y = 100, hold = null } = {}) => {
+    const id = ++pid, base = { pointerId: id, clientX: x, clientY: y, shiftKey: shift, ctrlKey: false, button, pointerType: "mouse", preventDefault() {} };
+    canvas.fire("pointerdown", base);
+    if (hold) hold(id);
+    canvas.fire("pointerup", base);
+  };
+  const btnBit = (b) => (last.buttons >>> labelToMatrix(b)) & 1;
+  click(1, { shift: true });
+  ok(c.btnLatched(B.HOME) && btnBit(B.HOME) === 1, "latch: Shift-click HOME holds it after the mouse lets go (the engine sees HOME held)");
+  click(2, { shift: true });
+  ok(c.btnLatched(B.SEL) && btnBit(B.HOME) === 1 && btnBit(B.SEL) === 1, "latch: Shift-click SEL as well: both held");
+  let during = 0;
+  click(3, { hold: () => { during = (last.keys >>> 5) & 1; } });
+  ok(during === 1 && ((last.keys >>> 5) & 1) === 0 && !c.keyLatched(5) && btnBit(B.HOME) && btnBit(B.SEL), "latch: a plain click on a key while latched is momentary; the latches stay");
+  click(3, { shift: true });
+  ok(c.keyLatched(5) && ((last.keys >>> 5) & 1) === 1, "latch: Shift-click a key latches it (a held note)");
+  click(3, { shift: true });
+  ok(!c.keyLatched(5) && ((last.keys >>> 5) & 1) === 0, "latch: Shift-click it again lets it go");
+  click(1);
+  ok(!c.btnLatched(B.HOME) && btnBit(B.HOME) === 0 && c.btnLatched(B.SEL), "latch: a plain click on latched HOME lets it go (no momentary press left)");
+  click(1, { button: 2 });
+  ok(c.btnLatched(B.HOME), "latch: a right-click still latches");
+  click(5, { shift: true });
+  ok(!c.anyLatched() && last.buttons === 0, "latch: Shift-click on an empty spot of the panel lets every latch go");
+  // Escape: lets the latches go (not OCT-); with none held it is OCT- as before; taken by a popover, it does nothing
+  const kl = {}, saved = { a: globalThis.addEventListener, d: globalThis.document };
+  globalThis.addEventListener = (t, f) => { kl[t] = f; };
+  globalThis.document = { addEventListener() {} };
+  try { new Keyboard({ controls: c, enabled: () => true }); } finally { globalThis.addEventListener = saved.a; globalThis.document = saved.d; }
+  const key = (type, code, extra = {}) => kl[type]({ code, key: code, repeat: false, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, target: {}, preventDefault() {}, ...extra });
+  click(1, { shift: true }); click(3, { shift: true });
+  key("keydown", "Escape");
+  ok(!c.anyLatched() && !c.btnHeld(B.OCTDN) && last.keys === 0 && last.buttons === 0, "latch: Escape lets them all go, and does not press OCT-");
+  key("keyup", "Escape");
+  key("keydown", "Escape"); const octHeld = c.btnHeld(B.OCTDN); key("keyup", "Escape");
+  ok(octHeld && !c.btnHeld(B.OCTDN), "latch: Escape with nothing latched is OCT- as before");
+  click(1, { shift: true });
+  key("keydown", "Escape", { cancelBubble: true });
+  ok(c.btnLatched(B.HOME) && !c.btnHeld(B.OCTDN), "latch: an Escape a popover took (stopPropagation) leaves the latches and OCT- alone");
+  // computer keys with Shift held play as before; latches stay
+  key("keydown", "KeyA", { shiftKey: true });
+  ok(c.keyHeld(7) && c.btnLatched(B.HOME), "latch: computer keys with Shift held still play (Shift+A holds its key)");
+  key("keyup", "KeyA");
+  // focus: to a frame in the page (the Editor panel) keeps them; the page losing focus or hidden lets them go
+  const tick = () => new Promise((r) => setTimeout(r, 5));
+  doc.focused = true; win.fire("blur"); await tick();
+  ok(c.btnLatched(B.HOME), "latch: focus moving into a frame of the page keeps the latches");
+  doc.focused = false; win.fire("blur"); await tick();
+  ok(!c.anyLatched() && last.buttons === 0, "latch: the page losing focus lets them go");
+  click(2, { shift: true }); doc.hidden = true; doc.fire("visibilitychange"); doc.hidden = false;
+  ok(!c.anyLatched(), "latch: the tab hidden lets them go");
+  click(2, { shift: true }); c.releaseLatches();
+  ok(!c.anyLatched() && last.buttons === 0, "latch: releaseLatches (main.js on a firmware switch or reboot) lets them go");
+  // a knob: Shift-click and drag turns it exactly as a plain one, and latches nothing
+  const drag = (shift) => {
+    turned = 0;
+    click(4, { shift, y: 100, hold: (id) => canvas.fire("pointermove", { pointerId: id, clientY: 60, shiftKey: shift, pointerType: "mouse" }) });
+    return turned;
+  };
+  const plain = drag(false), shifted = drag(true);
+  ok(plain === 5 && shifted === 5 && c.selKnob === E.K1 && !c.anyLatched(), "latch: Shift-click and drag on a knob turns it as a plain drag (5 detents), no latch");
+  // the hint: Shift with the mouse over the panel, once per page; shown once ever (prefs)
+  const hintsBefore = hints;
+  canvas.fire("pointermove", { pointerId: 99, clientY: 0, shiftKey: false, pointerType: "mouse" });
+  win.fire("keydown", { key: "Shift" }); win.fire("keydown", { key: "Shift" });
+  ok(hints - hintsBefore <= 1 && hints === 1, "latch: the Shift hint fires once (Shift over the panel)");
+  const mem = new Map(), st = { getItem: (k) => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v)) };
+  const pr = P.loadPrefs(st), due0 = P.shiftHintDue(pr); pr.shiftHintShown = true; P.savePrefs(st, pr);
+  ok(due0 && !P.shiftHintDue(P.loadPrefs(st)) && P.shiftHintDue(P.loadPrefs(null)), "latch: \"Shift-click to hold\" is due once, then remembered");
+}
+
 console.log(fails ? `site: ${fails} of ${checks} FAILED` : `site tests passed (${checks})`);
 process.exit(fails ? 1 : 0);

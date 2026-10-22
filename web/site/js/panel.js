@@ -8,7 +8,7 @@
 // (web/engine/API.md, RemoteFM1 proto/rfm1.h): buttons 0 OCT- 1 OCT+ 2 FX .. 13 REC; encoders 0 SELECT 1 ALGO
 // 2..5 KNOB1..4 6 PRESETS. labelToMatrix / roleToMatrix convert (FM1VST core-glue/common/panel.h PANEL_DEFAULT).
 
-import { css, derive, PRESETS, DEFAULT_THEME } from "./theme.js";
+import { css, derive, accentOf, PRESETS, DEFAULT_THEME } from "./theme.js";
 
 // ================================================================ geometry ===
 const WHITE_X = [71, 119, 167, 215, 264, 312, 360, 408, 456, 504, 553, 601, 649, 697, 745, 794];
@@ -125,6 +125,11 @@ export class Controls {
   dirty() { if (this.onDraw) this.onDraw(); }
   keyHeld(k) { return this.keySrc[k] !== 0; }
   btnHeld(b) { return this.btnSrc[b] !== 0; }
+  // a latch (input.js: Shift-click, right-click or ctrl-click) holds a key or button until it is clicked again
+  keyLatched(k) { return (this.keySrc[k] & SRC.LATCH) !== 0; }
+  btnLatched(b) { return (this.btnSrc[b] & SRC.LATCH) !== 0; }
+  anyLatched() { return this.keySrc.some((v) => v & SRC.LATCH) || this.btnSrc.some((v) => v & SRC.LATCH); }
+  releaseLatches() { this.releaseSrc(SRC.LATCH); }
   holdKey(k, src, down, vel = 0) {
     if (k < 0 || k >= NKEY) return;
     const was = this.keySrc[k] !== 0;
@@ -281,7 +286,7 @@ export class DeviceView {
     this.base = null;
     this.hints = false;
   }
-  setTheme(t) { this.theme = t; this.pal = derive(t); this.base = null; }
+  setTheme(t) { this.theme = t; this.pal = derive(t); this.accent = accentOf(t); this.base = null; }
   // the computer-key hints (the green letters: the sheet's "Show computer-key hints", off by default); off, the keys'
   // LED and note name and the buttons' names sit centred in the space the letters took
   setHints(on) { this.hints = !!on; }
@@ -352,6 +357,9 @@ export class DeviceView {
     for (let k = 0; k < NKEY; k++) this.drawKey(g, p, k, ctl.keyHeld(k), this.keyLevel(k), px);
     for (let b = 0; b < NB; b++) this.drawButton(g, p, b, ctl.btnHeld(b), this.btnLevel(b), b === B.PLAY ? this.playGreen : 0, px);
     for (let i = 0; i < NE; i++) this.drawKnob(g, p, i, ctl.angle[i], ctl.selKnob === i);
+    // the latched ones (after all of them: a white key's ring is not covered by the black key drawn next to it)
+    for (let k = 0; k < NKEY; k++) if (ctl.keyLatched(k)) this.drawLatch(g, KEYS[k], 21, px);
+    for (let b = 0; b < NB; b++) if (ctl.btnLatched(b)) this.drawLatch(g, BTNS[b], b >= B.OCTDN ? 6 : 5, px);
     // the LCD, nearest-neighbour (exactly n x 240 device pixels when the scale snapped)
     g.setTransform(1, 0, 0, 1, 0, 0);
     const x0 = Math.round((SCREEN_A.x - VIEW.x) * this.k + this.ox), y0 = Math.round((SCREEN_A.y - VIEW.y) * this.k + this.oy);
@@ -392,6 +400,15 @@ export class DeviceView {
       circle(g, r.x + 6, r.y + r.h - 6, 3.2, p.ledOff);
       if (green) circle(g, r.x + 6, r.y + r.h - 6, 3.2, p.green, ledAlpha(green));
     }
+  }
+
+  // a latch's mark, in the site's accent: a ring just outside the cap and a dot at its top right corner
+  drawLatch(g, r, rad, px) {
+    const o = 3, w = Math.max(2, px);
+    rr(g, r.x - o, r.y - o, r.w + 2 * o, r.h + 2 * o, rad + o);
+    g.strokeStyle = css(this.accent); g.lineWidth = w; g.stroke();
+    circle(g, r.x + r.w - 1, r.y + 1, 4.5, this.pal.outline);
+    circle(g, r.x + r.w - 1, r.y + 1, 3.2, this.accent);
   }
 
   drawKnob(g, p, i, a, sel) {

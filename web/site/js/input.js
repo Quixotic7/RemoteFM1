@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Input: the computer keyboard (FM1VST's map, panel.js KEYMAP), the pointer on the drawn panel (mouse and multi-touch:
-// keys and buttons held while pressed, a right-click or ctrl-click latches; knobs turned by a vertical drag or the
-// wheel) and Web MIDI keyboards.
+// keys and buttons held while pressed; Shift-click, right-click or ctrl-click latches one; knobs turned by a vertical
+// drag or the wheel) and Web MIDI keyboards.
+//
+// Latches (the owner's "hold shift to click and hold multiple buttons"): Shift-click (or right-click, ctrl-click) on a
+// key or button holds it down after the mouse lets go; the engine sees an ordinary held key or button (SRC.LATCH).
+// Any click on a latched one lets it go. Plain clicks on the others stay momentary, Shift-clicks latch more. All of them
+// let go on Escape (when nothing else took it: the sheet, a popover), Shift-click on an empty spot of the panel, the
+// page losing focus or being hidden, and a firmware (re)start (main.js boot). Knobs ignore Shift as before.
 import { KEYMAP, KM, B, E, SRC } from "./panel.js";
 
 // ---------------------------------------------------------------- keyboard ---
@@ -22,12 +28,18 @@ export class Keyboard {
   }
   typing(e) { const t = e.target; return t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)); }
   onDown(e) {
-    if (e.metaKey || e.ctrlKey || e.altKey || this.typing(e) || !this.o.enabled(e)) return;
+    // (cancelBubble: a handler before this one took the key, e.g. Escape closing the recorder's Takes popover)
+    if (e.metaKey || e.ctrlKey || e.altKey || e.cancelBubble || this.typing(e) || !this.o.enabled(e)) return;
+    const c = this.o.controls;
+    if (e.code === "Escape" && c.anyLatched()) {   // Escape lets the latches go (and is OCT- only when none is held)
+      e.preventDefault();
+      if (!e.repeat) c.releaseLatches();
+      return;
+    }
     const list = this.byCode.get(e.code);
     if (!list) return;
     e.preventDefault();
     if (this.o.onActivity) this.o.onActivity(e);
-    const c = this.o.controls;
     if (list[0].kind === KM.TURN) { c.turn(c.selKnob, c.selKnob === E.MASTER ? 2 * list[0].idx : list[0].idx); return; }
     if (e.repeat || this.held.has(e.code)) return;
     this.held.add(e.code);
@@ -66,14 +78,18 @@ export class Keyboard {
 }
 
 // ----------------------------------------------------------------- pointer ---
-// view: the DeviceView of the canvas (toUnits, hit); multi-touch: each pointer holds what it went down on
-export function attachPointer(canvas, view, controls, { onActivity, onScreenTap } = {}) {
+// view: the DeviceView of the canvas (toUnits, hit); multi-touch: each pointer holds what it went down on.
+// onShiftHint(): Shift held with the mouse over the panel (once per page; main.js shows "Shift-click to hold" once ever).
+// win: the window (the page's; a stand-in in the Node tests)
+export function attachPointer(canvas, view, controls, { onActivity, onScreenTap, onShiftHint, win = globalThis } = {}) {
   const ptrs = new Map();   // pointerId -> { kind, idx, y, acc }
   const pos = (e) => { const r = canvas.getBoundingClientRect(); return view.toUnits(e.clientX - r.left, e.clientY - r.top); };
+  let over = false, hinted = !onShiftHint;   // (over: a mouse is over the panel)
+  const hint = () => { if (!hinted) { hinted = true; onShiftHint(); } };
   canvas.addEventListener("pointerdown", (e) => {
     if (onActivity) onActivity(e);
     const u = pos(e), h = view.hit(u.x, u.y);
-    if (!h) return;
+    if (!h) { if (e.shiftKey && controls.anyLatched()) controls.releaseLatches(); return; }
     if (h.kind === "screen") { if (onScreenTap) onScreenTap(e); return; }
     e.preventDefault();
     try { canvas.setPointerCapture(e.pointerId); } catch (_) { /* (a synthetic event) */ }
@@ -82,8 +98,9 @@ export function attachPointer(canvas, view, controls, { onActivity, onScreenTap 
       ptrs.set(e.pointerId, { kind: KM.SELECT, idx: h.idx, y: e.clientY, acc: 0 });
       return;
     }
-    if (e.button === 2 || e.ctrlKey) {   // latch
-      const on = h.kind === KM.KEY ? controls.keySrc[h.idx] & SRC.LATCH : controls.btnSrc[h.idx] & SRC.LATCH;
+    // a latched one: any click lets it go; Shift-click, right-click or ctrl-click latches one
+    const on = h.kind === KM.KEY ? controls.keyLatched(h.idx) : controls.btnLatched(h.idx);
+    if (on || e.shiftKey || e.button === 2 || e.ctrlKey) {
       if (h.kind === KM.KEY) controls.holdKey(h.idx, SRC.LATCH, !on); else controls.holdBtn(h.idx, SRC.LATCH, !on);
       return;
     }
@@ -91,6 +108,7 @@ export function attachPointer(canvas, view, controls, { onActivity, onScreenTap 
     if (h.kind === KM.KEY) controls.holdKey(h.idx, SRC.POINTER, true); else controls.holdBtn(h.idx, SRC.POINTER, true);
   });
   canvas.addEventListener("pointermove", (e) => {
+    if (e.pointerType === "mouse") { over = true; if (e.shiftKey) hint(); }
     const p = ptrs.get(e.pointerId);
     if (!p || p.kind !== KM.SELECT) return;
     p.acc += (p.y - e.clientY) / 8;   // 8 CSS pixels a detent, up = clockwise
@@ -110,6 +128,13 @@ export function attachPointer(canvas, view, controls, { onActivity, onScreenTap 
   canvas.addEventListener("pointerup", end);
   canvas.addEventListener("pointercancel", end);
   canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+  canvas.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse") over = false; });
+  if (win && win.addEventListener) {
+    win.addEventListener("keydown", (e) => { if (e.key === "Shift" && over) hint(); });
+    // the page loses focus (not to a frame in it, e.g. the Editor panel's manager) or is hidden: the latches let go
+    win.addEventListener("blur", () => setTimeout(() => { if (!win.document || !win.document.hasFocus()) controls.releaseLatches(); }, 0));
+    if (win.document) win.document.addEventListener("visibilitychange", () => { if (win.document.hidden) controls.releaseLatches(); });
+  }
   let wheelAcc = 0;
   canvas.addEventListener("wheel", (e) => {
     const u = pos(e), h = view.hit(u.x, u.y);

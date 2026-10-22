@@ -13,7 +13,7 @@ import { Sheet, icon } from "./sheet.js";
 import { makeSite } from "./remote-hook.js";
 import { createFm1, mountUseFm1, mountHeader } from "./use-fm1.js";
 import { liveCatalog, mergeLive, packageFor, chooseEngine, compareVersions, sourceOf } from "./live.js";
-import { loadPrefs, savePrefs as writePrefs, keyHintsOn } from "./prefs.js";
+import { loadPrefs, savePrefs as writePrefs, keyHintsOn, shiftHintDue } from "./prefs.js";
 import { mhzFor, pickMhz, stepDown, Governor, DEVICE_MHZ } from "./cpu.js";
 import { EditorPanel } from "./editor-panel.js";
 import { RecUI } from "./rec-ui.js";
@@ -159,6 +159,7 @@ async function openFirmware(id, want = null) {
   state.wantEngine = engineFor(e, want);
   state.engine = state.wantEngine;
   state.info = null; state.selectedSave = null;
+  controls.releaseLatches();
   hideOffer();
   if (!e.local) { prefs.last = e.id; savePrefs(); }
   updateTitle();
@@ -183,6 +184,7 @@ async function boot(fromSave = null) {
   const eng = state.wantEngine, seq = ++bootSeq;
   if (!e || !player) return;
   state.engine = eng; state.engineState = "loading"; state.info = null;
+  controls.releaseLatches();   // (a firmware switch or reboot lets the panel's latches go: input.js)
   setStatus(`Loading ${e.name}...`);
   if (sheet) sheet.render();
   editorChanged();
@@ -662,7 +664,8 @@ async function main() {
     onLcdView: () => app.set("view", state.view === "screen" ? "device" : "screen"),
     onActivity: activity,
   });
-  attachPointer($("device"), device, controls, { onActivity: (e) => { activity(); if (!state.running) start(); }, onScreenTap: () => {} });
+  attachPointer($("device"), device, controls, { onActivity: (e) => { activity(); if (!state.running) start(); }, onScreenTap: () => {},
+    onShiftHint: () => { if (!shiftHintDue(prefs)) return; prefs.shiftHintShown = true; savePrefs(); toast("Shift-click to hold", "", 2500); } });
   $("screen").addEventListener("pointerdown", () => { activity(); if (!state.running) start(); });
   $("stage").addEventListener("pointermove", activity);
   $("corner").addEventListener("click", () => sheet.open());

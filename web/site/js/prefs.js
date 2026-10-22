@@ -4,6 +4,7 @@
 //   loadPrefs(storage)          the stored record ({} when there is none or it cannot be read)
 //   savePrefs(storage, prefs)   writes it back; false when it could not
 //   keyHintsOn(prefs)           the computer-key hints on the panel's keys and buttons: off unless the visitor turned them on
+//   shiftHintDue(prefs)         "Shift-click to hold" (input.js latches) not shown yet: it shows once, ever
 export const PREF_KEY = "remotefm1-player";
 
 export function loadPrefs(storage) {
@@ -16,3 +17,4 @@ export function savePrefs(storage, prefs) {
   try { storage.setItem(PREF_KEY, JSON.stringify(prefs)); return true; } catch (_) { return false; }
 }
 export const keyHintsOn = (prefs) => !!prefs && prefs.keyHints === true;
+export const shiftHintDue = (prefs) => !prefs || prefs.shiftHintShown !== true;
