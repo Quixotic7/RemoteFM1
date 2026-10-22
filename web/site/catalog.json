@@ -45,7 +45,7 @@
    "name": "FM1VST",
    "license": "GPL-3.0-only",
    "source": "https://github.com/Quixotic7/FM1VST",
-   "commit": "a528812d238a03a151de2ca1abc052552da90ebe"
+   "commit": "ece0e44064d1cd7a12e1f1728074b3d408050946"
   },
   "hub": {
    "name": "The FM-1 Firmware Hub",
@@ -231,10 +231,10 @@
    "defaultEngine": "native",
    "native": {
     "core": "coralflower",
-    "version": "0.4.2",
+    "version": "0.5",
     "wasm": "../build/native/coralflower.wasm",
     "repo": "https://github.com/FicusFicusov/CoralFlower",
-    "commit": "8c5fbec0eaaba8e7405b788f8da28c51b443be42",
+    "commit": "b5ceb997be330c8a420958eb8f4e0f4b3ca084c2",
     "glue": "choralroot"
    },
    "emu": {
@@ -369,10 +369,10 @@
    "defaultEngine": "native",
    "native": {
     "core": "duell",
-    "version": "0.2.20-beta",
+    "version": "1.0",
     "wasm": "../build/native/duell.wasm",
     "repo": "https://github.com/oscillr/DUELL",
-    "commit": "0bd7f904a18efd20fd6092a8bc645945c3fedf74",
+    "commit": "33e2e2ed36a9d1a33a39ac1d1f06282c9045aab0",
     "glue": "felucca_web",
     "name": "DUELL (unofficial build)"
    },
@@ -1110,7 +1110,7 @@
   {
    "id": "loom",
    "name": "LOOM-8",
-   "version": "0.6-beta",
+   "version": "0.6.1",
    "author": "C. Vestal",
    "authorFull": "Charles Vestal",
    "category": "Groovebox",
@@ -1122,21 +1122,21 @@
    "license": "GPL-3.0-only (fm1-base MPL-2.0)",
    "source": "https://github.com/charlesvestal/fm1-loom",
    "repo": "charlesvestal/fm1-loom",
-   "release": "https://github.com/charlesvestal/fm1-loom/releases/tag/v0.6-beta",
+   "release": "https://github.com/charlesvestal/fm1-loom/releases/tag/v0.6.1",
    "site": null,
    "play": null,
    "editor": null,
-   "beta": true,
+   "beta": false,
    "engines": [
     "native"
    ],
    "defaultEngine": "native",
    "native": {
     "core": "loom",
-    "version": "0.6-beta",
+    "version": "0.6.1",
     "wasm": "../build/native/loom.wasm",
     "repo": "https://github.com/charlesvestal/fm1-loom",
-    "commit": "e88f2e00ec60d299b623c28b038db54409fdeff1",
+    "commit": "3f41391e64ec5cf5b6b633eb53018b6066bcb5ae",
     "glue": "fm1base"
    },
    "emu": null,
@@ -1981,12 +1981,12 @@
    "defaultEngine": "native",
    "native": {
     "core": "tonitor",
-    "version": "0.53",
+    "version": "0.55",
     "wasm": "../build/native/tonitor.wasm",
     "repo": "https://github.com/nzimas/tonitor",
-    "commit": "c39d18fffdcd4ad836cadd2827d870e3e35b5679",
+    "commit": "a240bc182b55e17fadc004d17e0b64c9eb42185f",
     "glue": "tonitor",
-    "hubVersion": "2026.10.21"
+    "hubVersion": "2026.10.22"
    },
    "emu": {
     "pkg": "https://thefirmwarehub.com/fw/tonitor-2026.10.18+f6b58312.fwsc",

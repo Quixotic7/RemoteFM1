@@ -36,9 +36,9 @@ ok(cat.firmwares.filter((f) => !f.offHub).every((f) => f.engines.includes("emu")
      && sp.native.glue === "speak37" && sp.category === "Other" && sp.what && !sp.beta && sp.repo === "genkigenki/Speak37",
      "catalog: Speak37's FM-1 build native only (the Hub has its SMK-37 build only)");
   ok(lm && lm.name === "LOOM-8" && lm.engines.join() === "native" && lm.defaultEngine === "native" && !lm.nativeBehind && lm.emu === null && !lm.nativeGated
-     && lm.native.version === "0.6-beta" && lm.native.wasm.endsWith("loom.wasm") && lm.native.glue === "fm1base" && lm.authorFull === "Charles Vestal"
-     && lm.category === "Groovebox" && lm.what && lm.beta && lm.repo === "charlesvestal/fm1-loom",
-     "catalog: LOOM-8 native only (no package to emulate), a beta, by Charles Vestal");
+     && lm.native.version === "0.6.1" && lm.native.wasm.endsWith("loom.wasm") && lm.native.glue === "fm1base" && lm.authorFull === "Charles Vestal"
+     && lm.category === "Groovebox" && lm.what && !lm.beta && lm.repo === "charlesvestal/fm1-loom",
+     "catalog: LOOM-8 native only (no package to emulate in the snapshot), 0.6.1 (no longer a beta), by Charles Vestal");
 }
 ok(new Set(cat.firmwares.map((f) => f.id)).size === cat.firmwares.length, "catalog: ids unique");
 ok(cat.firmwares.filter((f) => f.native).every((f) => f.defaultEngine === (f.nativeBehind && !f.native.preferred ? "emu" : "native") && f.native.wasm.endsWith(`${f.native.core}.wasm`)),
@@ -52,12 +52,12 @@ ok(cat.firmwares.filter((f) => f.native).every((f) => f.defaultEngine === (f.nat
   // the Hub's newer PIGEON (a beta) and Tonitor's own version names, as the live merge meets them
   const hub = JSON.parse(readFileSync(new URL("./data/hub-catalog.snapshot.json", import.meta.url), "utf8"));
   Object.assign(hub.firmwares.find((f) => f.id === "pigeon"), { version: "0.5.0-beta.1", pkg: "fw/pigeon-0.5.0-beta.1.fwsc", sha256: "d".repeat(64) });
-  Object.assign(hub.firmwares.find((f) => f.id === "tonitor"), { version: "2026.10.21", pkg: "fw/tonitor-2026.10.21.fwsc", sha256: "e".repeat(64) });
+  Object.assign(hub.firmwares.find((f) => f.id === "tonitor"), { version: "2026.10.22", pkg: "fw/tonitor-2026.10.22.fwsc", sha256: "e".repeat(64) });
   const m = L.mergeLive(cat, hub, {}), mp = m.firmwares.find((f) => f.id === "pigeon"), mt = m.firmwares.find((f) => f.id === "tonitor");
   ok(pg.native.version === "0.4.1" && pg.native.preferred && mp.nativeBehind && mp.defaultEngine === "native" && L.chooseEngine(mp, null, {}) === "native" && L.chooseEngine(mp, "emu", {}) === "emu",
      "catalog: PIGEON native 0.4.1 stays the default under the Hub's 0.5.0-beta.1 (nativeDefault), the beta one switch away");
-  ok(tn.native.version === "0.53" && tn.native.hubVersion === "2026.10.21" && mt.version === "2026.10.21" && !mt.nativeBehind && mt.defaultEngine === "native",
-     "catalog: Tonitor 0.53 is the Hub's 2026.10.21 (hubVersion): native, not behind");
+  ok(tn.native.version === "0.55" && tn.native.hubVersion === "2026.10.22" && mt.version === "2026.10.22" && !mt.nativeBehind && mt.defaultEngine === "native",
+     "catalog: Tonitor 0.55 is the Hub's 2026.10.22 (hubVersion): native, not behind");
   ok(["minitone", "fmini"].every((id) => { const f = m.firmwares.find((x) => x.id === id); return f && f.offHub && f.engines.join() === "native"; }),
      "catalog: Mini-Tone and FMini-1 stay native only until the Hub lists them");
 }
@@ -654,7 +654,7 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   const acc = (id, version, extra = {}) => ({ id, core: id, name: id, version, family: "felucca_web", glue: "core-glue/felucca_web", wasm: `${id}/${version}/${id}.wasm`, sha256: "a".repeat(64), bytes: 1,
     asyncify: false, abi: 6, license: "GPL-3.0-only", credits: null, usbProduct: null, editor: null, fm1vst: "7".repeat(40), repo: `https://github.com/a/${id}`, tag: `v${version}`, commit: "c".repeat(40), buildLog: "https://github.com/a/b/actions/runs/2", ...extra });
   writeFileSync(idx, JSON.stringify({ workflow: F.WORKFLOW, trustedRefs: ["refs/tags/native-v1"], candidates: [], rejected: [{ repo: "x/y", tag: "v1", why: "test" }],
-    accepted: [acc("felucca", "1.6.1"), acc("amb", "1.2"), acc("duell", "0.2.20-beta")] }));
+    accepted: [acc("felucca", "1.6.1"), acc("amb", "1.2"), acc("duell", "1.0")] }));
   execFileSync(process.execPath, [fileURLToPath(new URL("./tools/build_catalog.mjs", import.meta.url)), "--layout", "pages", "--out", outC, "--native-ext", idx], { stdio: "ignore" });
   const ec = JSON.parse(readFileSync(outC, "utf8")), by = (id) => ec.firmwares.find((f) => f.id === id);
   unlinkSync(idx); unlinkSync(outC);

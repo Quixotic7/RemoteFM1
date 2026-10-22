@@ -84,7 +84,7 @@ export function hubNewer(hubV, nativeV) {
 
 // ------------------------------------------------------------------ engines ---
 // Newest wins: the native core is the default only while it is the Hub's version (or newer). native.hubVersion: the
-// Hub's name for the version the core builds, where the two differ (Tonitor: the Hub's "2026.10.21" is firmware 0.53).
+// Hub's name for the version the core builds, where the two differ (Tonitor: the Hub's "2026.10.22" is firmware 0.55).
 // native.preferred (data/cores.json nativeDefault): the native core stays the default though the Hub's is newer (PIGEON:
 // the Hub's is a beta; the native core is far lighter); nativeBehind still says so.
 export function newestWins(e) {
