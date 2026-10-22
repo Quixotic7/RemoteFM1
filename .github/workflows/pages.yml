@@ -98,7 +98,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Native cores (W1), FM1VST's 12 un-gated cores in WebAssembly
+      - name: Native cores (W1), FM1VST's 13 un-gated cores in WebAssembly
         id: native
         if: steps.parts.outputs.native == '1'
         continue-on-error: true                  # a failed engine leaves the site up with its fallback
@@ -149,7 +149,7 @@ jobs:
           # the package the page installs is the one its release list names
           (cd _site/installer/firmware && sha256sum -c SHA256SUMS)
           # RemoteFM1 in the player: its package is the catalog's only same-origin one; it must be published
-          node -e 'const c=require("./_site/catalog.json");for(const f of c.firmwares)if(f.emu.from==="site"&&!require("fs").existsSync("_site/"+f.emu.pkg)){console.error("missing _site/"+f.emu.pkg);process.exit(1)}'
+          node -e 'const c=require("./_site/catalog.json");for(const f of c.firmwares)if(f.emu&&f.emu.from==="site"&&!require("fs").existsSync("_site/"+f.emu.pkg)){console.error("missing _site/"+f.emu.pkg);process.exit(1)}'
           # the firmwares' own managers / editors (web/managers/build.mjs), copied from FM1VST's core trees at the commit it
           # pins, each with its licence, its source link and the player's Web MIDI shim; none of theirs is in this repo
           node web/managers/build.mjs --cores web/vendor/FM1VST/cores --out _site/managers

@@ -9,7 +9,8 @@
 //      conformance/<id>.ppm, when one exists); PNGs in web/build/test/: native-<id>-boot.png (that first picture),
 //      native-<id>.png (at 3 s, rendered through render()) and native-<id>-saved.png (the flash round trip's)
 //   3. sound: the core's conformance file (FM1VST core-glue/<family>/conformance_<id>.txt): its `sound` prelude
-//      (none of them has one), settle_ms, then key D4 held 500 ms through setPanel; render() output at 44.1 kHz
+//      (LOOM-8's writes four kicks and presses PLAY: its keys are a pattern's steps), settle_ms, then key D4 held
+//      500 ms through setPanel; render() output at 44.1 kHz
 //      must peak above 64 / 32768 within 1 s of the press
 //   4. flash: the conformance file's `save` script on a fresh unit, flash().bytes, a second unit booted from them
 //      runs `saved`; its screen must differ from a fresh unit's after the same script (saved-lcd-differs);
@@ -17,7 +18,8 @@
 //   5. reboot: the conformance file's `reboot` script (OCT- + OCT+ held: UBOOT): halted() turns non-zero, then
 //      render() gives silence; `reboot none` / no script skips it
 //   6. MIDI: a note-on / note-off through midiIn() sounds, and MASTER at 0 quietens it (reported, not required)
-//   7. the real-time factor: 10 s at 48 kHz through render() and the resampler, chords held, timed
+//   7. the real-time factor: 10 s at 48 kHz through render() and the resampler, chords held, timed (after the `sound`
+//      prelude, untimed: LOOM-8's pattern plays under the chords, which are steps and kit sounds there)
 import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
@@ -329,7 +331,7 @@ async function testCore(id) {
 
     // 7. the real-time factor at 48 kHz (through the resampler), chords held
     e = await mk(null, 48000);
-    const p7 = new Panel(e);
+    const p7 = conf.sound.length ? runScript(e, conf.sound) : new Panel(e);
     const N = 48000 * 10 / 128;
     const L7 = new Float32Array(128), R7 = new Float32Array(128);
     let pk7 = 0;

@@ -151,6 +151,11 @@ const SHOTS = [
     steps: [`document.getElementById("corner").click()`, `[...document.querySelectorAll(".fw-card")].at(-1).click()`], after: 600 },
   { name: "source-sheet-about", w: 1400, h: 860, url: "site/?fw=jiant&engine=native", wait: 3000, hub: {},
     steps: [`document.getElementById("corner").click()`, `document.querySelector(".sheet-body").scrollTop = 99999`], after: 600 },
+  // LOOM-8 natively (not on the Hub: native only), its pattern playing: as its conformance script, four kicks written on
+  // T1's steps (G3 C4 G4 D5: keys 3 A G L) and PLAY (-) tapped
+  { name: "native-loom", w: 1400, h: 860, url: "site/?fw=loom", wait: 3000, hub: {},
+    steps: [`(async () => { const k = (c, t) => dispatchEvent(new KeyboardEvent(t, { code: c, key: c, bubbles: true })), z = (ms) => new Promise((r) => setTimeout(r, ms));
+      for (const c of ["Digit3", "KeyA", "KeyG", "KeyL", "Minus"]) { k(c, "keydown"); await z(80); k(c, "keyup"); await z(120); } })()`], after: 1500 },
   // the computer-key hints: off (the default), and on (the visitor's choice, remembered)
   { name: "hints-off", w: 1400, h: 860, url: "site/?fw=felucca", wait: 2500, hub: {} },
   { name: "hints-on", w: 1400, h: 860, url: "site/?fw=felucca", wait: 2500, hub: {}, prefs: { keyHints: true } },

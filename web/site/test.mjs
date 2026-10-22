@@ -21,10 +21,18 @@ const ok = (c, what) => { checks++; if (!c) fails++; console.log(`${what.padEnd(
 // ---- the catalog
 const cat = JSON.parse(readFileSync(new URL("./catalog.json", import.meta.url), "utf8"));
 const natives = cat.firmwares.filter((f) => f.native).map((f) => f.id).sort();
-ok(natives.join() === "amb,choralroot,coralflower,felucca,fimba,fomni,frodhes,ghoulbox,jiant,melodee,obervave,purplemonkey", "catalog: the 12 un-gated cores are native, no other");
-ok(cat.firmwares.every((f) => f.engines.includes("emu") && /^[0-9a-f]{64}$/.test(f.emu.sha256)
+ok(natives.join() === "amb,choralroot,coralflower,felucca,fimba,fomni,frodhes,ghoulbox,jiant,loom,melodee,obervave,purplemonkey", "catalog: the 13 un-gated cores are native, no other");
+ok(cat.firmwares.filter((f) => !f.offHub).every((f) => f.engines.includes("emu") && /^[0-9a-f]{64}$/.test(f.emu.sha256)
    && (f.id === "remotefm1" ? f.emu.from === "site" : /^https:\/\/thefirmwarehub\.com\/fw\//.test(f.emu.pkg) && !f.emu.from)),
-   "catalog: every firmware runs emulated, its package from the Hub (RemoteFM1's from the site) with a SHA-256");
+   "catalog: every Hub firmware runs emulated, its package from the Hub (RemoteFM1's from the site) with a SHA-256");
+{
+  const lm = cat.firmwares.find((f) => f.id === "loom"), hubIds = new Set(JSON.parse(readFileSync(new URL("./data/hub-catalog.snapshot.json", import.meta.url), "utf8")).firmwares.map((f) => f.id));
+  ok(cat.firmwares.filter((f) => f.offHub).map((f) => f.id).join() === "loom" && !hubIds.has("loom"), "catalog: LOOM-8, not on the Hub, the one off-Hub entry");
+  ok(lm && lm.name === "LOOM-8" && lm.engines.join() === "native" && lm.defaultEngine === "native" && !lm.nativeBehind && lm.emu === null && !lm.nativeGated
+     && lm.native.version === "0.6-beta" && lm.native.wasm.endsWith("loom.wasm") && lm.native.glue === "fm1base" && lm.authorFull === "Charles Vestal"
+     && lm.category === "Groovebox" && lm.what && lm.beta && lm.repo === "charlesvestal/fm1-loom",
+     "catalog: LOOM-8 native only (no package to emulate), a beta, by Charles Vestal");
+}
 ok(new Set(cat.firmwares.map((f) => f.id)).size === cat.firmwares.length, "catalog: ids unique");
 ok(cat.firmwares.filter((f) => f.native).every((f) => f.defaultEngine === (f.nativeBehind ? "emu" : "native") && f.native.wasm.endsWith(`${f.native.core}.wasm`)),
    "catalog: native is the default where it exists, unless the Hub's version is newer (newest wins)");
@@ -52,7 +60,7 @@ ok(cat.firmwares.every((f) => cat.categories.includes(f.category)), "catalog: ev
   const pc = JSON.parse(readFileSync(tmp, "utf8")), prf = pc.firmwares.find((f) => f.id === "remotefm1");
   unlinkSync(tmp);
   ok(new URL(prf.emu.pkg, "https://quixotic7.github.io/RemoteFM1/").href === `https://quixotic7.github.io/RemoteFM1/installer/firmware/remote-${r0.version}.fwsc`
-     && pc.firmwares.filter((f) => f.id !== "remotefm1").every((f) => f.emu.pkg.startsWith("https://thefirmwarehub.com/fw/")),
+     && pc.firmwares.filter((f) => f.id !== "remotefm1" && !f.offHub).every((f) => f.emu.pkg.startsWith("https://thefirmwarehub.com/fw/")),
      "remotefm1: Pages layout -> <site>/installer/firmware/remote-X.fwsc; every other package still the Hub's");
   // the emu hook fetches a relative URL against the page and checks its SHA-256
   const { fetchPackage } = await import("../engines/emu/catalog.mjs");
@@ -113,10 +121,12 @@ ok(cat.firmwares.every((f) => cat.categories.includes(f.category)), "catalog: ev
   const amb = m.firmwares.find((f) => f.id === "amb");
   ok(!m.firmwares.some((f) => f.id === "sloop") && amb && amb.engines.join() === "native" && amb.defaultEngine === "native" && amb.offHub,
      "merge: a firmware that left the Hub disappears, unless native (then native only)");
+  const lm = m.firmwares.find((f) => f.id === "loom");
+  ok(lm && lm.offHub && lm.engines.join() === "native" && lm.defaultEngine === "native" && !lm.emu, "merge: LOOM-8, never on the Hub, stays native only");
   const rf = m.firmwares.find((f) => f.id === "remotefm1");
   ok(rf === snap.firmwares.find((f) => f.id === "remotefm1") && m.firmwares.filter((f) => f.id === "remotefm1").length === 1, "merge: RemoteFM1's own entry stays as deployed (same-origin package)");
   const same = L.mergeLive(snap, hubSnap, {});
-  ok(same.firmwares.length === snap.firmwares.length && same.firmwares.every((f) => { const o = snap.firmwares.find((x) => x.id === f.id); return o && o.version === f.version && o.emu.pkg === f.emu.pkg && o.defaultEngine === f.defaultEngine && !f.snapshot; }),
+  ok(same.firmwares.length === snap.firmwares.length && same.firmwares.every((f) => { const o = snap.firmwares.find((x) => x.id === f.id); return o && o.version === f.version && (o.emu && o.emu.pkg) === (f.emu && f.emu.pkg) && o.defaultEngine === f.defaultEngine && !f.snapshot; }),
      "merge: the snapshot's own Hub catalog changes nothing");
 
   // the Hub down / slow -> the snapshot

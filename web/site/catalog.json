@@ -44,7 +44,7 @@
    "name": "FM1VST",
    "license": "GPL-3.0-only",
    "source": "https://github.com/Quixotic7/FM1VST",
-   "commit": "2887e8d6d07ae4805f58aca8c74f7f2654a2bf21"
+   "commit": "7686d87bd5e1fd5710be4a5de792118a911f2bfd"
   },
   "hub": {
    "name": "The FM-1 Firmware Hub",
@@ -1048,6 +1048,42 @@
     "product": "FM-1_900"
    },
    "nativeBehind": true
+  },
+  {
+   "id": "loom",
+   "name": "LOOM-8",
+   "version": "0.6-beta",
+   "author": "C. Vestal",
+   "authorFull": "Charles Vestal",
+   "category": "Groovebox",
+   "categories": [
+    "Groovebox"
+   ],
+   "tag": "Pocket groovebox",
+   "what": "A pocket groovebox: eight tracks on nine engines, a 64-step sequencer with locks, weave, scenes and a song, and a user sample bank loaded over USB.",
+   "license": "GPL-3.0-only (fm1-base MPL-2.0)",
+   "source": "https://github.com/charlesvestal/fm1-loom",
+   "repo": "charlesvestal/fm1-loom",
+   "release": "https://github.com/charlesvestal/fm1-loom/releases/tag/v0.6-beta",
+   "site": null,
+   "play": null,
+   "editor": null,
+   "beta": true,
+   "engines": [
+    "native"
+   ],
+   "defaultEngine": "native",
+   "native": {
+    "core": "loom",
+    "version": "0.6-beta",
+    "wasm": "../build/native/loom.wasm",
+    "repo": "https://github.com/charlesvestal/fm1-loom",
+    "commit": "e88f2e00ec60d299b623c28b038db54409fdeff1",
+    "glue": "fm1base"
+   },
+   "emu": null,
+   "nativeBehind": false,
+   "offHub": true
   },
   {
    "id": "maku",

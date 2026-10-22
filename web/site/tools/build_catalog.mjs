@@ -2,12 +2,13 @@
 // Build web/site/catalog.json (web/engine/API.md section 5) from:
 //   - the FM-1 Firmware Hub's catalog (a snapshot: data/hub-catalog.snapshot.json, from
 //     https://thefirmwarehub.com/catalog.json; --hub <file|url> to use another);
-//   - FM1VST's cores (data/cores.json: the 21, their pinned versions and licences, the twelve un-gated ones built for
-//     the web, the licensing gate of FM1VST CORES-PLAN.md section 6);
+//   - FM1VST's cores (data/cores.json: the 22, their pinned versions and licences, the thirteen un-gated ones built for
+//     the web, the licensing gate of FM1VST CORES-PLAN.md section 6); an un-gated core the Hub does not list (LOOM-8)
+//     is a native-only entry of its own (offHub, as live.js mergeLive makes one that left the Hub);
 //   - RemoteFM1 itself (web/installer/releases.json, its first release): the one package this site hosts, fetched from
 //     the installer's firmware/ folder on the same site, not from the Hub. It plays nothing; it waits for a host.
 // Every Hub firmware gets the emulated engine (its package fetched at play time from where the Hub points); the
-// twelve un-gated cores also get the native one, which is then their default while it is the Hub's version (newest wins:
+// thirteen un-gated cores also get the native one, which is then their default while it is the Hub's version (newest wins:
 // web/site/js/live.js, which builds the entries; the page merges the Hub's live catalog over this one at load).
 //   node web/site/tools/build_catalog.mjs [--layout dev|pages] [--hub FILE|URL] [--out FILE]
 // layout: where the engines, the remote module and the installer are, seen from the page:
@@ -143,13 +144,25 @@ const coreByHub = new Map(cores.map((c) => [c.hub || c.core, c]));
 let EMU_SKIP = { bubba: "boots to a black screen, no sound (needs M-VAVE's own loader)" };
 try { EMU_SKIP = (await import(new URL("../../engines/emu/catalog.mjs", import.meta.url).href)).EMU_SKIP || EMU_SKIP; } catch (_) { /* (W2's branch not merged) */ }
 
+// the native core's own source: the commit FM1VST pins (its submodule), and FM1VST's glue folder for it
+const nativeOf = (core) => core && !core.gated ? { core: core.core, version: core.version, wasm: PATHS[layout].engines.native.wasm.replace("{core}", core.core),
+  repo: core.repo || null, commit: core.commit || null, glue: core.glue || null } : null;
 const firmwares = hub.firmwares.map((f) => {
   const core = coreByHub.get(f.id) || null;
-  // the native core's own source: the commit FM1VST pins (its submodule), and FM1VST's glue folder for it
-  const native = core && !core.gated ? { core: core.core, version: core.version, wasm: PATHS[layout].engines.native.wasm.replace("{core}", core.core),
-    repo: core.repo || null, commit: core.commit || null, glue: core.glue || null } : null;
-  return siteEntry(f, { core, native, emuSkip: EMU_SKIP });   // (newest wins: emu is the default where the core is behind)
+  return siteEntry(f, { core, native: nativeOf(core), emuSkip: EMU_SKIP });   // (newest wins: emu is the default where the core is behind)
 });
+// an un-gated core the Hub does not list: native only, its entry from data/cores.json (name, what, release, authorFull)
+const onHub = new Set(hub.firmwares.map((f) => f.id));
+for (const core of cores) {
+  const id = core.hub || core.core;
+  if (core.gated || onHub.has(id)) continue;
+  if (!core.name || !core.what) { console.error(`build_catalog: ${core.core} is not on the Hub: data/cores.json needs its name and what`); process.exit(1); }
+  const gh = /^https:\/\/github\.com\/([^/]+\/[^/]+?)\/?$/.exec(core.repo || "");
+  const e = siteEntry({ id, name: core.name, version: core.version, author: core.authorFull || core.author, what: core.what,
+    source: core.repo || null, repo: gh ? gh[1] : null, release: core.release || null, beta: /\b(alpha|beta|rc)\b/i.test(core.version) },
+    { core, native: nativeOf(core), emuSkip: EMU_SKIP });
+  firmwares.push({ ...e, engines: ["native"], defaultEngine: "native", nativeBehind: false, emu: null, offHub: true });
+}
 
 // RemoteFM1 as a firmware to play: its released package, from this site's installer (the same origin as the page)
 const REMOTE_ID = "remotefm1";
@@ -206,5 +219,6 @@ const catalog = {
 };
 writeFileSync(out, JSON.stringify(catalog, null, 1) + "\n");
 const nNative = firmwares.filter((f) => f.native).length;
-console.log(`catalog: ${firmwares.length} firmwares (${nNative} native + emulated, ${firmwares.length - nNative} emulated, RemoteFM1 among them), layout ${layout} -> ${out}`);
-if (nNative !== 12) { console.error(`build_catalog: expected the 12 un-gated native cores, found ${nNative}`); process.exit(1); }
+const nOff = firmwares.filter((f) => f.offHub).length;
+console.log(`catalog: ${firmwares.length} firmwares (${nNative - nOff} native + emulated, ${nOff} native only, ${firmwares.length - nNative} emulated, RemoteFM1 among them), layout ${layout} -> ${out}`);
+if (nNative !== 13) { console.error(`build_catalog: expected the 13 un-gated native cores, found ${nNative}`); process.exit(1); }

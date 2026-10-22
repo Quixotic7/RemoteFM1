@@ -1,8 +1,8 @@
 #!/bin/bash
 # SPDX-License-Identifier: GPL-3.0-only
-# The native engine's build: FM1VST's 12 un-gated cores compiled to WebAssembly with Emscripten.
+# The native engine's build: FM1VST's 13 un-gated cores compiled to WebAssembly with Emscripten.
 #
-#   web/engines/native/build.sh [id ...]        (default: all twelve)
+#   web/engines/native/build.sh [id ...]        (default: all thirteen)
 #
 # Environment:
 #   FM1VST_DIR   FM1VST's tree, read only (default: the cores-all worktree here; in CI the submodule)
@@ -54,6 +54,7 @@ fimba        plat/core_fimba.cmake                fm1-fimba                   pl
 amb          fm1base/core_amb.cmake               fm1-amb                     fm1base
 obervave     dinghy/core_obervave.cmake           obervave                    dinghy
 frodhes      dinghy/core_frodhes.cmake            frodhes                     dinghy
+loom         fm1base/core_loom.cmake              fm1-loom                    fm1base
 "
 
 want="${*:-}"
