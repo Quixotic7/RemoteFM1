@@ -1,6 +1,6 @@
 {
  "about": "Built by web/site/tools/build_catalog.mjs from the FM-1 Firmware Hub's catalog, FM1VST's cores and RemoteFM1's own release (web/installer/releases.json). Edit those, not this file.",
- "generated": "2026-10-19",
+ "generated": "2026-10-22",
  "hubUpdated": "2026-10-18 17:01 UTC",
  "hubSource": "snapshot",
  "hub": "https://thefirmwarehub.com/",
@@ -44,7 +44,7 @@
    "name": "FM1VST",
    "license": "GPL-3.0-only",
    "source": "https://github.com/Quixotic7/FM1VST",
-   "commit": "66c017b85f619b4a4ae202ab4bdbdbd8ca80c658"
+   "commit": "2887e8d6d07ae4805f58aca8c74f7f2654a2bf21"
   },
   "hub": {
    "name": "The FM-1 Firmware Hub",
@@ -188,10 +188,10 @@
    "defaultEngine": "native",
    "native": {
     "core": "choralroot",
-    "version": "0.25.1",
+    "version": "0.26.1",
     "wasm": "../build/native/choralroot.wasm",
     "repo": "https://github.com/Quixotic7/ChoralRootFM1",
-    "commit": "15ca8d06554639ed50e4300d8e7ee7d0621cdedd",
+    "commit": "7d97982a7db3dad2da456a3e4d4478548b6571d9",
     "glue": "choralroot"
    },
    "emu": {
@@ -229,10 +229,10 @@
    "defaultEngine": "native",
    "native": {
     "core": "coralflower",
-    "version": "0.2",
+    "version": "0.4.2",
     "wasm": "../build/native/coralflower.wasm",
     "repo": "https://github.com/FicusFicusov/CoralFlower",
-    "commit": "4542bebb26065b567e122a9b51b00dcb7e2e9352",
+    "commit": "8c5fbec0eaaba8e7405b788f8da28c51b443be42",
     "glue": "choralroot"
    },
    "emu": {
@@ -788,10 +788,10 @@
    "defaultEngine": "native",
    "native": {
     "core": "frodhes",
-    "version": "0.9.2",
+    "version": "0.9.4",
     "wasm": "../build/native/frodhes.wasm",
     "repo": "https://github.com/leonardoMirabal/frodhes",
-    "commit": "e49a49d29ac5344fbaa8d42bad6ceecca3d6ea6f",
+    "commit": "c82f71edf343551b9d8f9b794c9724ac45099ac3",
     "glue": "dinghy"
    },
    "emu": {
@@ -1142,10 +1142,10 @@
    "defaultEngine": "native",
    "native": {
     "core": "melodee",
-    "version": "1.4.4",
+    "version": "1.4.5",
     "wasm": "../build/native/melodee.wasm",
     "repo": "https://github.com/keremimo/melodee",
-    "commit": "4f5fb6df7cb5573bd4694df78f81a0a416c0dfd2",
+    "commit": "398ada1e09d864c12f3b778a43e45c7c2a8031b8",
     "glue": "melodee"
    },
    "emu": {
@@ -1314,10 +1314,10 @@
    "defaultEngine": "native",
    "native": {
     "core": "obervave",
-    "version": "1.5.1",
+    "version": "1.5.3",
     "wasm": "../build/native/obervave.wasm",
     "repo": "https://github.com/zvenson/obervave",
-    "commit": "b91d9c19627517b36ffddb099bd6307f7cae368c",
+    "commit": "7e1ccf9ca9e96a14a961e48ea8fe6efa907422df",
     "glue": "dinghy"
    },
    "emu": {

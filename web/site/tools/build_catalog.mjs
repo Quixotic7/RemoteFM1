@@ -102,7 +102,9 @@ let fm1vstCommit = JSON.parse(readFileSync(join(SITE, "data", "cores.json"), "ut
               }
             } catch (_) { /* (the tree not checked out: data/cores.json's version) */ }
           }
-          found.set(id[1], { version: ver ? ver[1] : fver, dir: dirM ? dirM[1] : null, glue: relative(glueRoot, dirname(p)).split(sep).join("/") });
+          // (a VERSION given through a variable, set(_x 0.6-beta) ... VERSION ${_x}: the variable's value)
+          const sub = (t) => t.replace(/\$\{(\w+)\}/g, (m, v) => vars[v] ?? m);
+          found.set(id[1], { version: ver ? sub(ver[1]) : fver, dir: dirM ? dirM[1] : null, glue: relative(glueRoot, dirname(p)).split(sep).join("/") });
         }
       }
     }

@@ -108,12 +108,12 @@ function stubEngine() {
   // the firmware switches: the old port goes, the new one comes (new ids), as on USB
   const events = [];
   access.onstatechange = (e) => events.push(`${e.port.name}/${e.port.type}/${e.port.state}`);
-  bridge.setTarget({ port: "Melodee", firmware: "Melodee 1.4.4", engine: "native" });
+  bridge.setTarget({ port: "Melodee FM-1", firmware: "Melodee 1.4.5", engine: "native" });
   await sleep(20);
-  ok(events.join() === "Felucca/input/disconnected,Felucca/output/disconnected,Melodee/input/connected,Melodee/output/connected",
+  ok(events.join() === "Felucca/input/disconnected,Felucca/output/disconnected,Melodee FM-1/input/connected,Melodee FM-1/output/connected",
      "switch: statechange disconnected (old), connected (new)");
   const ins2 = [...access.inputs.values()];
-  ok(ins2.length === 1 && ins2[0].name === "Melodee" && ins2[0].id !== ins[0].id && ins[0].state === "disconnected", "switch: the maps hold the new port only, a new id");
+  ok(ins2.length === 1 && ins2[0].name === "Melodee FM-1" && ins2[0].id !== ins[0].id && ins[0].state === "disconnected", "switch: the maps hold the new port only, a new id");
   threw = null;
   try { outs[0].send(INFO); } catch (e) { threw = e; }
   ok(threw && threw.name === "InvalidStateError", "switch: sending on the old port throws InvalidStateError");

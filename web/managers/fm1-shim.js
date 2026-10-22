@@ -2,7 +2,7 @@
 // The FM-1 Player's Web MIDI shim for a hosted manager (web/managers/build.mjs puts it first in the page's <head>).
 //
 // It replaces navigator.requestMIDIAccess with a fake MIDIAccess: one input and one output named exactly as the running
-// firmware's USB port ("ChoralRoot FM-1", "Felucca", "Melodee", "JIANT FM" ...), sysexEnabled, wired to the firmware
+// firmware's USB port ("ChoralRoot FM-1", "Felucca", "Melodee FM-1", "JIANT FM" ...), sysexEnabled, wired to the firmware
 // that runs in the player page instead of a USB device:
 //   - in the player's Editor panel (an iframe of the same origin): window.postMessage to the parent;
 //   - in its own tab ("pop out"): a BroadcastChannel ("remotefm1-managers") to the player tab.
