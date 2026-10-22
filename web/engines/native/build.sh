@@ -25,7 +25,15 @@
 #      Emscripten JavaScript: engine.js gives it its few imports); the cores whose main loop runs on the coroutine
 #      (the Dinghy cores OberVave and Frodhes, Melodee: their module imports fm1w_co_yield) then get
 #      Binaryen's Asyncify pass for their coroutine (coro_wasm.c);
-#   4. web/build/native/cores.json: id, size, family, version, commit per core.
+#   4. web/build/native/cores.json: id, size, family, version, commit per core (every core built so far), and
+#      web/build/native/result.json, this run's: { fm1vst, built: [id], failed: [{ id, stage, log }] } (stage: mirror,
+#      configure, build or link; log: its last 40 lines).
+# Each core is a CMake project of its own (web/build/native/cmake/<id>), configured and built apart from the others,
+# several at once: a core that fails (a configure check, a compile error) is reported and left out, its .wasm removed,
+# and the rest are built. Exit 0: all built; 3: some failed, the rest built; 1: none built; 2: nothing could start
+# (no FM1VST, no emcc: no result.json).
+#   FM1WEB_JOBS        cores built at once (default half the CPUs, at least 2; each with make -j FM1WEB_CJOBS, 2)
+#   FM1WEB_CORES_FILE  a core table (the format of CORES below) in place of the built-in one: the tests' scratch copy
 #
 # --ext (an author's build): the same four steps for one core whose tree is TREE (the author's checkout at its
 # release tag, with its submodules) instead of FM1VST's submodule. The core's description, one of:
@@ -100,10 +108,13 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+# (this run's result only: a run that cannot start leaves none, so an earlier run's list is never published as this one's)
+[ -n "$EXT" ] || rm -f "$WEB/build/native/result.json"
 [ -f "$FM1VST_DIR/core-api/fm1core.h" ] || { echo "build.sh: no FM1VST at $FM1VST_DIR (FM1VST_DIR)" >&2; exit 2; }
 if ! command -v emcc > /dev/null; then
     # shellcheck disable=SC1091
-    source "$EMSDK/emsdk_env.sh" > /dev/null 2>&1 || true
+    # (bash 3.2 exits on a missing sourced file even with || true: test it first)
+    if [ -f "$EMSDK/emsdk_env.sh" ]; then source "$EMSDK/emsdk_env.sh" > /dev/null 2>&1 || true; fi
 fi
 command -v emcc > /dev/null || { echo "build.sh: no emcc (EMSDK=$EMSDK)" >&2; exit 2; }
 WASM_OPT="$(dirname "$(command -v emcc)")/../bin/wasm-opt"
@@ -259,59 +270,84 @@ fi
 OUT="$WEB/build/native"
 SRC="$OUT/src"
 BLD="$OUT/cmake"
+RESULT="$OUT/result.json"
 want="${args[*]:-}"
+if [ -n "${FM1WEB_CORES_FILE:-}" ]; then CORES="$(cat "$FM1WEB_CORES_FILE")"; fi   # (a scratch core table: the tests)
 sel=()
 while read -r id cm tree fam; do
     [ -n "$id" ] || continue
+    case "$id" in \#*) continue ;; esac
     if [ -z "$want" ] || [[ " $want " == *" $id "* ]]; then
         sel+=("$id:$cm:$tree:$fam")
     fi
 done <<< "$CORES"
 [ ${#sel[@]} -gt 0 ] || { echo "build.sh: no such core: $want" >&2; exit 2; }
-mkdir -p "$SRC" "$BLD"
+mkdir -p "$SRC" "$BLD" "$OUT/meta"
 
 # ---- 1. the mirror (tracked files only; rsync keeps the times, so an unchanged file does not rebuild)
 echo "== mirror of $FM1VST_DIR"
 git -C "$FM1VST_DIR" ls-files -z cmake core-api core-glue |
     rsync -a --from0 --files-from=- "$FM1VST_DIR/" "$SRC/"
 cp "$HERE/cmake/CMakeLists.txt" "$SRC/CMakeLists.txt"
-defs=()
-list=""
+
+# ---- 2. one core: mirror its tree, configure, build its library, link it. Writes cmake/<id>/status: ok, or the
+# step that failed (mirror, configure, build, link), whose log is cmake/<id>/<step>.log
+CJ="${FM1WEB_CJOBS:-2}"
+one_core() {
+    local id="$1" cm="$2" tree="$3" fam="$4" bld="$BLD/$1" t="$FM1VST_DIR/cores/$3" commit size ver
+    mkdir -p "$bld"
+    rm -f "$bld/status"
+    fail() { echo "$1" > "$bld/status"; rm -f "$OUT/$id.wasm" "$OUT/meta/$id.json"; }
+    { [ -d "$t" ] && [ -n "$(ls -A "$t" 2>/dev/null)" ] && mirror_tree "$t" "$SRC/cores/$tree"; } > "$bld/mirror.log" 2>&1 ||
+        { echo "no tree at $t (git submodule update --init --recursive)" >> "$bld/mirror.log"; fail mirror; return 0; }
+    commit="$(git -C "$t" rev-parse HEAD 2>/dev/null || echo unknown)"
+    emcmake cmake -S "$SRC" -B "$bld" -DCMAKE_BUILD_TYPE=Release -DCR_PYTHON="$CR_PYTHON" \
+        -DFM1WEB_CORES="$id=core-glue/$cm=$tree" -DFM1WEB_CORO="$HERE/coro_wasm.c" -DFM1WEB_OPT="$FM1WEB_OPT" \
+        "-DFM1WEB_COMMIT_$id=$commit" > "$bld/configure.log" 2>&1 || { fail configure; return 0; }
+    cmake --build "$bld" -j"$CJ" --target "core_$id" > "$bld/build.log" 2>&1 || { fail build; return 0; }
+    link_core "$id" "$bld/libcore_$id.a" "$OUT/$id.wasm" > "$bld/link.log" 2>&1 || { fail link; return 0; }
+    size=$(wc -c < "$OUT/$id.wasm" | tr -d ' ')     # (GNU stat -f is the filesystem's status, not a format)
+    ver=$(grep -E "^-- $id core: version" "$bld/configure.log" | sed -E 's/.*version ([^,]*),.*/\1/' || true)
+    echo "{\"id\":\"$id\",\"wasm\":\"$id.wasm\",\"bytes\":$size,\"family\":\"$fam\",\"version\":\"$ver\",\"commit\":\"$commit\"}" > "$OUT/meta/$id.json"
+    echo ok > "$bld/status"
+}
+
+if [ -n "${FM1WEB_JOBS:-}" ]; then JOBS="$FM1WEB_JOBS"
+else JOBS=$(( $(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4) / 2 )); [ "$JOBS" -ge 2 ] || JOBS=2; fi
+echo "== ${#sel[@]} cores, $JOBS at a time (emcmake, $FM1WEB_OPT)"
 for e in "${sel[@]}"; do
     IFS=: read -r id cm tree fam <<< "$e"
-    t="$FM1VST_DIR/cores/$tree"
-    mirror_tree "$t" "$SRC/cores/$tree"
-    commit="$(git -C "$t" rev-parse HEAD)"
-    defs+=("-DFM1WEB_COMMIT_$id=$commit")
-    list="$list${list:+;}$id=core-glue/$cm=$tree"
+    while [ "$(jobs -rp | wc -l)" -ge "$JOBS" ]; do sleep 0.2; done
+    one_core "$id" "$cm" "$tree" "$fam" &
 done
+wait
 
-# ---- 2. FM1VST's core build under Emscripten
-echo "== configure (emcmake, $FM1WEB_OPT)"
-emcmake cmake -S "$SRC" -B "$BLD" -DCMAKE_BUILD_TYPE=Release -DCR_PYTHON="$CR_PYTHON" \
-    -DFM1WEB_CORES="$list" -DFM1WEB_CORO="$HERE/coro_wasm.c" -DFM1WEB_OPT="$FM1WEB_OPT" "${defs[@]}" > "$BLD/configure.log" 2>&1 ||
-    { cat "$BLD/configure.log"; exit 1; }
-grep -E "core: version" "$BLD/configure.log" || true
-targets=()
+# ---- 3. what was built: a line per core (a failure: its log's tail), and web/build/native/result.json
+built=() failed=()
 for e in "${sel[@]}"; do
     IFS=: read -r id _ <<< "$e"
-    targets+=(--target "core_$id")
+    st="$(cat "$BLD/$id/status" 2>/dev/null || echo build)"
+    if [ "$st" = ok ]; then
+        built+=("$id")
+        grep -E "^-- $id core: version" "$BLD/$id/configure.log" || true
+        printf '  %s.wasm  %d bytes\n' "$id" "$(wc -c < "$OUT/$id.wasm" | tr -d ' ')"
+    else
+        failed+=("$id:$st")
+        echo "== FAILED: $id ($st); the last lines of $BLD/$id/$st.log:"
+        tail -40 "$BLD/$id/$st.log" 2>/dev/null | sed 's/^/   | /' || true
+    fi
 done
-echo "== build ${#sel[@]} core libraries"
-cmake --build "$BLD" -j8 "${targets[@]}" > "$BLD/build.log" 2>&1 || { tail -60 "$BLD/build.log"; exit 1; }
+fv="$(git -C "$FM1VST_DIR" rev-parse HEAD 2>/dev/null || echo unknown)"
+# shellcheck disable=SC2016
+node -e '
+const fs = require("fs"), [out, bld, fv, built, failed] = process.argv.slice(1);
+const tail = (f) => { try { return fs.readFileSync(f, "utf8").replace(/\r/g, "").trim().split("\n").slice(-40).join("\n"); } catch (_) { return ""; } };
+const r = { fm1vst: fv, built: built ? built.split(" ") : [], failed: (failed ? failed.split(" ") : []).map((s) => {
+  const [id, stage] = s.split(":"); return { id, stage, log: tail(`${bld}/${id}/${stage}.log`) }; }) };
+fs.writeFileSync(out, JSON.stringify(r, null, 1) + "\n");
+' "$RESULT" "$BLD" "$fv" "${built[*]:-}" "${failed[*]:-}"
 
-# ---- 3. link each core
-mkdir -p "$OUT/meta"
-for e in "${sel[@]}"; do
-    IFS=: read -r id cm tree fam <<< "$e"
-    link_core "$id" "$BLD/libcore_$id.a" "$OUT/$id.wasm"
-    size=$(wc -c < "$OUT/$id.wasm" | tr -d ' ')     # (GNU stat -f is the filesystem's status, not a format)
-    ver=$(grep -E "^-- $id core: version" "$BLD/configure.log" | sed -E 's/.*version ([^,]*),.*/\1/' || true)
-    commit=$(git -C "$FM1VST_DIR/cores/$tree" rev-parse HEAD)
-    printf '  %s.wasm  %d bytes\n' "$id" "$size"
-    echo "{\"id\":\"$id\",\"wasm\":\"$id.wasm\",\"bytes\":$size,\"family\":\"$fam\",\"version\":\"$ver\",\"commit\":\"$commit\"}" > "$OUT/meta/$id.json"
-done
-# every core built so far (this run or an earlier one), in the table's order
+# ---- 4. every core built so far (this run or an earlier one), in the table's order
 json="["
 while read -r id _; do
     [ -n "$id" ] && [ -f "$OUT/meta/$id.json" ] && [ -f "$OUT/$id.wasm" ] || continue
@@ -319,4 +355,8 @@ while read -r id _; do
     json="$json$(cat "$OUT/meta/$id.json")"
 done <<< "$CORES"
 echo "$json]" > "$OUT/cores.json"
-echo "== done: $OUT"
+echo "== done: $OUT (${#built[@]} built, ${#failed[@]} failed${failed[*]:+: ${failed[*]}})"
+# 0: every core built; 3: some failed, the others built (a partial build); 1: none built
+[ ${#failed[@]} -eq 0 ] && exit 0
+[ ${#built[@]} -gt 0 ] && exit 3
+exit 1
