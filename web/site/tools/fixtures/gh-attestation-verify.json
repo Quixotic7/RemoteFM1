@@ -1,0 +1,63 @@
+[
+ {
+  "attestation": {
+   "bundle": {
+    "mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json",
+    "verificationMaterial": { "certificate": { "rawBytes": "(elided)" }, "tlogEntries": [], "timestampVerificationData": {} },
+    "dsseEnvelope": { "payload": "(elided)", "payloadType": "application/vnd.in-toto+json", "signatures": [{ "sig": "(elided)" }] }
+   },
+   "bundle_url": "https://github.com/(elided)"
+  },
+  "verificationResult": {
+   "mediaType": "application/vnd.dev.sigstore.verificationresult+json;version=0.1",
+   "statement": {
+    "_type": "https://in-toto.io/Statement/v1",
+    "subject": [ { "name": "{{NAME}}", "digest": { "sha256": "{{SHA256}}" } } ],
+    "predicateType": "https://slsa.dev/provenance/v1",
+    "predicate": {
+     "buildDefinition": {
+      "buildType": "https://actions.github.io/buildtypes/workflow/v1",
+      "externalParameters": { "workflow": { "ref": "refs/tags/{{TAG}}", "repository": "https://github.com/{{REPO}}", "path": ".github/workflows/release.yml" } },
+      "internalParameters": { "github": { "event_name": "push", "repository_id": "1", "repository_owner_id": "1", "runner_environment": "github-hosted" } },
+      "resolvedDependencies": [ { "uri": "git+https://github.com/{{REPO}}@refs/tags/{{TAG}}", "digest": { "gitCommit": "{{COMMIT}}" } } ]
+     },
+     "runDetails": {
+      "builder": { "id": "https://github.com/{{SIGNER_WORKFLOW}}@{{SIGNER_REF}}" },
+      "metadata": { "invocationId": "https://github.com/{{REPO}}/actions/runs/40000000001/attempts/1" }
+     }
+    }
+   },
+   "signature": {
+    "certificate": {
+     "certificateIssuer": "CN=sigstore-intermediate,O=sigstore.dev",
+     "subjectAlternativeName": "https://github.com/{{SIGNER_WORKFLOW}}@{{SIGNER_REF}}",
+     "issuer": "https://token.actions.githubusercontent.com",
+     "githubWorkflowTrigger": "push",
+     "githubWorkflowSHA": "{{COMMIT}}",
+     "githubWorkflowName": "release",
+     "githubWorkflowRepository": "{{REPO}}",
+     "githubWorkflowRef": "refs/tags/{{TAG}}",
+     "buildSignerURI": "https://github.com/{{SIGNER_WORKFLOW}}@{{SIGNER_REF}}",
+     "buildSignerDigest": "0000000000000000000000000000000000000001",
+     "runnerEnvironment": "github-hosted",
+     "sourceRepositoryURI": "https://github.com/{{SOURCE_REPO}}",
+     "sourceRepositoryDigest": "{{COMMIT}}",
+     "sourceRepositoryRef": "refs/tags/{{TAG}}",
+     "sourceRepositoryIdentifier": "1",
+     "sourceRepositoryOwnerURI": "https://github.com/{{OWNER}}",
+     "sourceRepositoryOwnerIdentifier": "1",
+     "buildConfigURI": "https://github.com/{{REPO}}/.github/workflows/release.yml@refs/tags/{{TAG}}",
+     "buildConfigDigest": "{{COMMIT}}",
+     "buildTrigger": "push",
+     "runInvocationURI": "https://github.com/{{REPO}}/actions/runs/40000000001/attempts/1",
+     "sourceRepositoryVisibilityAtSigning": "public"
+    }
+   },
+   "verifiedTimestamps": [ { "type": "Tlog", "uri": "https://rekor.sigstore.dev", "timestamp": "2026-10-22T08:00:00Z" } ],
+   "verifiedIdentity": {
+    "subjectAlternativeName": { "regexp": "(?i)^https://github.com/Quixotic7/RemoteFM1/.github/workflows/fm1-native.yml@" },
+    "issuer": { "issuer": "https://token.actions.githubusercontent.com" }
+   }
+  }
+ }
+]

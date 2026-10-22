@@ -5,13 +5,18 @@
  * The clock is FM1VST's engine/device.cpp run_ms, unchanged: tick(ms) once per device millisecond, frame() at ms 0
  * and every 15 ms or idle() otherwise, then audio() for each 128-frame block due at 44100 Hz. fmw_block() runs the
  * device until the next block exists and returns it (int16 stereo, 44.1 kHz): engine.js resamples to the context
- * rate. The input reaches the panel as Device::keys / buttons / enc / master write it. */
+ * rate. The input reaches the panel as Device::keys / buttons / enc / master write it.
+ * The same file is compiled with the host's compiler for an author's build's reference picture (host_shot.c). */
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include "fm1core.h"
 
+#ifdef __wasm__
 #define FMW_EXPORT(name) __attribute__((used, export_name(#name)))
+#else
+#define FMW_EXPORT(name)               /* (the host build: host_shot.c calls these directly) */
+#endif
 
 static const fm1core_t *C;
 static uint32_t dev_ms, last_frame;

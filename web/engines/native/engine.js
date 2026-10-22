@@ -193,10 +193,12 @@ function now() {
     return typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
 }
 
-async function instantiate(wasm, log) {
-    const module = wasm instanceof WebAssembly.Module ? wasm : await WebAssembly.compile(wasm);
+// the module's imports: the only functions a core can reach (an author's build is checked against exactly this set
+// before the site publishes it: PROVIDED_IMPORTS below, web/engines/native/fm1web.mjs checkModule)
+function makeImports(rt, log) {
     let ex = null, u8 = null, dv = null, buf = null;
     const views = () => {
+        ex = rt.ex;
         if (buf !== ex.memory.buffer) {
             buf = ex.memory.buffer;
             u8 = new Uint8Array(buf);
@@ -247,25 +249,59 @@ async function instantiate(wasm, log) {
         emscripten_notify_memory_growth() {},
         // the coroutine (coro_wasm.c)
         fm1w_co_call(c, data, started) {
+            const ex = rt.ex;
             if (started) ex.asyncify_start_rewind(data);
             ex.fmw_co_entry(c);
             if (ex.asyncify_get_state() === 1) ex.asyncify_stop_unwind();   // it yielded
         },
         fm1w_co_yield(data) {
+            const ex = rt.ex;
             if (ex.asyncify_get_state() === 2) { ex.asyncify_stop_rewind(); return; }   // resumed here
             ex.asyncify_start_unwind(data);
         },
     };
-    const imports = { env, wasi_snapshot_preview1: wasi };
-    for (const imp of WebAssembly.Module.imports(module)) {
-        const ns = imports[imp.module];
-        if (imp.kind === "function" && (!ns || !(imp.name in ns)))
-            throw new Error(`native engine: the core imports ${imp.module}.${imp.name}, which engine.js lacks`);
+    return { imports: { env, wasi_snapshot_preview1: wasi }, mem: () => (views(), { u8, dv, buf }) };
+}
+
+// { module: [names] }: every function import engine.js gives a core (and nothing else: no memory, table or global)
+export const PROVIDED_IMPORTS = Object.freeze(Object.fromEntries(Object.entries(makeImports({}, () => {}).imports)
+    .map(([m, o]) => [m, Object.freeze(Object.keys(o).sort())])));
+// the exports engine.js calls (wasm_glue.c); a core on the coroutine also exports Asyncify's and fmw_co_entry
+export const REQUIRED_EXPORTS = Object.freeze(["memory", "fmw_malloc", "fmw_free", "fmw_open", "fmw_boot", "fmw_block",
+    "fmw_ms", "fmw_run_ms", "fmw_input", "fmw_enc", "fmw_key_vel", "fmw_midi_in", "fmw_midi_out", "fmw_lcd_writes",
+    "fmw_lcd", "fmw_leds", "fmw_play_green", "fmw_halted", "fmw_flash", "fmw_flash_size", "fmw_flash_dirty",
+    "fmw_flash_sync", "fmw_shutdown", "fmw_str", "fmw_keymap", "fmw_btn_id", "fmw_enc_id", "fmw_enc_dir"]);
+export const COROUTINE_EXPORTS = Object.freeze(["fmw_co_entry", "asyncify_start_unwind", "asyncify_stop_unwind",
+    "asyncify_start_rewind", "asyncify_stop_rewind", "asyncify_get_state"]);
+
+// what is wrong with a module, as engine.js would run it: [] when nothing. flags (an author's build's manifest):
+// { asyncify } must say whether the module runs on the coroutine
+export function moduleProblems(module, flags = null) {
+    const bad = [];
+    const imps = WebAssembly.Module.imports(module), exps = new Set(WebAssembly.Module.exports(module).map((e) => e.name));
+    for (const imp of imps) {
+        const names = PROVIDED_IMPORTS[imp.module];
+        if (imp.kind !== "function") bad.push(`imports a ${imp.kind}, ${imp.module}.${imp.name} (only functions)`);
+        else if (!names || !names.includes(imp.name)) bad.push(`imports ${imp.module}.${imp.name}, which engine.js does not provide`);
     }
+    for (const e of REQUIRED_EXPORTS) if (!exps.has(e)) bad.push(`does not export ${e}`);
+    const coro = imps.some((i) => i.name === "fm1w_co_yield" || i.name === "fm1w_co_call");
+    if (coro) for (const e of COROUTINE_EXPORTS) if (!exps.has(e)) bad.push(`runs on the coroutine but does not export ${e}`);
+    if (flags && typeof flags.asyncify === "boolean" && flags.asyncify !== coro)
+        bad.push(`its manifest says asyncify ${flags.asyncify}, the module ${coro ? "runs" : "does not run"} on the coroutine`);
+    return bad;
+}
+
+async function instantiate(wasm, log, flags = null) {
+    const module = wasm instanceof WebAssembly.Module ? wasm : await WebAssembly.compile(wasm);
+    const bad = moduleProblems(module, flags);
+    if (bad.length) throw new Error(`native engine: the core ${bad.join("; ")}`);
+    const rt = { ex: null };
+    const { imports, mem } = makeImports(rt, log);
     const inst = await WebAssembly.instantiate(module, imports);
-    ex = inst.exports;
-    if (ex._initialize) ex._initialize();
-    return { ex, mem: () => (views(), { u8, dv, buf }) };
+    rt.ex = inst.exports;
+    if (rt.ex._initialize) rt.ex._initialize();
+    return { ex: rt.ex, mem };
 }
 
 class NativeEngine {
@@ -470,12 +506,15 @@ class NativeEngine {
 export const _midi = { MidiParser, packetBytes };
 
 // files.wasm: the core's .wasm as an ArrayBuffer / typed array, or an already compiled WebAssembly.Module.
-// options.log(fd, line): the firmware's printf (default: dropped)
+// files.flags: an author's build's manifest flags ({ asyncify, abi }, the catalog's native entry): checked against
+// the module before it runs. options.log(fd, line): the firmware's printf (default: dropped)
 export async function createEngine({ sampleRate, files, flash = null, options = {} }) {
     if (!files || !files.wasm) throw new Error("native engine: files.wasm is required");
+    const flags = files.flags || null;
+    if (flags && flags.abi !== undefined && flags.abi !== 6) throw new Error(`native engine: the core is for ABI ${flags.abi}, not 6`);
     const rate = sampleRate || FS;
     const log = options.log || (() => {});
-    const rt = await instantiate(files.wasm, log);
+    const rt = await instantiate(files.wasm, log, flags);
     const ex = rt.ex;
     if (!ex.fmw_open()) throw new Error("native engine: the module has no ABI 6 core");
     let p = 0, n = 0;

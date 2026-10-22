@@ -12,7 +12,7 @@ import * as saves from "./saves.js";
 import { Sheet, icon } from "./sheet.js";
 import { makeSite } from "./remote-hook.js";
 import { createFm1, mountUseFm1, mountHeader } from "./use-fm1.js";
-import { liveCatalog, mergeLive, packageFor, chooseEngine, compareVersions, sourceOf } from "./live.js";
+import { liveCatalog, mergeLive, packageFor, chooseEngine, compareVersions, sourceOf, nativeOrigin } from "./live.js";
 import { loadPrefs, savePrefs as writePrefs, keyHintsOn, shiftHintDue } from "./prefs.js";
 import { mhzFor, pickMhz, stepDown, Governor, DEVICE_MHZ } from "./cpu.js";
 import { EditorPanel } from "./editor-panel.js";
@@ -323,15 +323,16 @@ function creditStatus() {
 function metaLine() {
   const e = state.entry;
   if (!e) return "";
-  const eng = state.engine === "mock" ? "test engine (the real one is not here yet)" : state.engine === "native" ? "native" : `emulated, ${state.mhz} MHz`;
+  const eng = state.engine === "mock" ? "test engine (the real one is not here yet)" : state.engine === "native" ? (e.native && e.native.by === "author" ? "native, built by the author" : "native") : `emulated, ${state.mhz} MHz`;
   return `${e.category} · ${e.tag} · ${e.author} · ${eng}`;
 }
 function engineNote() {
   const e = state.entry;
   if (!e) return "";
-  const n = !e.native ? null : e.nativeBehind
-    ? `Native: FM1VST's ${e.name} core ${e.native.version}, older than the Hub's ${e.version}, compiled to WebAssembly; starts at once and is lighter on the CPU.`
-    : `Native: FM1VST's ${e.name} core ${e.native.version}, compiled to WebAssembly; starts at once.`;
+  const o = nativeOrigin(e);
+  const n = !e.native ? null : (e.nativeBehind
+    ? `Native: ${o.long}, older than the Hub's ${e.version}, compiled to WebAssembly; starts at once and is lighter on the CPU.`
+    : `Native: ${o.long}, compiled to WebAssembly; starts at once.`) + (e.nativeWhy ? ` Of the two native builds, ${e.nativeWhy}.` : "");
   const m = e.engines.includes("emu") ? `Emulated: the firmware's own package ${e.version}${e.nativeBehind ? " (the latest)" : ""} on fm1-emu, the FM-1's chip in the browser; heavier on the CPU.` : null;
   const now = state.engine === "mock" ? `Now: a test engine, because the ${state.wantEngine === "native" ? "native" : "emulated"} engine could not start.` : "";
   const credit = state.engine === "emu" ? catalog.credits.fm1emu.line + "." : "";

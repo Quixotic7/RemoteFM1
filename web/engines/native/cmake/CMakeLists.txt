@@ -10,6 +10,10 @@
 #   - FM1CORE_COMMIT is the FM1VST submodule's commit (the mirror has no .git: build.sh passes it);
 #   - a fork's tools/emu/web/compat (its own shims of macOS headers for its browser build) is on the include path.
 # Only the static libraries core_<id> (and their generate steps) are built; build.sh links each with emcc.
+# An author's build (build.sh --ext): FM1WEB_TREE is the author's tree (cores/<tree> in the mirror; a glue cmake of the
+# author's names it as SOURCE), FM1WEB_FAMILY_DIR the family's glue folder (on the include path of the author's glue
+# units), FM1WEB_VERSION_<id> the version the descriptor reports (FM1CORE_VERSION). FM1WEB_HOST: the same core with
+# the host's compiler (build.sh --host: the conformance test's reference picture), libm linked.
 cmake_minimum_required(VERSION 3.20)
 project(fm1web_cores C CXX)
 
@@ -17,11 +21,18 @@ set(CR_PYTHON "" CACHE FILEPATH "python3 with Pillow (+ libraqm) and fontTools, 
 set(FM1WEB_CORES "" CACHE STRING "id=core-glue/<family>/core_<id>.cmake=<tree under cores/>;..")
 set(FM1WEB_CORO "" CACHE FILEPATH "the coroutine that replaces core-glue/common/coro.c")
 set(FM1WEB_OPT "-Os" CACHE STRING "the optimisation level of the units")
+set(FM1WEB_TREE "" CACHE PATH "an author's build: the firmware's tree")
+set(FM1WEB_FAMILY_DIR "" CACHE PATH "an author's build: the family's glue folder, for the author's glue units")
+option(FM1WEB_HOST "build with the host's compiler (the reference picture), not Emscripten" OFF)
 set(FM1_PUBLIC_BUILD ON CACHE BOOL "only the un-gated cores" FORCE)
 if(NOT CR_PYTHON)
     message(FATAL_ERROR "CR_PYTHON is required")
 endif()
-set(MATH_LIB "")                                  # (Emscripten's libc has libm)
+if(FM1WEB_HOST)
+    set(MATH_LIB m)
+else()
+    set(MATH_LIB "")                              # (Emscripten's libc has libm)
+endif()
 
 include(cmake/FM1Cores.cmake)
 set(FM1_COMMON_SOURCES ${FM1_COMMON_DIR}/nor.c ${FM1_COMMON_DIR}/fifo.c ${FM1WEB_CORO})
@@ -46,6 +57,16 @@ foreach(_e IN LISTS FM1WEB_CORES)
     if(DEFINED FM1WEB_COMMIT_${_id})
         list(TRANSFORM _d REPLACE "^FM1CORE_COMMIT=.*$" "FM1CORE_COMMIT=\"${FM1WEB_COMMIT_${_id}}\"")
         set_target_properties(core_${_id}_obj PROPERTIES COMPILE_DEFINITIONS "${_d}")
+    endif()
+    if(DEFINED FM1WEB_VERSION_${_id})
+        get_target_property(_d core_${_id}_obj COMPILE_DEFINITIONS)
+        list(TRANSFORM _d REPLACE "^FM1CORE_VERSION=.*$" "FM1CORE_VERSION=\"${FM1WEB_VERSION_${_id}}\"")
+        set_target_properties(core_${_id}_obj PROPERTIES COMPILE_DEFINITIONS "${_d}")
+        message(STATUS "${_id} core: reports version ${FM1WEB_VERSION_${_id}} (the release's)")
+    endif()
+    # an author's glue units (core-glue/ext_<id>) reach the family's headers as FM1VST's own units do
+    if(FM1WEB_FAMILY_DIR AND _cm MATCHES "^core-glue/ext_")
+        target_include_directories(core_${_id}_obj PRIVATE ${FM1WEB_FAMILY_DIR})
     endif()
     # a fork's own browser shims for the macOS headers its emulator unit includes (ChoralRoot's family:
     # tools/emu/web/compat/os/lock.h, as the fork's own build_web.sh passes -I; without its -DEMU_WEB)

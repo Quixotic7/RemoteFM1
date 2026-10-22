@@ -2,6 +2,11 @@
 // The native engine's Node test (web/engine/API.md section 4), per core, through engine.js as the page uses it:
 //
 //   node web/engines/native/test.mjs [id ...]      (after build.sh; default: every core in web/build/native)
+//   node web/engines/native/test.mjs --wasm FILE [--id ID] [--conformance FILE] [--reference PPM] [--out DIR]
+//                                    [--json FILE]
+//        one module from anywhere (an author's build: build.sh --ext, .github/scripts/fm1-native.sh, the site's sync):
+//        ID the descriptor's id (default: the file's name), the conformance file and the reference picture (the host
+//        build's first screen, build.sh --host) given; --json writes the results
 //
 //   1. createEngine from an empty flash; info() filled (id, name, version, licence, source, 14 button names)
 //   2. screen: not blank (two or more colours) within 3 s of device time, run ms by ms as FM1VST's
@@ -29,7 +34,10 @@ import { createEngine, _midi } from "./engine.js";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const WEB = path.resolve(HERE, "../..");
 const BUILD = path.join(WEB, "build/native");
-const OUT = path.join(WEB, "build/test");
+const opt = (k) => { const i = process.argv.indexOf(k); if (i < 0) return null; const v = process.argv[i + 1]; process.argv.splice(i, 2); return v; };
+const ONE = { wasm: opt("--wasm"), id: opt("--id"), conformance: opt("--conformance"), reference: opt("--reference"),
+              json: opt("--json") };
+const OUT = opt("--out") || path.join(WEB, "build/test");
 const FM1VST_DIR = process.env.FM1VST_DIR ||
     "/Volumes/Q7Media-2025/Projects/Github/ChoralRootFM1/FM1VST/.claude/worktrees/cores-all";
 const GLUE = fs.existsSync(path.join(BUILD, "src/core-glue")) ? path.join(BUILD, "src/core-glue")
@@ -93,7 +101,8 @@ function readPpm(file) {           // a P6 240 x 240 file's pixels
 
 // --------------------------------------------------------------------------------- the conformance file ---
 function conformance(info) {
-    const files = [path.join(GLUE, info.family, `conformance_${info.id}.txt`), path.join(GLUE, info.family, "conformance.txt")];
+    const files = ONE.wasm ? [ONE.conformance].filter(Boolean)
+        : [path.join(GLUE, info.family, `conformance_${info.id}.txt`), path.join(GLUE, info.family, "conformance.txt")];
     const f = files.find((x) => fs.existsSync(x));
     const c = { file: f, boot_ms: 3000, settle_ms: 1000, key: 9, hold: 500, sound: [], save: [], saved: [], reboot: [],
                 flashNone: null, rebootNone: null, savedLcdDiffers: false };
@@ -205,7 +214,7 @@ const same = (a, b) => { for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) r
 
 // ----------------------------------------------------------------------------------------------- per core ---
 async function testCore(id) {
-    const wasm = fs.readFileSync(path.join(BUILD, `${id}.wasm`));
+    const wasm = fs.readFileSync(ONE.wasm || path.join(BUILD, `${id}.wasm`));
     const module = await WebAssembly.compile(wasm);
     const mk = (flash = null, sampleRate = 44100) => createEngine({ sampleRate, files: { wasm: module }, flash, options: {} });
     const res = { id, bytes: wasm.length, checks: [], fails: 0 };
@@ -226,15 +235,20 @@ async function testCore(id) {
     const drawn = e.deviceMs();
     check(!blank(px), `screen not blank within ${conf.boot_ms} ms (at ${drawn} ms)`);
     writePng(path.join(OUT, `native-${id}-boot.png`), px);
-    const ref = ["build-public", "build", "build-release"].map((b) => path.join(FM1VST_DIR, b, "conformance", `${id}.ppm`))
-        .find((f) => fs.existsSync(f));
+    const ref = ONE.wasm ? (ONE.reference && fs.existsSync(ONE.reference) ? ONE.reference : null)
+        : ["build-public", "build", "build-release"].map((b) => path.join(FM1VST_DIR, b, "conformance", `${id}.ppm`))
+            .find((f) => fs.existsSync(f));
     if (ref) {
         const a = rgbOf(px), b = readPpm(ref);
         let diff = 0;
         for (let i = 0; i < W * H; i++) if (a[3 * i] !== b[3 * i] || a[3 * i + 1] !== b[3 * i + 1] || a[3 * i + 2] !== b[3 * i + 2]) diff++;
         res.ref = diff === 0 ? "identical" : `${diff} px differ`;
-        check(diff === 0, `the first picture is FM1VST's (${path.relative(FM1VST_DIR, ref)}): ${res.ref}`);
-    }
+        check(diff === 0, ONE.wasm ? `the first picture is the host build's (${path.basename(ref)}): ${res.ref}`
+                                   : `the first picture is FM1VST's (${path.relative(FM1VST_DIR, ref)}): ${res.ref}`);
+    } else if (ONE.wasm) note("the first picture: no reference picture (no host build)");
+    res.info = { id: info.id, name: info.name, version: info.version, license: info.license, source: info.source,
+                 family: info.family, credits: info.credits };
+    res.drawnMs = drawn;
     e.dispose();
     e = await mk();
     renderTo(e, 3000);
@@ -383,7 +397,8 @@ async function testCore(id) {
     if (!all) process.exitCode = 1;
 }
 
-const ids = process.argv.slice(2).length ? process.argv.slice(2)
+const ids = ONE.wasm ? [ONE.id || path.basename(ONE.wasm, ".wasm")]
+    : process.argv.slice(2).length ? process.argv.slice(2)
     : JSON.parse(fs.readFileSync(path.join(BUILD, "cores.json"), "utf8")).map((c) => c.id);
 fs.mkdirSync(OUT, { recursive: true });
 const rows = [];
@@ -404,4 +419,5 @@ console.log("\n| id | wasm size | real-time factor (Node, 48 kHz) | test result 
 for (const r of rows)
     console.log(`| ${r.id} | ${(r.bytes / 1024).toFixed(0)} KiB | ${r.rtf ? r.rtf.toFixed(0) + "x" : "-"} | ${r.fails ? `FAIL (${r.fails})` : "pass"}${r.flash === "n/a" ? " (flash n/a)" : ""} |`);
 console.log(fails ? `\n${fails} check(s) failed` : "\nall passed");
+if (ONE.json) fs.writeFileSync(ONE.json, JSON.stringify({ fails: fails + (process.exitCode ? 1 : 0), cores: rows }, null, 1) + "\n");
 process.exit(fails || process.exitCode ? 1 : 0);

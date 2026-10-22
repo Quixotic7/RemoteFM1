@@ -469,6 +469,118 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   }
 }
 
+// ---- authors' own native builds (docs/NATIVE-AUTHORS.md): the engine's import whitelist, the .fm1web checks, the
+// site's sync with a recorded gh (tools/fixtures/gh-mock.mjs), the catalog's choice between two native builds
+{
+  const { preferNative, authorNative, nativeOrigin } = await import("./js/live.js");
+  const { PROVIDED_IMPORTS, moduleProblems } = await import("../engines/native/engine.js");
+  const F = await import("../engines/native/fm1web.mjs");
+  const S = await import("./tools/native_sync.mjs");
+  const { mkdtempSync, writeFileSync, rmSync, readdirSync } = await import("node:fs");
+  // a wasm module by hand: function imports [module, name], memory imports, exported functions (all () -> ())
+  const leb = (n) => { const o = []; do { let b = n & 0x7f; n >>>= 7; if (n) b |= 0x80; o.push(b); } while (n); return o; };
+  const str = (s) => [...leb(Buffer.byteLength(s)), ...Buffer.from(s)];
+  const sec = (id, body) => [id, ...leb(body.length), ...body];
+  const vec = (items) => [...leb(items.length), ...items.flat()];
+  function wasmOf({ imports = [], memImports = [], exports = [] }) {
+    const nImp = imports.length;
+    const b = [0, 0x61, 0x73, 0x6d, 1, 0, 0, 0, ...sec(1, vec([[0x60, 0, 0]])),
+      ...sec(2, vec([...imports.map(([m, n]) => [...str(m), ...str(n), 0, 0]), ...memImports.map(([m, n]) => [...str(m), ...str(n), 2, 0, 1])])),
+      ...sec(3, vec(exports.map(() => [0]))),
+      ...(memImports.length ? [] : sec(5, vec([[0, 1]]))),
+      ...sec(7, vec([...exports.map((n, i) => [...str(n), 0, ...leb(nImp + i)]), ...(memImports.length ? [] : [[...str("memory"), 2, 0]])])),
+      ...sec(10, vec(exports.map(() => [2, 0, 0x0b])))];
+    return Buffer.from(b);
+  }
+  const { REQUIRED_EXPORTS } = await import("../engines/native/engine.js");
+  const fns = REQUIRED_EXPORTS.filter((e) => e !== "memory");
+  const good = wasmOf({ imports: [["wasi_snapshot_preview1", "fd_write"], ["env", "emscripten_notify_memory_growth"]], exports: fns });
+  ok(moduleProblems(new WebAssembly.Module(good)).length === 0 && PROVIDED_IMPORTS.env.includes("fm1w_co_yield") && PROVIDED_IMPORTS.wasi_snapshot_preview1.includes("fd_write")
+     && Object.keys(PROVIDED_IMPORTS).sort().join() === "env,wasi_snapshot_preview1",
+     "native authors: the import whitelist is engine.js's own import object (env + wasi), a module within it passes");
+  const evil = moduleProblems(new WebAssembly.Module(wasmOf({ imports: [["env", "system"], ["wasi_snapshot_preview1", "path_open"], ["js", "eval"]], exports: fns })));
+  const mem = moduleProblems(new WebAssembly.Module(wasmOf({ memImports: [["env", "memory"]], exports: fns })));
+  const coro = moduleProblems(new WebAssembly.Module(wasmOf({ imports: [["env", "fm1w_co_yield"]], exports: fns })), { asyncify: false });
+  ok(evil.length === 3 && evil.every((p) => /which engine\.js does not provide/.test(p)) && mem.some((p) => /imports a memory/.test(p)) && mem.some((p) => /export memory/.test(p))
+     && coro.some((p) => /does not export asyncify_start_unwind/.test(p)) && coro.some((p) => /manifest says asyncify false/.test(p)),
+     "native authors: any other import (env.system, path_open, js.eval, a memory) is rejected; the Asyncify flag must be true");
+
+  // a .fm1web of that module, then tampered with
+  const manifest = (over = {}) => ({ format: F.FORMAT, id: "testfw", core: "testfw", name: "Test FW", version: "1.0", family: "felucca_web", glue: "core-glue/felucca_web",
+    abi: 6, fm1vst: { repo: "https://github.com/Quixotic7/FM1VST", commit: "7".repeat(40) }, source: { repo: "someone/testfw", url: "https://github.com/someone/testfw", tag: "v1.0", commit: "c".repeat(40) },
+    wasm: { file: "testfw.wasm", sha256: createHash("sha256").update(good).digest("hex"), bytes: good.length }, asyncify: false, usbProduct: null, editor: null,
+    license: "GPL-3.0-only", credits: null, gated: null, checks: { passed: true, lines: [] }, built: { by: "fm1-native" }, ...over });
+  const pack = (m, files = [["testfw.wasm", good]]) => F.writeArchive([["manifest.json", Buffer.from(JSON.stringify(m))], ...files]);
+  const v0 = F.verifyArchive(pack(manifest()), { repo: "someone/testfw", id: "testfw" });
+  const vSha = F.verifyArchive(pack(manifest({ wasm: { file: "testfw.wasm", sha256: "0".repeat(64), bytes: good.length } })));
+  const vRepo = F.verifyArchive(pack(manifest()), { repo: "other/repo" });
+  const vId = F.verifyArchive(pack(manifest()), { id: "felucca" });
+  const vBig = F.verifyArchive(pack(manifest()), { maxBytes: 100 });
+  const vExtra = F.verifyArchive(pack(manifest(), [["testfw.wasm", good], ["payload.js", Buffer.from("alert(1)")]]));
+  const vFail = F.verifyArchive(pack(manifest({ checks: { passed: false } })));
+  let trav = null; try { F.readArchive(F.writeArchive([["../x", Buffer.from("x")]])); } catch (e) { trav = e.message; }
+  ok(v0.ok && v0.manifest.id === "testfw" && !vSha.ok && vSha.problems.some((p) => /SHA-256/.test(p)) && !vRepo.ok && !vId.ok && !vBig.ok && vBig.problems.some((p) => /cap/.test(p))
+     && !vExtra.ok && !vFail.ok && /flat names/.test(trav || ""),
+     "native authors: a .fm1web: its manifest, SHA-256, repository, id, size cap, no other file, passed checks, no path in a name");
+
+  // the attestation's fields (gh's JSON) and the licensing gate
+  const tpl = readFileSync(new URL("./tools/fixtures/gh-attestation-verify.json", import.meta.url), "utf8");
+  const ghJson = (o) => JSON.parse(tpl.replace(/\{\{(\w+)\}\}/g, (_, k) => ({ NAME: "x.fm1web", SHA256: "a".repeat(64), TAG: "v1.0", REPO: "someone/testfw", COMMIT: "c".repeat(40),
+    SIGNER_WORKFLOW: F.WORKFLOW, SIGNER_REF: "refs/tags/native-v1", SOURCE_REPO: "someone/testfw", OWNER: "someone", ...o })[k]));
+  const rules = { repo: "someone/testfw", trustedRefs: ["refs/tags/native-v1"] };
+  const a0 = S.attestationOf(ghJson({}), rules), aRef = S.attestationOf(ghJson({ SIGNER_REF: "refs/heads/main" }), rules);
+  const aWf = S.attestationOf(ghJson({ SIGNER_WORKFLOW: "zvenson/fm1-build/.github/workflows/build.yml" }), rules), aSrc = S.attestationOf(ghJson({ SOURCE_REPO: "evil/fork" }), rules);
+  ok(a0.ok && a0.commit === "c".repeat(40) && a0.tag === "v1.0" && /actions\/runs\//.test(a0.run) && !aRef.ok && /native-v1/.test(aRef.why) && !aWf.ok && !aSrc.ok && !S.attestationOf([], rules).ok,
+     "native authors: the attestation: only fm1-native.yml at native-v1, built from the listed repository at a tag");
+  const coresJ = JSON.parse(readFileSync(new URL("./data/cores.json", import.meta.url), "utf8")).cores, cfgJ = JSON.parse(readFileSync(new URL("./data/native-authors.json", import.meta.url), "utf8"));
+  ok(!S.gateOf({ id: "x0x", core: "x0x" }, coresJ, cfgJ).ok && !S.gateOf({ id: "nmsfm", core: "nmsfm" }, coresJ, cfgJ).ok && S.gateOf({ id: "duell", core: "duell" }, coresJ, cfgJ).ok
+     && !S.gateOf({ id: "orbit", core: "orbit" }, coresJ, { ...cfgJ, ungated: { orbit: "no" } }).ok && S.gateOf({ id: "felucca", core: "felucca" }, coresJ, cfgJ).ok
+     && cfgJ.authors.length === 0 && cfgJ.hubDiscovery === false && cfgJ.trustedRefs.join() === "refs/tags/native-v1",
+     "native authors: gated firmwares stay out (x0x, NMS by its Hub id), DUELL un-gated, ORBIT never; the list starts empty, Hub discovery off");
+
+  // the sync, end to end on a folder of files with the recorded gh
+  const dir = mkdtempSync(join(tmpdir(), "native-sync-")), from = join(dir, "from"), mirror = join(dir, "ext");
+  const { mkdirSync } = await import("node:fs");
+  mkdirSync(from);
+  writeFileSync(join(from, "testfw-1.0.fm1web"), pack(manifest()));
+  writeFileSync(join(dir, "cfg.json"), JSON.stringify({ ...cfgJ, authors: [{ repo: "someone/testfw", id: "testfw" }] }));
+  const ghMock = fileURLToPath(new URL("./tools/fixtures/gh-mock.mjs", import.meta.url));
+  const runSync = async (mode, extra = {}) => { process.env.FM1_GH_MOCK = mode; return S.sync({ config: join(dir, "cfg.json"), from, gh: ghMock, work: join(dir, "work"), log: () => {}, noSmoke: true, ...extra }); };
+  const sOk = await runSync("ok", { mirror });
+  const sRef = await runSync("branch-ref"), sRepo = await runSync("other-repo"), sFile = await runSync("other-file"), sNone = await runSync("no-attest");
+  const sSmoke = await runSync("ok", { noSmoke: false });
+  delete process.env.FM1_GH_MOCK;
+  ok(sOk.accepted.length === 1 && sOk.accepted[0].wasm === "testfw/1.0/testfw.wasm" && /native-v1$/.test(sOk.accepted[0].signer) && /actions\/runs\//.test(sOk.accepted[0].buildLog)
+     && readdirSync(join(mirror, "testfw", "1.0")).sort().join() === "manifest.json,testfw.wasm" && sOk.candidates.length === 1,
+     "native authors: sync: attested, checked, mirrored to ext/<id>/<version>/ with its manifest");
+  ok([sRef, sRepo, sFile, sNone].every((s) => s.accepted.length === 0 && s.rejected.length === 1) && /native-v1/.test(sRef.rejected[0].why) && /someone\/else/.test(sRepo.rejected[0].why)
+     && /not for this file/.test(sFile.rejected[0].why) && /gh attestation verify/.test(sNone.rejected[0].why) && sSmoke.accepted.length === 0 && /smoke test/.test(sSmoke.rejected[0].why),
+     "native authors: sync rejects an untrusted signer ref, another repository, another file's attestation, none, a failed smoke test");
+  rmSync(dir, { recursive: true, force: true });
+
+  // the catalog's choice: newer wins, the author's at the same version; the other build named
+  const fv = { core: "x", version: "1.6.1", wasm: "x.wasm" }, au = (v) => authorNative({ core: "x", version: v, wasm: `x/${v}/x.wasm`, glue: "core-glue/felucca_web", repo: "https://github.com/a/b", commit: "c".repeat(40), tag: `v${v}`, buildLog: "https://github.com/a/b/actions/runs/1" }, "engines/native/ext/");
+  const pEq = preferNative(fv, au("1.6.1")), pNew = preferNative(fv, au("1.7")), pOld = preferNative(fv, au("1.6.0")), pOnly = preferNative(null, au("1.0"));
+  ok(pEq.native.by === "author" && pEq.alt.by === "fm1vst" && /both 1\.6\.1/.test(pEq.why) && pNew.native.version === "1.7" && pOld.native === fv && pOld.alt.by === "author"
+     && pOnly.native.by === "author" && !pOnly.alt && preferNative(fv, null).native === fv && pEq.native.wasm === "engines/native/ext/x/1.6.1/x.wasm" && pEq.native.glue === "felucca_web",
+     "native authors: newer version wins, the author's build at the same version; the other is named");
+  const idx = join(tmpdir(), `native-ext-${process.pid}.json`), outC = join(tmpdir(), `catalog-ext-${process.pid}.json`);
+  const acc = (id, version, extra = {}) => ({ id, core: id, name: id, version, family: "felucca_web", glue: "core-glue/felucca_web", wasm: `${id}/${version}/${id}.wasm`, sha256: "a".repeat(64), bytes: 1,
+    asyncify: false, abi: 6, license: "GPL-3.0-only", credits: null, usbProduct: null, editor: null, fm1vst: "7".repeat(40), repo: `https://github.com/a/${id}`, tag: `v${version}`, commit: "c".repeat(40), buildLog: "https://github.com/a/b/actions/runs/2", ...extra });
+  writeFileSync(idx, JSON.stringify({ workflow: F.WORKFLOW, trustedRefs: ["refs/tags/native-v1"], candidates: [], rejected: [{ repo: "x/y", tag: "v1", why: "test" }],
+    accepted: [acc("felucca", "1.6.1"), acc("amb", "1.2"), acc("duell", "0.2.20-beta")] }));
+  execFileSync(process.execPath, [fileURLToPath(new URL("./tools/build_catalog.mjs", import.meta.url)), "--layout", "pages", "--out", outC, "--native-ext", idx], { stdio: "ignore" });
+  const ec = JSON.parse(readFileSync(outC, "utf8")), by = (id) => ec.firmwares.find((f) => f.id === id);
+  unlinkSync(idx); unlinkSync(outC);
+  const fe = by("felucca"), am = by("amb"), du = by("duell");
+  ok(fe.native.by === "author" && fe.native.wasm === "engines/native/ext/felucca/1.6.1/felucca.wasm" && fe.nativeAlt.by === "fm1vst" && fe.defaultEngine === "native"
+     && am.native.by !== "author" && am.nativeAlt.by === "author" && am.nativeAlt.version === "1.2" && /newer/.test(am.nativeWhy)
+     && du.native && du.native.by === "author" && !du.nativeGated && du.engines.join() === "native,emu" && !du.nativeBehind
+     && ec.nativeAuthors.accepted.length === 3 && ec.nativeAuthors.rejected[0].why === "test" && nativeOrigin(fe).short === "native · built by the author"
+     && ec.firmwares.filter((f) => f.native && f.native.by !== "author" || f.nativeAlt && f.nativeAlt.by === "fm1vst").length === 13,
+     "native authors: the catalog: Felucca the author's (same version), AMB-1 FM1VST's (newer), DUELL the author's only; FM1VST's 13 still counted");
+}
+
 // ---- the computer-key hints on the panel: off by default, remembered (prefs.js), drawn only when on
 {
   const P = await import("./js/prefs.js");

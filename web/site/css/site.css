@@ -418,6 +418,10 @@ kbd { font: 600 11px/1 "Inter Tight", sans-serif; border: 1px solid var(--line);
 .card-note { flex: none; color: var(--knob-off, var(--muted)); font-size: 10.5px; font-weight: 600; }
 .card-note.heavy { color: var(--amber, #F5B544); font-weight: 500; }
 .card-badge { position: absolute; left: 5px; top: 5px; width: 4px; height: 4px; border-radius: 50%; background: var(--green); box-shadow: 0 0 5px var(--green); }
+/* native, built by the firmware's author (engines/native/ext/): the same dot with a ring */
+.card-badge.author { outline: 1px solid var(--green); outline-offset: 1.5px; }
+.native-by b { color: var(--text, inherit); font-weight: 600; }
+.native-by a { color: var(--accent); }
 .cards { grid-auto-flow: row dense; }
 .card.badged { grid-column: span 2; }
 .card-top .card-tag { margin-right: auto; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--line); color: var(--muted); font-size: 10.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }

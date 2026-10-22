@@ -1,0 +1,158 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<!-- How firmware authors publish a native build on this site (docs/NATIVE-AUTHORS.md, the same text). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Native builds by authors · RemoteFM1</title>
+<meta name="description" content="How FM-1 firmware authors publish a native (WebAssembly) build of their firmware on remotefm1.com: one job in the release workflow, signed on GitHub.">
+<style>
+@font-face { font-family: "Inter Tight"; src: url("../fonts/InterTight-VF-latin.woff") format("woff"); font-weight: 100 900; font-display: swap; }
+:root {
+  --backdrop: #0E0E10; --surface: #1D2024; --raised: #23272C; --well: #141619; --line: #2E333A;
+  --text: #E8EAED; --muted: #8A9099; --heading: #7D838C; --green: #3DDC84; --accent: #FF8A3D;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--backdrop); color: var(--text); font: 450 15px/1.55 "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased; }
+a { color: var(--accent); }
+header { position: sticky; top: 0; display: flex; align-items: center; gap: 14px; padding: 10px 16px; background: rgba(14, 14, 16, .92);
+  border-bottom: 1px solid var(--line); backdrop-filter: blur(8px); z-index: 1; }
+header a { text-decoration: none; font-weight: 600; }
+header .back { color: var(--text); }
+header .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px var(--green); outline: 1px solid var(--green); outline-offset: 2px; }
+main { max-width: 760px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 28px; line-height: 1.2; margin: 8px 0 6px; letter-spacing: -.01em; }
+h2 { font-size: 19px; margin: 36px 0 8px; }
+.for { color: var(--heading); font-size: 13px; text-transform: uppercase; letter-spacing: .06em; margin: 0; }
+.lead { font-size: 17px; color: var(--text); }
+p, li { color: #D6D9DD; }
+ol, ul { padding-left: 22px; }
+li { margin: 5px 0; }
+b { color: var(--text); font-weight: 650; }
+code { font: 13px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; background: var(--well); border: 1px solid var(--line);
+  border-radius: 5px; padding: 1px 5px; }
+pre { background: var(--well); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; overflow-x: auto; }
+pre code { background: none; border: 0; padding: 0; font-size: 13px; }
+.scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; min-width: 520px; font-size: 14px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--heading); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+tr:last-child td { border-bottom: 0; }
+.note { border-left: 3px solid var(--accent); background: var(--surface); padding: 10px 14px; border-radius: 0 8px 8px 0; }
+.muted { color: var(--muted); }
+footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--line); margin-top: 48px; padding-top: 16px; }
+</style>
+</head>
+<body>
+<header><a class="back" href="../">&larr; FM-1 Player</a><span class="dot" aria-hidden="true"></span><span class="muted">Native builds by authors</span></header>
+<main>
+<p class="for">For firmware authors: ten minutes, once</p>
+<h1>Native builds on remotefm1.com</h1>
+<p class="lead">Every firmware on the FM-1 Firmware Hub plays here <b>emulated</b>: your <code>.fwsc</code> package on fm1-emu, a model of the FM-1's chip. A <b>native build</b> is your firmware's own C code compiled for the browser (WebAssembly), with no chip in between. It starts at once and is about 20 times lighter on the computer, so it plays on phones and old laptops too.</p>
+<p>You can publish one yourself. One more job in your release workflow builds it on GitHub, tests it, signs it and attaches it to your release. The site picks it up from there.</p>
+
+<h2>What you add</h2>
+<p>Your release workflow already has the Hub's job. Add the <code>native</code> job under it:</p>
+<pre><code>  native:
+    needs: build
+    uses: Quixotic7/RemoteFM1/.github/workflows/fm1-native.yml@native-v1
+    permissions: { contents: write, id-token: write, attestations: write }
+    with: { id: myfw, family: felucca_web }</code></pre>
+<ul>
+<li><code>id</code>: your firmware's id on the Hub (the end of its Hub address).</li>
+<li><code>family</code>: what your firmware is built on (below).</li>
+</ul>
+<p>The whole file, with the Hub's job: <a href="https://github.com/Quixotic7/RemoteFM1/blob/main/docs/native-release.yml">native-release.yml</a>. Copy it to <code>.github/workflows/release.yml</code> and change the lines marked "yours".</p>
+<ol>
+<li><b>Push a version tag</b> (<code>v1.2</code>).</li>
+<li><b>Check the Actions tab.</b> When the run is green, <code>myfw-1.2.fm1web</code> is on the release, next to your <code>.fwsc</code>. Don't upload or rebuild the file by hand: the signature is for the file the run made.</li>
+<li><b>Ask to be listed.</b> Open an issue on <a href="https://github.com/Quixotic7/RemoteFM1/issues">RemoteFM1</a> with your repository. The site's owner adds it to the list.</li>
+<li><b>The site syncs every night.</b> It checks your file (below) and puts it in the player. Your card gets a ringed dot, and its sheet says <b>native · built by the author</b>, with the commit and a link to the build log.</li>
+</ol>
+
+<h2>Pick your family</h2>
+<p>A native build reuses the glue that <a href="https://github.com/Quixotic7/FM1VST">FM1VST</a> wrote for each kind of FM-1 firmware: the code between the firmware's own hardware layer and the browser. Pick the family your firmware comes from.</p>
+<div class="scroll"><table>
+<tr><th>family</th><th>for firmwares built on</th><th>FM1VST builds</th></tr>
+<tr><td><code>felucca_web</code></td><td>Felucca, with its browser unit <code>web/emu/felucca_web.c</code></td><td>Felucca, GHOULBOX, JIANT; DUELL, RAINBOW (gated)</td></tr>
+<tr><td><code>fm1base</code></td><td>Charles Vestal's fm1-base (<code>app.h</code>, <code>app.c</code>, <code>fm1.toml</code>)</td><td>AMB-1, LOOM-8</td></tr>
+<tr><td><code>plat</code></td><td>X0X's <code>plat.h</code> platform</td><td>FOMNI, FIMBA; X0X, Fart Machine One (gated)</td></tr>
+<tr><td><code>dinghy</code></td><td>Dinghy (<code>app_main</code>, a main loop that never returns)</td><td>OberVave, Frodhes; FM-106 (gated)</td></tr>
+<tr><td><code>sloop</code></td><td>SLOOP</td><td>SLOOP, SLOOP DX, ORBIT, No Man's Sky FM (all gated)</td></tr>
+<tr><td><code>choralroot</code></td><td>ChoralRoot FM-1</td><td>ChoralRoot, PurpleMonkey, CoralFlower</td></tr>
+<tr><td><code>melodee</code></td><td>Melodee</td><td>Melodee</td></tr>
+<tr><td><code>custom</code></td><td>anything else</td><td>your own glue</td></tr>
+</table></div>
+<p><b>If FM1VST already builds your firmware</b>, <code>id</code> and <code>family</code> are all it needs: the build takes FM1VST's glue for it and your repository at the tag in place of FM1VST's copy.</p>
+<p><b>If it does not</b> (a new fork, say), give the build two more things:</p>
+<ul>
+<li><code>glue</code>: a folder in your repository with your core's two small files, copied from a sibling in FM1VST's <code>core-glue/&lt;family&gt;/</code> and renamed (for Felucca: <code>core_myfw.c</code> and <code>core_myfw_desc.c</code>). Your repository is at <code>../../cores/&lt;id&gt;/</code> from them.</li>
+<li><code>core</code>: the <code>fm1_add_core</code> arguments, as FM1VST's own <code>core_&lt;id&gt;.cmake</code> gives them, after <code>SOURCE</code>.</li>
+</ul>
+<pre><code>    with:
+      id: myfw
+      family: felucca_web
+      glue: fm1core
+      core: |
+        UNIT core_myfw.c DESC core_myfw_desc.c SUBMODULES_RECURSIVE
+        GEN ui_fonts.h ui_icons.h ui_keycaps.h ui_palettes.h felucca_tables.h felucca_fm6.h felucca_samples.h
+        VERSION_FILE firmware/src/felucca.c VERSION_REGEX "^#define FELUCCA_VERSION \"v?([^\"]*)\""</code></pre>
+<p><b><code>custom</code></b>: write the glue yourself against FM1VST's core ABI 6 (<code>core-api/fm1core.h</code>) with the helpers in <code>core-glue/common</code>, and put a <code>core.cmake</code> in your <code>glue</code> folder that calls <code>fm1_add_core(&lt;id&gt; ${CMAKE_CURRENT_LIST_DIR} SOURCE ${FM1WEB_TREE} ...)</code>.</p>
+<p>The other inputs, all optional:</p>
+<div class="scroll"><table>
+<tr><th>input</th><th>what</th></tr>
+<tr><td><code>test</code></td><td>conformance lines over the glue's, when a key alone makes no sound: <code>sound btn PLAY 100</code> (a line replaces every line of the same kind)</td></tr>
+<tr><td><code>version</code></td><td>the version, when the tag is not it (default: the tag without its <code>v</code>)</td></tr>
+<tr><td><code>core-id</code></td><td>the core's own id, when FM1VST's differs from the Hub's</td></tr>
+<tr><td><code>usb-product</code>, <code>editor</code></td><td>the USB name it answers with and its web editor (default: the Hub's)</td></tr>
+<tr><td><code>fm1vst-ref</code></td><td>the FM1VST commit to build with (default: one known good)</td></tr>
+</table></div>
+
+<h2>What the build checks</h2>
+<p>The run fails, and nothing is attached, unless your firmware:</p>
+<ol>
+<li><b>builds</b> with Emscripten on GitHub's Ubuntu runner;</li>
+<li><b>boots</b> from an empty flash and <b>draws</b> a screen that is not blank within 3 seconds;</li>
+<li>draws the <b>same first screen</b> as the same code built for the runner itself, pixel for pixel;</li>
+<li><b>sounds</b> when a key is held (after your <code>test</code> lines, if any);</li>
+<li>passes its glue's <b>save and reboot</b> scripts, if it has them;</li>
+<li><b>renders 10 seconds</b> of audio without stopping.</li>
+</ol>
+<p>The run's summary shows each line.</p>
+
+<h2>What the site checks</h2>
+<p>Every night, for each listed repository's latest release:</p>
+<ol>
+<li><b>The signature.</b> <code>gh attestation verify</code> with your repository and RemoteFM1's workflow as the signer. Only <code>@native-v1</code> is trusted, built from your repository at a tag.</li>
+<li><b>The file.</b> Its manifest names your repository, that tag and that commit; the module's SHA-256 is the manifest's.</li>
+<li><b>What the module can reach.</b> Its imports must be exactly the functions the player gives a core, and no other: writing to the console, the clock, the coroutine. No network, no files, no page.</li>
+<li><b>The size.</b> At most 4 MB.</li>
+<li><b>The licences.</b> A firmware FM1VST keeps out of its public builds stays out here too, until its question is settled.</li>
+<li><b>A test run</b> of the same checks as the build.</li>
+</ol>
+<p>Then it is copied to the site, next to the player.</p>
+
+<h2>Which build plays</h2>
+<p>If FM1VST also builds your firmware natively, the <b>newer version</b> plays. At the same version, <b>yours</b> does. The firmware's sheet says which, and why. The emulated engine is always one click away. Saves are kept per firmware, engine and version, so a save from FM1VST's build of 1.2 opens in yours.</p>
+
+<h2>Check a file yourself</h2>
+<pre><code>gh attestation verify myfw-1.2.fm1web --repo you/myfw \
+  --signer-workflow Quixotic7/RemoteFM1/.github/workflows/fm1-native.yml</code></pre>
+<p>The file is a gzipped tar: <code>tar tzf myfw-1.2.fm1web</code> shows <code>manifest.json</code>, the module and the test script.</p>
+
+<h2>Try it before you tag</h2>
+<p>On a Mac or Linux computer with Emscripten, Node and Python 3 (Pillow with libraqm, fontTools):</p>
+<pre><code>git clone https://github.com/Quixotic7/RemoteFM1 &amp;&amp; git clone https://github.com/Quixotic7/FM1VST
+FM1VST_DIR=$PWD/FM1VST FM1N_TREE=$PWD/myfw FM1N_ID=myfw FM1N_FAMILY=felucca_web \
+  FM1N_REPO=you/myfw FM1N_TAG=v1.2 FM1N_HUB=none bash RemoteFM1/.github/scripts/fm1-native.sh</code></pre>
+<p>It runs the same build and checks as GitHub and leaves <code>dist/myfw-&lt;version&gt;.fm1web</code>.</p>
+<p class="note"><b>If it does not work.</b> The run must be on GitHub's runner, from a tag, with all three permissions. A file changed after the run fails its signature. A build of the <code>main</code> branch is a test: only a tag's build is published.</p>
+
+<footer>RemoteFM1, GPL-3.0-only · <a href="https://github.com/Quixotic7/RemoteFM1/blob/main/docs/NATIVE-AUTHORS.md">this page on GitHub</a> · <a href="https://thefirmwarehub.com/kb/">the Hub's own guide</a></footer>
+</main>
+</body>
+</html>
