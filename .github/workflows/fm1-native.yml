@@ -1,0 +1,194 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# fm1-native: an FM-1 firmware's native build for remotefm1.com, made and signed on GitHub (docs/NATIVE-AUTHORS.md).
+# A reusable workflow: a firmware's own release workflow calls it on a version tag, next to the Hub's fm1-build job.
+#
+#   native:
+#     needs: build                       # (the Hub's job: the release exists when this one attaches its file)
+#     uses: Quixotic7/RemoteFM1/.github/workflows/fm1-native.yml@native-v1
+#     permissions: { contents: write, id-token: write, attestations: write }
+#     with: { id: myfw, family: felucca_web }
+#
+# What it does, on GitHub's Ubuntu runner:
+#   1. checks out the caller's repository at the tag (with its submodules), this repository's scripts at native-v1,
+#      and FM1VST at fm1vst-ref (its glue, cmake and core ABI; not its firmware submodules: the caller's tree takes
+#      their place);
+#   2. .github/scripts/fm1-native.sh: builds the firmware with Emscripten on FM1VST's glue (web/engines/native/build.sh
+#      --ext), runs the conformance test (web/engines/native/test.mjs: it boots, draws, sounds after the prelude, its
+#      save and reboot scripts, 10 s of rendering, its first screen against the same core built for the runner), and
+#      packs <id>-<version>.fm1web (web/engines/native/fm1web.mjs);
+#   3. signs it with a GitHub artifact attestation (actions/attest-build-provenance: the signer is this workflow at
+#      native-v1, the source is the caller's repository at the tag);
+#   4. attaches it to the tag's release (and keeps it as the run's artifact).
+# remotefm1.com's nightly sync (web/site/tools/native_sync.mjs) checks the attestation with
+#   gh attestation verify <file> --repo <owner/repo> --signer-workflow Quixotic7/RemoteFM1/.github/workflows/fm1-native.yml
+# and trusts only the signer at refs/tags/native-v1 (web/site/data/native-authors.json "trustedRefs").
+name: fm1-native
+
+on:
+  workflow_call:
+    inputs:
+      id:
+        description: "The firmware's id: its id on the FM-1 Firmware Hub (e.g. felucca)"
+        required: true
+        type: string
+      family:
+        description: "The FM1VST glue family: felucca_web, fm1base, sloop, dinghy, choralroot, plat, melodee or custom"
+        required: true
+        type: string
+      core-id:
+        description: "The core's own id, when it differs from id (FM1VST's fm1_add_core id)"
+        required: false
+        type: string
+        default: ""
+      glue:
+        description: "A folder in this repository with your own glue units (and a core.cmake, or the core input); required for custom"
+        required: false
+        type: string
+        default: ""
+      core:
+        description: "The fm1_add_core arguments after SOURCE (UNIT, DESC, GEN, VERSION...), for a firmware FM1VST does not build yet"
+        required: false
+        type: string
+        default: ""
+      test:
+        description: "Conformance lines over the glue's, e.g. the sound prelude that makes it audible (sound btn PLAY 100)"
+        required: false
+        type: string
+        default: ""
+      version:
+        description: "The version (default: the tag without a leading v)"
+        required: false
+        type: string
+        default: ""
+      usb-product:
+        description: "The USB product name it answers with (default: the Hub's)"
+        required: false
+        type: string
+        default: ""
+      editor:
+        description: "Its web editor's URL (default: the Hub's)"
+        required: false
+        type: string
+        default: ""
+      fm1vst-ref:
+        description: "The FM1VST commit whose glue and core ABI to build with (default: a pinned commit known good)"
+        required: false
+        type: string
+        default: "7686d87bd5e1fd5710be4a5de792118a911f2bfd"
+    outputs:
+      file:
+        description: "The .fm1web's file name"
+        value: ${{ jobs.native.outputs.name }}
+      sha256:
+        description: "Its SHA-256"
+        value: ${{ jobs.native.outputs.sha256 }}
+
+permissions:
+  contents: read
+
+env:
+  FM1_NATIVE_REF: native-v1     # this workflow's own tag: the scripts it runs are this tag's (a reusable workflow can't read its own ref)
+  EMSDK_VERSION: "6.0.11"       # the Emscripten remotefm1.com's own native engine is built with (.github/workflows/pages.yml)
+
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write        # the release
+      id-token: write        # the signing certificate
+      attestations: write    # the attestation
+    outputs:
+      name: ${{ steps.build.outputs.name }}
+      sha256: ${{ steps.build.outputs.sha256 }}
+    steps:
+      - name: The firmware (this repository at the tag)
+        uses: actions/checkout@v4
+        with:
+          path: firmware
+          submodules: recursive
+          persist-credentials: false
+
+      - name: RemoteFM1's build scripts (at the workflow's tag)
+        uses: actions/checkout@v4
+        with:
+          repository: Quixotic7/RemoteFM1
+          ref: ${{ env.FM1_NATIVE_REF }}
+          path: .fm1-native/remotefm1
+          persist-credentials: false
+
+      - name: FM1VST (the glue, cmake and core ABI)
+        uses: actions/checkout@v4
+        with:
+          repository: Quixotic7/FM1VST
+          ref: ${{ inputs.fm1vst-ref }}
+          path: .fm1-native/fm1vst
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-python@v5          # Ubuntu's own python3 refuses pip installs (PEP 668)
+        with:
+          python-version: "3.12"
+
+      - name: Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: ${{ env.EMSDK_VERSION }}
+          actions-cache-folder: emsdk-cache
+
+      - name: The generators' tools (Pillow with libraqm, fontTools, numpy)
+        run: |
+          sudo apt-get update && sudo apt-get install -y cmake rsync libraqm0 libfribidi0
+          python -m pip install --upgrade pillow fonttools numpy
+          python -c "from PIL import features; print('raqm', features.check('raqm'))"
+
+      - name: Build, test and pack
+        id: build
+        env:
+          FM1VST_DIR: ${{ github.workspace }}/.fm1-native/fm1vst
+          FM1N_TREE: ${{ github.workspace }}/firmware
+          FM1N_ID: ${{ inputs.id }}
+          FM1N_CORE_ID: ${{ inputs.core-id }}
+          FM1N_FAMILY: ${{ inputs.family }}
+          FM1N_GLUE: ${{ inputs.glue }}
+          FM1N_CORE: ${{ inputs.core }}
+          FM1N_TEST: ${{ inputs.test }}
+          FM1N_VERSION: ${{ inputs.version }}
+          FM1N_USB_PRODUCT: ${{ inputs.usb-product }}
+          FM1N_EDITOR: ${{ inputs.editor }}
+          FM1N_REPO: ${{ github.repository }}
+          FM1N_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          FM1N_RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          FM1N_OUT: ${{ github.workspace }}/dist
+          FM1N_WORK: ${{ github.workspace }}/.fm1-native/work
+        run: |
+          CR_PYTHON="$(command -v python)"
+          export CR_PYTHON
+          bash .fm1-native/remotefm1/.github/scripts/fm1-native.sh
+
+      - name: Sign it (a GitHub artifact attestation)
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: ${{ steps.build.outputs.file }}
+
+      - name: Keep it with the run
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.build.outputs.name }}
+          path: ${{ steps.build.outputs.file }}
+          if-no-files-found: error
+
+      - name: Attach it to the release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          FILE: ${{ steps.build.outputs.file }}
+        run: |
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1 ||
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" --notes ""
+          gh release upload "$TAG" "$FILE" --repo "$GITHUB_REPOSITORY" --clobber
+          echo "Attached $(basename "$FILE") to the release $TAG" >> "$GITHUB_STEP_SUMMARY"

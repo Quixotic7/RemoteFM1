@@ -12,6 +12,9 @@
 //   liveCatalog(snapshot, opts)  mergeLive over a fetched Hub catalog, within a timeout; the snapshot when it fails
 //   packageFor(entry, opts)      a package's bytes; a gone one (404): the live catalog once more, then the snapshot's
 //   sourceOf(entry, engine, credits)   the running firmware's source at the version that runs (the header's link)
+//   authorNative(build, extPath)  an author's own native build (web/site/tools/native_sync.mjs's index) as a native core
+//   preferNative(fm1vst, author)  which native build a firmware gets: the newer version; the author's when equal
+//   nativeOrigin(entry)           who built the native core that runs, in words (the sheet, the engine note)
 
 export const HUB = "https://thefirmwarehub.com/";
 export const SELF_ID = "remotefm1";
@@ -93,6 +96,35 @@ export function chooseEngine(e, want, prefs = {}) {
   const pref = (prefs.engine || {})[e.id], at = (prefs.engineAt || {})[e.id];
   if (pref && e.engines.includes(pref) && (at === undefined ? !e.nativeBehind : at === e.version)) return pref;
   return e.defaultEngine;
+}
+
+// ------------------------------------------------------------------ authors' native builds ---
+// A firmware author's own build (docs/NATIVE-AUTHORS.md): made and signed by RemoteFM1's reusable workflow from the
+// author's repository at a release tag, checked by native_sync.mjs, published under engines/native/ext/. The engine
+// is the same "native" one; its saves are the firmware's native saves at that version, as FM1VST's core's are.
+export function authorNative(b, extPath) {
+  const glue = b.glue && b.glue !== "author" ? String(b.glue).replace(/^core-glue\//, "") : null;
+  return { core: b.core, version: b.version, wasm: extPath + b.wasm, by: "author", repo: b.repo, commit: b.commit, tag: b.tag,
+    glue, fm1vst: b.fm1vst || null, buildLog: b.buildLog || null, asyncify: !!b.asyncify, abi: b.abi || 6, sha256: b.sha256 || null,
+    family: b.family || null, license: b.license || null };
+}
+// fm1vst / author: the two native builds a firmware may have (either null). { native, alt, why }: the newer version
+// runs; at the same version (or when the two can't be ordered) the author's own build
+export function preferNative(fm1vst, author) {
+  if (!author) return { native: fm1vst, alt: null, why: null };
+  if (!fm1vst) return { native: author, alt: null, why: null };
+  const c = compareVersions(author.version, fm1vst.version);
+  const brief = (n) => ({ by: n.by || "fm1vst", version: n.version, repo: n.repo || null, commit: n.commit || null, tag: n.tag || null, buildLog: n.buildLog || null });
+  if (c < 0) return { native: fm1vst, alt: brief(author), why: `FM1VST's core ${fm1vst.version} is newer than the author's build ${author.version}` };
+  return { native: author, alt: brief(fm1vst), why: c > 0 ? `the author's build ${author.version} is newer than FM1VST's core ${fm1vst.version}`
+    : `the author's build and FM1VST's core are both ${author.version}: the author's own runs` };
+}
+// who built the native core of an entry: { short, long }
+export function nativeOrigin(e) {
+  const n = e && e.native;
+  if (!n) return null;
+  if (n.by === "author") return { short: "native · built by the author", long: `${e.name}'s own native build ${n.version}, made by its author's release workflow from ${String(n.repo || "").replace(/^https:\/\/github\.com\//, "")} ${n.tag || ""}`.trim() };
+  return { short: "native · FM1VST's core", long: `FM1VST's ${e.name} core ${n.version}` };
 }
 
 // ------------------------------------------------------------------ entries ---
@@ -266,8 +298,8 @@ export function sourceOf(e, engine, credits = {}) {
   if (!s) return null;
   const v = nat ? e.native.version : e.version, fv = credits.fm1vst;
   if (nat && e.native.glue && fv && fv.source)
-    glue = { url: `${fv.source.replace(/\/$/, "")}/tree/${fv.commit || "main"}/core-glue/${e.native.glue}`, path: `core-glue/${e.native.glue}` };
-  const at = refLabel(s.ref, s.refKind) + (nat && s.refKind === "commit" ? ", the commit FM1VST builds" : "");
+    glue = { url: `${fv.source.replace(/\/$/, "")}/tree/${e.native.fm1vst || fv.commit || "main"}/core-glue/${e.native.glue}`, path: `core-glue/${e.native.glue}` };
+  const at = refLabel(s.ref, s.refKind) + (nat && s.refKind === "commit" ? (e.native.by === "author" ? `, the commit its author built (${e.native.tag || "a release"})` : ", the commit FM1VST builds") : "");
   const title = `${e.name} ${v} by ${e.authorFull || e.author} · ${e.license || "licence: see its source"} · ${s.ref ? "source at " : "source: "}${at}`;
   return { ...s, title, glue, native: !!nat };
 }

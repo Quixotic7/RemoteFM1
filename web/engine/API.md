@@ -6,7 +6,7 @@ The site has two engines that run FM-1 firmwares in the browser:
 
 | Engine | Code | Runs |
 |---|---|---|
-| **native** | `web/engines/native/`, agent W1 | FM1VST's own cores, compiled with Emscripten |
+| **native** | `web/engines/native/`, agent W1 | FM1VST's own cores, compiled with Emscripten; and firmware authors' own builds of theirs (`docs/NATIVE-AUTHORS.md`) |
 | **emu** | `web/engines/emu/`, agent W2 | fm1-emu's chip emulator |
 
 The page (`web/site/`, agent W3) only ever talks to an engine through this interface, inside one AudioWorklet.
@@ -22,7 +22,8 @@ An engine is an ES module that loads inside an `AudioWorkletGlobalScope`, so it 
 export const ENGINE = { name: "native" | "emu", version: "x.y" };
 
 // Create one instance. `files` holds everything the engine needs, fetched by the page:
-//   native: { wasm: ArrayBuffer }       (the core's .wasm)
+//   native: { wasm: ArrayBuffer, flags? }   (the core's .wasm; flags, for an author's build: its manifest's
+//                                            { asyncify, abi }, checked against the module before it runs)
 //   emu:    { wasm: ArrayBuffer, fwsc: Uint8Array }
 export async function createEngine({ sampleRate, files, flash /* Uint8Array | null */, options /* {} */ }) -> Engine
 ```
@@ -95,4 +96,7 @@ Node test, `web/engines/<name>/test.mjs`. For each firmware it:
 `web/site/catalog.json` is built by W3. It has one entry per firmware: id (the Hub's id), name, version, author,
 category, licence, source, which engines can run it, the native core's `.wasm` path if there is one, and how the
 emu engine gets the package (the Hub's package URL). For the native engine the id equals FM1VST's core id; where the
-two differ (FM1VST `nomansky` vs the Hub's `nmsfm`), the catalog maps them.
+two differ (FM1VST `nomansky` vs the Hub's `nmsfm`), the catalog maps them. An author's own native build
+(`native.by: "author"`, its module under `engines/native/ext/<id>/<version>/`) takes the native slot when its version
+is newer than FM1VST's core or the same (`nativeAlt` and `nativeWhy` name the other build); it is the same "native"
+engine, and its saves are the firmware's native saves at that version.

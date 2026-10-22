@@ -1,0 +1,31 @@
+# .github/workflows/release.yml: one version tag makes both builds of your FM-1 firmware, each signed on GitHub.
+#   build   the FM-1 Firmware Hub's: your .fwsc package, for the FM-1 itself (https://thefirmwarehub.com/kb/)
+#   native  remotefm1.com's: your firmware compiled for the browser, <id>-<version>.fm1web (docs/NATIVE-AUTHORS.md)
+# Change the lines marked "yours". Push a tag such as v1.2 and both files land on the release.
+name: release
+on:
+  push:
+    tags: ["v*"]
+jobs:
+  build:
+    uses: zvenson/fm1-build/.github/workflows/build.yml@v1
+    permissions:
+      contents: write        # the release
+      id-token: write        # the signing certificate
+      attestations: write    # the attestation
+    with:
+      build: ./build.sh --release "${GITHUB_REF_NAME#v}"   # yours: your build command
+      packages: build/*.fwsc                                # yours: the package(s) it makes
+
+  native:
+    needs: build                                            # (after the Hub's job: the release is there)
+    uses: Quixotic7/RemoteFM1/.github/workflows/fm1-native.yml@native-v1
+    permissions:
+      contents: write        # the release
+      id-token: write        # the signing certificate
+      attestations: write    # the attestation
+    with:
+      id: myfw               # yours: your firmware's id on the Hub
+      family: felucca_web    # yours: the family it is built on (docs/NATIVE-AUTHORS.md, "Pick your family")
+      # test: |              # optional: what makes it sound in the test, if a key alone does not
+      #   sound btn PLAY 100

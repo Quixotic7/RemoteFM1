@@ -1,0 +1,14 @@
+{
+ "about": "Firmware authors' own native builds (docs/NATIVE-AUTHORS.md): web/site/tools/native_sync.mjs fetches the .fm1web from each listed repository's latest release, checks its GitHub attestation (signed by the workflow below at one of trustedRefs, built from that repository at a release tag), its manifest, its module's SHA-256 and imports (exactly what web/engines/native/engine.js provides), its size (maxBytes), the licensing gate (data/cores.json gated, unless listed in ungated; never: never), and runs the conformance smoke test; then the site publishes it under engines/native/ext/<id>/<version>/. authors: the repositories the owner has added, each with the firmware id the site (and the Hub) knows it by. hubDiscovery: also every Hub firmware whose latest release carries a .fm1web (off until the owner turns it on).",
+ "workflow": "Quixotic7/RemoteFM1/.github/workflows/fm1-native.yml",
+ "trustedRefs": ["refs/tags/native-v1"],
+ "maxBytes": 4194304,
+ "hubDiscovery": false,
+ "authors": [],
+ "ungated": {
+  "duell": "un-gated by the owner 2026-10-22: its naming terms are about unofficial builds; a build its author makes and signs is the author's own"
+ },
+ "never": {
+  "orbit": "the CLUSTER engine translates OP-1 firmware DSP and data (FM1VST CORES-PLAN section 6): stays out of native"
+ }
+}

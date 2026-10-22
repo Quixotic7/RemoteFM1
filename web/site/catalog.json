@@ -9,7 +9,8 @@
   "engines": {
    "native": {
     "module": "../engines/native/engine.js",
-    "wasm": "../build/native/{core}.wasm"
+    "wasm": "../build/native/{core}.wasm",
+    "ext": "../build/native-ext/ext/"
    },
    "emu": {
     "module": "../engines/emu/engine.js",
@@ -51,6 +52,7 @@
    "source": "https://thefirmwarehub.com/"
   }
  },
+ "nativeAuthors": null,
  "firmwares": [
   {
    "id": "amb",

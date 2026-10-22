@@ -6,11 +6,14 @@
 //     the web, the licensing gate of FM1VST CORES-PLAN.md section 6); an un-gated core the Hub does not list (LOOM-8)
 //     is a native-only entry of its own (offHub, as live.js mergeLive makes one that left the Hub);
 //   - RemoteFM1 itself (web/installer/releases.json, its first release): the one package this site hosts, fetched from
-//     the installer's firmware/ folder on the same site, not from the Hub. It plays nothing; it waits for a host.
+//     the installer's firmware/ folder on the same site, not from the Hub. It plays nothing; it waits for a host;
+//   - firmware authors' own native builds (--native-ext: web/site/tools/native_sync.mjs's index, the builds it checked
+//     and published under engines/native/ext/): where FM1VST also builds the firmware, the newer version runs, the
+//     author's at the same version (live.js preferNative); the other one is named in the entry (nativeAlt, nativeWhy).
 // Every Hub firmware gets the emulated engine (its package fetched at play time from where the Hub points); the
 // thirteen un-gated cores also get the native one, which is then their default while it is the Hub's version (newest wins:
 // web/site/js/live.js, which builds the entries; the page merges the Hub's live catalog over this one at load).
-//   node web/site/tools/build_catalog.mjs [--layout dev|pages] [--hub FILE|URL] [--out FILE]
+//   node web/site/tools/build_catalog.mjs [--layout dev|pages] [--hub FILE|URL] [--out FILE] [--native-ext FILE]
 // layout: where the engines, the remote module and the installer are, seen from the page:
 //   dev    the page at web/site/ served from web/ (python3 -m http.server in web/): ../engines/.., ../build/..
 //   pages  the GitHub Pages artifact (.github/workflows/pages.yml): engines/, installer/, remote/ next to the page
@@ -19,7 +22,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { siteEntry, CATEGORIES, HUB } from "../js/live.js";
+import { siteEntry, CATEGORIES, HUB, authorNative, preferNative } from "../js/live.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url)), SITE = join(HERE, "..");
 const arg = (n, d) => { const i = process.argv.indexOf(n); return i > 0 ? process.argv[i + 1] : d; };
@@ -29,7 +32,7 @@ const hubSrc = arg("--hub", join(SITE, "data", "hub-catalog.snapshot.json"));
 const PATHS = {
   dev: {
     engines: {
-      native: { module: "../engines/native/engine.js", wasm: "../build/native/{core}.wasm" },
+      native: { module: "../engines/native/engine.js", wasm: "../build/native/{core}.wasm", ext: "../build/native-ext/ext/" },
       emu: { module: "../engines/emu/engine.js", wasm: "../build/emu/fm1_web.wasm", hook: "../engines/emu/catalog.mjs" },
       mock: { module: "mock/engine.js" },
     },
@@ -39,7 +42,7 @@ const PATHS = {
   },
   pages: {
     engines: {
-      native: { module: "engines/native/engine.js", wasm: "engines/native/{core}.wasm" },
+      native: { module: "engines/native/engine.js", wasm: "engines/native/{core}.wasm", ext: "engines/native/ext/" },
       emu: { module: "engines/emu/engine.js", wasm: "engines/emu/fm1_web.wasm", hook: "engines/emu/catalog.mjs" },
       mock: { module: "mock/engine.js" },
     },
@@ -140,6 +143,18 @@ let fm1vstCommit = JSON.parse(readFileSync(join(SITE, "data", "cores.json"), "ut
 }
 const coreByHub = new Map(cores.map((c) => [c.hub || c.core, c]));
 
+// the authors' own native builds (native_sync.mjs's index): by the site's id
+const extFile = arg("--native-ext", null);
+const ext = extFile ? JSON.parse(readFileSync(extFile, "utf8")) : null;
+const extById = new Map((ext ? ext.accepted : []).map((b) => [b.id, b]));
+// the native build an entry gets, and the other one; withNative(entry, pick) records the choice on the entry
+const pickNative = (id, core) => preferNative(nativeOf(core), extById.has(id) ? authorNative(extById.get(id), PATHS[layout].engines.native.ext) : null);
+const withNative = (e, pick) => {
+  if (pick.alt) { e.nativeAlt = pick.alt; e.nativeWhy = pick.why; }
+  if (e.native && e.native.by === "author") { delete e.nativeGated; if (!e.license) e.license = e.native.license; }
+  return e;
+};
+
 // Hub firmwares known not to run in fm1-emu: W2's web/engines/emu/catalog.mjs EMU_SKIP when it is there
 let EMU_SKIP = { bubba: "boots to a black screen, no sound (needs M-VAVE's own loader)" };
 try { EMU_SKIP = (await import(new URL("../../engines/emu/catalog.mjs", import.meta.url).href)).EMU_SKIP || EMU_SKIP; } catch (_) { /* (W2's branch not merged) */ }
@@ -148,9 +163,11 @@ try { EMU_SKIP = (await import(new URL("../../engines/emu/catalog.mjs", import.m
 const nativeOf = (core) => core && !core.gated ? { core: core.core, version: core.version, wasm: PATHS[layout].engines.native.wasm.replace("{core}", core.core),
   repo: core.repo || null, commit: core.commit || null, glue: core.glue || null } : null;
 const firmwares = hub.firmwares.map((f) => {
-  const core = coreByHub.get(f.id) || null;
-  return siteEntry(f, { core, native: nativeOf(core), emuSkip: EMU_SKIP });   // (newest wins: emu is the default where the core is behind)
+  const core = coreByHub.get(f.id) || null, pick = pickNative(f.id, core);
+  return withNative(siteEntry(f, { core, native: pick.native, emuSkip: EMU_SKIP }), pick);   // (newest wins: emu is the default where the core is behind)
 });
+for (const id of extById.keys()) if (!hub.firmwares.some((f) => f.id === id) && !cores.some((c) => (c.hub || c.core) === id))
+  console.log(`build_catalog: ${id}: an author's native build of a firmware neither the Hub nor FM1VST lists: left out`);
 // an un-gated core the Hub does not list: native only, its entry from data/cores.json (name, what, release, authorFull)
 const onHub = new Set(hub.firmwares.map((f) => f.id));
 for (const core of cores) {
@@ -158,9 +175,10 @@ for (const core of cores) {
   if (core.gated || onHub.has(id)) continue;
   if (!core.name || !core.what) { console.error(`build_catalog: ${core.core} is not on the Hub: data/cores.json needs its name and what`); process.exit(1); }
   const gh = /^https:\/\/github\.com\/([^/]+\/[^/]+?)\/?$/.exec(core.repo || "");
-  const e = siteEntry({ id, name: core.name, version: core.version, author: core.authorFull || core.author, what: core.what,
+  const pick = pickNative(id, core);
+  const e = withNative(siteEntry({ id, name: core.name, version: core.version, author: core.authorFull || core.author, what: core.what,
     source: core.repo || null, repo: gh ? gh[1] : null, release: core.release || null, beta: /\b(alpha|beta|rc)\b/i.test(core.version) },
-    { core, native: nativeOf(core), emuSkip: EMU_SKIP });
+    { core, native: pick.native, emuSkip: EMU_SKIP }), pick);
   firmwares.push({ ...e, engines: ["native"], defaultEngine: "native", nativeBehind: false, emu: null, offHub: true });
 }
 
@@ -215,10 +233,16 @@ const catalog = {
     fm1vst: { name: "FM1VST", license: "GPL-3.0-only", source: "https://github.com/Quixotic7/FM1VST", commit: fm1vstCommit },
     hub: { name: "The FM-1 Firmware Hub", source: HUB },
   },
+  // the authors' own native builds: the workflow that signs them, and what the last sync accepted and turned down
+  nativeAuthors: ext ? { workflow: ext.workflow, trustedRefs: ext.trustedRefs, docs: "native/",
+    accepted: ext.accepted.map((b) => `${b.id} ${b.version}`), rejected: ext.rejected.map((r) => ({ repo: r.repo, tag: r.tag, why: r.why })) } : null,
   firmwares,
 };
 writeFileSync(out, JSON.stringify(catalog, null, 1) + "\n");
 const nNative = firmwares.filter((f) => f.native).length;
 const nOff = firmwares.filter((f) => f.offHub).length;
-console.log(`catalog: ${firmwares.length} firmwares (${nNative - nOff} native + emulated, ${nOff} native only, ${firmwares.length - nNative} emulated, RemoteFM1 among them), layout ${layout} -> ${out}`);
-if (nNative !== 13) { console.error(`build_catalog: expected the 13 un-gated native cores, found ${nNative}`); process.exit(1); }
+const nAuthor = firmwares.filter((f) => f.native && f.native.by === "author").length;
+// FM1VST's own native cores: running, or named as the other build where the author's runs
+const nFm1vst = firmwares.filter((f) => (f.native && f.native.by !== "author") || (f.nativeAlt && f.nativeAlt.by === "fm1vst")).length;
+console.log(`catalog: ${firmwares.length} firmwares (${nNative - nOff} native + emulated, ${nOff} native only, ${firmwares.length - nNative} emulated, RemoteFM1 among them; ${nAuthor} native built by the author), layout ${layout} -> ${out}`);
+if (nFm1vst !== 13) { console.error(`build_catalog: expected the 13 un-gated native cores, found ${nFm1vst}`); process.exit(1); }

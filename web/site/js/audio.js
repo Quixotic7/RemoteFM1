@@ -118,7 +118,9 @@ export class Player {
     if (engine === "mock") return {};
     if (engine === "native") {
       if (!entry.native) throw new Error(`${entry.name} has no native core.`);
-      return { wasm: (await fetchBytes(abs(entry.native.wasm), `The native core of ${entry.name}`)).buffer };
+      const wasm = (await fetchBytes(abs(entry.native.wasm), `The native core of ${entry.name}`)).buffer;
+      // an author's own build (engines/native/ext/): its manifest's flags, which the engine checks against the module
+      return entry.native.by === "author" ? { wasm, flags: { asyncify: !!entry.native.asyncify, abi: entry.native.abi || 6 } } : { wasm };
     }
     if (engine === "emu") {
       const hook = await this.emuHook();

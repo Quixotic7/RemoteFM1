@@ -7,7 +7,7 @@
 // app (main.js) holds the state and the actions; the sheet re-renders its page on app.changed().
 import { PRESETS, accentOf, onAccent, css, hex } from "./theme.js";
 import { AUTOSAVE } from "./saves.js";
-import { browse, cardView, ENGINE_FILTERS } from "./live.js";
+import { browse, cardView, ENGINE_FILTERS, nativeOrigin } from "./live.js";
 import { MHZ_CHOICES, DEVICE_MHZ, DEVICE_RANGE, OVERCLOCK, DUAL_CORE, isOverclock, inDeviceRange } from "./cpu.js";
 
 // ---- icons: FM1VST Look::icon, 16 x 16 boxes
@@ -189,6 +189,8 @@ export class Sheet {
           segmented(["Native", "Emulated"], shown === "native" ? 0 : 1, (i) => a.setEngine(i ? "emu" : "native"),
             new Set(both ? [] : e.native ? [1] : [0]))));
       }
+      // the native build: FM1VST's core or the author's own (and, where both exist, which runs and why)
+      if (e.native && (shown === "native" || e.nativeAlt)) out.push(this.nativeRow(e));
       // the emulated CPU clock (emu only): Auto, the device's range (320-360), an overclock (480, 640)
       if (shown === "emu") {
         const c = st.mhzChoice;
@@ -214,8 +216,22 @@ export class Sheet {
       h("span", { class: "chev", html: icon("right") })));
     if (e) out.push(this.sourceLines(true));
     out.push(h("div", { class: "links" }, h("a", { href: a.installerUrl }, "Install RemoteFM1 on your FM-1"), " · ",
+      h("a", { href: "native/" }, "Firmware authors: publish a native build"), " · ",
       link("https://github.com/Quixotic7/RemoteFM1", "RemoteFM1 (this site) on GitHub")));
     return out;
+  }
+  // which native build a firmware has: "native · built by the author" with its commit and build log, or FM1VST's core;
+  // where both exist, the other one and why this one runs (live.js preferNative)
+  nativeRow(e) {
+    const n = e.native, o = nativeOrigin(e), short = (c) => String(c || "").slice(0, 7);
+    const bits = [];
+    if (n.by === "author") {
+      bits.push(`${n.version} from ${n.tag || "a release"}, commit `, link(`${String(n.repo).replace(/\/$/, "")}/tree/${n.commit}`, short(n.commit)));
+      if (n.buildLog) bits.push(" · ", link(n.buildLog, "build log"));
+      bits.push(" · ", h("a", { href: "native/" }, "how"));
+    } else bits.push(`FM1VST's core ${n.version}`);
+    if (e.nativeAlt) bits.push(h("br"), h("small", { class: "muted" }, e.nativeAlt.by === "author" ? `Also: the author's own build ${e.nativeAlt.version}. ` : `Also: FM1VST's core ${e.nativeAlt.version}. `, `${e.nativeWhy[0].toUpperCase()}${e.nativeWhy.slice(1)}.`));
+    return row("Native build", h("span", { class: "native-by" }, h("b", {}, o.short), h("br"), ...bits), null);
   }
   // the running firmware's source at the version that runs (the header's link), and a native core's FM1VST glue
   sourceLines(compact) {
@@ -319,7 +335,7 @@ export class Sheet {
                 title: v.note ? (eng === "native" ? `The Hub has ${f.version}; FM1VST's native core is ${f.native.version}` : `FM1VST's native core is ${f.native.version}; the Hub's latest ${f.version} runs emulated`)
                   : "Runs both of the FM-1's cores: heavy to emulate" }, note))
             : h("span", { class: "card-meta" }, meta),
-          f.native ? h("span", { class: "card-badge", title: "Runs natively (WebAssembly)" }) : null);
+          f.native ? h("span", { class: "card-badge" + (f.native.by === "author" ? " author" : ""), title: f.native.by === "author" ? "Runs natively (WebAssembly), built by its author" : "Runs natively (WebAssembly)" }) : null);
         return card;
       }), h("label", { class: "card file", title: "Run a package from your computer, emulated (for example M-VAVE's FM-1.fwsc)" },
         h("span", { class: "card-top" }, h("b", {}, "Open a file..."), h("span", { class: "card-ver", html: icon("file") })),
@@ -338,7 +354,7 @@ export class Sheet {
     } }, c)));
     fill();
     return [search, engines, chips, grid,
-      h("p", { class: "note" }, "From ", link(cat.hub, "the FM-1 Firmware Hub"), ` (${cat.live ? "live, " : "as of "}${cat.hubUpdated || "snapshot"}). Firmwares with a dot run natively, compiled from FM1VST's cores (where the Hub has a newer release, it runs emulated unless you pick native); every firmware also runs emulated on `,
+      h("p", { class: "note" }, "From ", link(cat.hub, "the FM-1 Firmware Hub"), ` (${cat.live ? "live, " : "as of "}${cat.hubUpdated || "snapshot"}). Firmwares with a dot run natively, compiled from FM1VST's cores or built by their authors (`, h("a", { href: "native/" }, "how to publish yours"), `; where the Hub has a newer release, it runs emulated unless you pick native); every firmware also runs emulated on `,
         link(cat.credits.fm1emu.source, "fm1-emu"), ", its package fetched from where the Hub points (RemoteFM1's from this site).")];
   }
 
@@ -364,7 +380,11 @@ export class Sheet {
       out.push(h("p", { class: "note" }, a.engineNote()));
       if (shown === "emu")
         out.push(h("p", { class: "note" }, "Emulated by ", link(cat.credits.fm1emu.source, "fm1-emu"), ` by ${cat.credits.fm1emu.author} (${cat.credits.fm1emu.license}): the FM-1's chip, so the firmware's own package runs unchanged. ${e.emu && e.emu.from === "site" ? "The package is this site's own, the one its installer writes." : "The package comes from where the FM-1 Firmware Hub points; this site hosts no firmware but its own."}`));
-      if (shown === "native")
+      if (shown === "native" && e.native && e.native.by === "author")
+        out.push(h("p", { class: "note" }, "Built by the author: their release workflow compiled this firmware to WebAssembly on ", link(cat.credits.fm1vst.source, "FM1VST"),
+          `'s glue and signed it (RemoteFM1's fm1-native workflow, a GitHub attestation); this site checked the signature, the module and a test run before publishing it. `,
+          e.native.buildLog ? link(e.native.buildLog, "The build log") : "", e.native.buildLog ? ". " : "", h("a", { href: "native/" }, "Native builds by authors"), "."));
+      else if (shown === "native")
         out.push(h("p", { class: "note" }, "Built from ", link(cat.credits.fm1vst.source, "FM1VST"), "'s core of this firmware (GPL-3.0), compiled to WebAssembly from the firmware's own source."));
     }
     out.push(heading("Credits and notices"));
