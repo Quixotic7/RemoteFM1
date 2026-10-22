@@ -3,6 +3,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<script>/* AudioWorklet and Web MIDI need a secure page: http -> https (not on a local server) */ if (location.protocol === "http:" && !/^(localhost|127\.|\[::1\]|.*\.localhost$)/.test(location.hostname)) location.replace("https:" + location.href.slice(5));</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>FM-1 Player</title>
 <meta name="description" content="Play FM-1 firmwares in the browser: the M-VAVE FM-1 drawn on screen, played with the computer keyboard, mouse, touch or a MIDI keyboard. Install RemoteFM1 to use your own FM-1 as the panel.">
