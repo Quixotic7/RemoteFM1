@@ -121,7 +121,7 @@ jobs:
         run: |
           set -x
           sudo apt-get update && sudo apt-get install -y cmake rsync libraqm0 libfribidi0
-          python -m pip install --upgrade pillow fonttools
+          python -m pip install --upgrade pillow fonttools numpy
           python -c "from PIL import features; print('raqm', features.check('raqm'))"
           export CR_PYTHON="$(command -v python)"
           .github/scripts/logged.sh native bash web/engines/native/build.sh
