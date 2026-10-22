@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # The native engine's build: firmware cores compiled to WebAssembly with Emscripten, on FM1VST's core machinery.
 #
-#   web/engines/native/build.sh [id ...]        FM1VST's 13 un-gated cores (default: all thirteen)
+#   web/engines/native/build.sh [id ...]        FM1VST's 21 un-gated cores (default: all twenty-one)
 #   web/engines/native/build.sh --ext TREE --id ID --family FAMILY [--core FILE] [--glue DIR] [--version V]
 #                               [--out DIR] [--host]
 #                                               one firmware from an external tree: an author's own checkout, built
@@ -55,7 +55,7 @@ if [ -z "${CR_PYTHON:-}" ]; then
         CR_PYTHON="$(command -v python3)"
     fi
 fi
-FAMILIES="felucca_web fm1base sloop dinghy choralroot plat melodee custom"
+FAMILIES="felucca_web fm1base sloop dinghy choralroot plat melodee tonitor speak37 custom"
 
 # id  glue cmake (core-glue relative)  tree (cores/)  family
 CORES="
@@ -72,6 +72,14 @@ amb          fm1base/core_amb.cmake               fm1-amb                     fm
 obervave     dinghy/core_obervave.cmake           obervave                    dinghy
 frodhes      dinghy/core_frodhes.cmake            frodhes                     dinghy
 loom         fm1base/core_loom.cmake              fm1-loom                    fm1base
+duell        felucca_web/core_duell.cmake         DUELL                       felucca_web
+minitone     felucca_web/core_minitone.cmake      Mini-Tone                   felucca_web
+fmini        felucca_web/core_fmini.cmake         fmini-1                     felucca_web
+skiff        felucca_web/core_skiff.cmake         skiff                       felucca_web
+grimm        dinghy/core_grimm.cmake              grimm                       dinghy
+pigeon       felucca_web/core_pigeon.cmake        pigeon                      felucca_web
+tonitor      tonitor/core.cmake                   tonitor                     tonitor
+speak37      speak37/core_speak37.cmake           Speak37                     speak37
 "
 
 # ---- the arguments

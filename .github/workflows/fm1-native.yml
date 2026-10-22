@@ -32,7 +32,7 @@ on:
         required: true
         type: string
       family:
-        description: "The FM1VST glue family: felucca_web, fm1base, sloop, dinghy, choralroot, plat, melodee or custom"
+        description: "The FM1VST glue family: felucca_web, fm1base, sloop, dinghy, choralroot, plat, melodee, tonitor, speak37 or custom"
         required: true
         type: string
       core-id:

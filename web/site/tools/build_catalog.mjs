@@ -2,17 +2,19 @@
 // Build web/site/catalog.json (web/engine/API.md section 5) from:
 //   - the FM-1 Firmware Hub's catalog (a snapshot: data/hub-catalog.snapshot.json, from
 //     https://thefirmwarehub.com/catalog.json; --hub <file|url> to use another);
-//   - FM1VST's cores (data/cores.json: the 22, their pinned versions and licences, the thirteen un-gated ones built for
-//     the web, the licensing gate of FM1VST CORES-PLAN.md section 6); an un-gated core the Hub does not list (LOOM-8)
-//     is a native-only entry of its own (offHub, as live.js mergeLive makes one that left the Hub);
+//   - FM1VST's cores (data/cores.json: the 29, their pinned versions and licences, the twenty-one un-gated ones built
+//     for the web, the licensing gate of FM1VST CORES-PLAN.md section 6); an un-gated core the Hub does not list
+//     (LOOM-8, Speak37's FM-1 build) is a native-only entry of its own (offHub, as live.js mergeLive makes one that
+//     left the Hub);
 //   - RemoteFM1 itself (web/installer/releases.json, its first release): the one package this site hosts, fetched from
 //     the installer's firmware/ folder on the same site, not from the Hub. It plays nothing; it waits for a host;
 //   - firmware authors' own native builds (--native-ext: web/site/tools/native_sync.mjs's index, the builds it checked
 //     and published under engines/native/ext/): where FM1VST also builds the firmware, the newer version runs, the
 //     author's at the same version (live.js preferNative); the other one is named in the entry (nativeAlt, nativeWhy).
 // Every Hub firmware gets the emulated engine (its package fetched at play time from where the Hub points); the
-// thirteen un-gated cores also get the native one, which is then their default while it is the Hub's version (newest wins:
-// web/site/js/live.js, which builds the entries; the page merges the Hub's live catalog over this one at load).
+// twenty-one un-gated cores also get the native one, which is then their default while it is the Hub's version
+// (newest wins: web/site/js/live.js, which builds the entries; the page merges the Hub's live catalog over this one at
+// load).
 //   node web/site/tools/build_catalog.mjs [--layout dev|pages] [--hub FILE|URL] [--out FILE] [--native-ext FILE]
 // layout: where the engines, the remote module and the installer are, seen from the page:
 //   dev    the page at web/site/ served from web/ (python3 -m http.server in web/): ../engines/.., ../build/..
@@ -160,8 +162,12 @@ let EMU_SKIP = { bubba: "boots to a black screen, no sound (needs M-VAVE's own l
 try { EMU_SKIP = (await import(new URL("../../engines/emu/catalog.mjs", import.meta.url).href)).EMU_SKIP || EMU_SKIP; } catch (_) { /* (W2's branch not merged) */ }
 
 // the native core's own source: the commit FM1VST pins (its submodule), and FM1VST's glue folder for it
+// (nativeName: the name the native build goes by, where it differs from the Hub's; hubVersion: the Hub's name for the
+// version it builds; nativeDefault: why it stays the default engine though the Hub's version is newer: live.js newestWins)
 const nativeOf = (core) => core && !core.gated ? { core: core.core, version: core.version, wasm: PATHS[layout].engines.native.wasm.replace("{core}", core.core),
-  repo: core.repo || null, commit: core.commit || null, glue: core.glue || null } : null;
+  repo: core.repo || null, commit: core.commit || null, glue: core.glue || null,
+  ...(core.nativeName ? { name: core.nativeName } : {}), ...(core.hubVersion ? { hubVersion: core.hubVersion } : {}),
+  ...(core.nativeDefault ? { preferred: true, preferredWhy: core.nativeDefault } : {}) } : null;
 const firmwares = hub.firmwares.map((f) => {
   const core = coreByHub.get(f.id) || null, pick = pickNative(f.id, core);
   return withNative(siteEntry(f, { core, native: pick.native, emuSkip: EMU_SKIP }), pick);   // (newest wins: emu is the default where the core is behind)
@@ -245,4 +251,4 @@ const nAuthor = firmwares.filter((f) => f.native && f.native.by === "author").le
 // FM1VST's own native cores: running, or named as the other build where the author's runs
 const nFm1vst = firmwares.filter((f) => (f.native && f.native.by !== "author") || (f.nativeAlt && f.nativeAlt.by === "fm1vst")).length;
 console.log(`catalog: ${firmwares.length} firmwares (${nNative - nOff} native + emulated, ${nOff} native only, ${firmwares.length - nNative} emulated, RemoteFM1 among them; ${nAuthor} native built by the author), layout ${layout} -> ${out}`);
-if (nFm1vst !== 13) { console.error(`build_catalog: expected the 13 un-gated native cores, found ${nFm1vst}`); process.exit(1); }
+if (nFm1vst !== 21) { console.error(`build_catalog: expected the 21 un-gated native cores, found ${nFm1vst}`); process.exit(1); }

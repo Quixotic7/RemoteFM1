@@ -7,7 +7,7 @@
 // app (main.js) holds the state and the actions; the sheet re-renders its page on app.changed().
 import { PRESETS, accentOf, onAccent, css, hex } from "./theme.js";
 import { AUTOSAVE } from "./saves.js";
-import { browse, cardView, ENGINE_FILTERS, nativeOrigin } from "./live.js";
+import { browse, cardView, ENGINE_FILTERS, nativeOrigin, nameOf } from "./live.js";
 import { MHZ_CHOICES, DEVICE_MHZ, DEVICE_RANGE, OVERCLOCK, DUAL_CORE, isOverclock, inDeviceRange } from "./cpu.js";
 
 // ---- icons: FM1VST Look::icon, 16 x 16 boxes
@@ -117,7 +117,7 @@ export class Sheet {
     out.push(h("button", { class: "fw-card", onclick: () => this.show("firmware") },
       h("span", { class: "led" }),
       h("span", { class: "fw-text" },
-        h("span", { class: "fw-top" }, h("b", {}, e ? e.name : "No firmware"), h("span", { class: "muted" }, e ? a.versionOf(e, st.wantEngine) : "")),
+        h("span", { class: "fw-top" }, h("b", {}, e ? nameOf(e, st.wantEngine) : "No firmware"), h("span", { class: "muted" }, e ? a.versionOf(e, st.wantEngine) : "")),
         h("span", { class: "fw-meta" + (st.engineState === "mock" ? " warn" : "") }, a.metaLine())),
       h("span", { class: "chev", html: icon("right") })));
 

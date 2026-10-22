@@ -7,6 +7,9 @@
 //           editors: Restore backup, then Save backup again: the same archive; ChoralRoot: Place a pack sound, read back)
 //   double  the same through the shim and the bridge, with the manager's own simulator standing in for the core
 //           (Felucca editors: their makeMockDevice; ChoralRoot: fm1manager.js makeSimFM1): the whole UI path, today
+//   PIGEON (engine only: its loader has no simulator): a fresh PIGEON is silent; the sample loader connects (negotiate,
+//           INFO), opens FM1VST's test bank (tests/fixtures/pigeon/bank.kob), sends it (Send bank, verified by its
+//           read-back), and then the keys sound (the player's output, through an AnalyserNode)
 // Screenshots: web/build/test/editor-<id>-<mode>.png (and SHOTS_DIR when set).
 //   node web/managers/e2e.mjs [id ...] [--mode engine|double|notes|both]     (after node web/managers/build.mjs; the native
 //   cores in web/build/native: web/engines/native/build.sh)
@@ -342,6 +345,92 @@ async function notes() {
   } finally { p.kill("SIGTERM"); await new Promise((res) => { p.once("exit", res); setTimeout(res, 3000); }); }
 }
 
+// ---- PIGEON's sample loader (managers.json "pigeon"): a fresh PIGEON has no samples and is silent; the loader is how a
+// visitor gives it some. Its own flow end to end: Connect FM1, open a bank, Send bank to FM1 (written and read back);
+// then the keys play the bank's chops.
+const PIGEON_BANK = "/vendor/FM1VST/tests/fixtures/pigeon/bank.kob";
+async function pigeonSession() {
+  const id = "pigeon";
+  const { p, wsUrl } = await launch();
+  const logs = [];
+  try {
+    const cdp = await Cdp.connect(wsUrl);
+    const { targetId } = await cdp.send("Target.createTarget", { url: "about:blank" });
+    const { sessionId } = await cdp.send("Target.attachToTarget", { targetId, flatten: true });
+    const S = (m, a) => cdp.send(m, a, sessionId);
+    cdp.handlers.push((m) => {
+      if (m.sessionId !== sessionId) return;
+      if (m.method === "Runtime.exceptionThrown") logs.push("EXCEPTION: " + (m.params.exceptionDetails.exception?.description || m.params.exceptionDetails.text));
+    });
+    await S("Runtime.enable"); await S("Page.enable");
+    await cdp.send("Browser.setDownloadBehavior", { behavior: "deny" }).catch(() => {});
+    await S("Emulation.setDeviceMetricsOverride", { width: 1600, height: 900, deviceScaleFactor: 1, mobile: false });
+    const ev = async (expr) => {
+      const r = await S("Runtime.evaluate", { expression: expr, awaitPromise: true, returnByValue: true, userGesture: true });
+      if (r.exceptionDetails) throw new Error((r.exceptionDetails.exception?.description || r.exceptionDetails.text).split("\n")[0]);
+      return r.result.value;
+    };
+    const until = async (expr, ms, step = 100) => { const t0 = Date.now(); for (;;) { let v; try { v = await ev(expr); } catch (_) { v = null; } if (v) return v; if (Date.now() - t0 > ms) return null; await sleep(step); } };
+    const status = () => ev(`${FR} F.document.getElementById("status").textContent`);
+    await S("Page.navigate", { url: `${BASE}site/?fw=${id}&engine=native` });
+    const up = await until(`window.FM1Editor && FM1Editor.bridge.target.connected && FM1Editor.bridge.target.port`, 25000);
+    ok(up === "PIGEON", `${id}: the native engine runs, the in-page port is "${up}"`);
+    if (!up) return;
+    // the player's output, measured: the loudest sample over a window, through an AnalyserNode on the output
+    await ev(`(() => { const pl = FM1Rec.o.getPlayer(), an = pl.ctx.createAnalyser(); an.fftSize = 2048; pl.out.connect(an);
+      const b = new Float32Array(2048); window.__peak = 0;
+      setInterval(() => { an.getFloatTimeDomainData(b); for (const v of b) window.__peak = Math.max(window.__peak, Math.abs(v)); }, 10); return true; })()`);
+    const play = async () => {
+      await ev(`window.__peak = 0, true`);
+      for (const code of ["KeyA", "KeyS", "KeyD", "KeyF", "KeyG"]) {
+        await ev(`dispatchEvent(new KeyboardEvent("keydown", { code: "${code}", bubbles: true })), true`);
+        await sleep(350);
+        await ev(`dispatchEvent(new KeyboardEvent("keyup", { code: "${code}", bubbles: true })), true`);
+        await sleep(100);
+      }
+      await sleep(300);
+      return ev(`window.__peak`);
+    };
+    await sleep(3500);                                   // (PIGEON's splash)
+    const before = await play();
+    ok(before < 0.002, `${id}: a fresh PIGEON is silent: no samples (keys A..G, peak ${before.toFixed(4)})`);
+
+    await ev(`document.getElementById("ed-btn").click()`);
+    const loaded = await until(`${FR} !!(F && F.__fm1shim && F.document.readyState === "complete" && F.document.getElementById("send-help")
+      && F.document.getElementById("send-help").textContent !== "Preparing the tool…")`, 30000);
+    ok(loaded, `${id}: the Editor panel shows the PIGEON sample loader, the shim in it, ready (${loaded ? await ev(`${FR} F.document.getElementById("offline").textContent`) : "not ready"})`);
+    if (!loaded) return;
+    await ev(`${FR} (F.confirm = () => true, F.document.getElementById("connect").click(), true)`);
+    const conn = await until(`${FR} /PIGEON connected/.test(F.document.getElementById("status").textContent) ? F.document.getElementById("firmware-version").textContent : null`, 20000);
+    ok(conn, `${id}: Connect FM1: negotiated through the shim, "${conn || await status()}" on "${await ev(`${FR} F.document.getElementById("connection").textContent`)}"`);
+    if (!conn) return;
+    await ev(`${FR} (async () => { const b = await (await F.fetch("${PIGEON_BANK}")).arrayBuffer(); const dt = new F.DataTransfer();
+      dt.items.add(new F.File([b], "bank.kob")); const i = F.document.getElementById("open"); i.files = dt.files; i.dispatchEvent(new F.Event("change")); return true; })()`);
+    const opened = await until(`${FR} !F.document.getElementById("upload").disabled || null`, 20000);
+    ok(opened, `${id}: FM1VST's test bank opened in the loader ("${await status()}")`);
+    if (!opened) return;
+    const t0 = Date.now();
+    await ev(`${FR} (F.document.getElementById("upload").click(), true)`);
+    await until(`${FR} !F.document.getElementById("send-review").hidden || null`, 5000);
+    await ev(`${FR} (F.document.getElementById("send-confirm").click(), true)`);
+    const sent = await until(`${FR} /Bank sent and verified/.test(F.document.getElementById("status").textContent) || F.document.getElementById("status").parentElement.classList.contains("error") || null`, 180000, 250);
+    const said = await status();
+    ok(sent && /Bank sent and verified/.test(said), `${id}: Send bank to FM1: "${said}" (${((Date.now() - t0) / 1000).toFixed(1)} s)`);
+    const after = await play();
+    ok(after > 0.01, `${id}: the keys play the bank's chops now (peak ${after.toFixed(4)})`);
+    const s = await S("Page.captureScreenshot", { format: "png" });
+    writeFileSync(join(OUT, `editor-${id}-engine.png`), Buffer.from(s.data, "base64"));
+    if (SHOTS) writeFileSync(join(SHOTS, `editor-${id}-engine.png`), Buffer.from(s.data, "base64"));
+    console.log(`  shot  ${join(OUT, `editor-${id}-engine.png`)}`);
+    rows.push({ id, mode: "engine", port: up, info: !!conn, get: !!sent, put: after > 0.01, ...(await ev(`({ toEngine: FM1Editor.bridge.stats.toEngine, toManagers: FM1Editor.bridge.stats.toManagers })`)) });
+    cdp.ws.close();
+  } finally {
+    for (const l of logs.slice(0, 8)) console.log("    " + l);
+    p.kill("SIGTERM");
+    await new Promise((res) => { p.once("exit", res); setTimeout(res, 3000); });
+  }
+}
+
 const ids = MODE === "notes" ? [] : IDS.length ? IDS : INDEX.managers.map((m) => m.id);
 if (MODE === "notes" || (MODE === "both" && !IDS.length)) { console.log("== the panel's notes"); try { await notes(); } catch (e) { ok(false, `notes: ${e.message}`); } }
 for (const id of ids) {
@@ -350,7 +439,8 @@ for (const id of ids) {
   if (!existsSync(join(WEB, "build", "native", `${id}.wasm`))) { ok(false, `${id}: no web/build/native/${id}.wasm (web/engines/native/build.sh)`); continue; }
   for (const mode of MODE === "both" ? ["double", "engine"] : [MODE]) {
     console.log(`== ${id} (${mode})`);
-    try { await session(id, mode); } catch (e) { ok(false, `${id} (${mode}): ${e.message}`); }
+    if (id === "pigeon" && mode === "double") { console.log("  --    pigeon: no double (the loader has no simulator of its own)"); continue; }
+    try { await (id === "pigeon" ? pigeonSession() : session(id, mode)); } catch (e) { ok(false, `${id} (${mode}): ${e.message}`); }
   }
 }
 server.kill("SIGTERM");

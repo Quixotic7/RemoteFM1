@@ -13,7 +13,15 @@
     "jiant": "JIANT FM",
     "fomni": "FoMni FM-1",
     "fimba": "FiMba FM-1",
-    "loom": "LOOM-8 FM-1"
+    "loom": "LOOM-8 FM-1",
+    "duell": "DUELL",
+    "minitone": "Felucca",
+    "fmini": "FM-1 Midi",
+    "skiff": "Felucca",
+    "grimm": "Felucca",
+    "pigeon": "PIGEON",
+    "tonitor": "FM-1 Tonitor",
+    "speak37": "Speak37"
   },
   "managers": [
     {
@@ -83,6 +91,28 @@
       "author": "Jason Persinger, a fork of Felucca by Leo Kuroshita, Hügelton Instruments",
       "repo": "https://github.com/jasonpersinger/ghoulbox-fm1-dungeon-synth",
       "upstream": "https://jasonpersinger.me/ghoulbox-fm1-dungeon-synth/webapp/editor/"
+    },
+    {
+      "id": "pigeon",
+      "title": "PIGEON sample loader",
+      "firmwares": ["pigeon"],
+      "tree": "pigeon",
+      "page": "web/pigeon/index.html",
+      "at": "webapp/pigeon/",
+      "copy": [
+        { "from": "web/pigeon", "to": "webapp/pigeon", "skip": "^test.*\\.mjs$" },
+        { "from": "web/fm1backup.js", "to": "webapp/fm1backup.js" },
+        { "from": "web/ko_bank.js", "to": "webapp/ko_bank.js" },
+        { "from": "web/fm1pkg.js", "to": "webapp/fm1pkg.js" },
+        { "from": "web/fm1ota.js", "to": "webapp/fm1ota.js" },
+        { "from": "web/footer.css", "to": "footer.css" },
+        { "from": "web/footer.js", "to": "footer.js" }
+      ],
+      "files": [],
+      "licence": "GPL-3.0-only (its MP3 encoder, lamejs 1.2.1: LGPL-3.0, webapp/pigeon/vendor/ with its source)",
+      "author": "The Shrimp Blimp, on Felucca by Leo Kuroshita, Hügelton Instruments",
+      "repo": "https://github.com/TheShrimpBlimp/pigeon",
+      "upstream": "https://theshrimpblimp.com/pigeon/webapp/pigeon/"
     }
   ]
 }

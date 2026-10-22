@@ -12,7 +12,7 @@ import * as saves from "./saves.js";
 import { Sheet, icon } from "./sheet.js";
 import { makeSite } from "./remote-hook.js";
 import { createFm1, mountUseFm1, mountHeader } from "./use-fm1.js";
-import { liveCatalog, mergeLive, packageFor, chooseEngine, compareVersions, sourceOf, nativeOrigin } from "./live.js";
+import { liveCatalog, mergeLive, packageFor, chooseEngine, compareVersions, sourceOf, nativeOrigin, nameOf } from "./live.js";
 import { loadPrefs, savePrefs as writePrefs, keyHintsOn, shiftHintDue } from "./prefs.js";
 import { mhzFor, pickMhz, stepDown, Governor, DEVICE_MHZ } from "./cpu.js";
 import { EditorPanel } from "./editor-panel.js";
@@ -174,7 +174,7 @@ async function openFirmware(id, want = null) {
   lcd.clear(); invalidate();
   await refreshSaves();
   if (state.running) await boot();
-  else $("start-name").textContent = e.name;
+  else $("start-name").textContent = nameOf(e, state.wantEngine);
 }
 
 // (re)start the current firmware on its engine, from a save (or the autosave)
@@ -291,8 +291,8 @@ async function fallback(why) {
 
 function updateTitle() {
   const e = state.entry;
-  document.title = e ? `${e.name} · FM-1 Player` : "FM-1 Player";
-  $("fw-name").textContent = e ? e.name : "";
+  document.title = e ? `${nameOf(e, state.wantEngine)} · FM-1 Player` : "FM-1 Player";
+  $("fw-name").textContent = e ? nameOf(e, state.wantEngine) : "";
   $("fw-ver").textContent = e ? versionOf(e, state.wantEngine) : "";
   updateSource();
   editorChanged();

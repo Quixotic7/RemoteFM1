@@ -7,6 +7,7 @@
 //   compareVersions(a, b)        -1 / 0 / 1, NaN when unsure (a tolerant comparator for the Hub's version strings)
 //   hubNewer(hubV, nativeV)      the Hub's version is newer than the native core's, or unsure and different
 //   newestWins(entry)            the default engine: emu when the native core is behind the Hub, else native
+//   nameOf(entry, engine)        the name the running build goes by (DUELL's native core: "DUELL (unofficial build)")
 //   chooseEngine(entry, want, prefs)   the engine to start: the deep link's, the visitor's choice, the default
 //   mergeLive(snapshot, hub)     the deployed catalog with the Hub's current versions, packages and firmwares
 //   liveCatalog(snapshot, opts)  mergeLive over a fetched Hub catalog, within a timeout; the snapshot when it fails
@@ -82,13 +83,17 @@ export function hubNewer(hubV, nativeV) {
 }
 
 // ------------------------------------------------------------------ engines ---
-// Newest wins: the native core is the default only while it is the Hub's version (or newer).
+// Newest wins: the native core is the default only while it is the Hub's version (or newer). native.hubVersion: the
+// Hub's name for the version the core builds, where the two differ (Tonitor: the Hub's "2026.10.21" is firmware 0.53).
+// native.preferred (data/cores.json nativeDefault): the native core stays the default though the Hub's is newer (PIGEON:
+// the Hub's is a beta; the native core is far lighter); nativeBehind still says so.
 export function newestWins(e) {
   if (!e.native || !e.engines.includes("native")) return e;
-  e.nativeBehind = e.engines.includes("emu") && hubNewer(e.version, e.native.version);
-  e.defaultEngine = e.nativeBehind ? "emu" : "native";
+  e.nativeBehind = e.engines.includes("emu") && hubNewer(e.version, e.native.hubVersion || e.native.version);
+  e.defaultEngine = e.nativeBehind && !e.native.preferred ? "emu" : "native";
   return e;
 }
+export const nameOf = (e, engine) => (!e ? "" : engine === "native" && e.native && e.native.name ? e.native.name : e.name);
 // the engine to start: the deep link's (?engine=), else the visitor's own choice while the firmware's version is the
 // one they chose it at (a new release resets it), else the default. prefs: { engine: {id: name}, engineAt: {id: ver} }
 export function chooseEngine(e, want, prefs = {}) {
@@ -124,7 +129,7 @@ export function nativeOrigin(e) {
   const n = e && e.native;
   if (!n) return null;
   if (n.by === "author") return { short: "native · built by the author", long: `${e.name}'s own native build ${n.version}, made by its author's release workflow from ${String(n.repo || "").replace(/^https:\/\/github\.com\//, "")} ${n.tag || ""}`.trim() };
-  return { short: "native · FM1VST's core", long: `FM1VST's ${e.name} core ${n.version}` };
+  return { short: "native · FM1VST's core", long: `FM1VST's ${nameOf(e, "native")} core ${n.version}` };
 }
 
 // ------------------------------------------------------------------ entries ---

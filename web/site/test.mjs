@@ -21,21 +21,46 @@ const ok = (c, what) => { checks++; if (!c) fails++; console.log(`${what.padEnd(
 // ---- the catalog
 const cat = JSON.parse(readFileSync(new URL("./catalog.json", import.meta.url), "utf8"));
 const natives = cat.firmwares.filter((f) => f.native).map((f) => f.id).sort();
-ok(natives.join() === "amb,choralroot,coralflower,felucca,fimba,fomni,frodhes,ghoulbox,jiant,loom,melodee,obervave,purplemonkey", "catalog: the 13 un-gated cores are native, no other");
+ok(natives.join() === "amb,choralroot,coralflower,duell,felucca,fimba,fmini,fomni,frodhes,ghoulbox,grimm,jiant,loom,melodee,minitone,obervave,pigeon,purplemonkey,skiff,speak37,tonitor",
+   "catalog: the 21 un-gated cores are native, no other");
 ok(cat.firmwares.filter((f) => !f.offHub).every((f) => f.engines.includes("emu") && /^[0-9a-f]{64}$/.test(f.emu.sha256)
    && (f.id === "remotefm1" ? f.emu.from === "site" : /^https:\/\/thefirmwarehub\.com\/fw\//.test(f.emu.pkg) && !f.emu.from)),
    "catalog: every Hub firmware runs emulated, its package from the Hub (RemoteFM1's from the site) with a SHA-256");
 {
   const lm = cat.firmwares.find((f) => f.id === "loom"), hubIds = new Set(JSON.parse(readFileSync(new URL("./data/hub-catalog.snapshot.json", import.meta.url), "utf8")).firmwares.map((f) => f.id));
-  ok(cat.firmwares.filter((f) => f.offHub).map((f) => f.id).join() === "loom" && !hubIds.has("loom"), "catalog: LOOM-8, not on the Hub, the one off-Hub entry");
+  // (the snapshot is the Hub's of 2026-10-18: Mini-Tone and FMini-1 came later; the live merge gives them the emulated engine)
+  const off = cat.firmwares.filter((f) => f.offHub).map((f) => f.id).sort();
+  ok(off.join() === "fmini,loom,minitone,speak37" && off.every((id) => !hubIds.has(id)), "catalog: LOOM-8, Speak37, Mini-Tone, FMini-1, not in the Hub snapshot, the off-Hub entries");
+  const sp = cat.firmwares.find((f) => f.id === "speak37");
+  ok(sp && sp.name === "Speak37" && sp.engines.join() === "native" && sp.defaultEngine === "native" && sp.emu === null && sp.native.version === "1.0"
+     && sp.native.glue === "speak37" && sp.category === "Other" && sp.what && !sp.beta && sp.repo === "genkigenki/Speak37",
+     "catalog: Speak37's FM-1 build native only (the Hub has its SMK-37 build only)");
   ok(lm && lm.name === "LOOM-8" && lm.engines.join() === "native" && lm.defaultEngine === "native" && !lm.nativeBehind && lm.emu === null && !lm.nativeGated
      && lm.native.version === "0.6-beta" && lm.native.wasm.endsWith("loom.wasm") && lm.native.glue === "fm1base" && lm.authorFull === "Charles Vestal"
      && lm.category === "Groovebox" && lm.what && lm.beta && lm.repo === "charlesvestal/fm1-loom",
      "catalog: LOOM-8 native only (no package to emulate), a beta, by Charles Vestal");
 }
 ok(new Set(cat.firmwares.map((f) => f.id)).size === cat.firmwares.length, "catalog: ids unique");
-ok(cat.firmwares.filter((f) => f.native).every((f) => f.defaultEngine === (f.nativeBehind ? "emu" : "native") && f.native.wasm.endsWith(`${f.native.core}.wasm`)),
+ok(cat.firmwares.filter((f) => f.native).every((f) => f.defaultEngine === (f.nativeBehind && !f.native.preferred ? "emu" : "native") && f.native.wasm.endsWith(`${f.native.core}.wasm`)),
    "catalog: native is the default where it exists, unless the Hub's version is newer (newest wins)");
+{
+  const L = await import("./js/live.js"), by = (id) => cat.firmwares.find((f) => f.id === id);
+  const du = by("duell"), pg = by("pigeon"), tn = by("tonitor");
+  ok(du.native && !du.nativeGated && du.defaultEngine === "native" && du.name === "DUELL" && L.nameOf(du, "native") === "DUELL (unofficial build)" && L.nameOf(du, "emu") === "DUELL"
+     && /DUELL \(unofficial build\) core/.test(L.nativeOrigin(du).long),
+     "catalog: DUELL public; its native core goes by \"DUELL (unofficial build)\", the Hub's package by DUELL");
+  // the Hub's newer PIGEON (a beta) and Tonitor's own version names, as the live merge meets them
+  const hub = JSON.parse(readFileSync(new URL("./data/hub-catalog.snapshot.json", import.meta.url), "utf8"));
+  Object.assign(hub.firmwares.find((f) => f.id === "pigeon"), { version: "0.5.0-beta.1", pkg: "fw/pigeon-0.5.0-beta.1.fwsc", sha256: "d".repeat(64) });
+  Object.assign(hub.firmwares.find((f) => f.id === "tonitor"), { version: "2026.10.21", pkg: "fw/tonitor-2026.10.21.fwsc", sha256: "e".repeat(64) });
+  const m = L.mergeLive(cat, hub, {}), mp = m.firmwares.find((f) => f.id === "pigeon"), mt = m.firmwares.find((f) => f.id === "tonitor");
+  ok(pg.native.version === "0.4.1" && pg.native.preferred && mp.nativeBehind && mp.defaultEngine === "native" && L.chooseEngine(mp, null, {}) === "native" && L.chooseEngine(mp, "emu", {}) === "emu",
+     "catalog: PIGEON native 0.4.1 stays the default under the Hub's 0.5.0-beta.1 (nativeDefault), the beta one switch away");
+  ok(tn.native.version === "0.53" && tn.native.hubVersion === "2026.10.21" && mt.version === "2026.10.21" && !mt.nativeBehind && mt.defaultEngine === "native",
+     "catalog: Tonitor 0.53 is the Hub's 2026.10.21 (hubVersion): native, not behind");
+  ok(["minitone", "fmini"].every((id) => { const f = m.firmwares.find((x) => x.id === id); return f && f.offHub && f.engines.join() === "native"; }),
+     "catalog: Mini-Tone and FMini-1 stay native only until the Hub lists them");
+}
 ok(["x0x", "orbit"].every((id) => cat.firmwares.find((f) => f.id === id).nativeGated), "catalog: gated cores say why they are not native");
 ok(["choralroot", "melodee"].every((id) => { const f = cat.firmwares.find((x) => x.id === id); return f.native && !f.nativeGated && f.engines.join() === "native,emu" && f.defaultEngine === "native"; }),
    "catalog: ChoralRoot and Melodee play native by default, emulated (the Hub's package) one switch away");
@@ -160,8 +185,8 @@ ok(cat.firmwares.every((f) => cat.categories.includes(f.category)), "catalog: ev
   ok(all.length === m.firmwares.length && nativeOnly.every((f) => f.native) && nativeOnly.length === m.firmwares.filter((f) => f.native).length
      && emuOnly.every((f) => f.engines.includes("emu") && !f.emuNote) && !emuOnly.some((f) => f.id === "bubba" || f.id === "amb") && emuOnly.some((f) => f.id === "felucca"),
      "filter: All everything; Native the cores; Emulated what fm1-emu runs (not bubba, not a native-only one)");
-  ok(L.browse(m.firmwares, { engine: "native", cat: "Groovebox", q: "fel" }).map((f) => f.id).join() === "felucca,melodee" && L.browse(m.firmwares, { engine: "emu", q: "zzzz" }).length === 0,
-     "filter: combines with a category chip and the search (Melodee's blurb names Felucca)");
+  ok(L.browse(m.firmwares, { engine: "native", cat: "Groovebox", q: "fel" }).map((f) => f.id).join() === "felucca,melodee,pigeon,skiff" && L.browse(m.firmwares, { engine: "emu", q: "zzzz" }).length === 0,
+     "filter: combines with a category chip and the search (Melodee's, PIGEON's, Skiff's blurbs name Felucca)");
   const cvN = L.cardView(mf, "native"), cvE = L.cardView(mf, "emu"), cvA = L.cardView(mf, "all");
   ok(cvN.version === mf.native.version && cvN.note === "Hub: 1.6.2" && cvN.engine === "native" && cvE.version === "1.6.2" && cvE.engine === "emu" && !cvE.note
      && cvA.version === "1.6.2" && cvA.note === `native: ${mf.native.version}` && cvA.engine === null && L.cardView(snap.firmwares.find((f) => f.id === "fimba"), "native").note === null,
@@ -460,7 +485,7 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
       .map((l) => /^160000 commit ([0-9a-f]{40})\t(\S+)$/.exec(l)).filter(Boolean).map((m) => [m[2], m[1]]));
     const gm = readFileSync(join(VST, ".gitmodules"), "utf8"), urls = new Map([...gm.matchAll(/path = (\S+)\s+url = (\S+)/g)].map((m) => [m[1], m[2].replace(/\.git$/, "")]));
     const nat = cat.firmwares.filter((f) => f.native);
-    ok(nat.length === 13 && nat.every((f) => [...pins].some(([path, c]) => c === f.native.commit && urls.get(path) === f.native.repo)) && nat.every((f) => existsSync(join(VST, "core-glue", f.native.glue))),
+    ok(nat.length === 21 && nat.every((f) => [...pins].some(([path, c]) => c === f.native.commit && urls.get(path) === f.native.repo)) && nat.every((f) => existsSync(join(VST, "core-glue", f.native.glue))),
        "build_catalog: each native core's commit is FM1VST's pin (ls-tree), its repo the submodule's, its glue folder there");
     const cj = JSON.parse(readFileSync(new URL("./data/cores.json", import.meta.url), "utf8"));
     const head = execFileSync("git", ["-C", VST, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
@@ -577,8 +602,9 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
      && am.native.by !== "author" && am.nativeAlt.by === "author" && am.nativeAlt.version === "1.2" && /newer/.test(am.nativeWhy)
      && du.native && du.native.by === "author" && !du.nativeGated && du.engines.join() === "native,emu" && !du.nativeBehind
      && ec.nativeAuthors.accepted.length === 3 && ec.nativeAuthors.rejected[0].why === "test" && nativeOrigin(fe).short === "native · built by the author"
-     && ec.firmwares.filter((f) => f.native && f.native.by !== "author" || f.nativeAlt && f.nativeAlt.by === "fm1vst").length === 13,
-     "native authors: the catalog: Felucca the author's (same version), AMB-1 FM1VST's (newer), DUELL the author's only; FM1VST's 13 still counted");
+     && du.nativeAlt && du.nativeAlt.by === "fm1vst"
+     && ec.firmwares.filter((f) => f.native && f.native.by !== "author" || f.nativeAlt && f.nativeAlt.by === "fm1vst").length === 21,
+     "native authors: the catalog: Felucca and DUELL the author's (same version), AMB-1 FM1VST's (newer); FM1VST's 21 still counted");
 }
 
 // ---- the computer-key hints on the panel: off by default, remembered (prefs.js), drawn only when on

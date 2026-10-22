@@ -112,7 +112,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Native cores (W1), FM1VST's 13 un-gated cores in WebAssembly
+      - name: Native cores (W1), FM1VST's 21 un-gated cores in WebAssembly
         id: native
         if: steps.parts.outputs.native == '1'
         continue-on-error: true                  # a failed engine leaves the site up with its fallback

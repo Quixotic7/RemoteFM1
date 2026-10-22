@@ -152,6 +152,9 @@ function parseScript(lines) {
             const role = ENC_NAME.indexOf(a.toUpperCase() === "ALGO" ? "ALGORITHM" : a.toUpperCase());
             if (role < 0) throw new Error(`script: unknown knob ${a}`);
             ev.push({ ms: cur, op: "turn", role, n: b ? parseInt(b, 10) : 1 });
+        } else if (cmd === "sysex") {      // FM1VST's script_runner: a file of SysEx frames (a manager's upload)
+            const f = line.replace(/^.*?\bsysex\s+/, "").trim();
+            ev.push({ ms: cur, op: "sysex", file: path.isAbsolute(f) ? f : path.join(FM1VST_DIR, f) });
         } else throw new Error(`script: unknown command ${cmd}`);
     }
     ev.sort((x, y) => x.ms - y.ms);
@@ -188,23 +191,41 @@ function renderTo(engine, ms, each) {
         if (each) each(L, R);
     }
 }
+// sysex FILE: its frames (F0 .. F7) one at a time through midiIn, the next after the core's reply (midiOut's F7), as a
+// manager waits for each answer; the script does not end before the last one is answered
+function frames(file) {
+    const b = fs.readFileSync(file), out = [];
+    for (let i = 0; i < b.length; i++) {
+        if (b[i] !== 0xf0) continue;
+        const j = b.indexOf(0xf7, i);
+        if (j < 0) break;
+        out.push(b.subarray(i, j + 1));
+        i = j;
+    }
+    return out;
+}
 function runScript(engine, lines, opts = {}) {
     const { ev, end } = parseScript(lines);
     const panel = opts.panel || new Panel(engine);
     let i = 0;
     const L = new Float32Array(128), R = new Float32Array(128);
+    const sx = { q: [], busy: false, sent: 0, replies: 0 };
     for (;;) {
         const ms = engine.deviceMs();
         let quit = false;
         while (i < ev.length && ev[i].ms <= ms) {
             if (ev[i].op === "quit") quit = true;
+            else if (ev[i].op === "sysex") sx.q.push(...frames(ev[i].file));
             else panel.apply(ev[i]);
             i++;
         }
-        if (quit || (i >= ev.length && ms >= end)) break;
+        for (const b of engine.midiOut()) if (b === 0xf7 && sx.busy) { sx.busy = false; sx.replies++; }
+        if (!sx.busy && sx.q.length) { engine.midiIn(sx.q.shift()); sx.busy = true; sx.sent++; }
+        if ((quit || (i >= ev.length && ms >= end)) && !sx.busy && !sx.q.length) break;
         engine.render(L, R);
         if (opts.each) opts.each(L, R);
     }
+    if (sx.sent) console.log(`    sysex: ${sx.sent} frames sent, ${sx.replies} replies`);
     return panel;
 }
 

@@ -45,7 +45,7 @@
    "name": "FM1VST",
    "license": "GPL-3.0-only",
    "source": "https://github.com/Quixotic7/FM1VST",
-   "commit": "7686d87bd5e1fd5710be4a5de792118a911f2bfd"
+   "commit": "a528812d238a03a151de2ca1abc052552da90ebe"
   },
   "hub": {
    "name": "The FM-1 Firmware Hub",
@@ -363,17 +363,26 @@
    "editor": null,
    "beta": true,
    "engines": [
+    "native",
     "emu"
    ],
-   "defaultEngine": "emu",
-   "native": null,
+   "defaultEngine": "native",
+   "native": {
+    "core": "duell",
+    "version": "0.2.20-beta",
+    "wasm": "../build/native/duell.wasm",
+    "repo": "https://github.com/oscillr/DUELL",
+    "commit": "0bd7f904a18efd20fd6092a8bc645945c3fedf74",
+    "glue": "felucca_web",
+    "name": "DUELL (unofficial build)"
+   },
    "emu": {
     "pkg": "https://thefirmwarehub.com/fw/duell-0.2.20-beta.fwsc",
     "sha256": "bdb12cf2b476124b7b82f2cacdf6ed6a047f33a550eb74a0434183dd527f4478",
     "size": 610086,
     "product": "FM-1_901"
    },
-   "nativeGated": "naming terms for unofficial builds"
+   "nativeBehind": false
   },
   {
    "id": "etch",
@@ -690,6 +699,42 @@
    }
   },
   {
+   "id": "fmini",
+   "name": "FMini-1",
+   "version": "1.8.0",
+   "author": "ruppert",
+   "authorFull": "ruppert",
+   "category": "Synth",
+   "categories": [
+    "Synth"
+   ],
+   "tag": "Three-oscillator mono",
+   "what": "A three-oscillator Minimoog-style monosynth on Felucca 1.6.1, with 100 factory patches.",
+   "license": "GPL-3.0-only",
+   "source": "https://github.com/ruppert/fmini-1",
+   "repo": "ruppert/fmini-1",
+   "release": "https://github.com/ruppert/fmini-1/releases/tag/v1.8.0",
+   "site": null,
+   "play": null,
+   "editor": null,
+   "beta": false,
+   "engines": [
+    "native"
+   ],
+   "defaultEngine": "native",
+   "native": {
+    "core": "fmini",
+    "version": "1.8.0",
+    "wasm": "../build/native/fmini.wasm",
+    "repo": "https://github.com/ruppert/fmini-1",
+    "commit": "ab0f5c83d9c3b8cf10fd2f9ef3dc760a06c3abb3",
+    "glue": "felucca_web"
+   },
+   "emu": null,
+   "nativeBehind": false,
+   "offHub": true
+  },
+  {
    "id": "fomajam",
    "name": "FOMAJAM",
    "version": "0.1.2",
@@ -892,7 +937,7 @@
    ],
    "tag": "Dark ambient",
    "what": "Dark ambient, dungeon synth and deathdream: four tracks, seven sound sources from VA and 6-op FM to formant voices and physical models, tape, granular freeze and reverbs up to infinite, a 64-step sequencer and song mode. Built on Dinghy.",
-   "license": null,
+   "license": "GPL-3.0-only",
    "source": "https://github.com/GRiMMBIENT/grimm/tree/v1.0",
    "repo": "GRiMMBIENT/grimm",
    "release": "https://github.com/GRiMMBIENT/grimm/releases/tag/v1.0",
@@ -901,16 +946,25 @@
    "editor": "https://grimmbient.github.io/grimm/editor.html",
    "beta": false,
    "engines": [
+    "native",
     "emu"
    ],
-   "defaultEngine": "emu",
-   "native": null,
+   "defaultEngine": "native",
+   "native": {
+    "core": "grimm",
+    "version": "1.0",
+    "wasm": "../build/native/grimm.wasm",
+    "repo": "https://github.com/GRiMMBIENT/grimm",
+    "commit": "815ca6be81d973445851238dbaf12b4536d1e6d8",
+    "glue": "dinghy"
+   },
    "emu": {
     "pkg": "https://thefirmwarehub.com/fw/grimm-1.0.fwsc",
     "sha256": "8f1f6c0bc6c0afb58a400f4ea99a7a03302b98b38e4905527aa1fa2c665f5f65",
     "size": 610110,
     "product": "FM-1_966"
-   }
+   },
+   "nativeBehind": false
   },
   {
    "id": "hortator",
@@ -1228,6 +1282,42 @@
    }
   },
   {
+   "id": "minitone",
+   "name": "Mini-Tone",
+   "version": "1.0.1",
+   "author": "S. Schmitz",
+   "authorFull": "Stephane Schmitz",
+   "category": "Synth",
+   "categories": [
+    "Synth"
+   ],
+   "tag": "Six-track multi-engine",
+   "what": "Felucca 1.5 with six tracks and ten engines: SID, CHIP, DUALVCO, ANALOG4, BRAIDS, SWARMER, FMTONE, WAVETONE, FMDRUM and TB303.",
+   "license": "GPL-3.0-only (+ GPL-2.0 reSID, MIT, Apache-2.0)",
+   "source": "https://github.com/eldontyrellcorp/Mini-Tone",
+   "repo": "eldontyrellcorp/Mini-Tone",
+   "release": "https://github.com/eldontyrellcorp/Mini-Tone/releases/tag/minitone-1.0.1",
+   "site": null,
+   "play": null,
+   "editor": null,
+   "beta": false,
+   "engines": [
+    "native"
+   ],
+   "defaultEngine": "native",
+   "native": {
+    "core": "minitone",
+    "version": "1.0.1",
+    "wasm": "../build/native/minitone.wasm",
+    "repo": "https://github.com/eldontyrellcorp/Mini-Tone",
+    "commit": "5e5d09c52f8aed2cf6688c8d23a25dd91532a261",
+    "glue": "felucca_web"
+   },
+   "emu": null,
+   "nativeBehind": false,
+   "offHub": true
+  },
+  {
    "id": "mycelium",
    "name": "MYCELIUM",
    "version": "1.0-test",
@@ -1406,14 +1496,14 @@
    "version": "0.4",
    "author": "The Shrimp Blimp",
    "authorFull": "The Shrimp Blimp",
-   "category": "Drums",
+   "category": "Groovebox",
    "categories": [
-    "Drums",
-    "Groovebox"
+    "Groovebox",
+    "Drums"
    ],
-   "tag": "Old-school hip-hop and house…",
+   "tag": "Performance sampler",
    "what": "An old-school hip-hop and house sampler after the SP-404 and the PO-33: two song samples and a 16-pad kit, up to 32 chops a song, a 64-step sequencer, patterns and a song arrangement. Built on Felucca.",
-   "license": null,
+   "license": "GPL-3.0-only (+ libmad GPL-2.0-or-later)",
    "source": "https://github.com/TheShrimpBlimp/pigeon/tree/main",
    "repo": "TheShrimpBlimp/pigeon",
    "release": "https://theshrimpblimp.com/pigeon/",
@@ -1422,16 +1512,27 @@
    "editor": null,
    "beta": true,
    "engines": [
+    "native",
     "emu"
    ],
-   "defaultEngine": "emu",
-   "native": null,
+   "defaultEngine": "native",
+   "native": {
+    "core": "pigeon",
+    "version": "0.4.1",
+    "wasm": "../build/native/pigeon.wasm",
+    "repo": "https://github.com/TheShrimpBlimp/pigeon",
+    "commit": "8f34e81b6d7b03fa45ffd7443b71f9ba838ef0f7",
+    "glue": "felucca_web",
+    "preferred": true,
+    "preferredWhy": "the Hub's newer build is a beta (FM1VST pins PIGEON's latest stable release), and the native core is far lighter on the CPU"
+   },
    "emu": {
     "pkg": "https://thefirmwarehub.com/fw/pigeon-0.4.fwsc",
     "sha256": "100b4f0e02a345af91e758423f0a12e3241a8d3422ff8cc0b3f85b5eb93066cd",
     "size": 610995,
     "product": "FM-1_900"
-   }
+   },
+   "nativeBehind": false
   },
   {
    "id": "gammawave",
@@ -1650,9 +1751,9 @@
     "Groovebox",
     "Synth"
    ],
-   "tag": "Six tracks of synths and…",
+   "tag": "Six-track groovebox",
    "what": "Six tracks of synths and drums with a groovebox's workflow: fourteen engines, a 64-step sequencer with chords, ratchets, trig conditions and locks, songs, PERFORM with scenes, six themes and a browser editor; FM6 sounds built from scratch on the unit. Built on Felucca 1.1.5; its sounds and projects load.",
-   "license": null,
+   "license": "GPL-3.0-only",
    "source": "https://github.com/illuminus5/skiff/tree/v1.3.2",
    "repo": "illuminus5/skiff",
    "release": "https://github.com/illuminus5/skiff/releases/tag/v1.3.2",
@@ -1661,16 +1762,25 @@
    "editor": "https://illuminus5.github.io/skiff/",
    "beta": false,
    "engines": [
+    "native",
     "emu"
    ],
-   "defaultEngine": "emu",
-   "native": null,
+   "defaultEngine": "native",
+   "native": {
+    "core": "skiff",
+    "version": "1.4",
+    "wasm": "../build/native/skiff.wasm",
+    "repo": "https://github.com/illuminus5/skiff",
+    "commit": "c01fa1ed619266d770ea6552b153612e1b77d0a9",
+    "glue": "felucca_web"
+   },
    "emu": {
     "pkg": "https://thefirmwarehub.com/fw/skiff-1.3.2.fwsc",
     "sha256": "d77f60a500df772a136358fafba716e8be3d6311dd56430749d5ebb9f476584d",
     "size": 611605,
     "product": "FM-1_713"
-   }
+   },
+   "nativeBehind": false
   },
   {
    "id": "sloop",
@@ -1806,19 +1916,55 @@
    "nativeGated": "the Hügelton icon atlas"
   },
   {
+   "id": "speak37",
+   "name": "Speak37",
+   "version": "1.0",
+   "author": "M. Geisler",
+   "authorFull": "M. Geisler (genkigenki)",
+   "category": "Other",
+   "categories": [
+    "Other"
+   ],
+   "tag": "Talking synth",
+   "what": "The talking synth, its FM-1 build: every key speaks the next word of a sentence at its pitch and chords speak in harmony; nine voices, 20 banks of sentences and songs, RHYTHM with an 808.",
+   "license": "GPL-3.0-only (+ BSD-3 TMS5220 tables, MIT 808)",
+   "source": "https://github.com/genkigenki/Speak37",
+   "repo": "genkigenki/Speak37",
+   "release": "https://github.com/genkigenki/Speak37/releases/tag/v1.0",
+   "site": null,
+   "play": null,
+   "editor": null,
+   "beta": false,
+   "engines": [
+    "native"
+   ],
+   "defaultEngine": "native",
+   "native": {
+    "core": "speak37",
+    "version": "1.0",
+    "wasm": "../build/native/speak37.wasm",
+    "repo": "https://github.com/genkigenki/Speak37",
+    "commit": "a617d60fca316bd8c72ac9041579367f6633c0ab",
+    "glue": "speak37"
+   },
+   "emu": null,
+   "nativeBehind": false,
+   "offHub": true
+  },
+  {
    "id": "tonitor",
    "name": "Tonitor",
    "version": "2026.10.18",
-   "author": "Nuno Zimas",
+   "author": "N. Zimas",
    "authorFull": "Nuno Zimas",
-   "category": "Synth",
+   "category": "Other",
    "categories": [
-    "Synth",
-    "Other"
+    "Other",
+    "Synth"
    ],
-   "tag": "Six tracks for live ambient…",
+   "tag": "Acousmatic, live ambient",
    "what": "Six tracks for live ambient and experimental music: three synth engines, patches generated by algorithm, free-length loops with up to ten overdubs each, a granulator, filters and a lush reverb.",
-   "license": null,
+   "license": "GPL-3.0-only (+ Apache-2.0 msfa, MIT Rings, BSD-3 LIRA-8)",
    "source": "https://github.com/nzimas/tonitor/tree/main",
    "repo": "nzimas/tonitor",
    "release": "https://nzimas.github.io/tonitor/",
@@ -1827,16 +1973,26 @@
    "editor": null,
    "beta": false,
    "engines": [
+    "native",
     "emu"
    ],
-   "defaultEngine": "emu",
-   "native": null,
+   "defaultEngine": "native",
+   "native": {
+    "core": "tonitor",
+    "version": "0.53",
+    "wasm": "../build/native/tonitor.wasm",
+    "repo": "https://github.com/nzimas/tonitor",
+    "commit": "c39d18fffdcd4ad836cadd2827d870e3e35b5679",
+    "glue": "tonitor",
+    "hubVersion": "2026.10.21"
+   },
    "emu": {
     "pkg": "https://thefirmwarehub.com/fw/tonitor-2026.10.18+f6b58312.fwsc",
     "sha256": "f6b58312605c2d35a218b6c54055cd20a0ebb5673bf04b98c3846d4fb11fd163",
     "size": 609992,
     "product": "FM-1_700"
-   }
+   },
+   "nativeBehind": false
   },
   {
    "id": "tribe",

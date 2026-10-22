@@ -20,7 +20,8 @@
 // "disconnected") and bring the new one (a new id, "connected"), as a real FM-1 does on USB.
 //
 // Also: links that leave the manager's folder (its installer, its home page) open on the manager's own site in a new
-// tab, and images that fail to load (art its site build makes) are hidden.
+// tab, a link to another site that would replace the whole player (target _top or _parent, in the Editor panel)
+// opens in a new tab, and images that fail to load (art its site build makes) are hidden.
 (function (G) {
   "use strict";
   if (G.__fm1shim) return;
@@ -199,6 +200,12 @@
       const raw = a.getAttribute("href");
       if (!raw || raw.startsWith("#") || /^(javascript|blob|data|mailto):/i.test(raw)) return;
       const u = new URL(raw, G.location.href);
+      // (in the Editor panel, a link that would take the whole player page away, target _top / _parent: a new tab)
+      if (u.origin !== G.location.origin && sameOriginParent && /^_(top|parent)$/i.test(a.getAttribute("target") || "")) {
+        e.preventDefault();
+        G.open(u.href, "_blank", "noopener");
+        return;
+      }
       if (u.origin !== G.location.origin || u.pathname.startsWith(folder.pathname)) return;
       e.preventDefault();
       G.open(new URL(raw, UPSTREAM).href, "_blank", "noopener");

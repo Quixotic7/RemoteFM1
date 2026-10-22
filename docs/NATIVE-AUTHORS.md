@@ -44,13 +44,15 @@ from.
 
 | family | for firmwares built on | FM1VST builds |
 |---|---|---|
-| `felucca_web` | Felucca, with its browser unit `web/emu/felucca_web.c` | Felucca, GHOULBOX, JIANT; DUELL, RAINBOW (gated) |
+| `felucca_web` | Felucca, with its browser unit `web/emu/felucca_web.c` | Felucca, GHOULBOX, JIANT, DUELL, Mini-Tone, FMini-1, Skiff, PIGEON; RAINBOW (gated) |
 | `fm1base` | Charles Vestal's fm1-base (`app.h`, `app.c`, `fm1.toml`) | AMB-1, LOOM-8 |
 | `plat` | X0X's `plat.h` platform | FOMNI, FIMBA; X0X, Fart Machine One (gated) |
-| `dinghy` | Dinghy (`app_main`, a main loop that never returns) | OberVave, Frodhes; FM-106 (gated) |
+| `dinghy` | Dinghy (`app_main`, a main loop that never returns) | OberVave, Frodhes, GR!MM; FM-106 (gated) |
 | `sloop` | SLOOP | SLOOP, SLOOP DX, ORBIT, No Man's Sky FM (all gated) |
 | `choralroot` | ChoralRoot FM-1 | ChoralRoot, PurpleMonkey, CoralFlower |
 | `melodee` | Melodee | Melodee |
+| `tonitor` | Tonitor (Felucca / SLOOP's HAL, its own unity build) | Tonitor |
+| `speak37` | Speak37's FM-1 build | Speak37 |
 | `custom` | anything else | your own glue |
 
 **If FM1VST already builds your firmware**, `id` and `family` are all it needs: the build takes FM1VST's glue for

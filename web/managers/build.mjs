@@ -14,11 +14,14 @@
 //                                first in <head>. Nothing else of the page is changed, except what managers.json "strip"
 //                                and "dropPacks" name (preset data that reaches this site only compiled into a firmware)
 //   <out>/<id>/<files>           the files the page loads (its font, fm1backup.js ...), as its make_site.py copies them
+//   <out>/<id>/<copy>            a manager that is a folder of its own (PIGEON's sample loader: modules, a worker, a
+//                                service worker, vendor/): "copy" { from, to, skip } places the tree's files and folders
+//                                where its site build puts them, and "at" is the page's folder under <out>/<id>/
 //   <out>/<id>/LICENSE, LICENSING.md   the firmware repository's own; NOTICE.txt: where it comes from, what was changed
 // A manager whose tree is missing is skipped with a warning (the player then has no editor for that firmware).
-import { readFileSync, writeFileSync, mkdirSync, copyFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, copyFileSync, existsSync, statSync, readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { dirname, join, basename } from "node:path";
+import { dirname, join, basename, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -52,10 +55,28 @@ function choralrootManager(tree, m) {
   return { html, notes: dropped.map((d) => `left out: ${d}`) };
 }
 
+// a file or a folder of the tree (copy: { from, to, skip: a regular expression of names to leave out }) into dir
+function copyTree(tree, c, dir, copied) {
+  const skip = c.skip ? new RegExp(c.skip) : null;
+  const walk = (from, to) => {
+    if (statSync(from).isDirectory()) {
+      for (const n of readdirSync(from).sort()) if (!(skip && skip.test(n)) && n !== ".DS_Store") walk(join(from, n), join(to, n));
+      return;
+    }
+    if (/\.syx$/i.test(from)) throw new Error(`${relative(tree, from)}: a raw preset file is never published`);
+    mkdirSync(dirname(to), { recursive: true });
+    copyFileSync(from, to);
+    copied.push(relative(dir, to).split("\\").join("/"));
+  };
+  if (!existsSync(join(tree, c.from))) throw new Error(`${c.from}: not in the tree`);
+  walk(join(tree, c.from), join(dir, c.to));
+}
+
 // the shim's <script>, first in <head> (after <meta charset>, which must stay in the first 1024 bytes): before any
 // script of the page, so navigator.requestMIDIAccess is ours when the page asks for it
 function injectShim(html, m, what) {
-  const tag = `<script src="../fm1-shim.js" data-manager="${m.id}" data-upstream="${m.upstream}"></script>`;
+  const up = "../".repeat(1 + (m.at || "").split("/").filter(Boolean).length);   // (the page's folder: <id>/<at>)
+  const tag = `<script src="${up}fm1-shim.js" data-manager="${m.id}" data-upstream="${m.upstream}"></script>`;
   const cs = /<meta\s+charset=["']?utf-8["']?\s*\/?>/i.exec(html), hd = /<head(\s[^>]*)?>/i.exec(html);
   const at = cs ? cs.index + cs[0].length : hd ? hd.index + hd[0].length : -1;
   if (at < 0) throw new Error(`${what}: no <head> to put the shim in`);
@@ -88,8 +109,10 @@ for (const m of SPEC.managers) {
     html = injectShim(html, m, m.page);
     const dir = join(OUT, m.id);
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "index.html"), html);
     const copied = [];
+    for (const c of m.copy || []) copyTree(tree, c, dir, copied);
+    mkdirSync(join(dir, m.at || ""), { recursive: true });
+    writeFileSync(join(dir, m.at || "", "index.html"), html);
     for (const f of m.files) {
       if (/\.syx$/i.test(f)) throw new Error(`${f}: a raw preset file is never published`);
       if (!existsSync(join(tree, f))) { notes.push(`missing in the tree: ${f}`); continue; }
@@ -102,19 +125,20 @@ for (const m of SPEC.managers) {
       `${m.title}, hosted by the FM-1 Player (RemoteFM1, https://github.com/Quixotic7/RemoteFM1).`,
       ``,
       `Author: ${m.author}. Licence: ${m.licence} (LICENSE, LICENSING.md here: the repository's own).`,
-      `Source: ${source} (${m.page}${m.lib ? ", " + m.lib.join(", ") : ""}${m.files.length ? ", " + m.files.join(", ") : ""}).`,
+      `Source: ${source} (${m.page}${m.lib ? ", " + m.lib.join(", ") : ""}${m.files.length ? ", " + m.files.join(", ") : ""}${(m.copy || []).length ? ", " + m.copy.map((c) => c.from).join(", ") : ""}).`,
       `Its own site: ${m.upstream}`,
       ``,
-      `What the FM-1 Player changed: index.html is ${m.page}${m.kind === "choralroot-manager" ? ", assembled as the repository's web/make_site.py does (its /*LIB*/ and /*PACKS*/ filled in)" : ""},`,
-      `with one line added first in <head>: <script src="../fm1-shim.js">, the player's Web MIDI shim (GPL-3.0-only,`,
+      ...((m.copy || []).length ? [`Laid out as its own site build does: ${m.copy.map((c) => `${c.from} -> ${c.to}`).join(", ")}${m.at ? `; the page is ${m.at}index.html` : ""}.`, ``] : []),
+      `What the FM-1 Player changed: ${m.at || ""}index.html is ${m.page}${m.kind === "choralroot-manager" ? ", assembled as the repository's web/make_site.py does (its /*LIB*/ and /*PACKS*/ filled in)" : ""},`,
+      `with one line added first in <head>: <script src="${"../".repeat(1 + (m.at || "").split("/").filter(Boolean).length)}fm1-shim.js">, the player's Web MIDI shim (GPL-3.0-only,`,
       `https://github.com/Quixotic7/RemoteFM1/tree/main/web/managers). The shim gives the page one MIDI input and output named as`,
       `the firmware's USB port, wired to the firmware running in the player, and opens the page's links outside this folder on`,
       `its own site.`,
       ...notes.map((n) => `- ${n}`),
       ``,
     ].join("\n"));
-    index.managers.push({ id: m.id, title: m.title, firmwares: m.firmwares, path: `${m.id}/`, author: m.author, license: m.licence,
-                          source, commit, upstream: m.upstream, files: ["index.html", ...copied, "NOTICE.txt"] });
+    index.managers.push({ id: m.id, title: m.title, firmwares: m.firmwares, path: `${m.id}/${m.at || ""}`, author: m.author, license: m.licence,
+                          source, commit, upstream: m.upstream, files: [...new Set([`${m.at || ""}index.html`, ...copied, "NOTICE.txt"])] });
     console.log(`managers: ${m.id}: ${m.tree}@${(commit || "?").slice(0, 7)} -> ${dir} (${html.length} B${notes.length ? "; " + notes.join("; ") : ""})`);
   } catch (e) { bad++; console.error(`managers: ${m.id}: ${e.message}`); }
 }

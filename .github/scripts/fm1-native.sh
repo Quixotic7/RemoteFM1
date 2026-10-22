@@ -15,7 +15,7 @@
 #   FM1VST_DIR       an FM1VST checkout (its cmake/, core-api/, core-glue/; the firmware submodules are not needed)
 #   FM1N_ID          the firmware's id on the site (the Hub's id)
 #   FM1N_CORE_ID     the core's own id (fm1_add_core's; default FM1N_ID)
-#   FM1N_FAMILY      felucca_web fm1base sloop dinghy choralroot plat melodee custom
+#   FM1N_FAMILY      felucca_web fm1base sloop dinghy choralroot plat melodee tonitor speak37 custom
 #   FM1N_GLUE        a folder in the author's tree with their own glue units (and a core.cmake, or FM1N_CORE)
 #   FM1N_CORE        the fm1_add_core arguments after SOURCE, as text (UNIT ... DESC ... GEN ... VERSION ...)
 #   FM1N_TEST        conformance lines that replace the glue's (e.g. "sound btn PLAY 100"): a directive given here
