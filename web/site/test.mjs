@@ -460,7 +460,7 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
       .map((l) => /^160000 commit ([0-9a-f]{40})\t(\S+)$/.exec(l)).filter(Boolean).map((m) => [m[2], m[1]]));
     const gm = readFileSync(join(VST, ".gitmodules"), "utf8"), urls = new Map([...gm.matchAll(/path = (\S+)\s+url = (\S+)/g)].map((m) => [m[1], m[2].replace(/\.git$/, "")]));
     const nat = cat.firmwares.filter((f) => f.native);
-    ok(nat.length === 12 && nat.every((f) => [...pins].some(([path, c]) => c === f.native.commit && urls.get(path) === f.native.repo)) && nat.every((f) => existsSync(join(VST, "core-glue", f.native.glue))),
+    ok(nat.length === 13 && nat.every((f) => [...pins].some(([path, c]) => c === f.native.commit && urls.get(path) === f.native.repo)) && nat.every((f) => existsSync(join(VST, "core-glue", f.native.glue))),
        "build_catalog: each native core's commit is FM1VST's pin (ls-tree), its repo the submodule's, its glue folder there");
     const cj = JSON.parse(readFileSync(new URL("./data/cores.json", import.meta.url), "utf8"));
     const head = execFileSync("git", ["-C", VST, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
