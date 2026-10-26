@@ -11,7 +11,7 @@
 // the FM-1 is asked anything; the loader answers ota-FM-1_900, so Baud Girl's own installer refuses it), the loader
 // identity (an install cut off is resumed only from our own update mode, ota-FM-1_9NN).
 import { Updater, classifyFirmware } from "./fm1ota.js";
-import { Package, productOf, logicalImage, sha256hex, STOCK_V15_SHA256 } from "./fm1pkg.js";
+import { Package, productOf, logicalImage, sha256hex, OFFICIAL_PACKAGES } from "./fm1pkg.js";
 
 export const IDENTITY = "FM-1_015";               // RemoteFM1's (tools/build.py PRODUCT): the official V15's
 const INFO_REQ = [0xF0, 0x7D, 0x46, 0x4C, 0x01, 0xF7];   // the backup protocol's INFO (Felucca, ChoralRoot, ...)
@@ -79,15 +79,61 @@ export async function look(access, log = () => {}) {
   return { identity: d.id.text, port: d.name, version, fw: classifyFirmware(d.id.text, version, d.name), remote };
 }
 
+// "V15" for FM-1_015, "V16" for FM-1_016: the official firmware's version from its identity
+export function officialVersion(identity) {
+  const m = /_(\d+)$/.exec(identity || "");
+  return m ? `V${parseInt(m[1], 10)}` : "";
+}
+
 // a sentence for "What is on my FM-1?"
 export function describe(st) {
   if (st.none) return "No FM-1 found. Connect it with a USB data cable, switch it on, and close every other app that uses MIDI (DAWs, other browser tabs with an FM-1 page).";
   if (st.several) return `Several FM-1s answer (${st.list.join(", ")}). Connect only the one to install.`;
   if (st.loader) return `The FM-1 is in update mode (${st.identity}): an install was cut off. Choose the same firmware and press Install to finish it.`;
   if (st.remote) return `The FM-1 runs RemoteFM1 ${st.remote.version || ""} (it answers installers as the official V15, ${st.identity}).`.replace("  ", " ");
-  if (st.fw.kind === "stock") return `The FM-1 answers as the official firmware (${st.identity}): stock V15, or TransitFM1, which answers the same.`;
+  if (st.fw.kind === "stock") return st.identity === IDENTITY
+    ? `The FM-1 answers as the official M-VAVE firmware V15 (${st.identity}): stock V15, or TransitFM1, which answers the same.`
+    : `The FM-1 runs the official M-VAVE firmware ${officialVersion(st.identity)} (${st.identity}).`;
   if (st.fw.kind === "bubba") return `The FM-1 runs Bubba Machine (${st.identity}). Its updater accepts only M-VAVE's own package: go back to V15 with Bubba Machine's installer first.`;
   return `The FM-1 runs ${st.fw.name}` + (st.fw.verdict === "allow" ? "." : `, which is not installed over from here (an install over it has left FM-1s that no longer start).`);
+}
+
+// Web MIDI with SysEx, saying when the browser is asking: its permission prompt is a small bubble by the address bar,
+// easy to miss, and requestMIDIAccess waits on it without a word (2026-10-26: "it just didn't do anything").
+// ui: { say(text, kind), late(retry) }: late is called when there is still no answer after lateMs; retry() asks again
+// (call it from a click). Throws MIDI_DENIED (name "MidiDenied") when the site is blocked; a refusal rejects as the
+// browser does (SecurityError / NotAllowedError)
+export const MIDI_PROMPT = "Allow MIDI: your browser is asking (the prompt by the address bar, or the site-settings icon left of the URL).";
+export const MIDI_LATE = "Still waiting for MIDI to be allowed: look for the prompt by the address bar, or the site-settings icon left of the URL, then allow MIDI. Or press Try again.";
+export const MIDI_DENIED = "MIDI is blocked for this site. To allow it again: click the site-settings icon left of the URL (Site settings), set MIDI devices to Allow, then reload this page.";
+export async function midiPermissionState(nav) {
+  try {
+    if (nav.permissions && nav.permissions.query) return (await nav.permissions.query({ name: "midi", sysex: true })).state || "unknown";
+  } catch (_) { /* (no Permissions API for MIDI: Safari, older Chrome) */ }
+  return "unknown";
+}
+export async function requestMidi(nav, ui, { hintMs = 1000, lateMs = 30000 } = {}) {
+  if (!nav || !nav.requestMIDIAccess) throw new Error("This browser has no Web MIDI with SysEx: use Chrome or Edge on a computer.");
+  const perm = await midiPermissionState(nav);
+  if (perm === "denied") throw Object.assign(new Error(MIDI_DENIED), { name: "MidiDenied" });
+  let settled = false, hinted = false, lateTimer = null;
+  const hint = () => { if (!settled && !hinted) { hinted = true; ui.say(MIDI_PROMPT, "wait"); } };
+  if (perm === "prompt") hint();
+  const hintTimer = setTimeout(hint, hintMs);
+  try {
+    const access = await new Promise((resolve, reject) => {
+      const ask = () => nav.requestMIDIAccess({ sysex: true }).then(resolve, reject);
+      const arm = () => { lateTimer = setTimeout(() => { if (settled) return; ui.say(MIDI_LATE, "wait"); if (ui.late) ui.late(() => { ask(); arm(); }); }, lateMs); };
+      ask();
+      arm();
+    });
+    if (hinted) ui.say("MIDI is allowed.");
+    return access;
+  } finally {
+    settled = true;
+    clearTimeout(hintTimer);
+    clearTimeout(lateTimer);
+  }
 }
 
 // the released package, as the site hosts it: fetched, its SHA-256 the one in releases.json, identity FM-1_015
@@ -105,11 +151,17 @@ export async function packageFrom(bytes, label = null) {
   let product;
   try { product = productOf(bytes); } catch (e) { throw new Error("This is not an FM-1 firmware package (.fwsc)."); }
   if (!/^FM-1_\d+$/.test(product)) throw new Error(`This package is not for the FM-1 (its identity is ${product || "empty"}).`);
+  const known = OFFICIAL_PACKAGES[await sha256hex(bytes)] || null;   // "V15" | "V16" | null
   let flashSize = 0;
   try { flashSize = new Package(bytes).flashSize; } catch (_) { /* (a layout the reader does not know: the FM-1 decides) */ }
-  if (flashSize > 0x93000)   // RemoteFM1's loader writes the app area only: Baud Girl's image grows past it
-    throw new Error("This firmware is larger than RemoteFM1 can install (its image reaches past the app area, as Baud Girl's does). Install the official V15 first, then this firmware with its own installer.");
-  const official = await sha256hex(bytes) === STOCK_V15_SHA256;
+  // RemoteFM1's loader writes the app area [0x4000, 0x93000) only and refuses a longer flash.bin (firmware/src/ota.c):
+  // flash.bin maps onto the flash from 0, so its size is where the image ends. V16's (692224 B) ends at 0xA9000, as
+  // Baud Girl's grows past it
+  if (flashSize > 0x93000)
+    throw new Error(known
+      ? `This is M-VAVE's official ${known}: it is larger than RemoteFM1 can install (its image reaches past the app area). Install the official V15 first (M-VAVE's FM-1.fwsc for V15), then update to ${known} with M-VAVE's M-UPGRADE.`
+      : "This firmware is larger than RemoteFM1 can install (its image reaches past the app area, as Baud Girl's does). Install the official V15 first, then this firmware with its own installer.");
+  const official = known === "V15";
   return { product, image: logicalImage(bytes), official,
            label: label || (official ? "the official V15 (M-VAVE's FM-1.fwsc)" : `the package ${product}`) };
 }
@@ -140,7 +192,9 @@ export async function install(access, pkg, ui, opts = {}) {
   if (st.fw.kind === "bubba") { ui.say(describe(st), "bad"); return "refused"; }
   if (st.fw.verdict === "refuse" && !opts.override) { ui.say(describe(st), "bad"); return "refused"; }
   if (!opts.midiClosed) { ui.say("First close every app that uses MIDI (a DAW, a synth editor, other browser tabs with an FM-1 page) and tick the box: their MIDI can stall an install.", "bad"); return "refused"; }
-  const over = st.remote ? `RemoteFM1 ${st.remote.version}` : st.fw.kind === "stock" ? "the firmware that answers as V15" : st.fw.name;
+  const over = st.remote ? `RemoteFM1 ${st.remote.version}`
+    : st.fw.kind === "stock" ? (st.identity === IDENTITY ? "the firmware that answers as V15" : `the official ${officialVersion(st.identity)}`)
+    : st.fw.name;
   if (!ui.confirm(`Install ${pkg.label} over ${over}? ` +
                   "The FM-1 must be charged and connected directly to this computer; do not unplug it while it writes."))
     return "cancelled";
@@ -159,9 +213,13 @@ if (typeof document !== "undefined") {
     confirm: (t) => window.confirm(t),
     log(t) { $("log").textContent += t + "\n"; },
   };
+  // the Try again button: shown while the browser's MIDI prompt has gone unanswered for 30 s (clickable while busy)
+  const retry = $("midi-retry");
   const midi = async () => {
-    if (!navigator.requestMIDIAccess) throw new Error("This browser has no Web MIDI with SysEx: use Chrome or Edge on a computer.");
-    if (!access) access = await navigator.requestMIDIAccess({ sysex: true });
+    if (access) return access;
+    try {
+      access = await requestMidi(navigator, { say: ui.say, late(again) { retry.hidden = false; retry.onclick = () => { retry.hidden = true; again(); }; } });
+    } finally { retry.hidden = true; retry.onclick = null; }
     return access;
   };
   const run = async (what) => {
@@ -170,7 +228,7 @@ if (typeof document !== "undefined") {
     document.body.classList.add("busy");
     $("bar").hidden = true;
     try { await what(); } catch (e) {
-      ui.say(e && e.name === "SecurityError" ? "The browser refused MIDI access: allow it (the lock icon in the address bar) and try again." : (e && e.message) || String(e), "bad");
+      ui.say(e && (e.name === "SecurityError" || e.name === "NotAllowedError") ? "The browser refused MIDI access: allow it (the lock icon in the address bar) and try again." : (e && e.message) || String(e), "bad");
       ui.log(String(e && e.stack || e));
     } finally {
       busy = false;
@@ -184,16 +242,25 @@ if (typeof document !== "undefined") {
     $("next").hidden = true;
     ui.say("Downloading and checking the package...");
     const pkg = await releasedPackage(rel);
-    const r = await install(await midi(), pkg, ui, opts());
+    const a = await midi();
+    ui.say("Looking for the FM-1...");
+    const r = await install(a, pkg, ui, opts());
     if (r === "done" || r === "resumed") showNext();
     if (r === "refused" && !$("override").checked && /not installed over from here/.test($("status").textContent)) $("override-box").hidden = false;
   }));
-  $("check").addEventListener("click", () => run(async () => { ui.say("Looking for the FM-1..."); ui.say(describe(await look(await midi(), ui.log))); }));
+  $("check").addEventListener("click", () => run(async () => {
+    ui.say("Looking for the FM-1...");
+    const a = await midi();
+    ui.say("Looking for the FM-1...");
+    ui.say(describe(await look(a, ui.log)));
+  }));
   $("file").addEventListener("change", () => { $("file-go").disabled = !$("file").files.length; });
   $("file-go").addEventListener("click", () => run(async () => {
     const f = $("file").files[0];
     const pkg = await packageFrom(new Uint8Array(await f.arrayBuffer()), null);
-    await install(await midi(), pkg, ui, opts());
+    const a = await midi();
+    ui.say("Looking for the FM-1...");
+    await install(a, pkg, ui, opts());
   }));
   if (!navigator.requestMIDIAccess) $("browser-warn").hidden = false;
   // the player: ../ on the published site, ../site/ in the source tree (web/ served as is)

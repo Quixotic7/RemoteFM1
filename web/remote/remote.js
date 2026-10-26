@@ -94,7 +94,9 @@ export class RemoteFM1 {
         this._access = null;
         this._timer = null;
         this._running = false;
-        this._status = { state: 'idle', transport: null, fps: 0, why: '', unit: null, ports: null, quiet: false };
+        // midiPrompt: the browser's Web MIDI permission prompt is pending (a small bubble by the address bar, easy to
+        // miss: the page says so, web/site/js/fm1-link.js)
+        this._status = { state: 'idle', transport: null, fps: 0, why: '', unit: null, ports: null, quiet: false, midiPrompt: false };
         this._quiet = false;                 // a session started without a gesture (autoConnect): no prompt, HELLO slower
         this._auto = null;                   // autoConnect()'s state
         this._autoAccess = null;             // its MIDIAccess (granted before: no prompt)
@@ -178,8 +180,8 @@ export class RemoteFM1 {
                 this._setStatus({ state: 'idle', why: 'Web MIDI not permitted yet', quiet: false });
                 return false;
             }
-            if (!access && !devs.length) throw new Error(this._nav && this._nav.requestMIDIAccess
-                ? 'MIDI access (with SysEx) was refused' : 'this browser has no Web MIDI');
+            if (!access && !devs.length) throw new Error(!(this._nav && this._nav.requestMIDIAccess) ? 'this browser has no Web MIDI'
+                : this._midiDenied ? 'MIDI is blocked for this site (its permission is denied)' : 'MIDI access (with SysEx) was refused');
             this._access = access;
             if (access) {
                 if (access.addEventListener) access.addEventListener('statechange', this._onMidiState);
@@ -280,7 +282,7 @@ export class RemoteFM1 {
         if (this._M) this._M._rw_free();
         this._wasActive = false;
         this._quiet = false;
-        this._setStatus({ state: 'idle', transport: null, fps: 0, why, unit: null, ports: null, quiet: false });
+        this._setStatus({ state: 'idle', transport: null, fps: 0, why, unit: null, ports: null, quiet: false, midiPrompt: false });
     }
 
     // The screen to show: engine.screen()'s { seq, pixels } (240*240 RGB565, host order). Same seq: ignored.
@@ -339,13 +341,30 @@ export class RemoteFM1 {
     _log(msg) { for (const cb of this._ls.log) cb(msg); }
     _wantUsb() { return this.opts.usb !== 'off' && this.opts.transport !== 'midi' && this._nav && this._nav.usb; }
 
-    // Web MIDI with SysEx: from a click, requested (it may prompt); without one, only when already granted
+    // Web MIDI with SysEx: from a click, requested (it may prompt); without one, only when already granted. A site
+    // whose permission is 'denied' is asked once more (the browser refuses at once), and connect() says how to
+    // re-allow it in the site settings
     async _midiAccess(gesture) {
         const nav = this._nav;
         if (!nav || !nav.requestMIDIAccess) return null;
         if (this._autoAccess) return this._autoAccess;
-        if (!gesture && await midiPermission(nav) !== 'granted') return null;
-        return nav.requestMIDIAccess({ sysex: true }).catch(e => { this._log(`Web MIDI: ${e.message || e}`); return null; });
+        const perm = await midiPermission(nav);
+        if (!gesture && perm !== 'granted') return null;
+        this._midiDenied = perm === 'denied';
+        if (this._midiDenied) this._log('Web MIDI: blocked for this site (its permission is denied)');
+        return this._askMidi(perm === 'prompt');
+    }
+
+    // requestMIDIAccess({ sysex: true }) -> MIDIAccess | null, with status.midiPrompt true while the browser is asking:
+    // at once when the permission is 'prompt', else once the request has waited a second (no Permissions API for MIDI)
+    _askMidi(prompt) {
+        let done = false;
+        const show = () => { if (!done) this._setStatus({ midiPrompt: true }); };
+        if (prompt) show();
+        const t = prompt ? null : setTimeout(show, 1000);
+        const end = () => { done = true; if (t) clearTimeout(t); if (this._status.midiPrompt) this._setStatus({ midiPrompt: false }); };
+        return this._nav.requestMIDIAccess({ sysex: true }).then(a => { end(); return a; },
+            e => { end(); this._log(`Web MIDI: ${e.message || e}`); return null; });
     }
 
     // a click on a running (quiet) session: what a gesture allows and the session lacks
@@ -353,13 +372,13 @@ export class RemoteFM1 {
         const tasks = [];
         if (this._wantUsb() && this.opts.usb === 'ask' && !this._usbOpening && ![...this._links.values()].some(l => l.kind === 'usb'))
             tasks.push(this._pickUsb(true).then(ds => (ds.length && this._running ? this._openUsb(ds[0]) : null)));
-        if (!this._access && this._nav && this._nav.requestMIDIAccess)
-            tasks.push(this._nav.requestMIDIAccess({ sysex: true }).then(a => {
-                if (!this._running || this._access) return;
+        if (!this._access && this._nav && this._nav.requestMIDIAccess)     // (a pending prompt: asked again, a Try again)
+            tasks.push(this._askMidi(this._status.midiPrompt).then(a => {
+                if (!a || !this._running || this._access) return;
                 this._access = a;
                 if (a.addEventListener) a.addEventListener('statechange', this._onMidiState);
                 this._scanMidi();
-            }, e => this._log(`Web MIDI: ${e.message || e}`)));
+            }));
         await Promise.all(tasks);
     }
 

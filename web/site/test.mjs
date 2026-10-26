@@ -13,7 +13,7 @@ import { Controls, labelToMatrix, roleToMatrix, B, E, SRC, KEYMAP, KM, hintText,
 import { PanelMerge } from "./worklet/host.js";
 import { createEngine, ENGINE } from "./mock/engine.js";
 import { derive, PRESETS, contrast } from "./js/theme.js";
-import { Fm1Link, viewOf } from "./js/fm1-link.js";
+import { Fm1Link, viewOf, errorText, MIDI_PROMPT_TEXT, MIDI_LATE_TEXT, MIDI_DENIED_TEXT } from "./js/fm1-link.js";
 
 let fails = 0, checks = 0;
 const ok = (c, what) => { checks++; if (!c) fails++; console.log(`${what.padEnd(76)} ${c ? "ok" : "FAIL"}`); };
@@ -370,6 +370,32 @@ ok(viewOf({ state: "searching" }, true).tone === "bad", "fm1: nothing answered a
   link.disconnect();
   ok(link.view().tone === "off" && seen.includes("busy") && seen.includes("bad") && seen.includes("on"), "fm1 link: disconnect -> grey; every state reached the subscribers");
 }
+{ // the browser's MIDI prompt pending (remote.js status.midiPrompt): said, not mistaken for "no FM-1 answered"
+  const vp = V({ state: "searching", midiPrompt: true });
+  ok(vp.tone === "busy" && vp.prompt && vp.detail === MIDI_PROMPT_TEXT && /Allow MIDI: your browser is asking/.test(vp.title), "fm1: MIDI prompt pending -> amber, \"Allow MIDI: your browser is asking\"");
+  ok(viewOf({ state: "searching", midiPrompt: true }, true).detail === MIDI_PROMPT_TEXT, "fm1: the prompt wins over \"nothing answered\"");
+  ok(errorText("MIDI is blocked for this site (its permission is denied)") === MIDI_DENIED_TEXT && /site-settings icon/.test(MIDI_DENIED_TEXT),
+     "fm1: a site with MIDI denied -> how to allow it again (site settings)");
+  ok(/allow MIDI/.test(errorText("MIDI access (with SysEx) was refused")), "fm1: a refusal at the prompt keeps its text");
+  const ls = new Set(), timers = [];
+  let st = { state: "idle" }, connects = 0;
+  const fake = { get status() { return st; }, onStatus: (cb) => ls.add(cb), connect: async () => { connects++; }, disconnect: async () => { push({ state: "idle" }); }, setQuiet: (q) => push({ ...st, quiet: q }) };
+  const push = (x) => { st = x; for (const cb of ls) cb(x); };
+  const link = new Fm1Link(fake, { setTimer: (f, ms) => { const t = { f, ms, live: true }; timers.push(t); return t; }, clearTimer: (t) => { t.live = false; } });
+  const fire = (ms) => { for (const t of timers.filter((t) => t.live && t.ms === ms)) { t.live = false; t.f(); } };
+  link.connect(); push({ state: "searching" }); push({ state: "searching", midiPrompt: true });
+  fire(10000);
+  ok(link.view().tone === "busy" && link.view().prompt && !link.notFound, "fm1 link: 10 s on the prompt -> still \"Allow MIDI\", not red");
+  fire(30000);
+  const late = link.view();
+  ok(late.tone === "bad" && late.label === "Try again" && late.detail === MIDI_LATE_TEXT && /try again/.test(late.detail), "fm1 link: 30 s on the prompt -> the hint stays, red, Try again");
+  link.connect();
+  ok(connects === 2 && link.view().tone === "busy" && link.view().prompt, "fm1 link: Try again -> asks again, amber");
+  push({ state: "searching" });
+  ok(link.view().tone === "busy" && !link.view().prompt, "fm1 link: allowed -> searching for the FM-1");
+  fire(10000);
+  ok(link.view().tone === "bad" && link.notFound, "fm1 link: then 10 s with no FM-1 -> red, as before");
+}
 
 // ---- my FM-1 with the real remote.js and libremotefm1 (WASM) against fake units: auto-connect at load
 const BUILT = new URL("../build/remote/", import.meta.url);
@@ -418,6 +444,26 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
       ok(w.midiRequests.length === 1 && w.requestDeviceFilters.length === 1 && link.view().tone === "on", "fm1 click: asks for MIDI and opens the WebUSB chooser, then connected");
       await Promise.all([link.disconnect(), run(400)]);
     }
+  }
+  { // a click with the browser's prompt left unanswered, then allowed
+    const { w, link, run } = await page("prompt", (w) => { w.unit = w.addUnit({ midiName: "FM-1" }); });
+    const ask = w.navigator.requestMIDIAccess;
+    let allow = null;
+    w.navigator.requestMIDIAccess = (o) => new Promise((r) => { allow = () => r(ask(o)); });
+    link.connect();
+    await run(1500);
+    ok(link.view().tone === "busy" && link.view().prompt && link.view().detail === MIDI_PROMPT_TEXT, "fm1 click, MIDI prompt pending: \"Allow MIDI: your browser is asking\"");
+    allow();
+    await run(2000);
+    ok(link.view().tone === "on" && !link.status.midiPrompt, "fm1 click: allowed -> the hint goes, connected");
+    await Promise.all([link.disconnect(), run(400)]);
+  }
+  { // a click on a site whose MIDI is denied, no USB unit: how to allow it again, nothing asked
+    const { w, link, run } = await page("denied", (w) => { w.unit = w.addUnit({ midiName: "FM-1" }); });
+    link.connect();
+    await run(1500);
+    ok(link.view().tone === "bad" && link.view().detail === MIDI_DENIED_TEXT && w.midiRequests.length === 1, "fm1 click, MIDI denied for the site: how to re-allow it (site settings)");
+    await Promise.all([link.disconnect(), run(400)]);
   }
   {
     const { w, link, run } = await page("granted");

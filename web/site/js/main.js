@@ -463,9 +463,9 @@ function onFm1(v) {
   b.hidden = v.tone === "on";
   b.disabled = v.tone === "busy";
   b.querySelector(".fm1-dot").className = "fm1-dot " + v.tone + (v.live && v.tone !== "off" ? " live" : "");
-  b.querySelector("span:last-child").textContent = v.tone === "busy" ? "Connecting your FM-1..." : "Play on my FM-1";
+  b.querySelector("span:last-child").textContent = v.tone === "busy" ? (v.prompt ? "Allow MIDI in the browser..." : "Connecting your FM-1...") : "Play on my FM-1";
   b.title = v.title;
-  note.hidden = v.tone !== "on" && v.tone !== "bad";
+  note.hidden = v.tone !== "on" && v.tone !== "bad" && !v.prompt;
   note.className = "start-note " + v.tone;
   note.textContent = v.tone === "on" ? `Your FM-1 is connected${v.via ? " over " + v.via : ""}: press Play and it plays this firmware.` : v.detail;
   if (fm1Tone !== null && v.tone !== fm1Tone) {

@@ -4,12 +4,18 @@
 // SHA256SUMS and the file agree), installs over the firmwares that answer as V15, over RemoteFM1 itself (told by its
 // HELLO) and over ChoralRoot; Bubba Machine and Sloop refused (Sloop only without the override); no fresh install
 // before the visitor says the MIDI apps are closed; an install cut off finished from update mode; a cancel that
-// sends nothing. Never against a real unit: the only MIDI here is the fake's.
-//   node web/installer/test_installer.mjs [remote-X.Y.fwsc] [FM-1.fwsc]   (default: firmware/ of releases.json)
-import { readFileSync, readdirSync } from "node:fs";
+// sends nothing; an FM-1 on M-VAVE's V16 (FM-1_016) named as such and installed over; V16's package refused (past
+// the app area: V15 first, then M-UPGRADE); the MIDI permission prompt said while it is pending (and Try again after
+// 30 s), a blocked site told how to re-allow it. Never against a real unit: the only MIDI here is the fake's.
+//   node web/installer/test_installer.mjs [remote-X.Y.fwsc] [FM-1.fwsc]   (default: firmware/ of releases.json;
+//   M-VAVE's V15 / V16: V15_PKG / V16_PKG, else a MVaveOfficial/ folder beside a parent of this tree, else skipped)
+import { readFileSync, readdirSync, existsSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { createHash } from "node:crypto";
 import { pack7, unpack7 } from "./fm1ota.js";
-import { install, look, describe, packageFrom, releasedPackage, IDENTITY, rfPack7, rfUnpack7 } from "./installer.js";
+import { install, look, describe, packageFrom, releasedPackage, IDENTITY, rfPack7, rfUnpack7, requestMidi,
+         MIDI_PROMPT, MIDI_LATE, MIDI_DENIED } from "./installer.js";
+import { validateStockPackage } from "./fm1pkg.js";
 
 const realTimeout = setTimeout;                    // the protocol's waits (seconds) shortened 20 times
 globalThis.setTimeout = (f, ms, ...a) => realTimeout(f, ms >= 200 ? ms / 20 : ms, ...a);
@@ -116,7 +122,14 @@ const UI = (answer = true) => {
 // the release the page installs: releases.json, firmware/SHA256SUMS and the file agree
 const rels = JSON.parse(readFileSync(new URL("./releases.json", import.meta.url), "utf8")).releases;
 const relPath = new URL(`./firmware/remote-${rels[0].version}.fwsc`, import.meta.url);
-const pkgPath = process.argv[2] || relPath.pathname, v15Path = process.argv[3];
+const findOfficial = (name) => {   // M-VAVE's files are not in this tree
+  for (let d = dirname(new URL(import.meta.url).pathname); d !== dirname(d); d = dirname(d))
+    if (existsSync(join(d, "MVaveOfficial", name))) return join(d, "MVaveOfficial", name);
+  return null;
+};
+const pkgPath = process.argv[2] || relPath.pathname;
+const v15Path = process.argv[3] || process.env.V15_PKG || findOfficial("V15-FM-1.fwsc");
+const v16Path = process.env.V16_PKG || findOfficial("V16-FM-1.fwsc");
 const raw = new Uint8Array(readFileSync(pkgPath));
 const sha = createHash("sha256").update(raw).digest("hex");
 if (!process.argv[2]) {
@@ -148,7 +161,12 @@ if (v15Path) {
 
 // what is on the FM-1
 const st = async (o) => describe(await look(new FakeFM1(pkg.image, o).access));
-ok(/official firmware \(FM-1_015\).*TransitFM1/.test(await st({})), "look: FM-1_015 with no HELLO answer is stock V15 or TransitFM1");
+ok(/official M-VAVE firmware V15 \(FM-1_015\).*TransitFM1/.test(await st({})), "look: FM-1_015 with no HELLO answer is stock V15 or TransitFM1");
+{
+  const s16 = await st({ identity: "FM-1_016" });
+  ok(/official M-VAVE firmware V16 \(FM-1_016\)/.test(s16) && !/V15|TransitFM1|RemoteFM1/.test(s16), "look: FM-1_016 is the official V16 (no TransitFM1 / RemoteFM1 there)");
+  ok(/firmware V14 \(FM-1_014\)\.$/.test(await st({ identity: "FM-1_014" })), "look: FM-1_014 is the official V14");
+}
 ok(/runs RemoteFM1 0\.1\.1 /.test(await st({ remote: "0.1.1" })), "look: RemoteFM1 told by its HELLO, with its version");
 ok(/ChoralRoot 0\.25\.1\./.test(await st({ identity: "FM-1_920", name: "ChoralRoot FM-1", version: "ChoralRoot 0.25.1" })),
    "look: ChoralRoot by its INFO");
@@ -168,6 +186,14 @@ ok(t.r === "done" && t.dev.upgrades === 2 && t.dev.bad === 0 && t.dev.identity =
    t.ui.prog === 1 && t.ui.kinds.at(-1) === "ok", "over the stock V15 (or TransitFM1): installed, both steps served right");
 t = await run({ identity: "FM-1_920", name: "ChoralRoot FM-1", version: "ChoralRoot 0.25.1" });
 ok(t.r === "done" && t.dev.bad === 0 && t.dev.identity === IDENTITY, "over ChoralRoot: installed");
+{
+  const dev = new FakeFM1(pkg.image, { identity: "FM-1_016" }), ui = UI();
+  let asked = "";
+  ui.confirm = (q) => { asked = q; ui.confirms++; return true; };
+  const r = await install(dev.access, pkg, ui, { midiClosed: true });
+  ok(r === "done" && dev.bad === 0 && dev.identity === IDENTITY && dev.hellos === 0 && /over the official V16\?/.test(asked),
+     "over M-VAVE's V16 (FM-1_016): installed, asked as \"over the official V16\", no HELLO");
+}
 t = await run({ identity: "FM-1_910", name: "Felucca", version: "FELUCCA v1.0.1" });
 ok(t.r === "done" && t.dev.bad === 0, "over Felucca 1.0.1: installed");
 t = await run({ remote: "0.1.1" });
@@ -201,6 +227,74 @@ if (v15Path) {   // TransitFM1's loader writing M-VAVE's V15 answers ota-FM-1_01
 }
 t = await run({ identity: "FM-1_101", name: "FM-1+VA" });
 ok(t.r === "refused" && t.dev.upgrades === 0, "over Baud Girl (FM-1_101, a version the table does not know): refused, nothing sent");
+
+if (v16Path) {   // M-VAVE's V16: flash.bin 692224 B, to 0xA9000, past the app area (0x93000) RemoteFM1's loader writes
+  const b16 = new Uint8Array(readFileSync(v16Path));
+  let e = "";
+  try { await packageFrom(b16); } catch (x) { e = x.message; }
+  ok(/official V16/.test(e) && /official V15 first/.test(e) && /M-UPGRADE/.test(e), "M-VAVE's V16 package: refused before the FM-1 is asked: V15 first, then M-UPGRADE");
+  e = "";
+  try { await validateStockPackage(b16); } catch (x) { e = x.message; }
+  ok(/official V15/.test(e) && /V16 afterwards, use M-VAVE's M-UPGRADE from V15/.test(e), "the return to stock takes only V15, and says how to go on to V16");
+} else console.log("(M-VAVE's V16 not found: set V16_PKG; its checks skipped)");
+if (v15Path) ok((await validateStockPackage(new Uint8Array(readFileSync(v15Path)))).product === "FM-1_015", "the return to stock: M-VAVE's V15 accepted");
+
+// the MIDI permission: a fake navigator whose prompt the test answers
+const fakeNav = (perm, { reject = null } = {}) => {
+  const n = { asks: 0, pending: [], permissions: perm === null ? undefined : { query: async (d) => ({ state: d.name === "midi" && d.sysex ? perm : "granted" }) } };
+  n.requestMIDIAccess = (o) => { n.asks++; n.sysex = o && o.sysex; return reject ? Promise.reject(reject) : perm === "granted" ? Promise.resolve({ ok: 1 }) : new Promise((res) => n.pending.push(res)); };
+  return n;
+};
+const midiUi = () => { const u = { said: [], kinds: [], late: null }; return Object.assign(u, { say(t, k = "") { u.said.push(t); u.kinds.push(k); }, late: (r) => { u.retry = r; } }); };
+const wait = (ms) => new Promise((r) => realTimeout(r, ms));
+{
+  const nav = fakeNav("prompt"), u = midiUi();
+  const p = requestMidi(nav, u);
+  await wait(10);
+  ok(u.said[0] === MIDI_PROMPT && u.kinds[0] === "wait" && nav.asks === 1 && nav.sysex === true, "MIDI prompt pending: \"Allow MIDI: your browser is asking\" at once");
+  await wait(1700);                                  // 30 s, shortened
+  ok(u.said.at(-1) === MIDI_LATE && /Try again/.test(MIDI_LATE) && typeof u.retry === "function", "no answer after 30 s: the hint stays, with Try again");
+  u.retry();
+  ok(nav.asks === 2, "Try again asks the browser again");
+  nav.pending.at(-1)(new FakeFM1(pkg.image, { identity: "FM-1_016" }).access);
+  const a = await p;
+  ok(u.said.at(-1) === "MIDI is allowed." && /official M-VAVE firmware V16/.test(describe(await look(a))),
+     "allowed: the hint replaced, and the FM-1 found (V16)");
+}
+{
+  const nav = fakeNav(null), u = midiUi();               // no Permissions API for MIDI: the hint after 1 s
+  const p = requestMidi(nav, u);
+  await wait(10);
+  const before = u.said.length;
+  await wait(120);
+  ok(before === 0 && u.said[0] === MIDI_PROMPT, "no permission state known: the hint once the request has waited 1 s");
+  nav.pending[0]({ ok: 1 });
+  await p;
+}
+{
+  const nav = fakeNav("granted"), u = midiUi();
+  const a = await requestMidi(nav, u);
+  await wait(120);
+  ok(a.ok === 1 && u.said.length === 0, "MIDI already allowed: no hint");
+}
+{
+  const nav = fakeNav("denied"), u = midiUi();
+  let e = null;
+  try { await requestMidi(nav, u); } catch (x) { e = x; }
+  ok(e && e.message === MIDI_DENIED && /site-settings icon/.test(e.message) && /Allow/.test(e.message) && nav.asks === 0,
+     "MIDI blocked for the site: how to allow it again (site settings), not the generic error");
+}
+{
+  const nav = fakeNav("prompt", { reject: new DOMException("denied", "SecurityError") }), u = midiUi();
+  let e = null;
+  try { await requestMidi(nav, u); } catch (x) { e = x; }
+  ok(e && e.name === "SecurityError", "MIDI refused at the prompt: the browser's SecurityError (the page's refusal text)");
+}
+{
+  let e = "";
+  try { await requestMidi({}, midiUi()); } catch (x) { e = x.message; }
+  ok(/no Web MIDI/.test(e), "no Web MIDI: Chrome or Edge");
+}
 
 if (process.env.LONG_PKG) {   // a flash.bin past the app area (as Baud Girl's): refused before the FM-1 is asked anything
   let e = "";
