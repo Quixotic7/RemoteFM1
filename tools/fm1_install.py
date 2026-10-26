@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 """Install a package (.fwsc) on an FM-1 over USB-MIDI (Dinghy's tool, from Felucca's; TransitFM1 keeps it as is but
-for the official V15, which it installs without --force).
+for M-VAVE's official packages, which it installs without --force; V16's is refused: its image is larger than
+RemoteFM1's loader writes, so install V15, then update to V16 with M-VAVE's M-UPGRADE).
 
 The same update as the web installer (web/fm1ota.js): step 1, the
 running firmware reads parts of the package and starts the update loader;
@@ -37,6 +38,16 @@ BLOCKS, BLK, KEEP = 20, 0x30, 0x2F
 LOADER_MARK = b"FELUCCA-LOADER-1"
 # the unmodified official FM-1 V15 (FM-1.fwsc from M-VAVE): installed without --force (ChoralRoot's tools/fm1_install.py)
 STOCK_V15_SHA256 = "db1642b2b6fa5c2cccb11ffd13878068bb28601678d3644049f99dc40e7edb8a"
+# M-VAVE's official packages, by SHA-256 (no Felucca loader marker in them: recognised without --force)
+OFFICIAL = {
+    STOCK_V15_SHA256: "V15",                                                    # FM-1_015, 699956 B, flash.bin 602112
+    "d017fb65e70aca97ee29d944470c3515a74581df5c0576bf70de917c7b2b61d5": "V16",  # FM-1_016, 718196 B, flash.bin 692224
+}
+# RemoteFM1's (TransitFM1's) update loader writes the app area [0x4000, 0x93000) only, and refuses a flash.bin that
+# reaches past it (firmware/src/ota.c ota_stage, firmware/loader/ldr_core.c LDR_ETOOLONG): flash.bin maps 1:1 onto
+# the flash from address 0, so its size is where the image ends. V16's ends at 0xA9000 (its app area head runs to
+# 0xA8071, app.bin alone to 0x960E8): refused, so refused here before the FM-1 is asked anything
+APP_HI = 0x93000
 PORT_RE = re.compile(r"fm-1|felucca|ota|composite|sinco|usb-midi", re.I)   # never probe other gear
 
 # seconds; the tests shorten them
@@ -382,17 +393,25 @@ def load_package(path, force):
     product = product_of(raw)
     if not re.fullmatch(r"[^_]+_\d+", product):
         raise InstallError("badpkg", f"{path}: not an FM-1 package (identity {product!r})")
-    official = hashlib.sha256(raw).hexdigest() == STOCK_V15_SHA256
-    if LOADER_MARK not in raw and not official and not force:
-        raise InstallError("badpkg", f"{path}: no Felucca update loader in this package; only Felucca-family "
-                                     "packages and the unmodified official V15 (FM-1.fwsc) are installed "
-                                     "(--force overrides; on TransitFM1 every package is written by its own loader)")
+    official = OFFICIAL.get(hashlib.sha256(raw).hexdigest())
     image = logical_image(raw)
     bad = package_damage(image)
     if bad:
         raise InstallError("badpkg", f"{path}: damaged package ({bad}); nothing was written. "
                                      "Download it again.")
-    return product, image
+    size = flash_size(image)
+    if size > APP_HI:              # not even with --force: RemoteFM1's loader refuses it (and would truncate it)
+        what = f"M-VAVE's official {official}" if official else "this firmware"
+        then = ("update to it from V15 with M-VAVE's M-UPGRADE" if official
+                else "install it from V15 with its own installer")
+        raise InstallError("badpkg", f"{path}: {what} is larger than RemoteFM1's update loader writes (flash.bin "
+                                     f"{size} B, to {size:#x}; the app area ends at {APP_HI:#x}). Install the "
+                                     f"official V15 first, then {then}.")
+    if LOADER_MARK not in raw and not official and not force:
+        raise InstallError("badpkg", f"{path}: no Felucca update loader in this package; only Felucca-family "
+                                     "packages and M-VAVE's unmodified official packages are installed "
+                                     "(--force overrides; on TransitFM1 every package is written by its own loader)")
+    return product, image, official
 
 
 def _crc16(data, crc=0):
@@ -413,9 +432,16 @@ def _dec(b):
     return bytes(out)
 
 
-def package_damage(image):
-    """what is wrong with the update image (header, file list, each file's CRC), or None; the device
-    only checks the loader before it rewrites the firmware, so a damaged file is caught here"""
+# the file types whose stored CRC-16 is over the plain bytes in the package: flash.bin (0x00), ota.bin (0x64),
+# tail.bin (0xFF), in M-VAVE's V15 and V16 and in every Felucca-family package. M-VAVE's other entries (USR 0x32,
+# isd_config.ini 0x34, script.ver and farg.cfg 0xFB, blimit.bin 0xA1) are stored encrypted with a key that is not
+# the JieLi ENC stream (their CRC matches neither the stored bytes nor _dec of them), so only their bounds are
+# checked; the device never writes them through our loader
+PLAIN_CRC_TYPES = (0x00, 0x64, 0xFF)
+
+
+def _files(image):
+    """the decoded file list: [(type, dcrc, off, size, name)], or a string saying what is wrong"""
     if len(image) < 0x40:
         return "too short"
     hdr = _dec(image[0:0x40])
@@ -427,15 +453,34 @@ def package_damage(image):
     lst = image[0x40:0x40 + 0x50 * count]
     if _crc16(lst) != int.from_bytes(hdr[2:4], "little"):
         return "file list CRC"
+    out = []
     for i in range(count):
         e = _dec(lst[i * 0x50:(i + 1) * 0x50])
-        dcrc = int.from_bytes(e[4:6], "little")
-        off = int.from_bytes(e[8:12], "little")
-        size = int.from_bytes(e[12:16], "little")
-        name = e[0x40:0x50].split(b"\0")[0].decode("ascii", "replace")
+        out.append((int.from_bytes(e[0:2], "little"), int.from_bytes(e[4:6], "little"),
+                    int.from_bytes(e[8:12], "little"), int.from_bytes(e[12:16], "little"),
+                    e[0x40:0x50].split(b"\0")[0].decode("ascii", "replace")))
+    return out
+
+
+def flash_size(image):
+    """flash.bin's size (where its image ends in the flash), 0 when the package has none"""
+    files = _files(image)
+    return next((size for t, _, _, size, _ in files if t == 0), 0) if isinstance(files, list) else 0
+
+
+def package_damage(image):
+    """what is wrong with the update image (header, file list, each file's bounds, the CRC of each file stored
+    plain: PLAIN_CRC_TYPES), or None; the device only checks the loader before it rewrites the firmware, so a
+    damaged file is caught here"""
+    files = _files(image)
+    if isinstance(files, str):
+        return files
+    if not any(t == 0 for t, *_ in files):
+        return "no flash.bin"
+    for t, dcrc, off, size, name in files:
         if off + size > len(image):
             return f"{name}: cut short"
-        if _crc16(image[off:off + size]) != dcrc:
+        if t in PLAIN_CRC_TYPES and _crc16(image[off:off + size]) != dcrc:
             return f"{name}: CRC"
     return None
 
@@ -482,10 +527,8 @@ def run(a, backend, out, ask):
         mode = "update loader (update not finished)" if dev.id.loader else "running"
         print(f"{dev.id.text}  [{mode}]  port: {dev.name}", file=out)
         return 0
-    product, image = load_package(a.package, a.force)
-    with open(a.package, "rb") as f:
-        official = hashlib.sha256(f.read()).hexdigest() == STOCK_V15_SHA256
-    print(f"package: {product}  ({a.package})" + ("  the official V15" if official else ""), file=out)
+    product, image, official = load_package(a.package, a.force)
+    print(f"package: {product}  ({a.package})" + (f"  the official {official}" if official else ""), file=out)
     dev = up.find()
     if not dev:
         raise not_found(up)
@@ -497,7 +540,7 @@ def run(a, backend, out, ask):
         return 1
     prog = Progress(out)
     try:
-        up.install(dev, image, product, prog, official)
+        up.install(dev, image, product, prog, official == "V15")
     finally:
         prog.end()
     return 0

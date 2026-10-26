@@ -27,6 +27,8 @@ $CC $SAN -o "$H/stub_test" tests/stub_test.c
 "$H/stub_test"
 echo "== the package builder: the marker, sector 0x4000 the same for every body"
 python3 tests/stub_pkg_test.py
+echo "== tools/fm1_install.py's package checks (M-VAVE's V15 / V16 too when found: V15_PKG, V16_PKG)"
+python3 tests/install_test.py
 echo "== a package whose flash.bin reaches past the app area (as Baud Girl's grows): made for the refusals below"
 python3 tools/make_stub_test_pkg.py other-body --board smk37 --product FM-1_015 --app "build/$U.bin" \
     --ota build/loader/ota.bin -o "$H/stub-test-long.fwsc" >/dev/null
