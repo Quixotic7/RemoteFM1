@@ -10,8 +10,10 @@ usb_product = "FM-1"           # the USB product name as RemoteFM1 0.1 had it (t
 include = ["src"]              # the protocol layer, the decoder and the push (src/: host/ compiles them too)
 words = "words.tsv"
 ble = true                     # Bluetooth MIDI with a computer or tablet (--no-ble: the USB-only package)
-usb_audio_in = false           # a panel makes no sound: no USB audio, so the interfaces are 0 audio control,
-usb_audio_out = false          # 1 MIDI streaming, 2 the vendor bulk pair (src/rfm_dev.c), as in 0.1
+usb_audio_in = true            # USB audio (0.2.1): the computer sees the FM-1 as a sound output and plays through
+usb_audio_out = true           # its speaker / headphones, MASTER its volume (fm1-base builds the output only with the
+                               # input: the FM-1 is recordable too). Interfaces: 0 audio control, 1 MIDI, 2 audio in,
+                               # 3 audio out, 4 the vendor bulk pair (src/rfm_dev.c; 2 in 0.1 / 0.2.0); bcdDevice 4.50
 # the site (fm1-base's make_site.py is not used: RemoteFM1 has its own, web/)
 tagline = "the FM-1 as the panel of a firmware on a computer"
 repo = "https://github.com/Quixotic7/RemoteFM1"

@@ -26,13 +26,18 @@ EP1 hooks for apps; fm1_lcd_done()**
 > option, with the small hooks an app needs to take its own SysEx at full speed. Nothing changes without the new
 > macros (the update loader and fm1-base's template build byte for byte as before).
 >
-> - `FELUCCA_VENDOR=1`: a vendor-specific interface (class 0xFF) as interface 2, after audio control and MIDI
->   streaming, with a bulk OUT / IN pair on EP3 (the CDC option's endpoint: not with CDC, UAC, the USB host or in the
->   loader, `#error` otherwise). bcdUSB 2.10 and a BOS descriptor with the WebUSB platform capability (vendor code 1,
->   no landing page), bcdDevice 3.50. Two rings (`FELUCCA_VENDOR_IN_N` / `_OUT_N`, powers of two, in
->   `FELUCCA_VENDOR_RING_ATTR`) served by `usb_poll`; the app's side: `usb_vendor_avail`, `usb_vendor_read`,
->   `usb_vendor_room`, `usb_vendor_send` (a message whole or not at all). EP3 OUT is NAKed while the in-ring is full;
->   a short packet ends each burst out (no ZLP needed); a bus reset drops what waits to go out.
+> - `FELUCCA_VENDOR=1`: a vendor-specific interface (class 0xFF) as the last interface: 2 after audio control and
+>   MIDI streaming, or after the audio streams with `FELUCCA_UAC` (3; 4 with `FELUCCA_UAC_OUT`), with a bulk OUT / IN
+>   pair on EP3 (the CDC option's endpoint: not with CDC, the USB host or in the loader, `#error` otherwise; UAC's
+>   endpoint is EP4, and its EP4 OUT is polled, so the interrupt enables are EP1's and EP3's as before). bcdUSB 2.10
+>   and a BOS descriptor with the WebUSB platform capability (vendor code 1, no landing page). bcdDevice (hosts cache
+>   descriptors per version): 3.50 without USB audio (RemoteFM1 0.1's; note that it is also what felucca-bsp gives
+>   audio in + out at 44.1 kHz, fm1-base's default, without the vendor interface); with USB audio 4.00 + the audio's
+>   usual steps (4.50: in + out at 44.1 kHz), a version no layout without the vendor interface has. Two rings
+>   (`FELUCCA_VENDOR_IN_N` / `_OUT_N`, powers of two, in `FELUCCA_VENDOR_RING_ATTR`) served by `usb_poll`; the app's
+>   side: `usb_vendor_avail`, `usb_vendor_read`, `usb_vendor_room`, `usb_vendor_send` (a message whole or not at
+>   all). EP3 OUT is NAKed while the in-ring is full; a short packet ends each burst out (no ZLP needed); a bus reset
+>   drops what waits to go out.
 > - `FELUCCA_SYSEX_TAP(b)`: every SysEx byte from USB-MIDI (and a status that ends one), in `usb_poll`'s context.
 >   Nonzero: the message is the app's, and is not collected for `ota.c` from that byte on, so a long stream of the
 >   app's SysEx never holds the updater's one-frame slot (`sx_frame`), and messages longer than 640 bytes reach the
@@ -52,8 +57,10 @@ EP1 hooks for apps; fm1_lcd_done()**
 >   never waits for the panel (fm1-base's `lcd_idle()`).
 >
 > Tested: RemoteFM1's `tests/usb_midi_test.c` (the parser fed every SysEx length 6..3000, macOS's split, clocks inside,
-> the tap's claim against the updater's frame, EP1 held), both with and without `FELUCCA_CIN_F_SYSEX`; the loader's
-> `ota.bin` is identical with the patch. On an FM-1: RemoteFM1 0.1 ran the same descriptors and vendor service
+> the tap's claim against the updater's frame, EP1 held), both with and without `FELUCCA_CIN_F_SYSEX`; the vendor
+> interface's descriptors alone (0.1's byte for byte) and after USB audio in + out (the configuration walked: five
+> interfaces in order, each endpoint in one, the vendor pair on interface 4); the loader's `ota.bin` is identical with
+> the patch. On an FM-1: RemoteFM1 0.1 ran the same descriptors and vendor service
 > (M0: ~830 KB/s bulk with the main loop polling).
 
 ## fm1-base: `fm1-base/0001-ble-sysex-lcd-idle-sxq-host-sysex.patch`

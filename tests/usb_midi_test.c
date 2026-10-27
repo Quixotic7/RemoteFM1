@@ -9,7 +9,9 @@
  *   - realtime bytes (CIN 0xF F8) inside a SysEx, a CIN 0xF data byte outside one, a SysEx cut by a note;
  *   - the tap's claim: a message the app claims is never the updater's frame (sx_ready), one it leaves is, whole;
  *   - FELUCCA_EP1_ROOM: 0 leaves the packet (NAK), 1 takes it;
- *   - with FELUCCA_VENDOR (a third build): the descriptors are RemoteFM1 0.1's byte for byte, the vendor rings.
+ *   - with FELUCCA_VENDOR (a third build): the descriptors are RemoteFM1 0.1's byte for byte, the vendor rings;
+ *   - with FELUCCA_VENDOR and USB audio in + out (a fourth build, RemoteFM1 0.2.1's): the vendor interface is the last
+ *     one (4, after the audio streams), the configuration descriptor walks whole, bcdDevice 4.50, the same BOS.
  * Built twice (tests/run_tests.sh): -DWITH_CIN_F as RemoteFM1 builds usb.c (FELUCCA_CIN_F_SYSEX), where every message
  * arrives whole, and without it, as felucca-bsp builds it for every other firmware and the update loader, where the
  * test checks that exactly the CIN 0xF bytes are lost: M0's "2048 / 8192-byte SINK one byte short, each fails its
@@ -48,6 +50,9 @@ static int hook(uint32_t b)
 #define FELUCCA_CIN_F_SYSEX (cinf_n++)
 #endif
 static void fm1_delay_ms(uint32_t ms) { (void)ms; }
+#ifndef HALF_FRAMES
+#define HALF_FRAMES 256u                                /* (fm1-base's: APP_BLOCK, for USB audio's ring) */
+#endif
 #include "../build/fm1-base/bsp/chip/usb.c"
 static uint32_t ota_now_ms(void) { return 0; }
 static void ota_idle(void) {}
@@ -259,10 +264,56 @@ int main(void)
         CHECK(ep1_take(pkt, 4) == 1 && mi_w == mi_r + 1u);
         mi_r = mi_w;
     }
+#if FELUCCA_VENDOR && FELUCCA_UAC
+    /* 8a: with USB audio in + out: 0 audio control, 1 MIDI, 2 audio in (EP4 IN iso), 3 audio out (EP4 OUT iso), 4 the
+     * vendor pair (EP3 bulk); the descriptor walks to its wTotalLength, each endpoint in one interface only */
+    {
+        const uint8_t *d;
+        uint16_t l;
+        uint32_t o, cur = 99, alt = 0, nif = 0, eps = 0, vendor_if = 99, iso_in = 99, iso_out = 99, ac_ok = 0;
+        uint32_t ep_if[32];
+        memset(ep_if, 0xFF, sizeof ep_if);
+        CHECK(get_desc(0x0100, &d, &l) && l == 18 && d[2] == 0x10 && d[3] == 0x02 && d[4] == 0);
+        CHECK(d[12] == 0x50 && d[13] == 0x04);           /* bcdDevice 4.50: never a layout without the vendor IF */
+        CHECK(get_desc(0x0200, &d, &l) && l == (d[2] | d[3] << 8) && d[4] == 5);
+        for (o = 0; o < l && d[o] >= 2; o += d[o]) {
+            if (d[o + 1] == 4) {                         /* interface */
+                cur = d[o + 2];
+                alt = d[o + 3];
+                if (!alt) {
+                    CHECK(cur == nif);                   /* 0, 1, 2, 3, 4 in order */
+                    nif++;
+                }
+                if (d[o + 5] == 0xFF) {
+                    vendor_if = cur;
+                    CHECK(d[o + 4] == 2);
+                }
+            } else if (d[o + 1] == 5) {                  /* endpoint */
+                uint32_t a = d[o + 2], k = (a & 0x0Fu) | (a >> 3 & 0x10u);
+                CHECK(ep_if[k] == 0xFFFFFFFFu || ep_if[k] == cur);
+                ep_if[k] = cur;
+                eps++;
+                if ((d[o + 3] & 3u) == 1u) {
+                    *(a & 0x80u ? &iso_in : &iso_out) = cur;
+                    CHECK(alt == 1);
+                }
+                if (cur == vendor_if)
+                    CHECK((a == 0x03 || a == 0x83) && d[o + 3] == 2 && d[o + 4] == 64);
+            } else if (d[o + 1] == 0x24 && d[o + 2] == 1 && cur == 0) {   /* AC header: MIDI and both streams */
+                ac_ok = d[o + 7] == 3 && d[o + 8] == 1 && d[o + 9] == 2 && d[o + 10] == 3;
+            }
+        }
+        CHECK(o == l && nif == 5 && eps == 6 && ac_ok);
+        CHECK(vendor_if == 4 && VENDOR_IF == 4 && iso_in == 2 && iso_out == 3);
+        CHECK(UAC_AS_IF == 2u && UAC_ASO_IF == 3u);      /* SET_INTERFACE's audio streams; 4 is acked at alt 0 */
+    }
+#endif
 #if FELUCCA_VENDOR
     /* 8: the descriptors with the vendor interface: RemoteFM1 0.1's, byte for byte (its usb.c, REMOTE_VENDOR, and the
-     * product name "FM-1"), so hosts see the same device; the vendor rings: a message whole or not at all */
+     * product name "FM-1"), so hosts see the same device (with USB audio: the same BOS and names, 8a above); the vendor
+     * rings: a message whole or not at all */
     {
+#if !FELUCCA_UAC
         static const uint8_t DEV01[18] = {0x12, 0x01, 0x10, 0x02, 0, 0, 0, 0x40, 0x09, 0x12, 0x01, 0x00, 0x50, 0x03, 1, 2, 0, 1};
         static const uint8_t CFG01[124] = {
             0x09, 0x02, 0x7C, 0x00, 0x03, 0x01, 0x00, 0x80, 0x32, 0x09, 0x04, 0x00, 0x00, 0x00, 0x01, 0x01, 0x00, 0x00,
@@ -272,6 +323,7 @@ int main(void)
             0x00, 0x09, 0x05, 0x01, 0x02, 0x40, 0x00, 0x00, 0x00, 0x00, 0x05, 0x25, 0x01, 0x01, 0x01, 0x09, 0x05, 0x81,
             0x02, 0x40, 0x00, 0x00, 0x00, 0x00, 0x05, 0x25, 0x01, 0x01, 0x03, 0x09, 0x04, 0x02, 0x00, 0x02, 0xFF, 0x00,
             0x00, 0x00, 0x07, 0x05, 0x03, 0x02, 0x40, 0x00, 0x00, 0x07, 0x05, 0x83, 0x02, 0x40, 0x00, 0x00};
+#endif
         static const uint8_t BOS01[29] = {0x05, 0x0F, 0x1D, 0x00, 0x01, 0x18, 0x10, 0x05, 0x00, 0x38, 0xB6, 0x08, 0x34,
                                           0xA9, 0x09, 0xA0, 0x47, 0x8B, 0xFD, 0xA0, 0x76, 0x88, 0x15, 0xB6, 0x65, 0x00,
                                           0x01, 0x01, 0x00};
@@ -279,8 +331,10 @@ int main(void)
         static uint8_t big[FELUCCA_VENDOR_OUT_N], rd[64];
         const uint8_t *d;
         uint16_t l;
+#if !FELUCCA_UAC
         CHECK(get_desc(0x0100, &d, &l) && l == 18 && !memcmp(d, DEV01, 18));
         CHECK(get_desc(0x0200, &d, &l) && l == sizeof CFG01 && !memcmp(d, CFG01, sizeof CFG01));
+#endif
         CHECK(get_desc(0x0F00, &d, &l) && l == sizeof BOS01 && !memcmp(d, BOS01, sizeof BOS01));
         CHECK(get_desc(0x0302, &d, &l) && l == sizeof STR2_01 && !memcmp(d, STR2_01, sizeof STR2_01));
         usb.up = 1;
@@ -297,8 +351,9 @@ int main(void)
     }
 #endif
 #ifdef WITH_CIN_F
-    printf("usb_midi_test (RemoteFM1's usb.c, CIN 0xF taken%s): %d checks, %d failed\n",
-           FELUCCA_VENDOR ? ", the vendor interface" : "", checks, fails);
+    printf("usb_midi_test (RemoteFM1's usb.c, CIN 0xF taken%s%s): %d checks, %d failed\n",
+           FELUCCA_VENDOR ? ", the vendor interface" : "", FELUCCA_UAC ? " after USB audio in + out" : "", checks,
+           fails);
 #else
     printf("usb_midi_test (felucca-bsp's parser: M0's lost byte reproduced): %d checks, %d failed\n", checks, fails);
 #endif

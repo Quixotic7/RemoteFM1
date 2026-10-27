@@ -57,7 +57,8 @@ $TCC $SAN -o "$H/rfm_draw_test" tests/rfm_draw_test.c
 echo "== the protocol layer: a scripted session from both USB transports (firmware/src/rfm_app.c)"
 $TCC $SAN -o "$H/session_test" tests/session_test.c
 "$H/session_test"
-echo "== felucca-bsp's usb.c, patched (build/fm1-base): M0's lost byte (CIN 0xF), the SysEx tap's claim, EP1 held"
+echo "== felucca-bsp's usb.c, patched (build/fm1-base): M0's lost byte (CIN 0xF), the SysEx tap's claim, EP1 held, the"
+echo "   descriptors (0.1's; the vendor interface after USB audio in + out)"
 B="-Ibuild/fm1-base/bsp/chip -Ibuild/fm1-base/bsp/boards/fm1 -Wno-int-to-pointer-cast"
 $TCC $SAN $B -o "$H/usb_midi_test" tests/usb_midi_test.c
 "$H/usb_midi_test"
@@ -65,6 +66,9 @@ $TCC $SAN $B -DWITH_CIN_F -o "$H/usb_midi_test_rf" tests/usb_midi_test.c
 "$H/usb_midi_test_rf"
 $TCC $SAN $B -DWITH_CIN_F -DFELUCCA_VENDOR=1 '-DFELUCCA_USB_PRODUCT="FM-1"' -o "$H/usb_midi_test_vendor" tests/usb_midi_test.c
 "$H/usb_midi_test_vendor"
+$TCC $SAN $B -DWITH_CIN_F -DFELUCCA_VENDOR=1 -DFELUCCA_UAC=1 -DFELUCCA_UAC_OUT=1 -DFELUCCA_UAC_48K=0 \
+    '-DFELUCCA_USB_PRODUCT="FM-1"' -o "$H/usb_midi_test_vendor_uac" tests/usb_midi_test.c
+"$H/usb_midi_test_vendor_uac"
 echo "== fm1-base's Bluetooth MIDI SysEx, patched (le_midi.c's parser and encoder)"
 python3 - <<'EOF'
 src = open("build/fm1-base/ble/midi/le_midi.c").read()
