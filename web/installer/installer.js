@@ -10,10 +10,11 @@
 // to be closed), 0.1.2/0.1.3 (Baud Girl: a package whose flash.bin reaches past the app area is refused here, before
 // the FM-1 is asked anything; the loader answers ota-FM-1_900, so Baud Girl's own installer refuses it), the loader
 // identity (an install cut off is resumed only from our own update mode, ota-FM-1_9NN).
-import { Updater, classifyFirmware } from "./fm1ota.js";
+import { Updater, classifyFirmware, remoteFm1Version } from "./fm1ota.js";
 import { Package, productOf, logicalImage, sha256hex, OFFICIAL_PACKAGES } from "./fm1pkg.js";
 
-export const IDENTITY = "FM-1_015";               // RemoteFM1's (tools/build.py PRODUCT): the official V15's
+export const IDENTITY = "FM-1_015";               // RemoteFM1 0.1's (it answered as the official V15); 0.2 and later
+                                                  // answer as themselves, FM-1_52XXYYZZ (fm1ota.js remoteFm1Version)
 const INFO_REQ = [0xF0, 0x7D, 0x46, 0x4C, 0x01, 0xF7];   // the backup protocol's INFO (Felucca, ChoralRoot, ...)
 const HELLO_REQ = [0xF0, 0x7D, 0x52, 0x46, 0x01, 0xF7];  // RemoteFM1's HELLO (docs/PROTOCOL.md section 2), no body
 
@@ -74,7 +75,7 @@ export async function look(access, log = () => {}) {
   if (all.length > 1) return { several: true, list: all.map((d) => `${d.id.text} (${d.name})`) };
   const d = all[0];
   if (/^ota-/i.test(d.id.model)) return { loader: true, identity: d.id.text, port: d.name };
-  const remote = d.id.text === IDENTITY ? await remoteHello(d.input, d.output) : null;
+  const remote = d.id.text === IDENTITY || remoteFm1Version(d.id.text) ? await remoteHello(d.input, d.output) : null;
   const version = remote ? null : await deviceInfo(d.input, d.output);
   return { identity: d.id.text, port: d.name, version, fw: classifyFirmware(d.id.text, version, d.name), remote };
 }
@@ -90,7 +91,9 @@ export function describe(st) {
   if (st.none) return "No FM-1 found. Connect it with a USB data cable, switch it on, and close every other app that uses MIDI (DAWs, other browser tabs with an FM-1 page).";
   if (st.several) return `Several FM-1s answer (${st.list.join(", ")}). Connect only the one to install.`;
   if (st.loader) return `The FM-1 is in update mode (${st.identity}): an install was cut off. Choose the same firmware and press Install to finish it.`;
+  if (st.remote && st.identity !== IDENTITY) return `The FM-1 runs RemoteFM1 ${st.remote.version || remoteFm1Version(st.identity)} (${st.identity}).`;
   if (st.remote) return `The FM-1 runs RemoteFM1 ${st.remote.version || ""} (it answers installers as the official V15, ${st.identity}).`.replace("  ", " ");
+  if (st.fw.kind === "remotefm1") return `The FM-1 runs ${st.fw.name} (${st.identity}).`;
   if (st.fw.kind === "stock") return st.identity === IDENTITY
     ? `The FM-1 answers as the official M-VAVE firmware V15 (${st.identity}): stock V15, or TransitFM1, which answers the same.`
     : `The FM-1 runs the official M-VAVE firmware ${officialVersion(st.identity)} (${st.identity}).`;

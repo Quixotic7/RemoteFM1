@@ -103,5 +103,21 @@ if v16:
 else:
     print("(M-VAVE's V16 not found: set V16_PKG; its checks skipped)")
 
+# --info's words for an identity: RemoteFM1's own (fm1-base's FM-1_52 since 0.2) never "official"
+D = I.describe_identity
+ok(D("FM-1_52000200") == "running RemoteFM1 0.2.0" and D("FM-1_52011003") == "running RemoteFM1 1.10.3",
+   "--info: FM-1_52XXYYZZ is RemoteFM1 X.Y.Z")
+ok("RemoteFM1" in D("FM-1_5200") and "official" not in D("FM-1_5200"), "--info: FM-1_5200 is a RemoteFM1 development build")
+ok("official V15" in D("FM-1_015") and "RemoteFM1 0.1" in D("FM-1_015"), "--info: FM-1_015 is V15, or RemoteFM1 0.1")
+ok(D("FM-1_016") == "running M-VAVE's official V16" and "update loader" in D("ota-FM-1_900"), "--info: V16, a loader")
+ok(D("FM-1_46000100") == "running" and D("FM-1_099") == "running" and D("FM-1_520") == "running",
+   "--info: another firmware (FIZZ, m-bootloader's installer, a short 52) not named")
+# RemoteFM1 0.2's own package, when built (./build.sh): fm1-base's, with the loader marker, the app area's size
+for pkg in sorted((ROOT / "firmware" / "build").glob("remotefm1*.fwsc")):
+    r = pkg.read_bytes()
+    product, _, off = I.load_package(str(pkg), False)
+    ok(product.startswith("FM-1_52") and off is None and I.package_damage(I.logical_image(r)) is None and
+       I.flash_size(I.logical_image(r)) <= I.APP_HI, f"the built {pkg.name}: {product}, loads without --force, no damage")
+
 print(f"install tests: {fails} of {checks} FAILED" if fails else f"install tests passed ({checks})")
 sys.exit(1 if fails else 0)

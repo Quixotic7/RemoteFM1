@@ -11,12 +11,16 @@
 //           MIDI...", the hint in detail; red with Try again once it has waited promptMs (30 s)
 
 const VIA = { bulk: "USB", midi: "MIDI" };
+// RemoteFM1 0.2's Bluetooth MIDI: macOS and Windows name its port after what the FM-1 advertises, "FM-1 1F2D" (four
+// hex digits of its own); the USB port is "FM-1" (or a name CoreMIDI kept from another firmware)
+export const BLE_PORT_RE = /\bFM-1 [0-9A-F]{4}\b/;
+const viaOf = (s) => s.transport === "midi" && s.ports && BLE_PORT_RE.test(s.ports.name || "") ? "Bluetooth" : VIA[s.transport] || "";
 export const MIDI_PROMPT_TEXT = "Allow MIDI: your browser is asking (the prompt by the address bar, or the site-settings icon left of the URL).";
 export const MIDI_LATE_TEXT = "Still waiting for MIDI to be allowed: look for the prompt by the address bar, or the site-settings icon left of the URL. Click to try again.";
 export const MIDI_DENIED_TEXT = "MIDI is blocked for this site. To allow it again: click the site-settings icon left of the URL (Site settings), set MIDI devices to Allow, then reload the page.";
 
 export function viewOf(s, notFound = false, promptLate = false) {
-  const via = VIA[s.transport] || "";
+  const via = viaOf(s);
   const ver = s.unit && s.unit.fwVer ? `, RemoteFM1 ${s.unit.fwVer}` : "";
   const quietSearch = s.state === "searching" && s.quiet && !notFound;
   if (s.state === "connected")

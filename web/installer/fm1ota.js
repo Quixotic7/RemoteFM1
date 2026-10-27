@@ -91,11 +91,21 @@ export const RECOVERY_URL = "https://github.com/Quixotic7/MvaveFM1Unbricker";
 // old official firmware would; its USB product name "FM-1 Bubba Machine" tells it apart. Its updater takes only a
 // package with M-VAVE's own update loader, so it refuses ChoralRoot's (docs/INSTALL-COMPAT.md "Bubba Machine").
 export const BUBBA_PORT = /bubba/i;
+// RemoteFM1's own identity since 0.2 (fm1-base's scheme, firmware/fm1.toml id_prefix "FM-1_52"): FM-1_5200 a
+// development build, FM-1_52XXYYZZ release X.Y.Z (two digits each). 0.1 answered as the official V15 (FM-1_015).
+// -> "0.2.0", "development build", or null (not RemoteFM1 0.2 or later)
+export function remoteFm1Version(identity) {
+  if (identity === "FM-1_5200") return "development build";
+  const m = /^FM-1_52(\d\d)(\d\d)(\d\d)$/.exec(identity || "");
+  return m ? `${+m[1]}.${+m[2]}.${+m[3]}` : null;
+}
 export function classifyFirmware(identity, info, port) {
   const m = /^(ota-)?([^_]+)_(\d+)$/i.exec(identity || "");
   const v = (info || "").trim();
   if (!m) return { verdict: "refuse", kind: "unknown", name: `an unknown firmware (${identity || "no identity"})` };
   if (m[1]) return { verdict: "loader", kind: "loader", name: identity };            // update mode: resume
+  const rv = remoteFm1Version(identity);
+  if (rv) return { verdict: "allow", kind: "remotefm1", name: `RemoteFM1 ${rv}` };   // (never "official")
   const num = parseInt(m[3], 10);
   if (SMK_FAMILY.test(m[2])) return classifySmk(identity, m[2], num, v);   // the M-Vave SMK-37 (SMK37.md)
   if (m[2] !== "FM-1") return { verdict: "refuse", kind: "unknown", name: identity };

@@ -51,6 +51,8 @@ async function setup(opts = {}, build = () => {}, start = 3) {
     const u = world.unit;
     check(isCandidatePortName('ChoralRoot FM-1') && isCandidatePortName('FM-1') && !isCandidatePortName('IAC Driver Bus 1')
         && !isCandidatePortName('FM-1 Update'), 'port names: FM-1 candidates, others and updater ports skipped');
+    check(isCandidatePortName('FM-1 1F2D') && isCandidatePortName('FM-1 00AF Bluetooth'),
+        'port names: RemoteFM1 0.2 over Bluetooth MIDI ("FM-1 1F2D", its advertised name) is a candidate');
     await remote.connect();
     check(world.midiRequests.length === 1 && world.midiRequests[0].sysex === true, 'requestMIDIAccess({sysex: true})');
     const tc = await until(() => remote.status.state === 'connected', 3000);

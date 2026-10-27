@@ -43,11 +43,30 @@ OFFICIAL = {
     STOCK_V15_SHA256: "V15",                                                    # FM-1_015, 699956 B, flash.bin 602112
     "d017fb65e70aca97ee29d944470c3515a74581df5c0576bf70de917c7b2b61d5": "V16",  # FM-1_016, 718196 B, flash.bin 692224
 }
-# RemoteFM1's (TransitFM1's) update loader writes the app area [0x4000, 0x93000) only, and refuses a flash.bin that
-# reaches past it (firmware/src/ota.c ota_stage, firmware/loader/ldr_core.c LDR_ETOOLONG): flash.bin maps 1:1 onto
-# the flash from address 0, so its size is where the image ends. V16's ends at 0xA9000 (its app area head runs to
-# 0xA8071, app.bin alone to 0x960E8): refused, so refused here before the FM-1 is asked anything
+# The update loaders of RemoteFM1 (felucca-bsp's, since 0.2; TransitFM1's before) write the app area [0x4000, 0x93000)
+# only (felucca-bsp loader/ldr_core.c LDR_APP_HI): flash.bin maps 1:1 onto the flash from address 0, so its size is
+# where the image ends. V16's ends at 0xA9000 (its app area head runs to 0xA8071, app.bin alone to 0x960E8): it would
+# be cut short, so it is refused here before the FM-1 is asked anything
 APP_HI = 0x93000
+# RemoteFM1's package identity since 0.2 (fm1-base's scheme, firmware/fm1.toml id_prefix): FM-1_5200 a development
+# build, FM-1_52XXYYZZ release X.Y.Z. 0.1 answered as M-VAVE's V15 (FM-1_015), and cannot be told from it here
+
+
+def describe_identity(text):
+    """what an identity says the FM-1 runs, in words (--info): never "official" for RemoteFM1's own"""
+    if text.lower().startswith("ota-"):
+        return "update loader (update not finished)"
+    if text == "FM-1_5200":
+        return "running RemoteFM1 (a development build)"
+    m = re.fullmatch(r"FM-1_52(\d\d)(\d\d)(\d\d)", text)
+    if m:
+        return f"running RemoteFM1 {int(m[1])}.{int(m[2])}.{int(m[3])}"
+    m = re.fullmatch(r"FM-1_0(\d\d)", text)
+    if m and m[1] != "99":
+        return (f"running M-VAVE's official V{int(m[1])}" +
+                (" (or RemoteFM1 0.1 / TransitFM1, which answer as V15)" if m[1] == "15" else ""))
+    return "running"
+
 PORT_RE = re.compile(r"fm-1|felucca|ota|composite|sinco|usb-midi", re.I)   # never probe other gear
 
 # seconds; the tests shorten them
@@ -524,8 +543,7 @@ def run(a, backend, out, ask):
         if not dev:
             raise not_found(up)
         dev.link.close()
-        mode = "update loader (update not finished)" if dev.id.loader else "running"
-        print(f"{dev.id.text}  [{mode}]  port: {dev.name}", file=out)
+        print(f"{dev.id.text}  [{describe_identity(dev.id.text)}]  port: {dev.name}", file=out)
         return 0
     product, image, official = load_package(a.package, a.force)
     print(f"package: {product}  ({a.package})" + (f"  the official {official}" if official else ""), file=out)

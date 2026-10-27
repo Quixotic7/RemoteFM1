@@ -51,9 +51,9 @@ class FakeFM1 {
   rx(d) {
     if (d[0] === 0xF0 && d[1] === 0x7D && d[2] === 0x52 && d[3] === 0x46) {     // RemoteFM1's HELLO
       this.hellos++;
-      if (d[4] === 0x01 && this.remote && this.identity === "FM-1_015") {
+      if (d[4] === 0x01 && this.remote && (this.identity === "FM-1_015" || /^FM-1_52/.test(this.identity))) {
         const b = new Array(67).fill(0), put = (o, s) => [...new TextEncoder().encode(s)].forEach((c, i) => { b[o + i] = c; });
-        put(0, "RemoteFM1"); b[16] = 2; put(17, this.remote); put(43, "FM-1_015");
+        put(0, "RemoteFM1"); b[16] = 2; put(17, this.remote); put(43, this.identity.slice(0, 8));
         this.tx([0xF0, 0x7D, 0x52, 0x46, 0x41, ...rfPack7(b), 0xF7]);
       }
       return;
@@ -168,6 +168,13 @@ ok(/official M-VAVE firmware V15 \(FM-1_015\).*TransitFM1/.test(await st({})), "
   ok(/firmware V14 \(FM-1_014\)\.$/.test(await st({ identity: "FM-1_014" })), "look: FM-1_014 is the official V14");
 }
 ok(/runs RemoteFM1 0\.1\.1 /.test(await st({ remote: "0.1.1" })), "look: RemoteFM1 told by its HELLO, with its version");
+{                                                 // RemoteFM1 0.2 and later: its own identity (fm1-base's FM-1_52)
+  const d = await st({ identity: "FM-1_52000200", remote: "0.2.0" });
+  ok(d === "The FM-1 runs RemoteFM1 0.2.0 (FM-1_52000200)." && !/official|unknown/.test(d), "look: RemoteFM1 0.2 by its own identity and HELLO, never \"official\"");
+  const e = await st({ identity: "FM-1_52000200" });
+  ok(e === "The FM-1 runs RemoteFM1 0.2.0 (FM-1_52000200).", "look: RemoteFM1 0.2 by its identity alone (no HELLO answer)");
+  ok(/development build/.test(await st({ identity: "FM-1_5200" })), "look: a RemoteFM1 development build (FM-1_5200)");
+}
 ok(/ChoralRoot 0\.25\.1\./.test(await st({ identity: "FM-1_920", name: "ChoralRoot FM-1", version: "ChoralRoot 0.25.1" })),
    "look: ChoralRoot by its INFO");
 ok(/Bubba Machine/.test(await st({ identity: "FM-1_003", name: "FM-1 Bubba Machine" })), "look: Bubba Machine by its port");
@@ -198,6 +205,8 @@ t = await run({ identity: "FM-1_910", name: "Felucca", version: "FELUCCA v1.0.1"
 ok(t.r === "done" && t.dev.bad === 0, "over Felucca 1.0.1: installed");
 t = await run({ remote: "0.1.1" });
 ok(t.r === "done" && t.dev.bad === 0 && t.dev.identity === IDENTITY && t.dev.hellos >= 1, "over RemoteFM1 (a reinstall): installed");
+t = await run({ identity: "FM-1_52000200", remote: "0.2.0" });
+ok(t.r === "done" && t.dev.bad === 0 && t.dev.identity === IDENTITY && t.dev.hellos >= 1, "over RemoteFM1 0.2 (FM-1_52000200): installed");
 t = await run({}, {});
 ok(t.r === "refused" && t.dev.upgrades === 0 && t.ui.confirms === 0 && /close every app that uses MIDI/i.test(t.ui.said.at(-1)),
    "before the MIDI apps are said to be closed: refused, nothing sent");

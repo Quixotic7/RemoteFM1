@@ -346,6 +346,11 @@ ok(V({ state: "searching", quiet: true }).tone === "off", "fm1: a quiet search (
 ok(V({ state: "searching" }).tone === "busy" && V({ state: "starting" }).tone === "busy" && V({ state: "searching" }).live, "fm1: a click's search, starting -> amber, pulsing");
 const vOn = V({ state: "connected", transport: "bulk", unit: { fwVer: "0.3" } });
 ok(vOn.tone === "on" && vOn.label === "FM-1 connected" && vOn.via === "USB" && V({ state: "connected", transport: "midi" }).via === "MIDI", "fm1: connected -> green, FM-1 connected, USB / MIDI");
+ok(V({ state: "connected", transport: "midi", ports: { name: 'midi "FM-1 1F2D"' } }).via === "Bluetooth" &&
+   V({ state: "connected", transport: "midi", ports: { name: 'midi "FM-1"' } }).via === "MIDI" &&
+   V({ state: "connected", transport: "midi", ports: { name: 'midi "ChoralRoot FM-1"' } }).via === "MIDI" &&
+   / over Bluetooth, RemoteFM1 0\.2\.0/.test(V({ state: "connected", transport: "midi", ports: { name: 'midi "FM-1 00AF"' }, unit: { fwVer: "0.2.0" } }).detail),
+   "fm1: RemoteFM1 0.2 over Bluetooth MIDI (its port \"FM-1 1F2D\") says Bluetooth");
 const vErr = V({ state: "error", why: "MIDI access (with SysEx) was refused" });
 ok(vErr.tone === "bad" && /allow MIDI/.test(vErr.title) && /try again/.test(vErr.title), "fm1: an error -> red, the reason (and the retry) in the tooltip");
 ok(viewOf({ state: "searching" }, true).tone === "bad", "fm1: nothing answered a click -> red");
