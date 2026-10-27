@@ -63,6 +63,14 @@ EP1 hooks for apps; fm1_lcd_done()**
 > the patch. On an FM-1: RemoteFM1 0.1 ran the same descriptors and vendor service
 > (M0: ~830 KB/s bulk with the main loop polling).
 
+## felucca-bsp: `felucca-bsp/0002-uac-out-gain-glide.patch`
+
+> **chip/usb.c: glide the USB audio output's gain across a block.** `uac_play` applied MASTER's gain as one value
+> per render block, so turning MASTER stepped the level at each block's edge and crackled (heard on headphones and
+> the speaker, RemoteFM1 0.2.1 on an FM-1, 2026-10-27). The gain now moves linearly from the last block's value to
+> this one's, sample by sample. No change while MASTER is still. Applies after 0001; useful to every fm1-base
+> firmware with `usb_audio_out`.
+
 ## fm1-base: `fm1-base/0001-ble-sysex-lcd-idle-sxq-host-sysex.patch`
 
 `ble/midi/le_midi.c`, `device/radio.c`, `device/ble_none.c`, `device/lcd.c`, `device/unity.c`, `include/plat.h`,

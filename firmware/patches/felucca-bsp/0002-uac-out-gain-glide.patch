@@ -1,0 +1,28 @@
+--- a/chip/usb.c
++++ b/chip/usb.c
+@@ -1651,11 +1651,15 @@
+ 
+ /* audio ISR, after the render: the computer's audio added to the block (24-bit, as the I2S takes it), at gain
+  * gain_q12 (4096 = as sent), resampled from the ring: the read rate is 44.1 / 44.1176 kHz and steered by how far
+- * the fill at a render's start is from UO_TGT (a frame's error: 1/32768 faster or slower) */
++ * the fill at a render's start is from UO_TGT (a frame's error: 1/32768 faster or slower). The gain glides from the
++ * last block's to this one's across the block: a step at a block's edge (MASTER turned) crackles */
++static float uo_g = -1.0f;                                       /* the last block's gain (-1: none yet) */
+ static __attribute__((noinline)) void uac_play(int32_t *out, uint32_t n, uint32_t gain_q12)
+ {
+     uint32_t r = uo_r, fill = uo_w - r, i, pos = uo.pos, step;
+-    float g = (float)gain_q12 * (1.0f / 16.0f), adj;            /* 16-bit to 24-bit (x 256), x gain / 4096 */
++    float g1 = (float)gain_q12 * (1.0f / 16.0f), adj;           /* 16-bit to 24-bit (x 256), x gain / 4096 */
++    float g = uo_g < 0.0f ? g1 : uo_g, dg = (g1 - g) / (float)(n ? n : 1u);
++    uo_g = g1;
+     if (!uo.alt || !usb.config) {
+         uo.go = 0;
+         return;
+@@ -1686,6 +1690,7 @@
+         float fr = (float)(pos & 0xFFFFu) * (1.0f / 65536.0f);
+         float l = (float)(int16_t)a + ((float)(int16_t)b - (float)(int16_t)a) * fr;
+         float rr = (float)(int16_t)(a >> 16) + ((float)(int16_t)(b >> 16) - (float)(int16_t)(a >> 16)) * fr;
++        g += dg;
+         out[2u * i] += (int32_t)(l * g);
+         out[2u * i + 1u] += (int32_t)(rr * g);
+         pos += step;
