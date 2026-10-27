@@ -2,7 +2,8 @@
  * Copyright (C) 2026 RemoteFM1 contributors */
 /* The session against scripted fake units (fake.c), on a simulated millisecond clock: discovery among other
  * firmwares, frames and flow control, LEDs and keepalive, panel events and PANEL_R repair, shadow reset (a reboot),
- * keepalive loss (a deaf unit), a lost FRAME_ACK, a decode error, stop, transports. */
+ * keepalive loss (a deaf unit), a lost FRAME_ACK, a decode error, stop, transports; Bluetooth MIDI's pacing on a
+ * slow link that loses what overflows the unit's input. */
 #include <stdlib.h>
 #include <string.h>
 
@@ -230,6 +231,8 @@ static void test_sysex_flow(void)
     CHECK(rfm_session_state(h.s) == RFM_S_ACTIVE && rfm_session_link_kind(h.s, rfm_session_frame_link(h.s)) ==
                                                        RFM_LINK_SX);
     CHECK(rfm_session_budget(h.s) == 14000u);
+    rfm_session_stats(h.s, &st);
+    CHECK(st.ble == 0 && st.wire_cap == 0 && st.frame_ms == 50u);    /* USB MIDI (sxq 960): as before */
     for (t = 0; t < 40; t++) {                          /* full-screen noise: over budget every frame */
         fr_noise(img, &seed);
         rfm_session_set_frame(h.s, img);
@@ -449,6 +452,253 @@ static void test_link_failure(void)
     teardown(&h);
 }
 
+/* ---------------------------------------------------------------- Bluetooth MIDI ---- */
+/* The link as measured on a unit over Bluetooth MIDI (2026-10-27): ~6 KB/s host -> unit, and what is queued beyond
+ * a few KB is lost (the unit's Bluetooth input, 256 packets, overflows: ble_rx_lost). Modelled: BT_RATE wire bytes a
+ * second delivered in order, at most BT_QUEUE bytes undelivered (a message that would go beyond is lost whole), the
+ * replies BT_BACK_MS late. */
+#define BT_RATE 6000u
+#define BT_QUEUE 3072u
+#define BT_BACK_MS 40u
+#define BT_Q 65536u
+#define BT_NBACK 4096u
+
+typedef struct {
+    rfm_session_t *s;
+    rfm_fake_t *f;
+    int id, verbose;
+    uint32_t now, credit;
+    uint8_t q[BT_Q];
+    uint32_t qr, qw;                                    /* host -> unit bytes in [qr, qw) */
+    struct {
+        uint32_t due, n;
+        uint8_t b[512];
+    } back[BT_NBACK];
+    uint32_t br, bw;                                    /* unit -> host chunks, in order */
+    uint32_t lost_msgs, max_queued, max_wire, max_in_flight, states[8];
+    rfm_event_t ev[64];
+    uint32_t nev;
+} bt_t;
+static bt_t BT;
+
+static int bt_w(void *ctx, const uint8_t *p, uint32_t n)
+{
+    bt_t *b = (bt_t *)ctx;
+    if (b->qw - b->qr + n > BT_QUEUE) {
+        b->lost_msgs++;                                 /* the OS took it; the unit never sees it */
+        return 0;
+    }
+    if (b->qw + n > BT_Q) {
+        memmove(b->q, b->q + b->qr, b->qw - b->qr);
+        b->qw -= b->qr;
+        b->qr = 0;
+    }
+    memcpy(b->q + b->qw, p, n);
+    b->qw += n;
+    if (b->qw - b->qr > b->max_queued)
+        b->max_queued = b->qw - b->qr;
+    return 0;
+}
+static void bt_state(void *ctx, int st, const char *why)
+{
+    bt_t *b = (bt_t *)ctx;
+    b->states[st]++;
+    if (b->verbose)
+        printf("  %6u ms  %s (%s)\n", b->now, rfm_session_state_name(st), why);
+}
+static void bt_log(void *ctx, const char *m)
+{
+    bt_t *b = (bt_t *)ctx;
+    if (b->verbose)
+        printf("  %6u ms  %s\n", b->now, m);
+}
+static void bt_event(void *ctx, const rfm_event_t *e)
+{
+    bt_t *b = (bt_t *)ctx;
+    if (b->nev < 64)
+        b->ev[b->nev++] = *e;
+}
+
+static void bt_step(bt_t *b, uint32_t ms)
+{
+    while (ms--) {
+        rfm_session_stats_t st;
+        uint32_t n;
+        b->now++;
+        b->credit += BT_RATE;                           /* milli-bytes */
+        n = b->credit / 1000u;
+        b->credit %= 1000u;
+        if (n > b->qw - b->qr)
+            n = b->qw - b->qr;
+        if (n) {
+            rfm_fake_rx_sx(b->f, b->q + b->qr, n, b->now);
+            b->qr += n;
+        }
+        if (b->qr == b->qw) {
+            b->qr = b->qw = 0;
+            b->credit = 0;
+        }
+        rfm_fake_poll(b->f, b->now);
+        while (b->bw - b->br < BT_NBACK &&
+               (n = rfm_fake_take_sx(b->f, b->back[b->bw % BT_NBACK].b, sizeof b->back[0].b)) != 0) {
+            b->back[b->bw % BT_NBACK].n = n;
+            b->back[b->bw % BT_NBACK].due = b->now + BT_BACK_MS;
+            b->bw++;
+        }
+        while (b->br != b->bw && (int32_t)(b->now - b->back[b->br % BT_NBACK].due) >= 0) {
+            rfm_session_rx(b->s, b->id, b->back[b->br % BT_NBACK].b, b->back[b->br % BT_NBACK].n, b->now);
+            b->br++;
+        }
+        rfm_session_poll(b->s, b->now);
+        rfm_session_stats(b->s, &st);
+        if (st.wire_in_flight > b->max_wire)
+            b->max_wire = st.wire_in_flight;
+        if (st.in_flight > b->max_in_flight)
+            b->max_in_flight = st.in_flight;
+    }
+}
+
+static int bt_converged(bt_t *b, const uint16_t *img, uint32_t max_ms)
+{
+    uint32_t t;
+    for (t = 0; t < max_ms; t += 10) {
+        rfm_session_stats_t st;
+        bt_step(b, 10);
+        rfm_session_stats(b->s, &st);
+        if (rfm_session_state(b->s) == RFM_S_ACTIVE && rfm_fake_session(b->f) && !st.pending && !st.in_flight &&
+            shadow_is(b->f, img))
+            return 1;
+    }
+    return 0;
+}
+
+/* a busy, changing screen over Bluetooth for 20 s: an animated UI, page changes, LEDs; then still. ble = 1: the unit
+ * answers as 0.2 does over Bluetooth (sxq 128): paced, nothing lost, nothing timed out, the screen converges. ble = 0:
+ * the same link, but the HELLO_R says USB: the old pacing overruns it (the bug the owner saw). */
+static void test_bluetooth(int ble)
+{
+    static uint16_t img[FR_N];
+    bt_t *b = &BT;
+    rfm_session_cfg_t sc;
+    rfm_session_cb_t cb;
+    rfm_fake_cfg_t fc;
+    rfm_session_stats_t st;
+    rfm_fake_stats_t fs;
+    rfm_leds_t leds;
+    uint32_t t;
+    int key = 0;
+    memset(b, 0, sizeof *b);
+    b->verbose = getenv("RFM_VERBOSE") != NULL;
+    b->now = 1000;
+    rfm_session_cfg_default(&sc);                       /* as the web player: auto, 20 fps, budget from the link */
+    memset(&cb, 0, sizeof cb);
+    cb.ctx = b;
+    cb.state = bt_state;
+    cb.log = bt_log;
+    cb.event = bt_event;
+    b->s = rfm_session_new(&sc, &cb);
+    rfm_fake_cfg_default(&fc);
+    fc.has_bulk = 0;
+    fc.ble = ble;
+    b->f = rfm_fake_new(&fc);
+    b->id = rfm_session_add_link(b->s, RFM_LINK_SX, bt_w, b, "FM-1 7938");
+    bt_step(b, 600);
+    CHECK(rfm_session_state(b->s) == RFM_S_ACTIVE);
+    rfm_session_stats(b->s, &st);
+    if (ble)
+        CHECKF(st.ble == 1 && rfm_session_budget(b->s) == 400u && st.frame_ms == 100u && st.wire_cap == 2048u,
+               "ble %u budget %u frame %u ms cap %u", st.ble, rfm_session_budget(b->s), st.frame_ms, st.wire_cap);
+    else
+        CHECK(st.ble == 0 && rfm_session_budget(b->s) == 14000u && st.frame_ms == 50u && st.wire_cap == 0);
+    memset(&leds, 0, sizeof leds);
+    for (t = 0; t < 400; t++) {                         /* 20 s at 20 Hz */
+        if (t / 100u % 2u == 1u && t % 100u < 10u) {     /* a page change now and then */
+            fr_fill(img, fr_rgb(60 + t % 7u, 20, 80));
+            fr_rect(img, 10, 40 + (int)(t % 10u) * 16, 220, 12, fr_rgb(240, 200, 40));
+            fr_text(img, 20, 20, "PAGE 2", fr_rgb(255, 255, 255), fr_rgb(60 + t % 7u, 20, 80));
+        } else {
+            fr_ui(img, t);
+        }
+        rfm_session_set_frame(b->s, img);
+        if (t % 5u == 0) {
+            leds.lit[t / 5u % 11u] = (uint8_t)(t * 3u);
+            rfm_session_set_leds(b->s, &leds);
+        }
+        if (t == 200)
+            rfm_fake_key(b->f, 7, 1);
+        bt_step(b, 50);
+        if (t == 202) {
+            uint32_t i;
+            for (i = 0; i < b->nev; i++)
+                key |= b->ev[i].type == RFM_EV_KEY && b->ev[i].index == 7 && b->ev[i].value == 1;
+        }
+    }
+    rfm_session_stats(b->s, &st);
+    rfm_fake_stats(b->f, &fs);
+    if (b->verbose)
+        printf("  bluetooth %s: %u frames, %u acks, ack max %u ms, %u timeouts, %u msgs lost, queue max %u B, "
+               "%u B in flight max, body %u B (%u B/s)\n", ble ? "paced" : "as USB", st.frames, st.acks,
+               st.ack_ms_max, st.ack_timeouts, b->lost_msgs, b->max_queued, b->max_wire, st.body_bytes,
+               st.body_bytes / 20u);
+    if (!ble) {
+        CHECKF(b->lost_msgs > 0 && st.ack_timeouts > 0, "USB pacing on the Bluetooth link: %u lost, %u timeouts",
+               b->lost_msgs, st.ack_timeouts);
+    } else {
+        CHECK(key);                                     /* the panel still comes through */
+        CHECK(bt_converged(b, img, 30000));
+        rfm_session_stats(b->s, &st);
+        rfm_fake_stats(b->f, &fs);
+        CHECKF(b->lost_msgs == 0 && b->max_queued <= BT_QUEUE, "%u messages lost, queue max %u", b->lost_msgs,
+               b->max_queued);
+        CHECKF(st.ack_timeouts == 0 && st.decode_errs == 0 && st.shadow_resets == 0 && fs.decode_errs == 0,
+               "ack timeouts %u, decode errors %u / %u, shadow resets %u", st.ack_timeouts, st.decode_errs,
+               fs.decode_errs, st.shadow_resets);
+        CHECKF(st.sessions == 1 && st.lost == 0 && b->states[RFM_S_STARTING] == 1 && b->states[RFM_S_DISCOVER] == 1,
+               "sessions %u, lost %u, starting %u, discover %u", st.sessions, st.lost, b->states[RFM_S_STARTING],
+               b->states[RFM_S_DISCOVER]);
+        CHECKF(b->max_wire <= RFM_BLE_WIRE_CAP && b->max_in_flight <= 2, "%u B / %u frames in flight", b->max_wire,
+               b->max_in_flight);
+        CHECKF(st.frames >= 100 && st.acks == st.frames, "frames %u acks %u", st.frames, st.acks);
+        CHECKF(st.body_bytes / 20u <= RFM_BUDGET_BLE_BPS + RFM_BUDGET_BLE_BPS / 4u, "%u B/s of body",
+               st.body_bytes / 20u);
+        CHECK(rfm_leds_equal(rfm_fake_leds(b->f), &leds));
+        CHECK(fs.keepalive_expired == 0);
+        /* idle for 10 s: LEDs and the heartbeat keep it */
+        bt_step(b, 10000);
+        rfm_session_stats(b->s, &st);
+        CHECK(rfm_session_state(b->s) == RFM_S_ACTIVE && st.sessions == 1 && st.lost == 0);
+    }
+    rfm_session_free(b->s);
+    rfm_fake_free(b->f);
+}
+
+/* a unit on Bluetooth MIDI and USB MIDI at once (two SysEx ports, no bulk; the Bluetooth bit set on both): frames
+ * and the panel go over USB, paced as before */
+static void test_usb_before_bluetooth(void)
+{
+    h_t h;
+    rfm_session_cfg_t sc;
+    rfm_fake_cfg_t fc;
+    rfm_session_stats_t st;
+    rfm_session_cfg_default(&sc);
+    setup(&h, &sc);
+    default_fake(&fc);
+    fc.has_bulk = 0;
+    fc.ble = 1;
+    add_fake(&h, &fc);                                  /* the Bluetooth port, added first */
+    default_fake(&fc);
+    fc.has_bulk = 0;
+    fc.ble = 2;
+    add_fake(&h, &fc);                                  /* USB */
+    step(&h, 30);
+    CHECK(rfm_session_state(h.s) == RFM_S_ACTIVE);
+    CHECK(rfm_session_frame_link(h.s) == h.links[1].id && rfm_session_midi_link(h.s) == h.links[1].id);
+    rfm_session_stats(h.s, &st);
+    CHECK(st.ble == 0 && st.wire_cap == 0 && st.frame_ms == 50u && rfm_session_budget(h.s) == 14000u);
+    CHECK(rfm_fake_session(h.f[1]) == 1 && rfm_fake_session(h.f[0]) == 0);
+    teardown(&h);
+}
+
 int main(void)
 {
     test_discovery_and_frames();
@@ -458,5 +708,8 @@ int main(void)
     test_faults(0);
     test_not_found();
     test_link_failure();
+    test_bluetooth(1);
+    test_bluetooth(0);
+    test_usb_before_bluetooth();
     return check_done("test_session");
 }

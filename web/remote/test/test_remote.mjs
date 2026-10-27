@@ -203,6 +203,45 @@ for (const vendorIf of [4, 2]) {
     check(world.other.bytes === 0, 'nothing to the other device');
 }
 
+// ------------------------------------------------------------------ 2b. Bluetooth MIDI: paced for it
+// (the unit's HELLO_R over Bluetooth says sxq 128: 10 fps, 400 B a frame, at most 2 KB of TILES unacknowledged)
+{
+    console.log('-- Web MIDI over Bluetooth: paced (HELLO_R sxq 128), frames converge, no ack timeout');
+    const { world, remote, ev, run, until } = await setup({ usb: 'off' }, w => {
+        w.unit = w.addUnit({ midiName: 'FM-1 7938', ble: true, sxRate: 6000 });
+    });
+    const u = world.unit;
+    await remote.connect();
+    let t = await until(() => remote.status.state === 'connected', 3000);
+    check(t >= 0 && remote.status.transport === 'midi', `connected via midi (Bluetooth) in ${t} ms`);
+    let s = remote.stats();
+    check(s.ble === 1 && s.budget === 400 && s.frame_ms === 100 && s.wire_cap === 2048,
+        `stats: ble ${s.ble}, budget ${s.budget} B/frame, frame ${s.frame_ms} ms, cap ${s.wire_cap} B in flight`);
+    check(ev.log.some(m => /Bluetooth link: budget 400 B\/frame, 10 fps, cap 2048 B in flight/.test(m)), 'logged the Bluetooth pacing');
+    let maxWire = 0;
+    for (let i = 0; i < 60; i++) {
+        remote.setFrame(200 + i, testFrame(i));
+        for (let k = 0; k < 5; k++) { await run(10); maxWire = Math.max(maxWire, remote.stats().wire_in_flight); }
+    }
+    t = await until(() => sameBytes(world.shadow(u), beBytes(testFrame(59))), 60000);
+    s = remote.stats();
+    check(t >= 0, `the last frame converged over Bluetooth ${t} ms after the animation (${s.frames} frames, ack max ${s.ack_ms_max} ms)`);
+    check(s.ack_timeouts === 0 && s.decode_errs === 0 && s.shadow_resets === 0 && s.sessions === 1,
+        `no ack timeout (${s.ack_timeouts}), no decode error, one session (${s.sessions})`);
+    check(maxWire > 0 && maxWire <= 2048, `TILES in flight at most ${maxWire} B`);
+    await Promise.all([remote.disconnect(), run(400)]);
+}
+{
+    console.log('-- Web MIDI over USB: paced as before (HELLO_R sxq 960)');
+    const { remote, run, until } = await setup({ usb: 'off' }, w => { w.unit = w.addUnit({ midiName: 'FM-1' }); });
+    await remote.connect();
+    await until(() => remote.status.state === 'connected', 3000);
+    const s = remote.stats();
+    check(s.ble === 0 && s.budget === 14000 && s.frame_ms === 50 && s.wire_cap === 0,
+        `stats: ble ${s.ble}, budget ${s.budget} B/frame, frame ${s.frame_ms} ms, no cap`);
+    await Promise.all([remote.disconnect(), run(400)]);
+}
+
 // ------------------------------------------------------------------ 3. the chooser cancelled, sysex refused
 {
     console.log('-- refusals');

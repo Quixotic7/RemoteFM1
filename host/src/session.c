@@ -24,7 +24,7 @@ typedef struct link {
 
 typedef struct {
     uint16_t frame;
-    uint32_t t, body, msgs;
+    uint32_t t, body, msgs, wire;
 } flight_t;
 
 struct rfm_session {
@@ -39,7 +39,11 @@ struct rfm_session {
     uint16_t frame_no;
     flight_t fl[MAX_FLIGHT];
     uint32_t nfl, max_in_flight;
-    uint32_t cur_body, cur_msgs;                        /* the frame being emitted */
+    uint32_t cur_body, cur_msgs, cur_wire;              /* the frame being emitted */
+    int ble;                                            /* the frame link is Bluetooth: paced for it */
+    uint32_t fperiod, wire_cap, wire_frame_max;         /* the frame period; the cap on unacknowledged TILES bytes
+                                                         * (0: none) and the largest frame sent under it */
+    uint32_t start_ms, heartbeat_ms, lost_ms;           /* cfg's, raised for Bluetooth */
     int expect_reset;
     rfm_leds_t leds, leds_sent;
     int leds_valid;
@@ -114,6 +118,8 @@ static int send_msg(rfm_session_t *s, int id, uint8_t cmd, const uint8_t *body, 
         return -1;
     }
     s->st.wire_bytes += len;
+    if (cmd == RFM_TILES)
+        s->cur_wire += len;
     if (id == s->frame_link)
         s->last_tx = s->now;
     return 0;
@@ -204,6 +210,26 @@ static void enter_active(rfm_session_t *s)
 }
 
 static uint32_t min_nz(uint32_t a, uint32_t b) { return !b ? a : !a ? b : a < b ? a : b; }
+static uint32_t max_u(uint32_t a, uint32_t b) { return a > b ? a : b; }
+
+static uint32_t wire_in_flight(const rfm_session_t *s)
+{
+    uint32_t i, n = 0;
+    for (i = 0; i < s->nfl; i++)
+        n += s->fl[i].wire;
+    return n;
+}
+
+/* Bluetooth's rate, body bytes a second: the budget at the frame rate (RFM_BUDGET_BLE_BPS by default) */
+static uint32_t ble_rate(const rfm_session_t *s) { return s->budget * (1000u / s->fperiod); }
+
+/* the oldest frame's FRAME_ACK is late: over Bluetooth it scales with what is queued ahead of it at the rate */
+static uint32_t ack_timeout(const rfm_session_t *s)
+{
+    if (!s->ble)
+        return s->cfg.ack_timeout_ms;
+    return max_u(max_u(s->cfg.ack_timeout_ms, RFM_BLE_ACK_MIN_MS), 500u + 3000u * wire_in_flight(s) / ble_rate(s));
+}
 
 static int decide(rfm_session_t *s)
 {
@@ -212,8 +238,9 @@ static int decide(rfm_session_t *s)
         const link_t *l = &s->links[i];
         if (!l->used || !l->alive || !l->hello_ok)
             continue;
-        if (l->kind == RFM_LINK_SX && sx < 0)
-            sx = i;
+        if (l->kind == RFM_LINK_SX && (sx < 0 || (rfm_hello_is_ble(&s->links[sx].hello) &&
+                                                  !rfm_hello_is_ble(&l->hello))))
+            sx = i;                                     /* a USB port of the unit before its Bluetooth one */
         if (l->kind == RFM_LINK_BK && bk < 0)
             bk = i;
     }
@@ -232,15 +259,40 @@ static int decide(rfm_session_t *s)
         if (s->body_max > RFM_SX_BODY_MAX)
             s->body_max = RFM_SX_BODY_MAX;
     }
-    s->budget = s->cfg.budget ? s->cfg.budget
-                              : (s->links[frame].kind == RFM_LINK_BK ? RFM_BUDGET_BK_BPS : RFM_BUDGET_SX_BPS) /
-                                    (s->cfg.fps ? s->cfg.fps : 20u);
+    s->ble = s->links[frame].kind == RFM_LINK_SX && rfm_hello_is_ble(&s->hello);
+    s->fperiod = s->period;
+    s->wire_cap = 0;
+    s->start_ms = s->cfg.start_ms;
+    s->heartbeat_ms = s->cfg.heartbeat_ms;
+    s->lost_ms = s->cfg.lost_ms;
+    if (s->ble) {
+        s->fperiod = max_u(s->period, 1000u / RFM_BLE_FPS);
+        s->budget = s->cfg.budget ? s->cfg.budget : RFM_BUDGET_BLE_BPS / (1000u / s->fperiod);
+        if (s->budget > RFM_BLE_BUDGET_MAX)
+            s->budget = RFM_BLE_BUDGET_MAX;
+        s->wire_cap = RFM_BLE_WIRE_CAP;
+        /* a frame is one body of at most 4 + max(budget, a RAW tile) bytes while body_max allows it */
+        s->wire_frame_max = rfm_sx_size(RFM_TILES_HDR + max_u(s->budget, RFM_RECT_HDR + 2u * RFM_TILE * RFM_TILE));
+        s->start_ms = max_u(s->start_ms, 1000u);
+        if (s->heartbeat_ms)
+            s->heartbeat_ms = max_u(s->heartbeat_ms, 2500u);
+        s->lost_ms = max_u(s->lost_ms, 3000u);
+    } else {
+        s->budget = s->cfg.budget ? s->cfg.budget
+                                  : (s->links[frame].kind == RFM_LINK_BK ? RFM_BUDGET_BK_BPS : RFM_BUDGET_SX_BPS) /
+                                        (s->cfg.fps ? s->cfg.fps : 20u);
+    }
+    if (!s->budget)
+        s->budget = 1;
     s->max_in_flight = s->hello.max_in_flight ? s->hello.max_in_flight : RFM_FRAMES_IN_FLIGHT;
     if (s->max_in_flight > MAX_FLIGHT)
         s->max_in_flight = MAX_FLIGHT;
     logf_(s, "found %s (fw %s, caps 0x%x): frames on %s, panel on %s, body max %u, budget %u B/frame, %u in flight",
           s->hello.name, s->hello.fw_ver, s->hello.caps, s->links[frame].name, sx >= 0 ? s->links[sx].name : "none",
           s->body_max, s->budget, s->max_in_flight);
+    if (s->ble)
+        logf_(s, "Bluetooth link: budget %u B/frame, %u fps, cap %u B in flight", s->budget, 1000u / s->fperiod,
+              s->wire_cap);
     if (sx < 0)
         logf_(s, "no MIDI link answered: panel input comes from PANEL_R only (every 500 ms)");
     return 1;
@@ -383,6 +435,10 @@ rfm_session_t *rfm_session_new(const rfm_session_cfg_t *cfg, const rfm_session_c
     s->period = 1000u / s->cfg.fps;
     if (!s->period)
         s->period = 1;
+    s->fperiod = s->period;
+    s->start_ms = s->cfg.start_ms;
+    s->heartbeat_ms = s->cfg.heartbeat_ms;
+    s->lost_ms = s->cfg.lost_ms;
     s->frame_link = s->midi_link = -1;
     s->first_round = 1;
     s->state = RFM_S_STOPPED;
@@ -490,7 +546,7 @@ void rfm_session_poll(rfm_session_t *s, uint32_t now)
         break;
     }
     case RFM_S_STARTING:
-        if (after(now, s->t_sent, s->cfg.start_ms)) {
+        if (after(now, s->t_sent, s->start_ms)) {
             if (++s->tries > 4) {
                 enter_discover(s, "SESSION not acknowledged");
                 return;
@@ -499,19 +555,19 @@ void rfm_session_poll(rfm_session_t *s, uint32_t now)
         }
         break;
     case RFM_S_ACTIVE: {
-        if (after(now, s->last_rx, s->cfg.lost_ms)) {
+        if (after(now, s->last_rx, s->lost_ms)) {
             s->st.lost++;
             logf_(s, "nothing from the unit for %u ms", now - s->last_rx);
             enter_discover(s, "unit silent");
             return;
         }
-        if (s->cfg.heartbeat_ms && after(now, s->last_panel_r, s->cfg.heartbeat_ms)) {   /* PANEL_R is the session's heartbeat (500 ms) */
+        if (s->heartbeat_ms && after(now, s->last_panel_r, s->heartbeat_ms)) {   /* PANEL_R is the session's heartbeat (500 ms) */
             s->st.lost++;
             logf_(s, "no PANEL_R for %u ms: the unit's session is gone", now - s->last_panel_r);
             enter_starting(s, "no PANEL_R");
             return;
         }
-        if (s->nfl && after(now, s->fl[0].t, s->cfg.ack_timeout_ms)) {
+        if (s->nfl && after(now, s->fl[0].t, ack_timeout(s))) {
             s->st.ack_timeouts++;
             logf_(s, "FRAME_ACK %u timed out: resending the screen", s->fl[0].frame);
             s->nfl = 0;
@@ -519,10 +575,11 @@ void rfm_session_poll(rfm_session_t *s, uint32_t now)
         }
         if (s->leds_valid && (!rfm_leds_equal(&s->leds, &s->leds_sent) || after(now, s->last_led_tx, 1000u)))
             send_leds(s);
-        if (after(now, s->next_frame, 0) && s->nfl < s->max_in_flight && rfm_screen_pending(s->screen)) {
+        if (after(now, s->next_frame, 0) && s->nfl < s->max_in_flight && rfm_screen_pending(s->screen) &&
+            (!s->wire_cap || !s->nfl || wire_in_flight(s) + s->wire_frame_max <= s->wire_cap)) {
             rfm_enc_stats_t es;
             const uint16_t f = s->frame_no++;
-            s->cur_body = s->cur_msgs = 0;
+            s->cur_body = s->cur_msgs = s->cur_wire = 0;
             rfm_screen_encode(s->screen, f, s->budget, s->body_max, emit_tiles, s, &es);
             if (s->state != RFM_S_ACTIVE)
                 return;
@@ -530,14 +587,22 @@ void rfm_session_poll(rfm_session_t *s, uint32_t now)
             s->fl[s->nfl].t = now;
             s->fl[s->nfl].body = s->cur_body;
             s->fl[s->nfl].msgs = s->cur_msgs;
+            s->fl[s->nfl].wire = s->cur_wire;
             s->nfl++;
+            if (s->cur_wire > s->wire_frame_max)
+                s->wire_frame_max = s->cur_wire;        /* (a small body_max: more bodies than the estimate) */
             s->st.frames++;
             s->st.tiles += es.tiles;
             s->st.rects += es.rects;
             s->st.body_bytes += es.body_bytes;
-            s->next_frame += s->period;
+            s->next_frame += s->fperiod;
             if (after(now, s->next_frame, 0))
-                s->next_frame = now + s->period;
+                s->next_frame = now + s->fperiod;
+            if (s->ble) {                               /* and no sooner than this body at the rate */
+                const uint32_t gap = s->cur_body * 1000u / ble_rate(s);
+                if ((int32_t)(s->next_frame - now) < (int32_t)gap)
+                    s->next_frame = now + gap;
+            }
         }
         if (s->cfg.keepalive_ms && after(now, s->last_tx, s->cfg.keepalive_ms / 3u)) {
             s->st.keepalives++;
@@ -597,4 +662,8 @@ void rfm_session_stats(const rfm_session_t *s, rfm_session_stats_t *st)
     *st = s->st;
     st->in_flight = s->nfl;
     st->pending = rfm_screen_pending(s->screen);
+    st->ble = s->frame_link >= 0 && s->ble;
+    st->frame_ms = s->frame_link >= 0 ? s->fperiod : s->period;
+    st->wire_cap = s->frame_link >= 0 ? s->wire_cap : 0;
+    st->wire_in_flight = wire_in_flight(s);
 }

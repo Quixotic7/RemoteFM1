@@ -164,7 +164,9 @@ static void on_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
         strncpy(h.name, f->cfg.name, 16);
         h.proto = f->cfg.proto;
         strncpy(h.ver, "fake", 8);
-        h.transports = (uint8_t)(1u | (f->cfg.has_bulk ? 2u : 0u));
+        h.transports = (uint8_t)(1u | (f->cfg.has_bulk ? 2u : 0u) |
+                                 (f->cfg.ble ? RFM_TR_BLE | RFM_TR_BLE_HEARD : 0u));
+        h.sxq = (uint16_t)(f->cfg.ble == 1 && link == RFM_LINK_SX ? 128u : 1024u - 64u);  /* firmware/src/rfm_main.c */
         h.usb_mode = 1;
         h.lcd_baud = 2;
         h.sx_body_max = f->cfg.sx_body_max;

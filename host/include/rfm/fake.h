@@ -27,6 +27,9 @@ typedef struct {
     int has_bulk;
     uint32_t sx_rate_bps, bk_rate_bps;                  /* the simulated wire for TILES; 0: instant */
     uint16_t sx_body_max, bk_body_max;                  /* advertised and enforced (1024 / 16384) */
+    int ble;                                            /* 1: the MIDI side is Bluetooth MIDI (0.2): its HELLO_R
+                                                         * says sxq 128 and the Bluetooth bits; 2: USB while a
+                                                         * Bluetooth computer is connected (the bits, sxq 960) */
     int tiles_outside_session;                          /* 1 (default): TILES / LEDS outside a session are still
                                                          * drawn and acknowledged (FRAME_ACK says shadow reset after
                                                          * a reboot); 0: ignored, no FRAME_ACK */

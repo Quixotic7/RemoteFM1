@@ -12,9 +12,9 @@ static uint8_t *inbuf, outbuf[1u << 19];
 static uint32_t incap;
 static uint32_t out32[32];
 
-/* name NULL / "": "RemoteFM1"; proto 0: 2; rates in bytes/s (0: instant) */
+/* name NULL / "": "RemoteFM1"; proto 0: 2; rates in bytes/s (0: instant); ble: rfm_fake_cfg_t's (1: on Bluetooth) */
 EMSCRIPTEN_KEEPALIVE rfm_fake_t *fk_new(int has_bulk, int silent, const char *name, int proto, int sx_rate,
-                                         int bk_rate)
+                                         int bk_rate, int ble)
 {
     rfm_fake_cfg_t c;
     rfm_fake_cfg_default(&c);
@@ -29,6 +29,7 @@ EMSCRIPTEN_KEEPALIVE rfm_fake_t *fk_new(int has_bulk, int silent, const char *na
         c.proto = (uint8_t)proto;
     c.sx_rate_bps = (uint32_t)sx_rate;
     c.bk_rate_bps = (uint32_t)bk_rate;
+    c.ble = ble;
     return rfm_fake_new(&c);
 }
 EMSCRIPTEN_KEEPALIVE void fk_free(rfm_fake_t *f) { rfm_fake_free(f); }

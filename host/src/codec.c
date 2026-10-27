@@ -112,6 +112,11 @@ int rfm_hello_is_remotefm1(const rfm_hello_t *h)
     return h->v2 && h->proto == RFM_PROTO && !strcmp(h->name, RFM_NAME);
 }
 
+int rfm_hello_is_ble(const rfm_hello_t *h)
+{
+    return (h->transports & RFM_TR_BLE) && h->sxq && h->sxq <= RFM_HELLO_SXQ_BLE_MAX;
+}
+
 uint32_t rfm_build_session(uint8_t *b, int start, uint32_t keepalive_ms)
 {
     b[0] = start ? 1u : 0u;

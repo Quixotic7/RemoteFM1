@@ -48,6 +48,11 @@ int rfm_parse_hello(const uint8_t *b, uint32_t n, rfm_hello_t *h);        /* 0 o
 uint32_t rfm_build_hello_r(uint8_t *body, const rfm_hello_t *h);          /* RFM_HELLO_LEN bytes (the fake) */
 /* the unit we look for: name exactly "RemoteFM1", proto 2, the v2 fields present */
 int rfm_hello_is_remotefm1(const rfm_hello_t *h);
+/* this HELLO_R came over Bluetooth MIDI (0.2+): sxq is the free send packets on the transport asked, Bluetooth's
+ * queue (128) there, USB's ring less 64 (960) on USB, 4096 - 512 in M0 / 0.1; the Bluetooth bit says a computer is
+ * connected (it is set on USB replies too then, so sxq decides). An sxq of 0 (unknown) is never Bluetooth. */
+#define RFM_HELLO_SXQ_BLE_MAX 256u
+int rfm_hello_is_ble(const rfm_hello_t *h);
 
 uint32_t rfm_build_session(uint8_t *body, int start, uint32_t keepalive_ms);
 int rfm_parse_session(const uint8_t *b, uint32_t n, int *start, uint32_t *keepalive_ms);

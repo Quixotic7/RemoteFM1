@@ -37,6 +37,9 @@ extern "C" {
  * a frame's budget is rate / fps: 40000 and 14000 bytes at 20 Hz */
 #define RFM_BUDGET_BK_BPS 800000u
 #define RFM_BUDGET_SX_BPS 280000u
+/* Bluetooth MIDI (RemoteFM1 0.2): ~6 KB/s of TILES body measured on a unit; 4000 leaves room for LEDS, keepalives,
+ * PANEL_R and BLE MIDI's framing (session.h: Bluetooth pacing) */
+#define RFM_BUDGET_BLE_BPS 4000u
 #define RFM_BODY_MIN 64u                                /* the smallest body_max the encoder accepts */
 
 typedef void (*rfm_emit_fn)(void *ctx, const uint8_t *body, uint32_t n, int last);

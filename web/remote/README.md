@@ -19,7 +19,7 @@ unchanged, the same code fm1remote runs on macOS. `remote.js` is its back end, i
 ## Build and test
 
     web/remote/build.sh                       # needs emcc: ~/emsdk is sourced when emcc isn't on PATH
-    node web/remote/test/test_remote.mjs      # 78 checks; RFM_VERBOSE=1 prints the session's log
+    node web/remote/test/test_remote.mjs      # 85 checks; RFM_VERBOSE=1 prints the session's log
     node web/remote/test/run_page_test.mjs    # headless Chromium; screenshot in web/build/test/remote-page.png
 
 No test touches hardware. The page test replaces `navigator.requestMIDIAccess` and `navigator.usb` with the mocks

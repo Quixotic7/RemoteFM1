@@ -20,7 +20,15 @@
  *             the panel; a PANEL_R without the session flag (the unit ended it), or no PANEL_R for heartbeat_ms
  *             (it is the session's heartbeat, every 500 ms) -> SESSION start again. Nothing at all heard from the unit
  *             for lost_ms, or a link write failing: DISCOVER.
- *   STOPPING  stop(): SESSION start=0, until its ACK or stop_ms; then STOPPED. */
+ *   STOPPING  stop(): SESSION start=0, until its ACK or stop_ms; then STOPPED.
+ *
+ * Bluetooth: a SysEx frame link whose HELLO_R says Bluetooth (rfm_hello_is_ble: sxq <= 256 with the Bluetooth bit)
+ * is paced for it: frames at most RFM_BLE_FPS a second, a budget of RFM_BUDGET_BLE_BPS / RFM_BLE_FPS (cfg.budget, if
+ * set, at most RFM_BLE_BUDGET_MAX), the next frame no sooner than its body at RFM_BUDGET_BLE_BPS allows, at most
+ * RFM_BLE_WIRE_CAP framed TILES bytes unacknowledged (the unit's Bluetooth input drops packets beyond a few KB; one
+ * frame alone always goes), FRAME_ACK timeout max(ack_timeout_ms, RFM_BLE_ACK_MIN_MS, 500 + 3 x what is in flight at
+ * the rate), SESSION retried after max(start_ms, 1000), heartbeat_ms / lost_ms at least 2500 / 3000. A USB SysEx
+ * link of the same unit is preferred to a Bluetooth one. USB and bulk links are paced as before. */
 #ifndef RFM_SESSION_H
 #define RFM_SESSION_H
 #include <stdint.h>
@@ -35,6 +43,10 @@ extern "C" {
 enum { RFM_T_AUTO = 0, RFM_T_MIDI = 1, RFM_T_BULK = 2 };
 enum { RFM_S_DISCOVER = 0, RFM_S_STARTING, RFM_S_ACTIVE, RFM_S_STOPPING, RFM_S_STOPPED };
 #define RFM_MAX_LINKS 16
+#define RFM_BLE_FPS 10u                                 /* Bluetooth pacing (above) */
+#define RFM_BLE_WIRE_CAP 2048u                          /* framed TILES bytes unacknowledged (3.4 KB measured clean) */
+#define RFM_BLE_BUDGET_MAX 800u                         /* a frame stays well under the cap */
+#define RFM_BLE_ACK_MIN_MS 2000u
 
 typedef struct {
     uint32_t fps;                                       /* 20 */
@@ -70,6 +82,10 @@ typedef struct {
     uint32_t leds_sent, keepalives, panel_r, events, sessions, discoveries, lost;
     uint32_t in_flight, pending;
     uint32_t last_ack_ms;
+    uint32_t ble;                                       /* 1: the frame link is Bluetooth, paced for it */
+    uint32_t frame_ms;                                  /* the frame period in use */
+    uint32_t wire_cap;                                  /* framed TILES bytes allowed unacknowledged; 0: no cap */
+    uint32_t wire_in_flight;                            /* framed TILES bytes unacknowledged now */
 } rfm_session_stats_t;
 
 typedef struct rfm_session rfm_session_t;

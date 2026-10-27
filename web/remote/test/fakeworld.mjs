@@ -174,15 +174,16 @@ export async function createWorld(createFakeUnit, { start = 1000 } = {}) {
     };
 
     // a fake unit: the RemoteFM1 firmware (default), or another firmware (name / proto) or a silent one; vendorIf: the
-    // vendor interface's number (4: 0.2.1 with USB audio, 2: 0.1 / 0.2.0)
+    // vendor interface's number (4: 0.2.1 with USB audio, 2: 0.1 / 0.2.0); ble: its MIDI ports are Bluetooth MIDI (its
+    // HELLO_R says so: sxq 128)
     world.addUnit = ({ midiName = 'FM-1', name = '', proto = 0, silent = false, bulk = false, sxRate = 300000,
-        bkRate = 850000, vendorIf = 4 } = {}) => {
+        bkRate = 850000, vendorIf = 4, ble = false } = {}) => {
         let p = 0;
         if (name) {
             p = F._malloc(name.length + 1);
             F.stringToUTF8(name, p, name.length + 1);
         }
-        const h = F._fk_new(bulk ? 1 : 0, silent ? 1 : 0, p, proto, sxRate, bkRate);   // (the fake copies the name)
+        const h = F._fk_new(bulk ? 1 : 0, silent ? 1 : 0, p, proto, sxRate, bkRate, ble ? 1 : 0);   // (copies the name)
         if (p) F._free(p);
         return world._unit(h, midiName, bulk, vendorIf);
     };

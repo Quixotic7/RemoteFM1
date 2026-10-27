@@ -26,7 +26,8 @@ const NKEYS = 27, NBTN = 14, NENC = 7;
 // rfm_session_stats_t's fields, in order (rw_stats)
 const STAT_NAMES = ['frames', 'msgs', 'tiles', 'rects', 'body_bytes', 'wire_bytes', 'acks', 'ack_ms_sum',
     'ack_ms_max', 'ack_timeouts', 'decode_errs', 'shadow_resets', 'leds_sent', 'keepalives', 'panel_r', 'events',
-    'sessions', 'discoveries', 'lost', 'in_flight', 'pending', 'last_ack_ms'];
+    'sessions', 'discoveries', 'lost', 'in_flight', 'pending', 'last_ack_ms', 'ble', 'frame_ms', 'wire_cap',
+    'wire_in_flight'];
 
 // A port that may be an FM-1: its name says so. Updater ports are never touched (as host/src/macos/coremidi.c).
 export function isCandidatePortName(name) {
