@@ -48,9 +48,11 @@ static void rp_lcd_baud(uint32_t b) { fm1_lcd_baud(b); }
 static void rp_wdt(void) { fm1_wdt_feed(); }
 
 #if !RFM_SHADOW
-static void rp_wait_idle(void)                      /* the panel's transfer ends; USB is served meanwhile */
+static void rp_wait_idle(void)                      /* the panel's transfer ends (100 ms at most: lcd.c's own
+                                                     * wait then times out); USB is served meanwhile */
 {
-    while (!lcd_idle())
+    uint32_t t0 = plat_ticks24();
+    while (!lcd_idle() && plat_ticks24() - t0 < 100000u * PLAT_TICKS_PER_US)
         rp_service();
 }
 #endif

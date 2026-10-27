@@ -31,6 +31,8 @@ before remote.js runs.
   "RemoteFM1" and doesn't contain "update". Inputs and outputs are paired by name. Each candidate gets HELLO, and
   only a "RemoteFM1" proto 2 answer counts. The name proves nothing: macOS often keeps a stale "ChoralRoot FM-1".
   No other MIDI device is ever sent a byte; the tests check this with an IAC bus, a KeyStep and an updater port.
+  RemoteFM1 0.2 over Bluetooth MIDI is found the same way: once it is connected (on a Mac, Audio MIDI Setup's
+  Bluetooth panel), its port is named after what it advertises, "FM-1 1F2D", and gets HELLO like the others.
 - **WebUSB** (Chrome). `requestDevice({filters: [{vendorId: 0x1209, productId: 0x0001, classCode: 0xFF}]})` opens
   the device and claims only the vendor interface (2; found by class 0xFF, else 2), on bulk EP 3. Four
   `transferIn(3, 16448)` are kept queued.
