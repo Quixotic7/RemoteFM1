@@ -1,9 +1,12 @@
-# RemoteFM1 protocol, version 2 (M1)
+# RemoteFM1 protocol, version 2 (M1; firmware 0.1 and 0.2)
 
-The contract between the RemoteFM1 firmware (`firmware/`) and every host (`host/`: the C library, `fm1remote`, later
-the browser and iPad). The constants are in `proto/rfm1.h`. The framing helpers (7-in-8 packing, the bulk header) are
-M0's, in `firmware/src/remote_proto.h`, unchanged. Version 1 was the M0 bench. Version 2 keeps every M0 command
-number and adds the session, LED, screen and panel messages.
+The contract between the RemoteFM1 firmware (`firmware/`) and every host (`host/`: the C library, `fm1remote`, the
+site's player in the browser, FM1VST). The constants are in `proto/rfm1.h`. The framing helpers (7-in-8 packing, the
+bulk header) are M0's, in `firmware/src/remote_proto.h`, unchanged. Version 1 was the M0 bench. Version 2 keeps every
+M0 command number and adds the session, LED, screen and panel messages.
+
+Firmware 0.2 (on fm1-base and felucca-bsp) still speaks version 2. What it changed is additive: a third transport
+(Bluetooth MIDI), two HELLO_R transport bits, its own identity, and fewer LED levels. Section 7 lists it.
 
 Both files are **owned by the orchestrator**. An agent that finds a problem in the spec reports it and does not
 edit them.
@@ -15,19 +18,48 @@ One message = a command byte + a body (8-bit bytes, multi-byte fields **little e
 | Transport | Framing | Where |
 |---|---|---|
 | SysEx over USB-MIDI (EP1) | `F0 7D 52 46 <cmd> <body, 7-in-8 packed> F7` | every host (CoreMIDI, Web MIDI, iPad) |
-| Vendor bulk (interface 2, EP3 OUT / EP3 IN, 64 B packets) | `'R' 'F' <cmd> 00 <len16> <seq32> <body>` (10-byte header) | macOS (libusb), Chrome (WebUSB) |
+| Vendor bulk (the class 0xFF interface, EP3 OUT / EP3 IN, 64 B packets) | `'R' 'F' <cmd> 00 <len16> <seq32> <body>` (10-byte header) | macOS (libusb), Chrome (WebUSB) |
+| SysEx over Bluetooth MIDI (0.2, the Bluetooth build) | as USB-MIDI's: `F0 7D 52 46 <cmd> <body, 7-in-8 packed> F7` | CoreMIDI, Web MIDI, iPad, once the FM-1 is connected as a Bluetooth MIDI device |
 
-- A SysEx body is at most `RFM_SX_BODY_MAX` (1024) bytes before packing. A bulk body is at most `RFM_BK_BODY_MAX`
-  (16384) bytes.
-- The device answers on the transport the request came in on. Panel events always go out as plain MIDI (section 4),
-  whatever transport the session uses.
-- A host may use both: plain MIDI for the panel events and bulk for everything else. That is the recommended setup
-  wherever bulk is available.
+- A SysEx body is at most `RFM_SX_BODY_MAX` (1024) bytes before packing, over USB and over Bluetooth. A bulk body is
+  at most `RFM_BK_BODY_MAX` (16384) bytes.
+- **The vendor interface's number** depends on the build: 2 in 0.1 and 0.2.0 (after audio control and MIDI
+  streaming); 4 from 0.2.1 (after USB audio in and out: 0 audio control, 1 MIDI, 2 audio in, 3 audio out; bcdDevice
+  4.50). A host finds it by its class (0xFF, vendor specific), never by its number. It has a WebUSB BOS descriptor
+  (vendor code 1, no landing page), bcdUSB 2.10.
+- **Bluetooth MIDI** carries the same messages, in BLE-MIDI packets of at most 64 bytes (the ATT payload), at a few
+  KB/s: enough for HELLO, a session, the panel's events, LEDS and a still or slowly changing screen, not for a moving
+  one. The device never waits for the link: a reply that finds no room waits in a short queue (six messages with a
+  body of at most 72 bytes; every session reply fits) and goes when there is room; a longer reply that finds no room
+  is dropped. M0's diagnostics with long replies (SOURCE, STATS) are for USB. The device advertises "FM-1 XXXX" (four characters of its
+  chip ID) and shows that name on its waiting screen; hosts find it as any FM-1 port, by HELLO (section 2). The
+  updater (section 6) is USB only.
+- The device answers on the transport the request came in on. Panel events go out as plain MIDI (section 4) on the
+  session's MIDI port.
+- A host may use both on USB: plain MIDI for the panel events and bulk for everything else. That is the recommended
+  setup wherever bulk is available.
+- Plain MIDI sent to the device (notes, clock) is ignored, over USB and over Bluetooth: RemoteFM1 plays nothing.
 
 ## 2. Session
 
-- **HELLO** (`0x01`, body: optional host name, ≤ 16 bytes) → **HELLO_R** (`0x41`). The 51 bytes of M0 come first,
-  unchanged. `name` is now "RemoteFM1" and `proto` is 2. Then come these fields:
+- **HELLO** (`0x01`, body: optional host name, ≤ 16 bytes) → **HELLO_R** (`0x41`), on the transport HELLO came in
+  on. The 51 bytes of M0 come first (`firmware/src/remote_proto.h`):
+
+  | offset | field |
+  |---|---|
+  | 0 | `name[16]`: "RemoteFM1" |
+  | 16 | `proto8`: 2 |
+  | 17 | `ver[8]`: the firmware's version ("0.2.1") |
+  | 25 | `transports8` (`RFM_HELLO_TRANSPORTS`, bits `RFM_TR_*`, in rfm1.h from 0.2): bit0 USB configured, bit1 vendor bulk built in, bit2 RemoteFM1 SysEx heard over USB, bit3 bulk heard; 0.2: bit4 a Bluetooth computer connected, bit5 RemoteFM1 SysEx heard over Bluetooth |
+  | 26 | `usb_mode8`: 1, the main loop polls USB |
+  | 27 | `lcd_baud8` |
+  | 28 | `loader_state` (int8): 0 updates work; -2 an unknown flash chip (no updates). 0.1: the state of its staged loader |
+  | 29 | `sxq16`: SysEx send packets free for RemoteFM1 on the transport asked (USB's ring less the 64 kept for the updater, or Bluetooth's queue, 128) |
+  | 31 | `bk_rx_ring32`, then 35 `bk_tx_ring32`: the vendor rings (32768 each) |
+  | 39 | `sx_body_max16` (1024), then 41 `bk_body_max16` (16384): the longest body taken; a host keeps to them |
+  | 43 | `identity[8]` (`RFM_HELLO_IDENTITY`): the first 8 characters of the update identity, "FM-1_520" for 0.2's `FM-1_52XXYYZZ` (0.1: "FM-1_015") |
+
+  `name` is "RemoteFM1" and `proto` is 2 (M0 answered "RemoteFM1-M0", 1). Then come these fields:
 
   | offset | field |
   |---|---|
@@ -38,7 +70,12 @@ One message = a command byte + a body (8-bit bytes, multi-byte fields **little e
   | 59 | `fw_ver[8]` (the RemoteFM1 version string) |
 
   Length `RFM_HELLO_LEN` = 67. A host finds the unit **only** by HELLO, never by port name: CoreMIDI keeps the port
-  name of whatever firmware it saw first.
+  name of whatever firmware it saw first. Over Bluetooth the port is named after what the FM-1 advertises
+  ("FM-1 7938"), so a host sends HELLO to every port whose name holds "FM-1".
+
+  `caps` from 0.2: 0x2F (shadow, COPY, RLE, PAL, PLAY green). A build without the shadow (`RFM_SHADOW 0`, for a
+  build short of RAM) answers 0x2C: no shadow, no COPY. 0.2 has no battery reading (bit4 off, `battery_mv` 0) and
+  three LED levels (bit6 off, section 3).
 
 - **SESSION** (`0x10`, body: `start8 keepalive_ms16`).
   - `start = 1`: the host takes over. The device clears its screen and shadow to black (0x0000), turns all LEDs
@@ -49,11 +86,19 @@ One message = a command byte + a body (8-bit bytes, multi-byte fields **little e
     shadow, LEDs off, frame numbering reset.
   - `keepalive_ms`: if no RemoteFM1 message of any kind (SINK included) arrives from the host for this long, the device ends the session by
     itself. 0 means never; a host normally uses 3000.
-  - A USB reset or unplug also ends the session.
+  - A session lives on the transport its SESSION start came in on: its PANEL_Rs go there, and its panel events go
+    to that transport's MIDI port (section 4). A SESSION start on another transport moves the session there (a
+    restart, as above).
+  - A USB reset or unplug ends a USB session (SysEx or bulk); a Bluetooth disconnect ends a Bluetooth session. Neither
+    ends the other's.
   - Reply: **ACK** (`0x46`, empty).
 
-- **Waiting screen** (no session): "REMOTE FM1", the version, "WAITING FOR HOST", the battery when known, and a red line
-  when the update loader isn't staged. The key LEDs glow dim so the panel can be found. The device runs no other UI.
+- **Waiting screen** (no session): "REMOTE FM1", the version and the identity, "WAITING FOR HOST", USB's state (no
+  host, idle, host connected), in the Bluetooth build the advertised name and Bluetooth's state (connected, ready,
+  starting, failed, off), the battery level or "powered over USB", the transports' rates and errors, and "UNKNOWN
+  FLASH: NO UPDATES" when the flash chip is not the expected one (0.1: a red line when its loader wasn't staged). The
+  key LEDs glow dim so the panel can be found, and a key or button lights while it is held. The device runs no other
+  UI.
 
 ## 3. Host → device: LEDs and screen
 
@@ -62,8 +107,10 @@ One message = a command byte + a body (8-bit bytes, multi-byte fields **little e
 `lit[11] mid[11] dim[11] faint[11] flags8`. Each array is one byte per matrix column 0..10, in the same packed row
 bits as the firmware's `fm1_led[col]`, which is the emulator's `emu_hal_t.led / led_mid / led_dim / led_faint`.
 An LED in several arrays shows the brightest: lit > mid > dim > faint. `flags` bit0: PLAY's green LED on. A device
-with fewer levels maps them down: TransitFM1's scan has lit, glow and backlight, so lit → lit, mid and dim → glow,
-faint → backlight. No reply. A host sends LEDS when they change, and at least once a second while a session is
+with fewer levels maps them down (`caps` bit6 off): TransitFM1's scan (0.1) has lit, glow and backlight, so lit → lit,
+mid and dim → glow, faint → backlight; fm1-base's (0.2) has lit, a steady mid (about 12 %) and the glow (about 3 %),
+so lit → lit, mid and dim → mid (with the glow under it), faint → the glow. Mid and dim look the same on both. No
+reply. A host sends LEDS when they change, and at least once a second while a session is
 active.
 
 ### TILES (`0x12`): the screen
@@ -100,7 +147,11 @@ what differs.
 
 ## 4. Device → host
 
-### Panel events: plain MIDI on EP1, always (in a session or not)
+### Panel events: plain MIDI, always (in a session or not)
+
+They go to the session's MIDI port: USB-MIDI (EP1) for a session over USB SysEx or bulk, Bluetooth MIDI for a session
+over Bluetooth. With no session they go to USB (when configured) and to a connected Bluetooth computer. They wait in
+a short queue (256 events) when a port has no room, and are dropped when nobody is connected.
 
 | what | message |
 |---|---|
@@ -159,6 +210,17 @@ out of a session.
 
 ## 6. Updater
 
-The M-UPGRADE SysEx path (`F0 00 59 …`, the soft key, `fm1_install.py`) is untouched and works at any time, in a
-session or not. The device answers it as FM-1_015, as TransitFM1 does. A host must never send it by accident: every
+The M-UPGRADE SysEx path (`F0 00 59 …`, the soft key, `fm1_install.py`) is untouched and works at any time over USB,
+in a session or not; RemoteFM1's own messages never hold its frame slot, and 64 packets of the USB SysEx send ring are
+always left to its replies. 0.2 answers it as itself, `FM-1_52XXYYZZ` (release X.Y.Z, two digits each; a development
+build `FM-1_5200`), on the USB device "FM-1", and updates through felucca-bsp's loader (`ota-FM-1_900`). 0.1 answered
+as `FM-1_015`, as TransitFM1 does. Bluetooth carries no update. A host must never send it by accident: every
 RemoteFM1 message starts `F0 7D 52 46`.
+
+## 7. What 0.2 added (all within version 2)
+
+- Bluetooth MIDI SysEx as a third transport (section 1), in the Bluetooth build; HELLO_R `transports` bits 4 and 5.
+- Sessions per transport: panel events to the session's port, a Bluetooth disconnect ends a Bluetooth session.
+- The vendor interface's number: 4 from 0.2.1, with USB audio in and out beside it (2 before). Found by class.
+- The identity `FM-1_52XXYYZZ` (HELLO_R `identity` "FM-1_520"); `loader_state` -2 for an unknown flash chip.
+- Three LED levels (mid and dim merge), no battery reading: `caps` 0x2F.

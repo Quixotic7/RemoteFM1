@@ -31,7 +31,18 @@ enum {
     RFM_SOURCE_DONE = 0x50, RFM_FRAME_ACK = 0x52, RFM_PANEL_R = 0x53
 };
 
-/* HELLO_R: M0's 51 bytes, then: */
+/* HELLO_R: M0's 51 bytes (firmware/src/remote_proto.h), of which: */
+#define RFM_HELLO_TRANSPORTS 25u        /* u8, RFM_TR_* */
+#define RFM_HELLO_IDENTITY 43u          /* char[8]: the update identity's first 8 characters */
+enum {
+    RFM_TR_USB = 1u << 0,               /* USB configured */
+    RFM_TR_BULK = 1u << 1,              /* the vendor bulk interface built in */
+    RFM_TR_SX_HEARD = 1u << 2,          /* RemoteFM1 SysEx heard over USB */
+    RFM_TR_BK_HEARD = 1u << 3,          /* bulk heard */
+    RFM_TR_BLE = 1u << 4,               /* 0.2: a Bluetooth computer connected */
+    RFM_TR_BLE_HEARD = 1u << 5          /* 0.2: RemoteFM1 SysEx heard over Bluetooth */
+};
+/* then: */
 #define RFM_HELLO_SCREEN_W 51u          /* u16 */
 #define RFM_HELLO_SCREEN_H 53u          /* u16 */
 #define RFM_HELLO_CAPS 55u              /* u16, RFM_CAP_* */
