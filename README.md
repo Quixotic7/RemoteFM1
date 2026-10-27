@@ -80,6 +80,12 @@ power-on. Connect the FM-1 in Audio MIDI Setup > MIDI Studio > Bluetooth (on a M
 its port is named after what it advertises, "FM-1 1F2D". The site and FM1VST send HELLO to any port whose name holds
 "FM-1", so they find it there too. The update path stays USB-only.
 
+**USB audio** (0.2.1): the Mac sees the FM-1 as a sound output ("FM-1" in System Settings > Sound and Audio MIDI
+Setup) and plays through its speaker and headphones, with MASTER as its volume. Pick it as the output of fm1remote's
+sound (or the Mac's) to hear the firmware on the unit. The FM-1 is an audio input too, carrying what it plays. The
+USB interfaces are 0 audio control, 1 MIDI, 2 audio in, 3 audio out and 4 the vendor bulk pair (2 in 0.1 and 0.2.0);
+hosts find the vendor interface by its class (0xFF), not its number.
+
 ## Safety
 
 From 0.2, RemoteFM1 is an fm1-base firmware, with fm1-base's and felucca-bsp's safeguards: the boot guard (two failed
@@ -100,8 +106,9 @@ or [MvaveFM1Unbricker](https://github.com/Quixotic7/MvaveFM1Unbricker) at hand.
 
 The firmware is fm1-base's: `base/` is fm1-base, a git submodule pinned at a commit (felucca-bsp inside it,
 `base/bsp`). `./build.sh` copies it to `build/fm1-base`, applies RemoteFM1's patches (`firmware/patches/`: the vendor
-bulk interface and the SysEx hooks in felucca-bsp's `usb.c`, SysEx over Bluetooth MIDI in fm1-base; each one an
-upstream pull request, `firmware/patches/UPSTREAM.md`) and runs fm1-base's `tools/build.py` on the app in `firmware/`.
+bulk interface, beside USB audio, and the SysEx hooks in felucca-bsp's `usb.c`, SysEx over Bluetooth MIDI in fm1-base;
+each one an upstream pull request, `firmware/patches/UPSTREAM.md`) and runs fm1-base's `tools/build.py` on the app in
+`firmware/`. USB audio in and out are fm1-base's (`firmware/fm1.toml`).
 
 You need Docker on macOS or Windows (or Linux x86-64), Python 3 with Pillow (with libraqm: on a Mac Homebrew's, which
 `build.sh` finds in /opt/homebrew/lib), the JieLi toolchain (`base/tools/get_toolchain.sh`, in ~/.jieli/toolchain)
@@ -110,8 +117,8 @@ and the JieLi AC79 SDK (its Bluetooth libraries; never in this tree):
 ```sh
 git submodule update --init --recursive
 git clone --depth 1 --branch AC79NN_SDK_V1.2.1_2023-12-13 https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK.git ~/fw-AC79_AIoT_SDK
-./build.sh --release 0.2.0           # -> firmware/build/remotefm1-0.2.0.fwsc (USB + Bluetooth MIDI), FM-1_52000200
-./build.sh --release 0.2.0 --no-ble  # -> firmware/build/remotefm1-usb-0.2.0.fwsc (USB only: nothing of JieLi's)
+./build.sh --release 0.2.1           # -> firmware/build/remotefm1-0.2.1.fwsc (USB + Bluetooth MIDI), FM-1_52000201
+./build.sh --release 0.2.1 --no-ble  # -> firmware/build/remotefm1-usb-0.2.1.fwsc (USB only: nothing of JieLi's)
 ./build.sh                           # a development build, FM-1_5200
 tests/run_tests.sh                   # the app in fm1-base's host simulator (firmware/tests/), the protocol code,
                                      # the patched usb.c and Bluetooth SysEx, tools/fm1_install.py

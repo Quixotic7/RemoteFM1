@@ -305,8 +305,9 @@ scheme, `id_prefix = "FM-1_52"` (52: "R", as RemoteFM1's SysEx `7D 52 46`; FIZZ 
 
 **The patches** (both opt-in for other firmwares: fm1-base's template and felucca-bsp's loader build byte for byte
 the same with them):
-- felucca-bsp `chip/usb.c`: `FELUCCA_VENDOR` (interface 2, class 0xFF, EP3 bulk pair, bcdUSB 2.10 + WebUSB BOS,
-  bcdDevice 3.50: the device, configuration, BOS and string descriptors are 0.1's byte for byte, tested), the SysEx tap
+- felucca-bsp `chip/usb.c`: `FELUCCA_VENDOR` (the last interface: 2, or 4 after USB audio in + out from 0.2.1;
+  class 0xFF, EP3 bulk pair, bcdUSB 2.10 + WebUSB BOS, bcdDevice 3.50, 4.50 with USB audio: without audio the device,
+  configuration, BOS and string descriptors are 0.1's byte for byte, tested), the SysEx tap
   (`FELUCCA_SYSEX_TAP`: RemoteFM1's messages are claimed, never the updater's 640-byte frame), `FELUCCA_EP1_ROOM`,
   `FELUCCA_USB_FRAME_DUE`, `FELUCCA_CIN_F_SYSEX` (M0's lost byte); `fm1_lcd_hw.h`: `fm1_lcd_done()`.
 - fm1-base: SysEx over Bluetooth MIDI both ways (`le_midi.c`: it was dropped), a SysEx-safe in-queue and sizable
@@ -348,6 +349,22 @@ parser and encoder), `install_test.py`. `host/run_tests.sh` 7/7 (the cross test 
 - Bluetooth: pair in Audio MIDI Setup; HELLO over "FM-1 1F2D"; a session over it (the site, FM1VST); its frame rate at
   ~4-5 KB/s; a disconnect mid-frame; the first start writes 0xF2000..0xF3FFF (the radio's address).
 - From 0.1.1 to 0.2: installed by 0.1.1's step 1 and TransitFM1's loader (the package is fm1-base's).
+
+**USB audio (0.2.1, 2026-10-27).** The owner wants the FM-1 as the Mac's sound output: `fm1.toml` turns on fm1-base's
+`usb_audio_in` and `usb_audio_out` (the output needs the input in fm1-base), so the computer plays through the speaker
+and headphones with MASTER as the volume (`uac_play` after the app's silent render, `plat_usb_audio_full(0)`), and the
+FM-1 is recordable. The patch now allows `FELUCCA_VENDOR` with UAC: interfaces 0 audio control, 1 MIDI, 2 audio in
+(EP4 IN iso), 3 audio out (EP4 OUT iso), 4 the vendor pair (EP3 bulk); configuration 272 B; bcdDevice 4.50 (macOS
+caches per version; 3.50 is 0.1's and also fm1-base's audio-only layout). The hosts already found the vendor interface
+by class (`host/src/macos/usb.c`, `tools/m0_bulk.c`, `remote.js`, `m0_bench.html`); the web tests run both layouts.
+Polling: each `usb_poll` services at most one bulk packet each way and then the iso pair, so neither can starve the
+other in the firmware; on the wire the host schedules iso first (~400 B a frame while both streams run), leaving bulk
+roughly 0.7-0.8 MB/s instead of ~1 MB/s, and each poll costs ~5 more SIE round trips while a stream is open (alt 1).
+Sizes (`--release 0.2.1`): Bluetooth 207,836 B of flash (+2,528), RAM 80,520 (+10,784: the two audio rings, 2 + 8 KB),
+pool 279,568 (same); USB only 77,896 B (+2,344), RAM 32,520 (+10,752), pool 254,988 (same). Vendor rings unchanged.
+To check on the unit: the Mac lists "FM-1" as an output; MASTER sets its level; `--info` and an update still work;
+`fm1remote --device` over bulk while music plays through the FM-1 (FRAME_ACK times, the STATS' polls a second, no
+clicks: `uo` underruns / overruns); Chrome's WebUSB claims interface 4 with the audio interfaces held by macOS.
 
 **WiFi pass, later.** fm1-base's WiFi leaves an app a few KB of RAM and ~28 KB of pool: build with `RFM_SHADOW 0`
 and smaller buffers from `app.h` (`FELUCCA_VENDOR_IN_N` / `_OUT_N`, `RF_MRX_N`, `RF_BK_RX_MAX`, which HELLO_R reports
