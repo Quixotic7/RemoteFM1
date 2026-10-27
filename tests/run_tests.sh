@@ -1,79 +1,79 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-only
-# The host tests of TransitFM1's update path (docs/SAFETY.md), on the device build's outputs, and of RemoteFM1's
-# protocol: M0's framing, the TILES decoder and the push, the protocol layer in a scripted session, usb.c's SysEx
-# parsing. Run ./build.sh first.
-#   tests/run_tests.sh
-#   UNIT=transit                 test build/transit.* (./build.sh --unit transit) instead of build/remote.*
-#   PKG=path/remote-X.Y.fwsc     the package to test (default: build/$UNIT.fwsc, ./build.sh's; a release build's is
-#                                build/remote-X.Y.fwsc). build/$UNIT.bin is the app of the last build
-#   V15_PKG=path/FM-1.fwsc   also: TransitFM1 -> the official V15 and back (M-VAVE's file; not in this tree)
-#   CR_PKG=path/choralroot.fwsc  also: TransitFM1 <-> ChoralRoot (the same sector 0x4000, no unprotected cut)
+# Copyright (C) 2026 RemoteFM1 contributors
+# RemoteFM1's tests without a device (nothing here opens a MIDI or USB port):
+#   - the app in fm1-base's host simulator (./build.sh --host): the scripted sessions in firmware/tests/ over USB SysEx,
+#     the vendor bulk pair and Bluetooth MIDI, the update's SysEx beside RemoteFM1's; again built USB-only (--no-ble)
+#     and without the shadow frame buffer (RFM_SHADOW 0, the WiFi build's RAM);
+#   - the protocol code alone: M0's framing, the TILES decoder (with and without the shadow) and the push, the
+#     protocol layer in a scripted session;
+#   - felucca-bsp's usb.c as RemoteFM1 patches it (its SysEx tap, macOS's CIN 0xF byte), and as everyone else builds it;
+#   - fm1-base's Bluetooth MIDI SysEx as RemoteFM1 patches it (le_midi.c's parser and encoder);
+#   - tools/fm1_install.py's package checks and identity names (the built packages too, when there).
+#   tests/run_tests.sh          (host/run_tests.sh and the web/ tests are their own: README.md "Tests")
 # Ends "ALL TESTS PASSED" (exit 0), or stops at the first failure.
 set -e
 cd "$(dirname "$0")/.."
-export AC79_SDK="${AC79_SDK:-$HOME/fw-AC79_AIoT_SDK}"
 H=build/host
-U="${UNIT:-remote}"
 mkdir -p "$H"
-PKG="${PKG:-build/$U.fwsc}"
-[ -f "$PKG" ] && [ -f "build/$U.bin" ] || { echo "run_tests.sh: no $PKG or build/$U.bin: run ./build.sh first"; exit 1; }
-echo "package: $PKG"
-CC="cc -std=c99 -Wall -Wextra -Wno-unused-function -Wno-sign-compare"
+TCC="cc -std=c99 -Wall -Wextra -Wno-unused-function -Wno-sign-compare"
 SAN="-O1 -fsanitize=address,undefined -fno-sanitize-recover=all"
+SIM=firmware/build/host
+OUT="$H/sim"
+mkdir -p "$OUT"
+sim() {   # sim BINARY SCRIPT...
+    b="$1"
+    shift
+    for t in "$@"; do
+        echo "-- $t"
+        "$b" "$t" "$OUT" > "$OUT/log.txt" 2>&1 || { cat "$OUT/log.txt"; echo "FAILED: $t"; exit 1; }
+        if grep -q "FAIL\|EXPECTATIONS FAILED" "$OUT/log.txt"; then
+            grep "FAIL" "$OUT/log.txt"
+            echo "FAILED: $t"
+            exit 1
+        fi
+        grep "^host:" "$OUT/log.txt"
+    done
+}
 
-echo "== the boot stub's decision (firmware/stub/stub_core.h)"
-$CC $SAN -o "$H/stub_test" tests/stub_test.c
-"$H/stub_test"
-echo "== the package builder: the marker, sector 0x4000 the same for every body"
-python3 tests/stub_pkg_test.py
-echo "== tools/fm1_install.py's package checks (M-VAVE's V15 / V16 too when found: V15_PKG, V16_PKG)"
-python3 tests/install_test.py
-echo "== a package whose flash.bin reaches past the app area (as Baud Girl's grows): made for the refusals below"
-python3 tools/make_stub_test_pkg.py other-body --board smk37 --product FM-1_015 --app "build/$U.bin" \
-    --ota build/loader/ota.bin -o "$H/stub-test-long.fwsc" >/dev/null
-echo "== step 1: our own loader staged, kept, restaged; the long package refused (firmware/src/ota.c)"
-$CC $SAN -o "$H/ota_test" tests/ota_test.c
-OTA_LONG_PKG="$H/stub-test-long.fwsc" "$H/ota_test" "$PKG" ${V15_PKG:+"$V15_PKG"}
-echo "== the loader's order: a power cut after every erase and every programmed page (firmware/loader/ldr_core.c)"
-for m in other-body old-stub no-stub no-stub-other; do
-    python3 tools/make_stub_test_pkg.py "$m" --app "build/$U.bin" --ota build/loader/ota.bin --product FM-1_015 \
-        -o "$H/stub-test-$m.fwsc" >/dev/null
-done
-$CC -O2 -o "$H/ldr_test" tests/ldr_test.c
-LDR_EXPECT_TOO_LONG=1 "$H/ldr_test" "$PKG" "$H/stub-test-long.fwsc"
-"$H/ldr_test" "$H/stub-test-no-stub.fwsc" "$PKG" "$H/stub-test-other-body.fwsc" \
-    "$H/stub-test-no-stub-other.fwsc" "$H/stub-test-old-stub.fwsc"
-if [ -n "$V15_PKG" ]; then
-    echo "== TransitFM1 -> the official V15 (a foreign package: sector 0x4000 last)"
-    "$H/ldr_test" "$PKG" "$V15_PKG"
-    echo "== the official V15 -> TransitFM1 (TransitFM1's loader, staged by V15's updater at 0xE6000, outside the stub's view)"
-    LDR_STAGED_ELSEWHERE=1 "$H/ldr_test" "$V15_PKG" "$PKG"
-else
-    echo "(V15_PKG not set: TransitFM1 <-> the official V15 skipped)"
-fi
-if [ -n "$CR_PKG" ]; then
-    echo "== TransitFM1 <-> ChoralRoot (the same stub: sector 0x4000 never written)"
-    "$H/ldr_test" "$PKG" "$CR_PKG"
-    "$H/ldr_test" "$CR_PKG" "$PKG"
-else
-    echo "(CR_PKG not set: TransitFM1 <-> ChoralRoot skipped)"
-fi
+echo "== the app in fm1-base's host simulator: USB SysEx, bulk, Bluetooth, the update's SysEx beside (firmware/tests)"
+env -u CC ./build.sh --host >/dev/null
+sim "$SIM/remotefm1_host" firmware/tests/session.txt firmware/tests/bulk_ota.txt firmware/tests/ble.txt
+echo "== the same, the USB-only build (--no-ble)"
+env -u CC ./build.sh --host --no-ble >/dev/null
+sim "$SIM/remotefm1-usb_host" firmware/tests/session.txt firmware/tests/bulk_ota.txt
+echo "== without the shadow frame buffer (RFM_SHADOW 0: rectangles straight to the panel, no COPY)"
+CC="$PWD/firmware/tests/cc_noshadow.sh" ./build.sh --host >/dev/null
+sim "$SIM/remotefm1_host" firmware/tests/noshadow.txt
+env -u CC ./build.sh --host >/dev/null                  # (the simulator as it should be left: with the shadow)
+
 echo "== RemoteFM1's bench protocol (firmware/src/remote_proto.h; tools/m0_bench.py's codec against it)"
-$CC $SAN -Ifirmware/src -o "$H/proto_test" tests/proto_test.c
+$TCC $SAN -Ifirmware/src -o "$H/proto_test" tests/proto_test.c
 "$H/proto_test"
 python3 tools/m0_bench.py --selftest
-echo "== the TILES decoder and the screen push (firmware/src/rfm_draw.c, rfm_push.c)"
-$CC $SAN -o "$H/rfm_draw_test" tests/rfm_draw_test.c
+echo "== the TILES decoder, with and without the shadow, and the screen push (firmware/src/rfm_draw.c, rfm_push.c)"
+$TCC $SAN -o "$H/rfm_draw_test" tests/rfm_draw_test.c
 "$H/rfm_draw_test"
-echo "== the protocol layer: a scripted session from both transports (firmware/src/rfm_app.c)"
-$CC $SAN -o "$H/session_test" tests/session_test.c
+echo "== the protocol layer: a scripted session from both USB transports (firmware/src/rfm_app.c)"
+$TCC $SAN -o "$H/session_test" tests/session_test.c
 "$H/session_test"
-echo "== usb.c's EP1 parser and long SysEx: M0's lost byte (CIN 0xF), TransitFM1's parser and RemoteFM1's"
-$CC $SAN -Wno-int-to-pointer-cast -o "$H/usb_midi_test" tests/usb_midi_test.c
+echo "== felucca-bsp's usb.c, patched (build/fm1-base): M0's lost byte (CIN 0xF), the SysEx tap's claim, EP1 held"
+B="-Ibuild/fm1-base/bsp/chip -Ibuild/fm1-base/bsp/boards/fm1 -Wno-int-to-pointer-cast"
+$TCC $SAN $B -o "$H/usb_midi_test" tests/usb_midi_test.c
 "$H/usb_midi_test"
-$CC $SAN -Wno-int-to-pointer-cast -DWITH_CIN_F -o "$H/usb_midi_test_rf" tests/usb_midi_test.c
+$TCC $SAN $B -DWITH_CIN_F -o "$H/usb_midi_test_rf" tests/usb_midi_test.c
 "$H/usb_midi_test_rf"
+$TCC $SAN $B -DWITH_CIN_F -DFELUCCA_VENDOR=1 '-DFELUCCA_USB_PRODUCT="FM-1"' -o "$H/usb_midi_test_vendor" tests/usb_midi_test.c
+"$H/usb_midi_test_vendor"
+echo "== fm1-base's Bluetooth MIDI SysEx, patched (le_midi.c's parser and encoder)"
+python3 - <<'EOF'
+src = open("build/fm1-base/ble/midi/le_midi.c").read()
+open("build/host/le_midi_part.c", "w").write(src[src.index("/* ---- MIDI in:"):src.index("/* ---- ATT */")])
+EOF
+$TCC $SAN -o "$H/ble_sysex_test" tests/ble_sysex_test.c
+"$H/ble_sysex_test"
+echo "== tools/fm1_install.py: packages, identities (M-VAVE's V15 / V16 too when found: V15_PKG, V16_PKG)"
+python3 tests/install_test.py
 if [ -f /opt/homebrew/include/libusb-1.0/libusb.h ]; then
     echo "== tools/m0_bulk.c builds (not run: it would open the unit)"
     cc -std=c99 -O2 -Wall -Wextra -Ifirmware/src -I/opt/homebrew/include/libusb-1.0 -o "$H/m0_bulk" tools/m0_bulk.c \

@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 RemoteFM1 contributors */
-/* Host test of the TILES decoder (firmware/src/rfm_draw.c) and the screen push (firmware/src/rfm_push.c), the code
+/* Host test of the TILES decoder (firmware/src/rfm_draw.c), with and without the shadow, and the screen push
+ * (firmware/src/rfm_push.c), the code
  * the device runs. Built with -fsanitize=address,undefined (tests/run_tests.sh); the shadow and every body are
  * heap blocks of exactly their size, so a write or read past either end stops the test.
  *   - every encoding against an independent reference decoder (written from docs/PROTOCOL.md, COPY through a
@@ -9,6 +10,7 @@
  *   - RLE runs across rows, of 1 and 256 pixels; COPY overlapping in all 8 directions and in place;
  *   - every malformed case: the error code, nothing drawn for it, the rectangles before it drawn;
  *   - 20,000 random messages, valid and mutated (cut short, bytes flipped), against the reference;
+ *   - without the shadow (rows to the panel as decoded): 5,000 random messages against the shadow's decoding;
  *   - the push: a model panel whose DMA reads its source a little at a time while new TILES keep landing in the
  *     shadow, ENDs while a push runs, an abort: when the pushes run out the panel equals the shadow.
  *   cc -std=c99 -fsanitize=address,undefined -o rfm_draw_test tests/rfm_draw_test.c && ./rfm_draw_test */
@@ -536,6 +538,64 @@ static void test_fuzz(void)
     CHECK(errs > 3000 && errs < 17000);                 /* both kinds were exercised */
 }
 
+/* ------------------------------------------------------------ no shadow: rows --- */
+/* the decoder without a shadow (fb NULL: RFM_SHADOW 0, the WiFi build's): the same random messages, valid and
+ * mutated, drawn row by row into a second screen, against the shadow's decoding of them; COPY is refused there
+ * (E_ENC), the rectangles before it drawn, nothing of it (checked against the shadow decoding the message cut there) */
+static uint16_t *rowscr, *snap, rowbuf[W];
+static void on_row(void *ctx, uint32_t x, uint32_t y, uint32_t w, const uint16_t *px)
+{
+    (void)ctx;
+    CHECK(px == rowbuf && w >= 1 && x + w <= W && y < H);
+    memcpy(rowscr + y * W + x, px, 2u * w);
+}
+static void test_rows(void)
+{
+    rfm_draw_t R = {NULL, NULL, NULL, on_row, rowbuf}, S = {NULL, NULL, NULL, NULL, NULL};
+    uint32_t k, copies = 0, errs = 0;
+    rowscr = malloc(NPX * 2);
+    snap = malloc(NPX * 2);
+    S.fb = fb;
+    both_random();
+    for (k = 0; k < 5000; k++) {
+        uint32_t nr = rn(6), i;
+        rfm_draw_res_t a, b;
+        tiles_hdr(&M, k, rnd() & 1, nr);
+        for (i = 0; i < nr; i++)
+            rand_rect(&M, k & 1);
+        if (M.n > M.cap)
+            continue;
+        if (k % 4 == 1)
+            M.n = rn(M.n + 1);
+        else if (k % 4 == 2)
+            mb[rn(M.n)] = (uint8_t)rnd();
+        memcpy(snap, fb, NPX * 2);
+        memcpy(rowscr, fb, NPX * 2);
+        rfm_draw_tiles(&R, mb, M.n, &b);
+        if (b.err == RFM_DRAW_E_ENC && b.err_off + 4u < M.n && mb[b.err_off + 4u] == RFM_ENC_COPY) {
+            copies++;
+            mb[3] = (uint8_t)b.applied;                 /* the message cut before the COPY */
+            rfm_draw_tiles(&S, mb, b.err_off, &a);
+            CHECK(a.err == RFM_DRAW_OK && a.applied == b.applied);
+        } else {
+            rfm_draw_tiles(&S, mb, M.n, &a);
+            CHECK(a.err == b.err && a.applied == b.applied && a.frame == b.frame);
+            errs += b.err != 0;
+        }
+        CHECK(!memcmp(fb, rowscr, NPX * 2));
+        if (fails)
+            break;
+    }
+    CHECK(copies > 200 && errs > 200);
+    {                                                   /* rfm_draw_clear without a shadow: every row */
+        memset(rowscr, 0, NPX * 2);
+        rfm_draw_clear(&R, 0x07E0u);
+        CHECK(px_be(rowscr, 0, 0) == 0x07E0 && px_be(rowscr, 239, 239) == 0x07E0 && px_be(rowscr, 17, 133) == 0x07E0);
+    }
+    free(rowscr);
+    free(snap);
+}
+
 /* ------------------------------------------------------------ the push --- */
 static struct {
     uint16_t panel[NPX];
@@ -742,10 +802,11 @@ int main(void)
     test_copy();
     test_malformed();
     test_fuzz();
+    test_rows();
     test_push_basic();
     test_push_race();
     {                                                   /* rfm_draw_clear: black, big endian */
-        rfm_draw_t d = {fb, NULL, NULL};
+        rfm_draw_t d = {fb, NULL, NULL, NULL, NULL};
         rfm_draw_clear(&d, 0xF81Fu);
         CHECK(px_be(fb, 0, 0) == 0xF81F && px_be(fb, 239, 239) == 0xF81F);
     }
