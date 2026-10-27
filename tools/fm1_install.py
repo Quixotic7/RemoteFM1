@@ -277,7 +277,9 @@ class Updater:
     def candidates(self, only_port):
         names = self.backend.input_names()
         if self.port:
-            mine = [n for n in names if self.port.lower() in n.lower()]
+            # an exact name wins ("FM-1" must not pick "ChoralRoot FM-1" when two units are plugged in)
+            mine = [n for n in names if n.lower() == self.port.lower()] or \
+                   [n for n in names if self.port.lower() in n.lower()]
             if only_port:
                 return mine
             return mine + [n for n in names if n not in mine and PORT_RE.search(n)]
