@@ -14,7 +14,8 @@ import { Updater, classifyFirmware, remoteFm1Version } from "./fm1ota.js";
 import { Package, productOf, logicalImage, sha256hex, OFFICIAL_PACKAGES } from "./fm1pkg.js";
 
 export const IDENTITY = "FM-1_015";               // RemoteFM1 0.1's (it answered as the official V15); 0.2 and later
-                                                  // answer as themselves, FM-1_52XXYYZZ (fm1ota.js remoteFm1Version)
+                                                  // answer as themselves, FM-1_52XXYYZZ (fm1ota.js remoteFm1Version,
+                                                  // releases.json identity)
 const INFO_REQ = [0xF0, 0x7D, 0x46, 0x4C, 0x01, 0xF7];   // the backup protocol's INFO (Felucca, ChoralRoot, ...)
 const HELLO_REQ = [0xF0, 0x7D, 0x52, 0x46, 0x01, 0xF7];  // RemoteFM1's HELLO (docs/PROTOCOL.md section 2), no body
 
@@ -139,14 +140,25 @@ export async function requestMidi(nav, ui, { hintMs = 1000, lateMs = 30000 } = {
   }
 }
 
-// the released package, as the site hosts it: fetched, its SHA-256 the one in releases.json, identity FM-1_015
-export async function releasedPackage(rel, fetchFn = fetch) {
-  const r = await fetchFn(`firmware/remote-${rel.version}.fwsc`, { cache: "no-cache" });
-  if (!r.ok) throw new Error(`The package for RemoteFM1 ${rel.version} could not be downloaded (${r.status}).`);
+// a release's package: the default one (firmware/remote-X.Y.Z.fwsc: from 0.2, USB + Bluetooth MIDI), or with
+// variant "usb" its USB-only one (releases.json usbOnly), when the release has one -> { file, sha256, usb }
+export function releaseFile(rel, variant = "") {
+  if (variant === "usb" && rel.usbOnly) return { file: rel.usbOnly.file, sha256: rel.usbOnly.sha256, usb: true };
+  return { file: `remote-${rel.version}.fwsc`, sha256: rel.sha256, usb: false };
+}
+
+// the released package, as the site hosts it: fetched, its SHA-256 and its identity the ones in releases.json
+export async function releasedPackage(rel, fetchFn = fetch, variant = "") {
+  const f = releaseFile(rel, variant), name = `RemoteFM1 ${rel.version}${f.usb ? " (USB only)" : ""}`;
+  const r = await fetchFn(`firmware/${f.file}`, { cache: "no-cache" });
+  if (!r.ok) throw new Error(`The package for ${name} could not be downloaded (${r.status}).`);
   const bytes = new Uint8Array(await r.arrayBuffer());
-  if (await sha256hex(bytes) !== rel.sha256)
-    throw new Error(`The file for RemoteFM1 ${rel.version} is not the released one (its SHA-256 does not match). Nothing was written. Reload the page.`);
-  return packageFrom(bytes, `RemoteFM1 ${rel.version}`);
+  if (await sha256hex(bytes) !== f.sha256)
+    throw new Error(`The file for ${name} is not the released one (its SHA-256 does not match). Nothing was written. Reload the page.`);
+  const pkg = await packageFrom(bytes, name);
+  if (rel.identity && pkg.product !== rel.identity)
+    throw new Error(`The file for ${name} is not the released one (it installs as ${pkg.product}, not ${rel.identity}). Nothing was written.`);
+  return pkg;
 }
 
 // any FM-1 package (a file the user chose): its identity, the image the device reads, a name to show
@@ -241,10 +253,11 @@ if (typeof document !== "undefined") {
   // RemoteFM1 is on: the next step is the player (same origin: the MIDI permission just granted carries over)
   const showNext = () => { $("next").hidden = false; $("next").scrollIntoView({ block: "nearest", behavior: "smooth" }); };
   const opts = () => ({ override: $("override").checked, midiClosed: $("midi-closed").checked });
+  const variant = () => ($("pkg-usb").checked ? "usb" : "");   // USB + Bluetooth (the default), or USB only
   $("go").addEventListener("click", () => run(async () => {
     $("next").hidden = true;
     ui.say("Downloading and checking the package...");
-    const pkg = await releasedPackage(rel);
+    const pkg = await releasedPackage(rel, fetch, variant());
     const a = await midi();
     ui.say("Looking for the FM-1...");
     const r = await install(a, pkg, ui, opts());
@@ -275,8 +288,11 @@ if (typeof document !== "undefined") {
     const put = (id, f) => { const e = $(id); if (e) f(e); };   // (the page's text may change; installing must not)
     put("ver", (e) => { e.textContent = rel.version; });
     put("date", (e) => { e.textContent = rel.date; });
-    put("sha", (e) => { e.textContent = rel.sha256; });
+    const showSha = () => put("sha", (e) => { e.textContent = releaseFile(rel, variant()).sha256; });
+    showSha();
     put("notes", (e) => e.replaceChildren(...rel.notes.map((n) => Object.assign(document.createElement("li"), { textContent: n }))));
+    $("variant").hidden = !rel.usbOnly;                        // (a release with one package: no choice)
+    for (const id of ["pkg-ble", "pkg-usb"]) $(id).addEventListener("change", showSha);
   }, (e) => {
     ui.say("The release list could not be loaded. Reload the page.", "bad");
     ui.log(String(e && e.stack || e));

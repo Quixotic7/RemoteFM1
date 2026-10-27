@@ -1,6 +1,6 @@
 {
  "about": "Built by web/site/tools/build_catalog.mjs from the FM-1 Firmware Hub's catalog, FM1VST's cores and RemoteFM1's own release (web/installer/releases.json). Edit those, not this file.",
- "generated": "2026-10-22",
+ "generated": "2026-10-27",
  "hubUpdated": "2026-10-18 17:01 UTC",
  "hubSource": "snapshot",
  "hub": "https://thefirmwarehub.com/",
@@ -1679,7 +1679,7 @@
   {
    "id": "remotefm1",
    "name": "RemoteFM1",
-   "version": "0.1.1",
+   "version": "0.2.1",
    "author": "Quixotic7",
    "authorFull": "Quixotic7",
    "category": "Other",
@@ -1688,10 +1688,10 @@
    ],
    "tag": "Waits for a host",
    "what": "The firmware this site installs, running as itself. It turns an FM-1 into a USB panel for a computer, so it makes no sound of its own: it shows a screen and waits for a host. In a browser tab, no host is coming.",
-   "license": "GPL-3.0-only",
+   "license": "MPL-2.0",
    "source": "https://github.com/Quixotic7/RemoteFM1",
    "repo": "Quixotic7/RemoteFM1",
-   "release": "https://github.com/Quixotic7/RemoteFM1/releases/tag/v0.1.1",
+   "release": "https://github.com/Quixotic7/RemoteFM1/releases/tag/v0.2.1",
    "site": null,
    "play": null,
    "beta": false,
@@ -1701,9 +1701,9 @@
    "defaultEngine": "emu",
    "native": null,
    "emu": {
-    "pkg": "../installer/firmware/remote-0.1.1.fwsc",
-    "sha256": "a7408d6c0526e01ef80e81c7350082ff203beaca3eabee52899748fc730a96a7",
-    "size": 610594,
+    "pkg": "../installer/firmware/remote-0.2.1.fwsc",
+    "sha256": "c4771c6cb6f38ac74b30d86a0f07b5f1ee90a3bcc270cfe7cd54fc3e74e5344f",
+    "size": 611496,
     "product": null,
     "from": "site"
    },

@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""tools/fm1_install.py's package checks, without a device: the released RemoteFM1 package and M-VAVE's official V15
-and V16 pass package_damage (the CRC is checked only for the entries stored plain); a flipped byte in flash.bin or
-ota.bin is caught; V15 loads without --force; V16 is refused up front, even with --force (its flash.bin reaches past
-the app area RemoteFM1's loader writes), with the way there: V15, then M-UPGRADE.
+"""tools/fm1_install.py's package checks, without a device: the released RemoteFM1 packages (each one
+web/installer/releases.json lists, with its identity) and M-VAVE's official V15 and V16 pass package_damage (the CRC
+is checked only for the entries stored plain); a flipped byte in flash.bin or ota.bin is caught; V15 loads without
+--force; V16 is refused up front, even with --force (its flash.bin reaches past the app area RemoteFM1's loader
+writes), with the way there: V15, then M-UPGRADE.
 
   python3 tests/install_test.py
   V15_PKG=path/FM-1.fwsc V16_PKG=path/FM-1.fwsc python3 tests/install_test.py   (default: a MVaveOfficial/ folder
                                        beside a parent of this tree; M-VAVE's files are not in it: skipped without)
 """
+import json
 import os
 import sys
 import tempfile
@@ -56,12 +58,17 @@ def entry(image, name):
     return next(f for f in I._files(image) if f[4] == name)
 
 
-rel = sorted((ROOT / "web" / "installer" / "firmware").glob("remote-*.fwsc"))[-1]
+# every package the site offers (web/installer/releases.json: each release's default package and its USB-only one)
+REL_DIR = ROOT / "web" / "installer" / "firmware"
+for r in json.loads((ROOT / "web" / "installer" / "releases.json").read_text())["releases"]:
+    for name in [f"remote-{r['version']}.fwsc"] + ([r["usbOnly"]["file"]] if r.get("usbOnly") else []):
+        p = REL_DIR / name
+        ok(I.package_damage(I.logical_image(p.read_bytes())) is None, f"the released {name}: no damage")
+        product, _, off = I.load_package(str(p), False)
+        ok(product == r["identity"] and off is None, f"the released {name}: {product}, loads without --force, not an official package")
+rel = REL_DIR / f"remote-{json.loads((ROOT / 'web' / 'installer' / 'releases.json').read_text())['releases'][0]['version']}.fwsc"
 raw = rel.read_bytes()
 img = I.logical_image(raw)
-ok(I.package_damage(img) is None, f"the released {rel.name}: no damage")
-product, _, off = I.load_package(str(rel), False)
-ok(product == "FM-1_015" and off is None, f"the released {rel.name}: loads without --force, not an official package")
 _, _, fo, fs, _ = entry(img, "flash.bin")
 ok(I.package_damage(I.logical_image(flipped(raw, fo + fs // 2))) == "flash.bin: CRC", "a flipped byte in flash.bin: caught")
 _, _, oo, os_, _ = entry(img, "ota.bin")

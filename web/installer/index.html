@@ -7,7 +7,7 @@
 <script>/* AudioWorklet and Web MIDI need a secure page: http -> https (not on a local server) */ if (location.protocol === "http:" && !/^(localhost|127\.|\[::1\]|.*\.localhost$)/.test(location.hostname)) location.replace("https:" + location.href.slice(5));</script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Install RemoteFM1</title>
-<meta name="description" content="RemoteFM1: the M-VAVE FM-1 as a USB panel for a firmware running in your browser or on your computer. Install it from the browser.">
+<meta name="description" content="RemoteFM1: the M-VAVE FM-1 as a USB or Bluetooth panel for a firmware running in your browser or on your computer. Install it from the browser.">
 <meta name="theme-color" content="#0F1113">
 <style>
   @font-face {
@@ -59,6 +59,9 @@
   input[type=file] { max-width: 100%; color: var(--muted); }
   label.check { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; color: var(--row-text); }
   label.check input { margin-top: 4px; accent-color: var(--accent); width: 16px; height: 16px; flex: none; }
+  .choice { margin-top: 14px; display: grid; gap: 2px; }
+  .choice[hidden] { display: none; }
+  .choice label.check { margin-top: 6px; }
   a { color: var(--accent); }
   code { font-size: .9em; background: var(--well); padding: 1px 5px; border-radius: 4px; }
   .sha { word-break: break-all; font-size: .8rem; }
@@ -81,9 +84,10 @@
 </header>
 <main>
   <h1>Install Remote<span>FM1</span></h1>
-  <p class="lede">RemoteFM1 turns the M-VAVE FM-1 into a USB panel. Its keys, buttons, knobs and MASTER go to the computer,
-    and the computer draws its screen and lights its LEDs. <b>It makes no sound on its own:</b> a firmware running on
-    the computer plays, in <a class="player" href="../">this site's player</a>, in <a href="https://github.com/Quixotic7/FM1VST/releases/latest" target="_blank" rel="noopener">FM1VST</a> or in <code>fm1remote</code>.</p>
+  <p class="lede">RemoteFM1 turns the M-VAVE FM-1 into a panel, over USB or Bluetooth MIDI. Its keys, buttons, knobs and
+    MASTER go to the computer, and the computer draws its screen and lights its LEDs. <b>It makes no sound on its own:</b>
+    a firmware running on the computer plays, in <a class="player" href="../">this site's player</a>, in <a href="https://github.com/Quixotic7/FM1VST/releases/latest" target="_blank" rel="noopener">FM1VST</a> or in <code>fm1remote</code>,
+    and over USB the computer can play through the FM-1's speaker or headphones.</p>
 
   <section class="card warn">
     <h2>Before you start</h2>
@@ -102,6 +106,11 @@
     <h2>Install</h2>
     <p class="meta">RemoteFM1 <span id="ver">…</span>, released <span id="date">…</span>. SHA-256 <span class="sha" id="sha">…</span></p>
     <ul id="notes"></ul>
+    <div id="variant" class="choice" hidden>
+      <label class="check"><input type="radio" name="variant" id="pkg-ble" checked><span><b>USB + Bluetooth MIDI</b>: the
+        panel also works without a cable.</span></label>
+      <label class="check"><input type="radio" name="variant" id="pkg-usb"><span><b>USB only</b>: no radio.</span></label>
+    </div>
     <label class="check"><input type="checkbox" id="midi-closed"><span>DAWs and every other app that uses MIDI are
       closed.</span></label>
     <div class="row" style="margin-top:16px">
@@ -132,27 +141,35 @@
       player</a> in Chrome or Edge: once MIDI is allowed for this site, it connects to the FM-1 by itself (the
       <b>Connect FM-1</b> button at its top shows the state; press it if it stays grey). Pick a firmware and press Play.
       On a Mac, <code>fm1remote</code> and <a href="https://github.com/Quixotic7/FM1VST/releases/latest" target="_blank" rel="noopener">FM1VST</a> use it too (<a href="https://github.com/Quixotic7/RemoteFM1#using-it">how</a>).</p>
+    <p><b>Without a cable</b> (the USB + Bluetooth package): connect the FM-1 as a Bluetooth MIDI device (on a Mac: Audio
+      MIDI Setup &gt; MIDI Studio &gt; Bluetooth). Its name, "FM-1" and four characters, is on its waiting screen. The
+      screen is slower that way. Installing always goes over USB.</p>
+    <p><b>Sound on the FM-1:</b> over USB the computer sees an audio output named "FM-1"; pick it, and the FM-1's speaker
+      or headphones play, with MASTER as the volume.</p>
   </section>
 
   <section class="card">
     <h2>If an install is cut off</h2>
-    <p>A pulled cable or a flat battery is not the end: switch the FM-1 off and on. Three short flashes of the key
-      lights and a black screen mean <b>update mode</b>. Open this page (or the installer you were using) and press
-      <b>Install</b> again with the same firmware: it finishes the write. Holding <b>OCT-</b> while switching on gives the
-      same update mode at any time.</p>
-    <p class="meta">Do not switch off and on twice in a row while it is in update mode: the second time it drops into the
-      chip's own USB boot ("WL82 UBOOT1.00"), where <a href="https://github.com/Quixotic7/MvaveFM1Unbricker">MvaveFM1Unbricker</a>
-      (Windows or Linux) or the <a href="https://github.com/kurogedelic/FM-1-transporter">FM-1 Transporter</a> take over.
-      Arriving from the official V15, a cut-off write ends there rather than in update mode.</p>
+    <p>A pulled cable or a flat battery is not the end: switch the FM-1 off and on. It comes back in <b>update mode</b>:
+      a black screen (three short flashes of the key lights), or UPDATING / DO NOT UNPLUG, depending on the firmware it
+      was leaving. Open this page (or the installer you were using) and press <b>Install</b> again with the same
+      firmware: it finishes the write.</p>
+    <p class="meta">Leaving RemoteFM1 0.1, ChoralRoot or TransitFM1: do not switch off and on twice in a row while it is
+      in update mode: the second time it drops into the chip's own USB boot ("WL82 UBOOT1.00"), where
+      <a href="https://github.com/Quixotic7/MvaveFM1Unbricker">MvaveFM1Unbricker</a> (Windows or Linux) or the
+      <a href="https://github.com/kurogedelic/FM-1-transporter">FM-1 Transporter</a> take over. Arriving from the official
+      V15, a cut-off write ends there rather than in update mode. On RemoteFM1 0.2, holding <b>REC</b> while switching on
+      enters that USB boot on purpose (0.1: <b>OCT-</b>, its own update mode).</p>
   </section>
 
   <section class="card">
     <h2>Leaving RemoteFM1</h2>
-    <p>Install the next firmware with its own installer, as you would over the official firmware: <b>RemoteFM1 answers
-      every installer as V15</b> (<code>FM-1_015</code>, USB device "FM-1"). ChoralRoot's, Felucca's, the
-      <a href="https://thefirmwarehub.com">FM-1 Firmware Hub</a>'s: any of them. RemoteFM1 writes the next firmware with its
-      own update loader, the first sector last. To go back to stock, install M-VAVE's official V15 <code>FM-1.fwsc</code>
-      (below); to go on to V16, update from V15 with M-VAVE's M-UPGRADE.</p>
+    <p>Install the next firmware with its own installer, as you would over the official firmware. <b>RemoteFM1 0.2
+      answers installers as itself</b> (<code>FM-1_52000201</code> for 0.2.1, USB device "FM-1"; 0.1 answered as V15,
+      <code>FM-1_015</code>). An installer that does not know it yet may refuse it: then install that firmware's
+      <code>.fwsc</code> from here (below). RemoteFM1 writes the next firmware with its own update loader. To go back to
+      stock, install M-VAVE's official V15 <code>FM-1.fwsc</code> (below); to go on to V16, update from V15 with M-VAVE's
+      M-UPGRADE.</p>
     <p><b>M-VAVE's V16</b>, <b>Baud Girl</b>, and any firmware whose image is larger than the app area: install the
       official V15 first, then that firmware from V15 with its own installer (V16: M-VAVE's M-UPGRADE).</p>
     <details>
@@ -167,15 +184,16 @@
   </section>
 
   <footer>
-    <p>RemoteFM1 is free software under the GPL-3.0 (<a href="https://github.com/Quixotic7/RemoteFM1">source</a>), built on
-      <a href="https://github.com/Quixotic7/TransitFM1">TransitFM1</a> (its installer page and loader),
+    <p>RemoteFM1 is free software (<a href="https://github.com/Quixotic7/RemoteFM1">source</a>). Its firmware is MPL-2.0 from
+      0.2, built on <a href="https://github.com/charlesvestal/fm1-base">fm1-base</a> and
+      <a href="https://github.com/hugelton/felucca-bsp">felucca-bsp</a>; the USB + Bluetooth package links JieLi's
+      Bluetooth library (Apache-2.0). 0.1.1 is GPL-3.0-only, built on <a href="https://github.com/Quixotic7/TransitFM1">TransitFM1</a>,
       <a href="https://github.com/zvenson/dinghy">Dinghy</a>, <a href="https://github.com/hugelton/Felucca">Felucca</a>'s
       platform as <a href="https://github.com/isod89/sloop-fm1">SLOOP</a> carries it, and
-      <a href="https://github.com/Quixotic7/ChoralRootFM1">ChoralRoot FM-1</a>'s boot stub. The package holds three JieLi
-      AC79 SDK files (Apache-2.0) and the Terminus font (OFL-1.1): <a href="firmware/">the package, its sums and every
-      licence</a>.</p>
-    <p>"M-VAVE" and "FM-1" belong to their owners. RemoteFM1 answers the update protocol as the official firmware so that
-      installers accept it; it is not made or endorsed by M-VAVE.</p>
+      <a href="https://github.com/Quixotic7/ChoralRootFM1">ChoralRoot FM-1</a>'s boot stub. This page is TransitFM1's
+      (GPL-3.0-only). Every package holds three JieLi AC79 SDK files (Apache-2.0) and its fonts (OFL-1.1):
+      <a href="firmware/">the packages, their sums and every licence</a>.</p>
+    <p>"M-VAVE" and "FM-1" belong to their owners. RemoteFM1 is not made or endorsed by M-VAVE.</p>
   </footer>
 </main>
 <script type="module" src="installer.js"></script>

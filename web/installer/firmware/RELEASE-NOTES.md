@@ -1,3 +1,56 @@
+# RemoteFM1 0.2.1
+
+Released 2026-10-27, built with `./build.sh --release 0.2.1` (and `--no-ble` for the USB-only package). It replaces
+0.1.1. Both packages install as `FM-1_52000201`.
+
+| Package | sha256 |
+| --- | --- |
+| `remote-0.2.1.fwsc`, USB + Bluetooth MIDI (the default) | `c4771c6cb6f38ac74b30d86a0f07b5f1ee90a3bcc270cfe7cd54fc3e74e5344f` |
+| `remote-usb-0.2.1.fwsc`, USB only | `073b9e4f05f0aa783d92904a8d474ae817359a613295ee88f73b8d61dbd52f1e` |
+
+## What changed from 0.1.1
+
+- **Built on fm1-base and felucca-bsp** (MPL-2.0). TransitFM1's platform is gone. The firmware is MPL-2.0 from
+  0.2; 0.1.1 stays GPL-3.0-only.
+- **Bluetooth MIDI.** The panel and the screen work without a cable, with the same messages as over USB. The screen
+  is slower that way (a few KB/s): fine for a still screen, not for a moving one. Updates still go over USB only.
+- **USB audio.** The computer plays through the FM-1's speaker or headphones, with MASTER as the volume. The FM-1 is
+  an audio input too. Turning MASTER no longer crackles (felucca-bsp patch 0002).
+- **It answers installers as itself:** `FM-1_52XXYYZZ` (`FM-1_52000201` for 0.2.1), on the USB device "FM-1".
+  0.1 answered as the official V15 (`FM-1_015`). An installer that does not know it yet may refuse it.
+- **REC held at power-on** enters the chip's own USB update mode (0.1's key was OCT-, into its update loader).
+- **fm1-base's safeguards:** the boot guard (two failed starts give a safe mode with USB on), the crash screen,
+  the watchdog. Updates use felucca-bsp's loader (`ota-FM-1_900`), which writes the app area only.
+- **The vendor bulk interface moved** from interface 2 to 4 (after USB audio in and out); bcdDevice 4.50. Hosts
+  find it by its class.
+
+## What it writes in flash
+
+- 0xF2000..0xF3FFF: Bluetooth's address and any pairing, at the first Bluetooth start (the Bluetooth package only).
+- 0xFC000..0xFDFFF: the panel calibration, only when OCT- and OCT+ are held at power-on.
+- Every update stages its loader at 0xE0000..0xE4FFF, as 0.1's did.
+
+Nothing else. These places are free in ChoralRoot's map and in the stock firmware's, so their data stays.
+
+## The USB-only package
+
+`remote-usb-0.2.1.fwsc` has no radio and none of JieLi's Bluetooth library. Like every FM-1 package, it still
+carries the three JieLi SDK files the chip boots with (Apache-2.0).
+
+## Testing
+
+On an FM-1 on 2026-10-27, the USB + Bluetooth package:
+- installed over RemoteFM1 0.2.0 and over FIZZ;
+- over USB-MIDI SysEx: HELLO, a session, every TILES encoding, FRAME_ACK, LEDS (about 265 small frames a second
+  round trip; a full frame drawn in 22 ms);
+- over the vendor bulk interface (interface 4): about 845 KB/s in, 815 KB/s out, 0.16 ms echo; about 610 KB/s while
+  USB audio plays, with no errors;
+- over Bluetooth MIDI as "FM-1 7938": HELLO, a session, about 22 frames a second round trip, keys, buttons, encoders
+  and MASTER, 155 frames of an interactive demo all acknowledged;
+- USB audio on the speaker and on headphones (headphones mute the speaker), MASTER as the volume without crackle.
+
+Not tested on an FM-1: the USB-only package, the write at 0xF2000, and the way back to M-VAVE's V15 from 0.2.
+
 # RemoteFM1 0.1.1
 
 `remote-0.1.1.fwsc`, sha256 `a7408d6c0526e01ef80e81c7350082ff203beaca3eabee52899748fc730a96a7`, built with

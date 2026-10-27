@@ -7,14 +7,21 @@ a{color:#FF8A3D}table{border-collapse:collapse;width:100%}td{padding:6px 8px;bor
 code{font-size:.85em}</style>
 </head><body>
 <h1>RemoteFM1 packages</h1>
-<p><a href="../">The installer</a> installs the first. <a href="SHA256SUMS">SHA256SUMS</a>, <a href="RELEASE-NOTES.md">release notes</a></p>
+<p><a href="../">The installer</a> installs 0.2.1 (USB + Bluetooth, or USB only). <a href="SHA256SUMS">SHA256SUMS</a>,
+<a href="RELEASE-NOTES.md">release notes</a>, <a href="LICENSING.md">licensing</a></p>
 <table>
-<tr><td><a href="remote-0.1.1.fwsc">remote-0.1.1.fwsc</a></td><td>610594 B</td><td><code>a7408d6c0526e01ef80e81c7350082ff203beaca3eabee52899748fc730a96a7</code></td></tr>
+<tr><td><a href="remote-0.2.1.fwsc">remote-0.2.1.fwsc</a><br>0.2.1, USB + Bluetooth MIDI, MPL-2.0</td><td>611496 B</td><td><code>c4771c6cb6f38ac74b30d86a0f07b5f1ee90a3bcc270cfe7cd54fc3e74e5344f</code></td></tr>
+<tr><td><a href="remote-usb-0.2.1.fwsc">remote-usb-0.2.1.fwsc</a><br>0.2.1, USB only, MPL-2.0</td><td>611496 B</td><td><code>073b9e4f05f0aa783d92904a8d474ae817359a613295ee88f73b8d61dbd52f1e</code></td></tr>
+<tr><td><a href="remote-0.1.1.fwsc">remote-0.1.1.fwsc</a><br>0.1.1 (older), GPL-3.0-only</td><td>610594 B</td><td><code>a7408d6c0526e01ef80e81c7350082ff203beaca3eabee52899748fc730a96a7</code></td></tr>
 </table>
 <h2>Licences</h2>
-<p>RemoteFM1 is GPL-3.0-only (<a href="LICENSE">LICENSE</a>, <a href="LICENSING.md">LICENSING.md</a>; source:
-<a href="https://github.com/Quixotic7/RemoteFM1">https://github.com/Quixotic7/RemoteFM1</a>, built with
-<code>./build.sh --release 0.1.1</code>). Each package also holds three files of the JieLi AC79 SDK (Apache-2.0) and the
-Terminus font (OFL-1.1):</p>
-<ul><li><a href="LICENSES/Apache-2.0.txt">Apache-2.0.txt</a></li><li><a href="LICENSES/OFL-1.1-Terminus.txt">OFL-1.1-Terminus.txt</a></li></ul>
+<p>RemoteFM1's firmware is MPL-2.0 from 0.2 (<a href="LICENSES/MPL-2.0.txt">MPL-2.0.txt</a>), built on fm1-base and
+felucca-bsp; 0.1.1 is GPL-3.0-only (<a href="LICENSE">LICENSE</a>). Source:
+<a href="https://github.com/Quixotic7/RemoteFM1">https://github.com/Quixotic7/RemoteFM1</a>, at each release's tag
+(<code>./build.sh --release 0.2.1</code>, with <code>--no-ble</code> for the USB-only package). The USB + Bluetooth
+package links JieLi's Bluetooth library (Apache-2.0). Every package holds three files of the JieLi AC79 SDK
+(Apache-2.0) and a font (OFL-1.1). <a href="LICENSING.md">LICENSING.md</a> says which is where.</p>
+<ul><li><a href="LICENSES/MPL-2.0.txt">MPL-2.0.txt</a></li><li><a href="LICENSES/Apache-2.0.txt">Apache-2.0.txt</a></li>
+<li><a href="LICENSES/OFL-1.1-Barlow.txt">OFL-1.1-Barlow.txt</a></li><li><a href="LICENSES/OFL-1.1-Terminus.txt">OFL-1.1-Terminus.txt</a></li>
+<li><a href="LICENSE">LICENSE</a> (GPL-3.0, 0.1.1)</li></ul>
 </body></html>

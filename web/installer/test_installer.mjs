@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // The RemoteFM1 web installer's decisions (installer.js) against a simulated FM-1 on a fake Web MIDI, end to end in
-// Node (TransitFM1's web/test_installer.mjs, GPL-3.0-only, ported): the released package checked (releases.json,
-// SHA256SUMS and the file agree), installs over the firmwares that answer as V15, over RemoteFM1 itself (told by its
+// Node (TransitFM1's web/test_installer.mjs, GPL-3.0-only, ported): the released packages checked (releases.json,
+// SHA256SUMS, the files and their identities agree; the USB-only choice fetches and checks its own file), installs over the firmwares that answer as V15, over RemoteFM1 itself (told by its
 // HELLO) and over ChoralRoot; Bubba Machine and Sloop refused (Sloop only without the override); no fresh install
 // before the visitor says the MIDI apps are closed; an install cut off finished from update mode; a cancel that
 // sends nothing; an FM-1 on M-VAVE's V16 (FM-1_016) named as such and installed over; V16's package refused (past
@@ -13,7 +13,7 @@ import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createHash } from "node:crypto";
 import { pack7, unpack7 } from "./fm1ota.js";
-import { install, look, describe, packageFrom, releasedPackage, IDENTITY, rfPack7, rfUnpack7, requestMidi,
+import { install, look, describe, packageFrom, releasedPackage, releaseFile, IDENTITY, rfPack7, rfUnpack7, requestMidi,
          MIDI_PROMPT, MIDI_LATE, MIDI_DENIED } from "./installer.js";
 import { validateStockPackage } from "./fm1pkg.js";
 
@@ -28,8 +28,9 @@ const UPGRADE = [0xF0, 0x22, 0x24, 0x35, 0x7F, 0xF7];
 
 // a FM-1: the handshake, INFO (version: the backup protocol's answer, or none), step 1 (four reads and "success"),
 // then the loader (six reads and the finish), then the firmware written
+let FINAL = IDENTITY;                              // what an install leaves: the package's identity (set below)
 class FakeFM1 {
-  constructor(image, { identity = "FM-1_015", name = "FM-1", version = null, loader = "ota-FM-1_900", final = IDENTITY, remote = null } = {}) {
+  constructor(image, { identity = "FM-1_015", name = "FM-1", version = null, loader = "ota-FM-1_900", final = FINAL, remote = null } = {}) {
     this.image = image; this.served = 0; this.bad = 0; this.upgrades = 0; this.version = version; this.remote = remote; this.hellos = 0;
     this.loader = loader; this.final = final;
     this.access = { inputs: new Map(), outputs: new Map() };
@@ -111,7 +112,8 @@ const UI = (answer = true) => {
   const ids = [...new Set([...js.matchAll(/(?:\$|put)\("([\w-]+)"/g)].map((m) => m[1]))];
   const missing = ids.filter((id) => !new RegExp(`id="${id}"`).test(page));
   ok(ids.length >= 10 && !missing.length, `the page has every element installer.js uses (${ids.length})${missing.length ? ": missing " + missing.join(", ") : ""}`);
-  for (const t of [/no sound on\s+its own/, /ChoralRoot users: back up first/, /answers\s+every installer as V15/, /Close every app that uses MIDI/, /Chrome or Edge/])
+  for (const t of [/no sound on\s+its own/, /ChoralRoot users: back up first/, /answers\s+installers as itself/, /Close every app that uses MIDI/, /Chrome or Edge/,
+                   /USB only/, /USB \+ Bluetooth MIDI/])
     ok(t.test(page), `the page says ${t.source.replace(/\\s\+/g, " ")}`);
 }
 {
@@ -134,20 +136,47 @@ const raw = new Uint8Array(readFileSync(pkgPath));
 const sha = createHash("sha256").update(raw).digest("hex");
 if (!process.argv[2]) {
   const sums = readFileSync(new URL("./firmware/SHA256SUMS", import.meta.url), "utf8");
-  ok(sha === rels[0].sha256 && sums.includes(`${sha}  remote-${rels[0].version}.fwsc`), `the released package ${rels[0].version}: releases.json, SHA256SUMS and the file agree`);
-  // what Pages publishes (firmware/ as it is): only the listed releases, no earlier package left beside them
-  const listed = rels.map((r) => `remote-${r.version}.fwsc`).sort().join();
+  // every package of every release (the default one, and the USB-only one where there is one)
+  const pkgs = rels.flatMap((r) => [releaseFile(r), ...(r.usbOnly ? [releaseFile(r, "usb")] : [])].map((f) => ({ r, ...f })));
+  for (const p of pkgs) {
+    const b = new Uint8Array(readFileSync(new URL(`./firmware/${p.file}`, import.meta.url)));
+    const h = createHash("sha256").update(b).digest("hex");
+    let prod = "";
+    try { prod = (await packageFrom(b)).product; } catch (e) { prod = e.message; }
+    ok(h === p.sha256 && sums.includes(`${h}  ${p.file}`) && prod === p.r.identity,
+       `${p.file}: releases.json, SHA256SUMS and the file agree; installs as ${prod}`);
+  }
+  // what Pages publishes (firmware/ as it is): only the listed packages, no earlier one left beside them
+  const listed = pkgs.map((p) => p.file).sort().join();
   const files = readdirSync(new URL("./firmware/", import.meta.url)).filter((f) => f.endsWith(".fwsc")).sort().join();
   const summed = sums.trim().split("\n").map((l) => l.split(/\s+/)[1]).sort().join();
   ok(files === listed && summed === listed, `firmware/ holds the listed packages only (${files})`);
-  ok(rels[0].version === "0.1.1" && !files.includes("remote-0.1.fwsc"), "RemoteFM1 0.1.1 is offered, 0.1 is not published");
+  ok(rels[0].version === "0.2.1" && rels[0].identity === "FM-1_52000201" && rels[0].usbOnly && rels[0].license === "MPL-2.0"
+     && rels.some((r) => r.version === "0.1.1" && r.identity === "FM-1_015" && r.license === "GPL-3.0-only") && !files.includes("remote-0.1.fwsc"),
+     "RemoteFM1 0.2.1 is offered (USB + Bluetooth, and USB only), 0.1.1 kept as the older release, 0.1 not published");
+  // the USB-only choice: its own file, its own SHA-256, the same identity
+  const r0 = rels[0], usbRaw = new Uint8Array(readFileSync(new URL(`./firmware/${r0.usbOnly.file}`, import.meta.url)));
+  const asked = [];
+  const fetchAny = async (url) => { asked.push(url); return { ok: true, status: 200, arrayBuffer: async () => usbRaw.buffer.slice(usbRaw.byteOffset, usbRaw.byteOffset + usbRaw.length) }; };
+  const u = await releasedPackage(r0, fetchAny, "usb");
+  ok(asked.join() === `firmware/${r0.usbOnly.file}` && u.product === r0.identity && u.label === `RemoteFM1 ${r0.version} (USB only)`,
+     "the USB-only choice: its own file fetched, checked, labelled");
+  let e = "";
+  try { await releasedPackage(r0, fetchAny); } catch (x) { e = x.message; }
+  ok(/not the released one/.test(e), "the USB-only file served for the default package: refused (SHA-256)");
+  e = "";
+  try { await releasedPackage({ ...r0, identity: "FM-1_52000200" }, fetchAny, "usb"); } catch (x) { e = x.message; }
+  ok(/installs as FM-1_52000201, not FM-1_52000200/.test(e), "a package whose identity is not the release's: refused");
+  const old = rels.find((r) => r.version === "0.1.1");
+  ok(releaseFile(old, "usb").file === "remote-0.1.1.fwsc", "a release without a USB-only package: the choice falls back to its one package");
 }
 const rel = { version: "9.9", sha256: sha };
 const fakeFetch = (bytes) => async (url) => ({ ok: url === "firmware/remote-9.9.fwsc", status: 404, arrayBuffer: async () => bytes.buffer });
 
 // the package
 const pkg = await releasedPackage(rel, fakeFetch(raw));
-ok(pkg.product === IDENTITY && !pkg.official && pkg.label === "RemoteFM1 9.9", `the released package: identity ${pkg.product}, labelled`);
+FINAL = pkg.product;
+ok((pkg.product === IDENTITY || /^FM-1_52\d{6}$/.test(pkg.product)) && !pkg.official && pkg.label === "RemoteFM1 9.9", `the released package: identity ${pkg.product}, labelled`);
 let err = "";
 try { const bad = raw.slice(); bad[5000] ^= 1; await releasedPackage(rel, fakeFetch(bad)); } catch (e) { err = e.message; }
 ok(/not the released one/.test(err), "a package whose SHA-256 differs is refused before anything");
@@ -189,24 +218,24 @@ const run = async (o, opts = { midiClosed: true }, answer = true) => {
   return { dev, ui, r, e };
 };
 let t = await run({});
-ok(t.r === "done" && t.dev.upgrades === 2 && t.dev.bad === 0 && t.dev.identity === IDENTITY && t.ui.confirms === 1 &&
+ok(t.r === "done" && t.dev.upgrades === 2 && t.dev.bad === 0 && t.dev.identity === FINAL && t.ui.confirms === 1 &&
    t.ui.prog === 1 && t.ui.kinds.at(-1) === "ok", "over the stock V15 (or TransitFM1): installed, both steps served right");
 t = await run({ identity: "FM-1_920", name: "ChoralRoot FM-1", version: "ChoralRoot 0.25.1" });
-ok(t.r === "done" && t.dev.bad === 0 && t.dev.identity === IDENTITY, "over ChoralRoot: installed");
+ok(t.r === "done" && t.dev.bad === 0 && t.dev.identity === FINAL, "over ChoralRoot: installed");
 {
   const dev = new FakeFM1(pkg.image, { identity: "FM-1_016" }), ui = UI();
   let asked = "";
   ui.confirm = (q) => { asked = q; ui.confirms++; return true; };
   const r = await install(dev.access, pkg, ui, { midiClosed: true });
-  ok(r === "done" && dev.bad === 0 && dev.identity === IDENTITY && dev.hellos === 0 && /over the official V16\?/.test(asked),
+  ok(r === "done" && dev.bad === 0 && dev.identity === FINAL && dev.hellos === 0 && /over the official V16\?/.test(asked),
      "over M-VAVE's V16 (FM-1_016): installed, asked as \"over the official V16\", no HELLO");
 }
 t = await run({ identity: "FM-1_910", name: "Felucca", version: "FELUCCA v1.0.1" });
 ok(t.r === "done" && t.dev.bad === 0, "over Felucca 1.0.1: installed");
 t = await run({ remote: "0.1.1" });
-ok(t.r === "done" && t.dev.bad === 0 && t.dev.identity === IDENTITY && t.dev.hellos >= 1, "over RemoteFM1 (a reinstall): installed");
+ok(t.r === "done" && t.dev.bad === 0 && t.dev.identity === FINAL && t.dev.hellos >= 1, "over RemoteFM1 (a reinstall): installed");
 t = await run({ identity: "FM-1_52000200", remote: "0.2.0" });
-ok(t.r === "done" && t.dev.bad === 0 && t.dev.identity === IDENTITY && t.dev.hellos >= 1, "over RemoteFM1 0.2 (FM-1_52000200): installed");
+ok(t.r === "done" && t.dev.bad === 0 && t.dev.identity === FINAL && t.dev.hellos >= 1, "over RemoteFM1 0.2 (FM-1_52000200): installed");
 t = await run({}, {});
 ok(t.r === "refused" && t.dev.upgrades === 0 && t.ui.confirms === 0 && /close every app that uses MIDI/i.test(t.ui.said.at(-1)),
    "before the MIDI apps are said to be closed: refused, nothing sent");
@@ -222,7 +251,7 @@ ok(t.r === "done" && t.dev.bad === 0, "over Sloop with the override: installed")
 t = await run({}, { midiClosed: true }, false);
 ok(t.r === "cancelled" && t.dev.upgrades === 0, "the confirmation declined: nothing sent");
 t = await run({ identity: "ota-FM-1_900", name: "Felucca Update" });
-ok(t.r === "resumed" && t.dev.upgrades === 1 && t.dev.bad === 0 && t.dev.identity === IDENTITY && t.ui.confirms === 0,
+ok(t.r === "resumed" && t.dev.upgrades === 1 && t.dev.bad === 0 && t.dev.identity === FINAL && t.ui.confirms === 0,
    "in update mode (an install cut off): the write finished, no question");
 t = await run({ identity: "ota-FM-1_015", name: "ota-FM-1" });
 ok(t.e && /another firmware/.test(t.e.message) && t.dev.upgrades === 0,

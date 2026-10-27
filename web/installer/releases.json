@@ -1,11 +1,34 @@
 {
-  "about": "The RemoteFM1 releases the web installer offers, newest first (index.html installs the first). sha256 is the package's (firmware/remote-X.Y.fwsc), as firmware/SHA256SUMS lists it: test_installer.mjs checks the two agree, and the page checks it again in the browser before any write.",
+  "about": "The RemoteFM1 releases the web installer offers, newest first (index.html installs the first). sha256 is the default package's (firmware/remote-X.Y.Z.fwsc), as firmware/SHA256SUMS lists it; usbOnly, when there, is the release's second package (no Bluetooth), which the page offers as a choice. identity is what the package installs as (the page checks it). test_installer.mjs checks that this list, SHA256SUMS and the files agree, and the page checks the SHA-256 again in the browser before any write.",
   "repo": "https://github.com/Quixotic7/RemoteFM1",
   "releases": [
+    {
+      "version": "0.2.1",
+      "date": "2026-10-27",
+      "tag": "v0.2.1",
+      "identity": "FM-1_52000201",
+      "license": "MPL-2.0",
+      "sha256": "c4771c6cb6f38ac74b30d86a0f07b5f1ee90a3bcc270cfe7cd54fc3e74e5344f",
+      "usbOnly": {
+        "file": "remote-usb-0.2.1.fwsc",
+        "sha256": "073b9e4f05f0aa783d92904a8d474ae817359a613295ee88f73b8d61dbd52f1e"
+      },
+      "notes": [
+        "Built on fm1-base and felucca-bsp (MPL-2.0) instead of TransitFM1's platform.",
+        "Bluetooth MIDI: the panel and the screen without a cable. The screen is slower that way (a few KB/s): fine for a still screen, not for a moving one.",
+        "USB audio: the computer plays through the FM-1's speaker or headphones, and MASTER is the volume.",
+        "Answers installers as itself, FM-1_52000201, on the USB device \"FM-1\" (0.1 answered as the official V15).",
+        "REC held at power-on enters the chip's own USB update mode (0.1's key was OCT-). fm1-base's safeguards: the boot guard, the crash screen, the watchdog.",
+        "Writes 0xF2000..0xF3FFF (Bluetooth's address) at its first Bluetooth start, and 0xFC000.. only when you calibrate the panel. The USB-only package has no radio.",
+        "Tested on an FM-1 on 2026-10-27 (the USB + Bluetooth package)."
+      ]
+    },
     {
       "version": "0.1.1",
       "date": "2026-10-18",
       "tag": "v0.1.1",
+      "identity": "FM-1_015",
+      "license": "GPL-3.0-only",
       "sha256": "a7408d6c0526e01ef80e81c7350082ff203beaca3eabee52899748fc730a96a7",
       "notes": [
         "The FM-1 as a USB panel: its keys, buttons, knobs and MASTER go to the computer as MIDI; the computer draws its screen and lights its LEDs.",
