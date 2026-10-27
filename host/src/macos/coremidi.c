@@ -101,13 +101,18 @@ void cm_close(cm_t *c)
     free(c);
 }
 
+/* 1: a driver whose devices are never candidates (the IAC bus, network sessions); 2: Bluetooth MIDI, a candidate only
+ * when its name says FM-1 (RemoteFM1 0.2 advertises "FM-1 1F2D", and the Mac names the device so): other Bluetooth
+ * gear never gets a byte */
 static int skip_driver(MIDIDeviceRef dev)
 {
     CFStringRef s = NULL;
     char drv[128];
     MIDIObjectGetStringProperty(dev, kMIDIPropertyDriverOwner, &s);
     cfstr(s, drv, sizeof drv);
-    return contains_ci(drv, "IAC") || contains_ci(drv, "RTP") || contains_ci(drv, "Bluetooth");
+    if (contains_ci(drv, "Bluetooth"))
+        return 2;
+    return contains_ci(drv, "IAC") || contains_ci(drv, "RTP");
 }
 
 static int is_virtual(MIDIEndpointRef e)
@@ -125,8 +130,11 @@ int cm_scan(cm_t *c, cm_cand_t *out, int max, int allow_devices, const char *vir
         ItemCount nd = MIDIGetNumberOfDevices();
         for (i = 0; i < nd && n < max; i++) {
             MIDIDeviceRef dev = MIDIGetDevice(i);
-            if (offline(dev) || skip_driver(dev))
+            int skip = offline(dev) ? 1 : skip_driver(dev);
+            char devname[64];
+            if (skip == 1)
                 continue;
+            obj_name(dev, devname, sizeof devname);
             for (k = 0; k < MIDIDeviceGetNumberOfEntities(dev) && n < max; k++) {
                 MIDIEntityRef ent = MIDIDeviceGetEntity(dev, k);
                 MIDIEndpointRef src, dst;
@@ -140,6 +148,8 @@ int cm_scan(cm_t *c, cm_cand_t *out, int max, int allow_devices, const char *vir
                 obj_name(dst, out[n].name, sizeof out[n].name);
                 if (contains_ci(out[n].name, "update"))           /* an updater port (tools/m0_bench.py skips it) */
                     continue;
+                if (skip == 2 && !contains_ci(devname, "FM-1") && !contains_ci(out[n].name, "FM-1"))
+                    continue;                                     /* Bluetooth, not an FM-1: never touched */
                 if (filter && *filter && !contains_ci(out[n].name, filter))
                     continue;
                 MIDIObjectGetIntegerProperty(dst, kMIDIPropertyUniqueID, &uid);
