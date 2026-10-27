@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-3.0-only
+/* SPDX-License-Identifier: MPL-2.0
  * Copyright (C) 2026 RemoteFM1 contributors */
 /* The TILES decoder (docs/PROTOCOL.md section 3): a TILES body's rectangles, in order, into a 240 x 240 shadow
  * frame buffer. Plain C99 that depends only on proto/rfm1.h: the device builds it into remote.c, the host tests
@@ -11,7 +11,11 @@
  *
  * Every rectangle is checked whole (bounds, enc, payload length, PAL n and indices, RLE runs) before a pixel is
  * written: a malformed rectangle writes nothing, and it and the rest of the message are dropped. Nothing outside
- * fb[0 .. 240 * 240) is ever written and nothing outside body[0 .. len) is ever read. */
+ * fb[0 .. 240 * 240) is ever written and nothing outside body[0 .. len) is ever read.
+ *
+ * Without a shadow (fb NULL: a firmware short of RAM, RFM_SHADOW 0) each rectangle's rows go to row() as they are
+ * decoded, one row of w pixels at a time in rowbuf (RFM_W pixels, the caller's), top down; COPY needs the shadow and
+ * is refused (RFM_DRAW_E_ENC). Nothing is drawn of a malformed rectangle in this mode either. */
 #ifndef RFM_DRAW_H
 #define RFM_DRAW_H
 #include <stdint.h>
@@ -20,10 +24,15 @@
 /* a rectangle of the shadow was written (x, y, w, h: inside the screen, w, h >= 1) */
 typedef void (*rfm_dirty_fn)(void *ctx, uint32_t x, uint32_t y, uint32_t w, uint32_t h);
 
+/* without a shadow: a row of w pixels for (x, y), wire order as the shadow keeps them (px: rowbuf) */
+typedef void (*rfm_row_fn)(void *ctx, uint32_t x, uint32_t y, uint32_t w, const uint16_t *px);
+
 typedef struct {
-    uint16_t *fb;                       /* RFM_W * RFM_H pixels, row-major */
+    uint16_t *fb;                       /* RFM_W * RFM_H pixels, row-major; NULL: no shadow (row, rowbuf) */
     rfm_dirty_fn dirty;                 /* NULL: nobody tracks */
     void *ctx;
+    rfm_row_fn row;                     /* (fb NULL) where the rows go */
+    uint16_t *rowbuf;                   /* (fb NULL) RFM_W pixels */
 } rfm_draw_t;
 
 enum {
@@ -53,6 +62,6 @@ uint32_t rfm_draw_tiles(const rfm_draw_t *d, const uint8_t *body, uint32_t len, 
 uint32_t rfm_draw_rect(const rfm_draw_t *d, const uint8_t *p, uint32_t n, uint32_t *err);
 /* M0's raw TILE: w * h big-endian pixels at px (bounds checked by the caller) */
 void rfm_draw_raw(const rfm_draw_t *d, uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint8_t *px);
-/* the shadow all one colour (c: RGB565 as a number), and all of it dirty */
+/* the shadow all one colour (c: RGB565 as a number), and all of it dirty (without a shadow: those rows to row()) */
 void rfm_draw_clear(const rfm_draw_t *d, uint32_t c);
 #endif

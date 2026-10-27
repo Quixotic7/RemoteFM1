@@ -1,0 +1,53 @@
+# SPDX-License-Identifier: MPL-2.0
+# The vendor bulk pair and the update's SysEx beside RemoteFM1's, in the host simulator: a session over bulk with
+# big rectangles, the panel's events still on USB-MIDI, the bulk framing resynchronised after garbage; USB SysEx that
+# is not RemoteFM1's (the update's F0 00 59, fm1-base's own F0 7D 4C ..) left to the updater's frame, whole, between
+# and inside RemoteFM1's messages.
+wait 300
+rf hello bk
+expect rf_n_bk_41 1
+expect rf_n_usb_41 0
+rf session bk 1 3000
+expect rf_session_t 1
+expect rf_n_bk_46 1
+expect rf_n_bk_53 1
+rf tiles bk 1 end raw:0,0,64,64,4 pal:80,0,160,40,16,9 rle:0,80,240,40,3 fill:0,120,240,120,001F copy:120,130,100,100,0,0
+wait 300
+expect rf_n_bk_52 1
+expect rf_ack_frame 1
+expect rf_ack_t 1
+expect rf_shadow_ok 1
+expect rf_screen_ok 1
+shot bulk.png
+out
+tap REC
+expect_out USB 9E 0D 7F
+# garbage on the bulk pair: resynchronised at the next header, the message after it whole
+rf raw bk 00 11 52 33 46 13
+rf hello bk
+expect rf_n_bk_41 2
+# the update's frames between RemoteFM1's: left to the updater, whole
+rf hello usb
+rf ota
+rf tiles usb 9 end raw:0,0,20,20,3
+rf ota
+rf hello usb
+expect rf_ota_frames 2
+expect rf_n_usb_41 2
+expect rf_n_usb_52 1
+# fm1-base's own SysEx (the log request F0 7D 4C 47 F7): not RemoteFM1's, left alone
+rf raw usb F0 7D 4C 47 F7
+expect rf_ota_frames 3
+# RemoteFM1's message cut by the update's F0: RemoteFM1's counted bad, the update's frame whole
+rf raw usb F0 7D 52 46 01
+rf ota
+expect rf_ota_frames 4
+expect rf_bad_usb 1
+# a status byte inside RemoteFM1's message ends it (bad), not the update's next frame
+rf raw usb F0 7D 52 46 01 90
+rf ota
+expect rf_ota_frames 5
+expect rf_bad_usb 2
+rf hello usb
+expect rf_n_usb_41 3
+expect rf_session 1

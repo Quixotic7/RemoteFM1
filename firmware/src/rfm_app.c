@@ -1,13 +1,14 @@
-/* SPDX-License-Identifier: GPL-3.0-only
+/* SPDX-License-Identifier: MPL-2.0
  * Copyright (C) 2026 RemoteFM1 contributors */
 /* RemoteFM1's protocol layer (docs/PROTOCOL.md, version 2), without the HAL: the session and its keepalive, HELLO_R,
  * LEDS, TILES into the shadow (rfm_draw.c), the push at END (rfm_push.c) and FRAME_ACK, PANEL_R, and the panel
- * events as plain MIDI. remote.c includes it on the device, tests/session_test.c on the host, each with its own
- * versions of these (declared here, defined by the includer):
+ * events as plain MIDI. rfm_main.c includes it in the firmware (on fm1-base), tests/session_test.c and host/'s cross
+ * test on the computer, each with its own versions of these (declared here, defined by the includer):
  *
- *   rfa_tx(t, cmd, body, n)       a message on transport t (RF_T_SX / RF_T_BK); may wait for room, may drop
- *   rfa_midi(st, d1, d2)          a panel event as a plain MIDI message on EP1 (queued by the includer)
- *   rfa_leds(lit, glow, bg)       11 bytes each, fm1_led's packed row bits: the scan's three levels
+ *   rfa_tx(t, cmd, body, n)       a message on transport t (RF_T_SX / RF_T_BK; the firmware's third, Bluetooth's
+ *                                 SysEx); may wait for room, may drop
+ *   rfa_midi(st, d1, d2)          a panel event as a plain MIDI message (queued by the includer: to the session's port)
+ *   rfa_leds(lit, glow, bg)       11 bytes each, fm1_led's packed row bits: lit; mid and dim; faint
  *   rfa_hello_dev(h, t)           HELLO_R bytes 25..42 (M0's: transports, USB mode, LCD baud, loader, rings, maxima)
  *   rfa_session_changed(on)       the waiting screen goes (1) or comes back (0)
  *   rfa_us()                      microseconds, wrapping (FRAME_ACK draw_us)
@@ -17,6 +18,9 @@
  * rfm_app_panel (the panel once a millisecond), rfm_app_poll (often: the push, ACKs, timers), rfm_app_usb_lost,
  * rfm_app_lcd_lost (somebody else drew on the panel), rfm_app_tile_m0, rfm_app_pushing. The push runs in a session
  * (at every END, and once at its start to blacken the panel) and, outside one, only for M0's raw TILE.
+ * Without a shadow (rfm_app_init's fb NULL: the includer sets rfa.draw.row and rowbuf, RFM_SHADOW 0) the rectangles
+ * go to the panel as they are decoded (the includer draws them only in a session), each END is acknowledged at once,
+ * and a panel drawn on by someone else is owed by the host: the next FRAME_ACK says "shadow reset".
  *
  * Choices where the spec leaves room (each is reported, and kept here):
  *  - TILES outside a session are decoded into the shadow and acknowledged at once, without a push: the waiting
@@ -49,7 +53,9 @@ static void rfa_diag(uint32_t t, uint32_t cmd, const uint8_t *body, uint32_t len
 #endif
 #define RFA_GREEN_COL 8u                    /* PLAY's green LED: column 8, row bit 1 (ChoralRoot ui_input.c) */
 #define RFA_GREEN_BIT 0x02u
+#ifndef RFA_CAPS
 #define RFA_CAPS (RFM_CAP_SHADOW | RFM_CAP_COPY | RFM_CAP_RLE | RFM_CAP_PAL | RFM_CAP_PLAY_GREEN)
+#endif
 #define RFA_QN 8u                           /* ENDs waiting for their FRAME_ACK */
 #define RFA_PANEL_MS 500u
 #define RFA_MASTER_MS 5u
@@ -86,8 +92,8 @@ static struct {
 
 static void rfm_app_init(uint16_t *fb, uint16_t *stage, uint32_t stage_px, const rfm_lcd_ops_t *lcd)
 {
-    rfa.draw.fb = fb;
-    rfa.draw.dirty = rfm_push_dirty_cb;
+    rfa.draw.fb = fb;                                   /* (NULL: no shadow; the includer gives row and rowbuf) */
+    rfa.draw.dirty = fb ? rfm_push_dirty_cb : 0;
     rfa.draw.ctx = &rfa.push;
     rfm_push_init(&rfa.push, fb, stage, stage_px, lcd);
     rfa.master = rfa.master_sent = -1;
@@ -264,7 +270,8 @@ static void rfa_cmd_leds(const uint8_t *b, uint32_t len)
 static void rfa_end_push(uint32_t t, uint32_t frame)
 {
     uint32_t st = rfa.f_err ? RFM_ACK_DECODE_ERR : 0u;
-    if (!rfa.session) {                                 /* no push outside a session (the waiting screen) */
+    if (!rfa.session || !rfa.draw.fb) {                 /* no push outside a session (the waiting screen), nor
+                                                         * without a shadow (drawn as it was decoded) */
         rfa_frame_ack(t, frame, st, rfa.f_us, rfa.f_bytes, 0);
     } else {
         rfa_end_t *e;
@@ -433,6 +440,10 @@ static void rfm_app_usb_lost(void) { rfa_session_end(); }
 static void rfm_app_lcd_lost(void)
 {
     rfa.lcd_lost++;
+    if (!rfa.draw.fb) {                                 /* no shadow to repaint from: the host's model is gone */
+        rfa.shadow_reset = 1;
+        return;
+    }
     rfa_push_reset(rfa.session);                        /* the ENDs stay queued: the repaint answers them */
     rfa.flush = rfa.session;
 }

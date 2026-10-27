@@ -1,0 +1,69 @@
+/* SPDX-License-Identifier: MPL-2.0
+ * Copyright (C) 2026 RemoteFM1 contributors */
+/* RemoteFM1 on fm1-base: the app's half of the contract with the platform (fm1-base device/unity.c on the FM-1,
+ * host/plat_host.c in the host simulator). The app is app.c and src/; the protocol is docs/PROTOCOL.md. */
+#pragma once
+#include <stdint.h>
+#include "plat.h"
+
+#define APP_NAME "REMOTE FM1"
+#define APP_SPLASH_RGB RGB(120, 200, 255)
+#define APP_TAGLINE "WAITING FOR A HOST"
+#define APP_PALETTE 2u                   /* gfx.c's CYAN */
+#define APP_BLOCK 256u                   /* (the render plays silence) */
+#define APP_CANVAS_PX (240u * 32u)       /* the waiting screen draws a line at a time */
+#define FM1B_TRS 0                       /* no MIDI in on the TRS jack: a panel has nothing to play */
+
+/* RFM_SHADOW 1: the 240 x 240 shadow frame buffer (115,200 B of the pool): TILES are decoded into it and pushed to
+ * the panel at each END, COPY works, the panel is repainted from it after the update screen. 0 (a build short of
+ * RAM: the WiFi one): each rectangle goes to the panel as it is decoded, no COPY; HELLO_R's caps say which */
+#ifndef RFM_SHADOW
+#define RFM_SHADOW 1
+#endif
+
+/* the SysEx send ring (felucca-bsp usb.c, in packets of 3 bytes: RAM): RemoteFM1's replies go in whole */
+#ifndef SXQ
+#define SXQ 1024u
+#endif
+/* Bluetooth MIDI's queues (fm1-base device/radio.c, in packets): SysEx comes and goes as packets of three bytes */
+#define BLE_IN_Q 256u
+#define BLE_OUT_Q 128u
+
+/* the store: the panel calibration (the platform's, only written by OCT- + OCT+ at power-on) and Bluetooth's address
+ * and pairing (written once at the first Bluetooth start); two 4 KiB sectors each, as fm1-base's template has them */
+enum { OBJ_PANEL, OBJ_BLE, OBJ_NOBJ };
+#define APP_STORE_MAP {0xDC000u, 0xDE000u}
+
+/* the contract: the platform calls these */
+void app_init(void);
+void app_render(int32_t *lr, uint32_t n, uint32_t master_q12);
+void app_panic(void);
+void app_ui_init(void);
+void app_frame(void);
+void app_input_only(void);
+void app_say(const char *a, const char *b);
+
+#ifndef PLAT_HOST
+/* felucca-bsp's usb.c with RemoteFM1's vendor interface and its hooks (firmware/patches/felucca-bsp): the bulk pair
+ * on EP3, its rings in the pool; every SysEx byte from USB to src/rfm_main.c's tap (RemoteFM1's messages only, so the
+ * updater's frame slot is never held by one); EP1 held while RemoteFM1's ring is full; the frame-number check by the
+ * clock (the main loop polls USB far more often than 2 kHz); macOS's odd CIN 0xF byte inside a long SysEx taken */
+#define FELUCCA_VENDOR 1
+#define FELUCCA_VENDOR_IN_N 32768u
+#define FELUCCA_VENDOR_OUT_N 32768u
+#define FELUCCA_VENDOR_RING_ATTR PLAT_POOL
+static int rf_sx_tap(uint32_t b);
+static int rf_ep1_room(void);
+static int rf_frame_due(void);
+static uint32_t rf_cinf;
+#define FELUCCA_SYSEX_TAP(b) rf_sx_tap(b)
+#define FELUCCA_EP1_ROOM() rf_ep1_room()
+#define FELUCCA_USB_FRAME_DUE() rf_frame_due()
+#define FELUCCA_CIN_F_SYSEX (rf_cinf++)
+#else
+/* the host simulator's checks and commands (src/rfm_host.c) */
+#define APP_HOST_EXPECT
+#define APP_HOST_CMD
+int app_expect(const char *what, int *got);
+int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, const char *d);
+#endif

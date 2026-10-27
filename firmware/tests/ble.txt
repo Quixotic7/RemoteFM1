@@ -1,0 +1,68 @@
+# SPDX-License-Identifier: MPL-2.0
+# RemoteFM1 over Bluetooth MIDI (SysEx as USB-MIDI packets through plat_midi_in, fm1-base patched), in the host
+# simulator: a message on the Bluetooth port answered on Bluetooth only, a session there (TILES, FRAME_ACK, LEDS, the
+# panel's events to Bluetooth only), the USB port answered meanwhile on USB, a disconnect ending the session.
+wait 1100
+ble connect
+wait 10
+rf hello ble
+expect rf_n_ble_41 1
+expect rf_n_usb_41 0
+expect rf_hello_ident 1
+expect rf_hello_sxq 128
+expect rf_hello_transports >17
+# the same message from the generic simulator command (raw SysEx packets on the Bluetooth port): F0 7D 52 46 01 F7
+sysex BLE F0 7D 52 46 01 F7
+expect rf_n_ble_41 2
+rf session ble 1 3000
+expect rf_session 1
+expect rf_session_t 2
+expect rf_n_ble_46 1
+expect rf_n_ble_53 1
+expect rf_n_usb_46 0
+wait 50
+expect rf_screen_black 1
+rf tiles ble 1 end fill:0,0,64,64,F81F pal:64,0,30,20,4,5 rle:0,64,50,4,1
+wait 30
+expect rf_n_ble_52 1
+expect rf_ack_frame 1
+expect rf_ack_t 2
+expect rf_ack_status 2
+expect rf_shadow_ok 1
+expect rf_screen_ok 1
+rf led ble 5 lit
+expect rf_lit_keys 32
+# a USB host's HELLO meanwhile: answered on USB, the session stays on Bluetooth
+rf hello usb
+expect rf_n_usb_41 1
+expect rf_hello_session 1
+expect rf_session_t 2
+# the panel's events go to the session's port only
+out
+tapkey 2
+expect_out BLE 9F 37 64
+expect_no_out USB 9F 37 64
+# a message cut short by another (its F7 never came): dropped, counted; the next is whole
+rf raw ble F0 7D 52 46 01 00
+rf hello ble
+expect rf_bad_ble 1
+expect rf_n_ble_41 3
+# the heartbeat goes to Bluetooth
+wait 1100
+expect rf_n_ble_53 >2
+# a disconnect ends the Bluetooth session; the events go to USB again
+ble disconnect
+wait 5
+expect rf_session 0
+out
+tapkey 2
+expect_out USB 9F 37 64
+expect_no_out BLE 9F 37 64
+# connected again, no session: the events to both
+ble connect
+wait 5
+out
+tapkey 4
+expect_out USB 9F 39 64
+expect_out BLE 9F 39 64
+expect rf_drop_ble 0

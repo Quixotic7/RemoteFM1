@@ -1,6 +1,6 @@
-/* SPDX-License-Identifier: GPL-3.0-only
+/* SPDX-License-Identifier: MPL-2.0
  * Copyright (C) 2026 RemoteFM1 contributors */
-/* RemoteFM1 M0 bench protocol: one set of messages, carried two ways. Shared by the firmware (remote.c), the host
+/* RemoteFM1 M0 bench protocol: one set of messages, carried two ways. Shared by the firmware (rfm_main.c), the host
  * test (tests/proto_test.c) and the libusb tool (tools/m0_bulk.c); tools/m0_bench.py and web/m0_bench.html mirror
  * it (keep them in step).
  *
@@ -52,10 +52,13 @@ enum { RF_T_SX = 0, RF_T_BK = 1 };
 
 /* HELLO_R body, M0's 51 bytes (proto 2 adds 16 more: proto/rfm1.h RFM_HELLO_*): */
 #define RF_HELLO_LEN 51u
-/*  0 name[16] "RemoteFM1"          16 proto8         17 ver[8] (APP_VER)   25 transports8 (bit0 USB configured,
- *  bit1 vendor bulk built in, bit2 SysEx heard, bit3 bulk heard)          26 usb_mode8 (REMOTE_USB_MAINLOOP)
- * 27 lcd_baud8   28 loader_state (int8)   29 sxq16 (SysEx TX events)   31 bk_rx_ring32   35 bk_tx_ring32
- * 39 sx_body_max16   41 bk_body_max16   43 identity[8] ("FM-1_015") */
+/*  0 name[16] "RemoteFM1"          16 proto8         17 ver[8] (APP_VERSION)   25 transports8 (bit0 USB configured,
+ *  bit1 vendor bulk built in, bit2 SysEx heard, bit3 bulk heard; 0.2: bit4 a Bluetooth central connected, bit5 SysEx
+ *  heard over Bluetooth)   26 usb_mode8 (1: the main loop polls USB)   27 lcd_baud8   28 loader_state (int8: 0 the
+ *  updates work, -2 an unknown flash chip; 0.1: its own staged loader)   29 sxq16 (SysEx TX packets free for
+ *  RemoteFM1 on the transport asked: USB's ring, or Bluetooth's)   31 bk_rx_ring32   35 bk_tx_ring32
+ * 39 sx_body_max16   41 bk_body_max16   43 identity[8] (the first 8 characters: "FM-1_520" for FM-1_52XXYYZZ;
+ *  0.1 answered "FM-1_015") */
 
 /* STATS_R, in this order (n x u32) */
 enum {

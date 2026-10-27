@@ -1,0 +1,144 @@
+# SPDX-License-Identifier: MPL-2.0
+# A session over USB SysEx (docs/PROTOCOL.md), in fm1-base's host simulator: HELLO, SESSION, TILES with every
+# encoding into the shadow and onto the panel, FRAME_ACK, LEDS, PANEL_R, the panel as plain MIDI, M0's diagnostics,
+# the keepalive, a USB reset. tests/run_tests.sh runs it (firmware/build/host/remotefm1_host).
+wait 300
+# HELLO: answered on the transport it came on; outside a session
+rf hello usb
+expect rf_n_usb_41 1
+expect rf_n_bk_41 0
+expect rf_n_ble_41 0
+expect rf_hello_ident 1
+expect rf_hello_caps 47
+expect rf_hello_session 0
+expect rf_hello_sxq 960
+# outside a session: TILES decoded into the shadow and acknowledged, the waiting screen stays
+rf tiles usb 7 end fill:0,0,240,240,1234
+expect rf_n_usb_52 1
+expect rf_ack_frame 7
+# (the first FRAME_ACK after power-on: "shadow reset")
+expect rf_ack_status 2
+expect rf_shadow_ok 1
+expect rf_screen_ok 0
+# SESSION start: ACK, PANEL_R, MASTER, the screen and the shadow black
+master 2048
+out
+rf session usb 1 3000
+expect rf_session 1
+expect rf_session_t 0
+expect rf_n_usb_46 1
+expect rf_n_usb_53 1
+expect rf_panel_flags 1
+expect rf_panel_master 512
+expect_out USB BE 07 40
+expect_out USB BE 27 00
+wait 100
+expect rf_screen_black 1
+expect rf_shadow_ok 1
+# TILES: every encoding, applied in order, pushed at END, FRAME_ACK with "shadow reset" the first time
+rf tiles usb 1 end fill:0,0,16,16,F800 raw:16,0,16,16,5 pal:32,0,20,10,2,7 pal:60,0,9,5,4,3 pal:80,0,17,11,16,1 pal:100,0,13,7,3,2 rle:0,16,100,3,2 copy:100,100,16,16,0,0
+wait 50
+expect rf_n_usb_52 2
+expect rf_ack_frame 1
+expect rf_ack_status 2
+expect rf_ack_t 0
+expect rf_shadow_ok 1
+expect rf_screen_ok 1
+# a frame in two messages; COPY overlapping (memmove); RLE runs longer than a row
+rf tiles usb 2 more raw:0,40,60,8,9
+expect rf_n_usb_52 2
+rf tiles usb 2 end copy:4,42,50,6,0,40 copy:0,30,40,12,2,36 rle:10,60,7,40,1
+wait 50
+expect rf_n_usb_52 3
+expect rf_ack_frame 2
+expect rf_ack_status 0
+expect rf_shadow_ok 1
+expect rf_screen_ok 1
+# an empty END: a flush, acknowledged
+rf tiles usb 3 end
+wait 20
+expect rf_ack_frame 3
+expect rf_n_usb_52 4
+# a malformed rectangle: the rest of the message dropped, END honoured, the error in FRAME_ACK
+rf tiles usb 4 end fill:0,100,10,10,07E0 badpal:20,100,4,4
+wait 20
+expect rf_ack_frame 4
+expect rf_ack_status 1
+expect rf_decode_errs 1
+# (the reference drew the fill before the bad one too: the device did the same)
+expect rf_shadow_ok 1
+expect rf_screen_ok 1
+shot session.png
+# LEDS: lit; mid and dim at the mid level; faint at the glow; PLAY's green
+rf led usb 0 lit
+expect rf_lit_keys 1
+rf led usb 1 mid
+rf led usb 2 dim
+expect rf_mid_keys 6
+rf led usb 3 faint
+expect rf_glow_keys 8
+rf led usb b2 lit
+expect rf_lit_btns 1
+rf led usb green lit
+expect rf_lit_btns 16385
+rf led usb 0 off
+expect rf_lit_keys 0
+# the panel as plain MIDI (by matrix numbers): a key, a button (FX: 2), an encoder (K1: matrix 2), PANEL_R
+out
+tapkey 0
+expect_out USB 9F 35 64
+expect_out USB 8F 35 00
+tap FX
+expect_out USB 9E 02 7F
+expect_out USB 8E 02 00
+spin K1 3
+wait 5
+expect_out USB BE 12 43
+tap OCT-
+expect_out USB 9E 00 7F
+press SEL
+rf panelreq usb
+expect rf_panel_buttons 8
+expect rf_panel_enc2 3
+release SEL
+# the heartbeat: PANEL_R every 500 ms in a session
+rf panelreq usb
+expect rf_n_usb_53 >2
+wait 1100
+expect rf_n_usb_53 >4
+# M0's diagnostics: ECHO, STATS, STATS_RESET
+rf send usb 04 01 02 03 FF
+expect rf_n_usb_44 1
+rf send usb 05
+expect rf_n_usb_45 1
+rf send usb 06
+expect rf_n_usb_46 2
+# SESSION start again (a host retrying): black, numbering reset, "shadow reset" in the next ACK
+rf session usb 1 300
+expect rf_n_usb_46 3
+wait 50
+expect rf_screen_black 1
+rf tiles usb 1 end fill:200,200,40,40,FFFF
+wait 20
+expect rf_ack_status 2
+expect rf_screen_ok 1
+# the keepalive (300 ms): nothing from the host, the session ends, the waiting screen is back
+wait 400
+expect rf_session 0
+rf panelreq usb
+expect rf_panel_flags 0
+# a USB reset ends a USB session
+rf session usb 1 0
+expect rf_session 1
+rf usb reset
+wait 5
+expect rf_session 0
+# unplugged: no session, nothing sent
+rf session usb 1 0
+rf usb unplug
+wait 5
+expect rf_session 0
+rf usb plug
+rf session usb 0
+expect rf_session 0
+expect rf_bad_usb 0

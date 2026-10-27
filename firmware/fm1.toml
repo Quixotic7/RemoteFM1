@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: MPL-2.0
+# Copyright (C) 2026 RemoteFM1 contributors
+# RemoteFM1's build settings for fm1-base's tools/build.py (run through ../build.sh: fm1-base, patched, in
+# firmware/build/base; firmware/patches/)
+name = "RemoteFM1"             # the build's files: build/remotefm1.fwsc, remotefm1-usb.fwsc (--no-ble)
+id_prefix = "FM-1_52"          # package identity: dev FM-1_5200, releases FM-1_52XXYYZZ (52: "R", RemoteFM1's SysEx
+                               # 7D 52 46; FIZZ is FM-1_46, CTL-1 FM-1_6, Radio FM-1_13, the template FM-1_11)
+usb_product = "FM-1"           # the USB product name as RemoteFM1 0.1 had it (the manufacturer: felucca-bsp's own,
+                               # "Hügelton Instruments", as 0.1): the same descriptors, so hosts see the same device
+include = ["src"]              # the protocol layer, the decoder and the push (src/: host/ compiles them too)
+words = "words.tsv"
+ble = true                     # Bluetooth MIDI with a computer or tablet (--no-ble: the USB-only package)
+usb_audio_in = false           # a panel makes no sound: no USB audio, so the interfaces are 0 audio control,
+usb_audio_out = false          # 1 MIDI streaming, 2 the vendor bulk pair (src/rfm_dev.c), as in 0.1
+# the site (fm1-base's make_site.py is not used: RemoteFM1 has its own, web/)
+tagline = "the FM-1 as the panel of a firmware on a computer"
+repo = "https://github.com/Quixotic7/RemoteFM1"
+licence = "MPL-2.0"
+credits = "Built on fm1-base (Charles Vestal) and felucca-bsp (Leo Kuroshita, Hügelton Instruments)."

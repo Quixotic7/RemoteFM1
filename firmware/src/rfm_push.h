@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-3.0-only
+/* SPDX-License-Identifier: MPL-2.0
  * Copyright (C) 2026 RemoteFM1 contributors */
 /* The screen push: which parts of the shadow (rfm_draw.h) the panel has not seen yet, and a step-at-a-time engine
  * that sends them, so the caller's loop keeps servicing USB while the SPI DMA runs. Plain C99, host-compilable

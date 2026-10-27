@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-3.0-only
+/* SPDX-License-Identifier: MPL-2.0
  * Copyright (C) 2026 RemoteFM1 contributors */
 /* RemoteFM1 protocol version 2: the constants of docs/PROTOCOL.md. Shared by the firmware (firmware/src) and every
  * host (host/). The framing helpers (rf_pack7 / rf_unpack7 / rf_sx_encode / rf_bk_header, RF_SX_ID*, RF_BK_HDR)

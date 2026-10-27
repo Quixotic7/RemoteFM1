@@ -4,3 +4,6 @@
 [submodule "web/vendor/FM1VST"]
 	path = web/vendor/FM1VST
 	url = https://github.com/Quixotic7/FM1VST.git
+[submodule "base"]
+	path = base
+	url = https://github.com/charlesvestal/fm1-base

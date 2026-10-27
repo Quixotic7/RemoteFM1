@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-3.0-only
+/* SPDX-License-Identifier: MPL-2.0
  * Copyright (C) 2026 RemoteFM1 contributors */
 /* The TILES decoder: see rfm_draw.h. No libc (the device has only a byte-wise memcpy): pixel loops. */
 #include "rfm_draw.h"
@@ -15,13 +15,25 @@ static void rd_dirty(const rfm_draw_t *d, uint32_t x, uint32_t y, uint32_t w, ui
         d->dirty(d->ctx, x, y, w, h);
 }
 
+/* where row y of a rectangle at x is written: the shadow's, or (no shadow) the row buffer, sent by rd_row_done */
+static inline uint16_t *rd_row(const rfm_draw_t *d, uint32_t x, uint32_t y)
+{
+    return d->fb ? d->fb + y * RD_W + x : d->rowbuf;
+}
+static inline void rd_row_done(const rfm_draw_t *d, uint32_t x, uint32_t y, uint32_t w)
+{
+    if (!d->fb && d->row)
+        d->row(d->ctx, x, y, w, d->rowbuf);
+}
+
 static void rd_fill(const rfm_draw_t *d, uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c)
 {
     uint32_t i, j;
     for (j = 0; j < h; j++) {
-        uint16_t *row = d->fb + (y + j) * RD_W + x;
+        uint16_t *row = rd_row(d, x, y + j);
         for (i = 0; i < w; i++)
             row[i] = c;
+        rd_row_done(d, x, y + j, w);
     }
 }
 
@@ -29,10 +41,11 @@ void rfm_draw_raw(const rfm_draw_t *d, uint32_t x, uint32_t y, uint32_t w, uint3
 {
     uint32_t i, j;
     for (j = 0; j < h; j++) {
-        uint16_t *row = d->fb + (y + j) * RD_W + x;
+        uint16_t *row = rd_row(d, x, y + j);
         const uint8_t *s = px + 2u * j * w;
         for (i = 0; i < w; i++)
             row[i] = rd_px(s + 2u * i);
+        rd_row_done(d, x, y + j, w);
     }
 }
 
@@ -127,10 +140,11 @@ uint32_t rfm_draw_rect(const rfm_draw_t *d, const uint8_t *p, uint32_t n, uint32
                         return 0;
                     }
         for (j = 0; j < h; j++) {
-            uint16_t *row = d->fb + (y + j) * RD_W + x;
+            uint16_t *row = rd_row(d, x, y + j);
             const uint8_t *r = ix + j * rb;
             for (i = 0; i < w; i++)
                 row[i] = pal[rd_pal_index(r, i, bpp)];
+            rd_row_done(d, x, y + j, w);
         }
         break;
     }
@@ -153,13 +167,14 @@ uint32_t rfm_draw_rect(const rfm_draw_t *d, const uint8_t *p, uint32_t n, uint32
             uint32_t run = (uint32_t)q[k] + 1u;
             uint16_t v = rd_px(q + k + 1u);
             while (run) {
-                uint16_t *row = d->fb + (y + rr) * RD_W + x;
+                uint16_t *row = rd_row(d, x, y + rr);
                 uint32_t m = w - c < run ? w - c : run;
                 for (i = 0; i < m; i++)
                     row[c + i] = v;
                 run -= m;
                 c += m;
                 if (c == w) {
+                    rd_row_done(d, x, y + rr, w);
                     c = 0;
                     rr++;
                 }
@@ -169,6 +184,10 @@ uint32_t rfm_draw_rect(const rfm_draw_t *d, const uint8_t *p, uint32_t n, uint32
     }
     case RFM_ENC_COPY: {
         uint32_t sx, sy;
+        if (!d->fb) {                                   /* (no shadow to copy from) */
+            *err = RFM_DRAW_E_ENC;
+            return 0;
+        }
         size = 2;
         if (left < size)
             goto short_;

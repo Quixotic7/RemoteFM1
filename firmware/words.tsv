@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: MPL-2.0
+# RemoteFM1's words for a screen reader (fm1-base's announce.c, fm1-reader): the text on the screen <TAB> what to say.
+# url: https://remotefm1.com/words/
+# RemoteFM1 speaks nothing of its own (the host's firmware does); the platform's own screens may.
+REMOTE FM1	remote F M 1
+WAITING FOR HOST	waiting for a host
