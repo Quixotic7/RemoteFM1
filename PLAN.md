@@ -130,6 +130,8 @@ PRESENT, plus the existing ChoralRoot update / OTA SysEx, unchanged.
 - **M3 — FM1VST "Remote FM-1".**
 - **M4 — browser page** (Web MIDI, with WebUSB when it is there).
 - **M5 — options:** audio from the host out of the FM-1's own output (UAC playback), iPad app, COPYRECT.
+- **M6 — fm1-base + Bluetooth** (2026-10-27, section 11). The firmware moves off TransitFM1's platform onto
+  fm1-base and felucca-bsp, MPL-2.0, and gets Bluetooth MIDI. Then a WiFi build (RTP-MIDI), later.
 
 ## 8. Rules carried over
 
@@ -277,3 +279,79 @@ installer (0.1.1, TransitFM1's installer), and Use my FM-1. The owner installed 
 then reloaded the player: the header's Connect FM-1 auto-connected over Web MIDI, and the FM-1 showed and played the
 browser firmware. Open: MASTER at mid-travel jitters (~25 CC/s; wants hysteresis); WebUSB on Windows needs MS OS 2.0
 descriptors; host/fm1remote must be ported to FM1VST's ABI 5/6.
+
+## 11. M6: fm1-base + Bluetooth (2026-10-27)
+
+The owner's decisions (2026-10-27): RemoteFM1's firmware moves onto [fm1-base](https://github.com/charlesvestal/fm1-base)
+and felucca-bsp; all the Felucca / TransitFM1-derived platform code goes, RemoteFM1's own app code stays, ported to
+`plat.h`. Two builds, one radio each: **RemoteFM1** (USB + Bluetooth MIDI peripheral) now, **RemoteFM1 WiFi** (USB +
+RTP-MIDI) later. The firmware becomes MPL-2.0 (to link JieLi's Bluetooth library); the site, `host/` and the tools stay
+GPL-3.0-only. The vendor bulk interface stays, carried as a patch to felucca-bsp's `usb.c`. Identity: fm1-base's
+scheme, `id_prefix = "FM-1_52"` (52: "R", as RemoteFM1's SysEx `7D 52 46`; FIZZ is 46, CTL-1 6, Radio 13, the template
+11). Version 0.2.0.
+
+**What moved where.**
+- `base/`: fm1-base, a submodule pinned at `934e40d` (felucca-bsp `2cd696a` in `base/bsp`). `build.sh` copies it to
+  `build/fm1-base`, applies `firmware/patches/` with `git apply` and runs fm1-base's `tools/build.py` on `firmware/`
+  (its `fm1.toml`, `app.h`, `app.c`). The submodules are never left dirty; each patch is an upstream PR
+  (`firmware/patches/UPSTREAM.md`).
+- Removed: `firmware/hal`, `loader`, `stub`, `gen`, `app.ld`, `crt0.S`, `src/{usb,ota,lcd,gfx,libc,platform,recovery,
+  transit,remote}.c`, `bootguard.h`, `uac_fir.h`, `tools/{build,fm1pkg_make,lz4blk,make_stub_test_pkg}.py`,
+  `tools/get_toolchain.sh`, and their tests (`ota_test`, `ldr_test`, `stub_test`, `stub_pkg_test`, `m0_sim`).
+- Kept, relicensed MPL-2.0: `rfm_app.c` (+ a no-shadow mode), `rfm_draw.[ch]` (+ rows straight to the panel),
+  `rfm_push.[ch]`, `remote_proto.h`. New: `rfm_main.c` (the app: transports, panel, LEDs, waiting screen, M0's
+  diagnostics, the contract), `rfm_dev.c` (usb.c's rings, the panel's DMA), `rfm_host.c` (the simulator's port,
+  commands and checks). `proto/rfm1.h` (compiled into the firmware) is MPL-2.0 now too.
+
+**The patches** (both opt-in for other firmwares: fm1-base's template and felucca-bsp's loader build byte for byte
+the same with them):
+- felucca-bsp `chip/usb.c`: `FELUCCA_VENDOR` (interface 2, class 0xFF, EP3 bulk pair, bcdUSB 2.10 + WebUSB BOS,
+  bcdDevice 3.50: the device, configuration, BOS and string descriptors are 0.1's byte for byte, tested), the SysEx tap
+  (`FELUCCA_SYSEX_TAP`: RemoteFM1's messages are claimed, never the updater's 640-byte frame), `FELUCCA_EP1_ROOM`,
+  `FELUCCA_USB_FRAME_DUE`, `FELUCCA_CIN_F_SYSEX` (M0's lost byte); `fm1_lcd_hw.h`: `fm1_lcd_done()`.
+- fm1-base: SysEx over Bluetooth MIDI both ways (`le_midi.c`: it was dropped), a SysEx-safe in-queue and sizable
+  queues (`radio.c` `BLE_IN_Q`, `BLE_OUT_Q`), `plat_ble_name`, `lcd_idle()`, `SXQ` from `app.h`, the simulator's
+  `sysex` command.
+
+**Design.** Three transports, a session on the one it started on: USB SysEx (the tap's ring, replies into usb.c's
+SysEx ring whole, 64 packets always left to the updater), USB bulk (usb.c's vendor rings, 32 KB each in the pool),
+Bluetooth SysEx (packets through `plat_midi_in` on `PORT_BLE`, reassembled by its own parser; replies with
+`plat_midi_send(TO_BLE_HOST)` only when `plat_midi_out_room` has room for the whole message, else held in a short
+queue, never waited for). Panel events go to the session's port, with no session to USB and a listening Bluetooth
+computer. A USB reset ends a USB session, a Bluetooth disconnect a Bluetooth one. USB is polled from the main loop
+(interrupts off around each `usb_poll`, so fm1-base's 2 kHz timer poll never meets it): `app_frame` and
+`app_input_only` each spin 2 ms (polling USB, draining the rings, stepping the push, Bluetooth's tasks every 250 µs)
+and return to fm1-base's loop between. The MIDI-in ring is emptied in usb.c's context before every EP1 packet (M0's
+lesson: a DAW can never shut the updater out). LEDs: lit → lit, mid and dim → felucca-bsp's steady mid (with the glow
+under it), faint → the glow (DIM HI); caps bit 6 off. The waiting screen adds the advertised Bluetooth name and
+whether a computer is connected. `RFM_SHADOW 0` builds without the 115,200 B shadow (rectangles row by row to the
+panel, no COPY, caps 0x2C): for the WiFi build.
+
+**Sizes** (2026-10-27, `--release 0.2.0`): Bluetooth `remotefm1-0.2.0.fwsc` (sha256 `5fd1ef6c…`): 205,308 B of
+flash, RAM 69,736 of 98,304 B, pool 279,568 of 344,064 B. USB only `remotefm1-usb-0.2.0.fwsc` (`130e781f…`): 75,552 B,
+21,768 B, 254,988 B. Without the shadow: the pool 164 KB (Bluetooth) / 140 KB (USB only).
+
+**Tests** (`tests/run_tests.sh`, no device): the app in fm1-base's host simulator (`firmware/tests/session.txt`,
+`bulk_ota.txt`, `ble.txt`, `noshadow.txt`: HELLO, SESSION, every TILES encoding against a reference screen in the
+shadow and on the panel, FRAME_ACK, LEDS, the panel's events, PANEL_R, the keepalive, a USB reset, the update's SysEx
+between and inside RemoteFM1's, a session over Bluetooth answered there only), also USB-only and without the shadow;
+`proto_test`, `rfm_draw_test` (+ 5,000 random messages without the shadow), `session_test`, `usb_midi_test` (three
+builds of the patched usb.c: the tap's claim, EP1 held, 0.1's descriptors), `ble_sysex_test` (the patched `le_midi.c`'s
+parser and encoder), `install_test.py`. `host/run_tests.sh` 7/7 (the cross test on the moved `rfm_app.c`).
+
+**To check on the unit** (nothing here has run on an FM-1 yet):
+- boots to the waiting screen; the splash; REC at power-on still reaches update mode; `--info` says
+  `FM-1_52000200 [running RemoteFM1 0.2.0]`; an update over it (to ChoralRoot and back) from 0.2.
+- USB: `fm1remote --device --pattern`, then a core, over bulk and with `--transport midi`; the STATS (polls a
+  second, `usb_permille`, `loop_max_us`) against M0's 115-132k polls/s; FRAME_ACK times; the push at fm1-base's
+  60 MHz SPI (0.1 ran 20 MHz); LED levels.
+- Bluetooth: pair in Audio MIDI Setup; HELLO over "FM-1 1F2D"; a session over it (the site, FM1VST); its frame rate at
+  ~4-5 KB/s; a disconnect mid-frame; the first start writes 0xDE000..0xDFFFF (the radio's address).
+- From 0.1.1 to 0.2: installed by 0.1.1's step 1 and TransitFM1's loader (the package is fm1-base's).
+
+**WiFi pass, later.** fm1-base's WiFi leaves an app a few KB of RAM and ~28 KB of pool: build with `RFM_SHADOW 0`
+and smaller buffers from `app.h` (`FELUCCA_VENDOR_IN_N` / `_OUT_N`, `RF_MRX_N`, `RF_BK_RX_MAX`, which HELLO_R reports
+and hosts keep to, `RF_GEN_MAX`, `SXQ`), `APP_CANVAS_PX` already 240 x 32. The RTP-MIDI transport plugs in as a
+fourth transport in `rfm_main.c`: its own `rf_sx_t` parser fed from its SysEx, a case in `rf_up` / `rf_room` /
+`rf_try` (its packets out), a bit in `rfa_hello_dev`, its link's loss ending its session in `rf_ms_step`.
+

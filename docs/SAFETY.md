@@ -1,5 +1,10 @@
 # How TransitFM1 keeps a firmware change safe
 
+> **RemoteFM1 0.1 / 0.1.1 only.** From 0.2 (PLAN.md M6) RemoteFM1 is an fm1-base firmware: the boot stub, the staged
+> own loader, step 1 and the boot guard described here are gone (their files were removed from `firmware/`), and
+> fm1-base's and felucca-bsp's take their place (README.md "Safety"). This document stays as the record of 0.1's
+> design and of the tests it passed.
+
 TransitFM1 exists for one moment: the write that replaces it. Everything here serves one goal. Wherever the power
 or the cable is cut during that write, the FM-1 should come back in update mode, not dark.
 

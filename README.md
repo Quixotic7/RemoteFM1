@@ -14,8 +14,9 @@ MASTER pot to the computer, and shows whatever the computer sends back on its LE
 computer, an FM-1 firmware built for the emulator runs at full speed and uses the real FM-1 as its panel. That lets
 you try firmware changes without reflashing the unit, and run things the FM-1's own CPU and memory couldn't hold.
 
-> **Status: early (M1, 2026-10-18).** It works end to end on one unit: ChoralRoot running on a Mac with the FM-1 as
-> its panel, 20 frames a second, input and screen confirmed. Not released, no installer page yet. The plan and every
+> **Status: 0.1.1 released (on TransitFM1); 0.2 in the works (M6, 2026-10-27).** 0.2 moves the firmware onto
+> [fm1-base](https://github.com/charlesvestal/fm1-base) and [felucca-bsp](https://github.com/hugelton/felucca-bsp) and
+> adds Bluetooth MIDI: built and tested in fm1-base's host simulator, not yet on an FM-1. The plan and every
 > measurement are in [PLAN.md](PLAN.md).
 
 ## How it works
@@ -33,11 +34,14 @@ you try firmware changes without reflashing the unit, and run things the FM-1's 
   - MASTER: 14-bit CC 7/39.
 - **The screen** goes as 16×16 tiles. Only tiles that changed are sent, oldest first, each in the smallest of five
   encodings. A typical UI frame is about 2 KB; a full redraw of a busy screen is 2–10 KB.
-- **Two transports:**
+- **Three transports:**
   - USB-MIDI SysEx, which works everywhere, including Web MIDI and the iPad;
-  - a vendor bulk interface for macOS (libusb) and Chrome (WebUSB), about 830 KB/s.
+  - a vendor bulk interface for macOS (libusb) and Chrome (WebUSB), about 830 KB/s;
+  - Bluetooth MIDI SysEx (0.2): the same messages over the air, at a few KB/s, so a still screen and the panel more
+    than a moving one.
 
-  The host uses bulk when it can.
+  The host uses bulk when it can. A session lives on the transport it started on; the panel's events go to that port
+  (USB-MIDI for a USB session, Bluetooth for a Bluetooth one).
 - The protocol is in [docs/PROTOCOL.md](docs/PROTOCOL.md), with its constants in [proto/rfm1.h](proto/rfm1.h).
 
 On the host side, any firmware that exists as an **fm1core** can run: ChoralRoot, Felucca and Melodee today (through
@@ -46,10 +50,11 @@ emulator exists for the FM-1's CPU.
 
 ## Using it
 
-1. **Install RemoteFM1** on the FM-1 with any Felucca-family installer, for example `python3 tools/fm1_install.py
-   build/remote.fwsc`. RemoteFM1 answers installers as the official V15 (`FM-1_015`, USB device "FM-1"), so every
-   installer can write over it later.
-2. **Without a host**, the screen reads REMOTE FM1 / WAITING FOR HOST and the key lights glow dim.
+1. **Install RemoteFM1** on the FM-1 with its web installer or any Felucca-family installer, for example
+   `python3 tools/fm1_install.py firmware/build/remotefm1.fwsc`. 0.2 answers installers as itself, `FM-1_52XXYYZZ`
+   (release X.Y.Z; fm1-base's scheme), on the USB device "FM-1"; 0.1 answered as the official V15 (`FM-1_015`).
+2. **Without a host**, the screen reads REMOTE FM1 / WAITING FOR HOST, with USB's state, the Bluetooth name it
+   advertises ("FM-1 1F2D") and whether a computer is connected, and the battery; the key lights glow dim.
 3. **Run a firmware on the Mac:**
 
    ```sh
@@ -70,62 +75,73 @@ macOS keeps the MIDI port name of the first firmware it saw on the unit (for exa
 finds RemoteFM1 by asking (HELLO), never by name. If the port shows up offline after a firmware change, use
 `--midi-restart` or Audio MIDI Setup > Rescan MIDI.
 
+**Over Bluetooth** (0.2, the `remotefm1.fwsc` package; `remotefm1-usb.fwsc` has no radio): Bluetooth is on at every
+power-on. Connect the FM-1 in Audio MIDI Setup > MIDI Studio > Bluetooth (on a Mac) or the app's Bluetooth MIDI page;
+its port is named after what it advertises, "FM-1 1F2D". The site and FM1VST send HELLO to any port whose name holds
+"FM-1", so they find it there too. The update path stays USB-only.
+
 ## Safety
 
-RemoteFM1 is built on [TransitFM1](https://github.com/Quixotic7/TransitFM1) and keeps all of its flash safeguards:
+From 0.2, RemoteFM1 is an fm1-base firmware, with fm1-base's and felucca-bsp's safeguards: the boot guard (two failed
+starts: safe mode, USB on), the crash screen and record, the watchdog, the USB soft key into the chip's update mode,
+**REC held at power-on** for update mode (also in safe mode; 0.1's was OCT-), felucca-bsp's update loader
+(`ota-FM-1_900`, writing the app area only), and the installers' way back to M-VAVE's firmware. A package whose image
+reaches past the app area (M-VAVE's V16, Baud Girl's) is refused by RemoteFM1's installers before anything is sent.
 
-- ChoralRoot's boot stub, byte for byte;
-- its own staged update loader, which writes the next firmware with the first sector last;
-- the boot guard;
-- the M-UPGRADE updater as V15.
-
-[docs/SAFETY.md](docs/SAFETY.md) explains them. RemoteFM1 stores nothing on the unit, and the data an earlier
-firmware left in flash stays where it is.
-
-Two bugs from TransitFM1 0.1 are fixed here, as in TransitFM1 0.1.1:
-
-- **Loader re-stage:** re-staging the update loader read from flash while writing flash, which crashed the unit
-  into the ROM's USB boot.
-- **MIDI-in ring:** the ring was never drained, so a DAW sending MIDI shut the installer out.
-
-RemoteFM1 0.1.1 adds TransitFM1 0.1.3's guard: a package whose image reaches past the app area (Baud Girl's can) is
-refused by step 1 and by the loader before anything is written, where it would have been committed truncated. Its
-update loader is byte for byte TransitFM1 0.1.3's and answers `ota-FM-1_900`, not 0.1.2's `ota-FM-1_015`.
+**What it writes in flash:** the Bluetooth build keeps the radio's address (and any pairing) in two 4 KiB sectors at
+0xDE000..0xDFFFF, written at its first Bluetooth start; OCT- + OCT+ held at power-on (the panel calibration) writes
+0xDC000..0xDDFFF. Nothing else: the data an earlier firmware left elsewhere stays where it is. (ChoralRoot's legacy
+user preset banks lived at 0xDC000..0xDFFFF; ChoralRoot 0.22 and later only read them once, to migrate.) 0.1 wrote
+nothing but its staging area. [docs/SAFETY.md](docs/SAFETY.md) is 0.1's (TransitFM1's) design, kept for its history.
 
 Installing firmware is at your own risk. Keep the [FM-1 Transporter](https://github.com/kurogedelic/FM-1-transporter)
 or [MvaveFM1Unbricker](https://github.com/Quixotic7/MvaveFM1Unbricker) at hand.
 
 ## Building the firmware
 
-You need Docker on macOS or Windows (or Linux x86-64), Python 3 with Pillow, the JieLi toolchain and the JieLi AC79
-SDK, exactly as for TransitFM1:
+The firmware is fm1-base's: `base/` is fm1-base, a git submodule pinned at a commit (felucca-bsp inside it,
+`base/bsp`). `./build.sh` copies it to `build/fm1-base`, applies RemoteFM1's patches (`firmware/patches/`: the vendor
+bulk interface and the SysEx hooks in felucca-bsp's `usb.c`, SysEx over Bluetooth MIDI in fm1-base; each one an
+upstream pull request, `firmware/patches/UPSTREAM.md`) and runs fm1-base's `tools/build.py` on the app in `firmware/`.
+
+You need Docker on macOS or Windows (or Linux x86-64), Python 3 with Pillow (with libraqm: on a Mac Homebrew's, which
+`build.sh` finds in /opt/homebrew/lib), the JieLi toolchain (`base/tools/get_toolchain.sh`, in ~/.jieli/toolchain)
+and the JieLi AC79 SDK (its Bluetooth libraries; never in this tree):
 
 ```sh
-tools/get_toolchain.sh
+git submodule update --init --recursive
 git clone --depth 1 --branch AC79NN_SDK_V1.2.1_2023-12-13 https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK.git ~/fw-AC79_AIoT_SDK
-./build.sh                  # -> build/remote.fwsc; `--unit transit` builds TransitFM1 0.1 as it was
-tests/run_tests.sh          # the firmware's host tests (stub, loader, update path, protocol, decoder, session)
-host/run_tests.sh           # the host library's tests, including the cross test against the firmware's own code
+./build.sh --release 0.2.0           # -> firmware/build/remotefm1-0.2.0.fwsc (USB + Bluetooth MIDI), FM-1_52000200
+./build.sh --release 0.2.0 --no-ble  # -> firmware/build/remotefm1-usb-0.2.0.fwsc (USB only: nothing of JieLi's)
+./build.sh                           # a development build, FM-1_5200
+tests/run_tests.sh                   # the app in fm1-base's host simulator (firmware/tests/), the protocol code,
+                                     # the patched usb.c and Bluetooth SysEx, tools/fm1_install.py
+host/run_tests.sh                    # the host library's tests, with the cross test against the firmware's own code
 ```
 
 ## What is where
 
 ```
-firmware/src/remote.c       the device app: USB service, waiting screen, panel input, LEDs, glue
+firmware/app.h, app.c, fm1.toml    the app's contract with fm1-base, its build settings (fm1-base tools/build.py)
+firmware/src/rfm_main.c     the app: transports (USB SysEx, USB bulk, Bluetooth SysEx), panel, LEDs, waiting screen
+firmware/src/rfm_dev.c      what only the FM-1 has (felucca-bsp usb.c's rings, the panel's DMA); rfm_host.c: the
+                            host simulator's stand-ins, commands and checks (firmware/tests/*.txt)
 firmware/src/rfm_app.c      the protocol layer (no hardware; also compiled into the host tests)
 firmware/src/rfm_draw.c     the TILES decoder;  rfm_push.c: the screen push, which never blocks USB
-firmware/                   everything else: TransitFM1's platform, boot stub, update loader, USB (+ vendor interface)
+firmware/patches/           RemoteFM1's changes to fm1-base and felucca-bsp (MPL-2.0), applied by build.sh
+base/                       fm1-base (git submodule), felucca-bsp in base/bsp
 proto/, docs/PROTOCOL.md    the protocol
 host/                       libremotefm1, the macOS back ends, fm1remote, tests
+web/                        the site: the player, the installer, Use my FM-1 (web/remote)
 tools/m0_bench.py, m0_bulk.c, web/m0_bench.html   transport benchmarks (SysEx, bulk, Web MIDI / WebUSB)
 PLAN.md                     the plan, the milestones and every measurement
 ```
 
 ## License
 
-GPL-3.0-only, like everything it's built from. See [LICENSING.md](LICENSING.md) for who made what. RemoteFM1 comes from
-TransitFM1, which comes from [Dinghy](https://github.com/zvenson/dinghy) (zvenson), which runs on
-[Felucca](https://github.com/hugelton/Felucca)'s platform (Leo Kuroshita, Hügelton Instruments) as
-[SLOOP](https://github.com/isod89/sloop-fm1) carries it. The boot stub is
-[ChoralRoot FM-1](https://github.com/Quixotic7/ChoralRootFM1)'s. "M-VAVE" and "FM-1" belong to their owners;
-RemoteFM1 is not made or endorsed by them.
+The firmware (`firmware/`) is MPL-2.0 from 0.2, by its author's choice: it links JieLi's Bluetooth library (Apache-2.0,
+binary only), which a GPL firmware could not. It is built on fm1-base (Charles Vestal) and felucca-bsp (Leo Kuroshita,
+Hügelton Instruments), both MPL-2.0. Everything else (the site, `host/`, the tools) stays GPL-3.0-only, and so do the
+firmware's versions before 0.2 (on TransitFM1, from [Dinghy](https://github.com/zvenson/dinghy) and
+[Felucca](https://github.com/hugelton/Felucca)). See [LICENSING.md](LICENSING.md) for who made what. "M-VAVE" and
+"FM-1" belong to their owners; RemoteFM1 is not made or endorsed by them.

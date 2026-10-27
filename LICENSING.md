@@ -1,30 +1,46 @@
 # Licensing
 
-TransitFM1 is free software under the GNU General Public License, version 3 only (`GPL-3.0-only`, full text in
-`LICENSE`). You may use, study, change and share it. If you give someone a firmware built from it, give them its
-complete source under the same licence too.
+RemoteFM1 has two licences, by part:
+
+- **The firmware** (`firmware/`: the app, its build settings, its tests, its patches to fm1-base and felucca-bsp) is
+  under the **Mozilla Public License 2.0** (`MPL-2.0`, full text in `LICENSES/MPL-2.0.txt`) from 0.2, by its author's
+  choice. Each file says so on its first line (an SPDX identifier). MPL-2.0 applies file by file: a firmware built
+  from it links JieLi's Bluetooth library (Apache-2.0, a binary), which a GPL firmware could not be given out with,
+  and has no GPL file in it at all. `proto/rfm1.h`, the protocol's constants, is compiled into the firmware and is
+  MPL-2.0 too.
+- **Everything else** (the site in `web/`, the host library and tools in `host/` and `tools/`, the tests in `tests/`
+  unless a file says otherwise, the documents) is free software under the GNU General Public License, version 3 only
+  (`GPL-3.0-only`, full text in `LICENSE`). You may use, study, change and share it. If you give someone a program
+  built from it, give them its complete source under the same licence too.
+
+RemoteFM1's firmware before 0.2 (0.1, 0.1.1) was built on TransitFM1's platform, from Dinghy and Felucca: those
+versions stay under GPL-3.0-only (their source is in this repository's history, up to the move in PLAN.md's M6). 0.2
+has none of that code: the platform it ran on was removed, and the app's own files, all written by RemoteFM1's
+contributors, moved onto fm1-base.
 
 ## Who made what
 
 | | |
 | --- | --- |
-| The platform: `firmware/hal/`, `firmware/loader/` (but for the order in `ldr_core.c`), `firmware/src/` (`usb.c`, `ota.c`, `recovery.c`, `lcd.c`, `gfx.c`, `libc.c`, `bootguard.h`, `uac_fir.h`), `tools/build.py`, `tools/fm1_install.py`, `tools/lz4blk.py` | Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments ([Felucca](https://github.com/hugelton/Felucca)), with the changes of [SLOOP](https://github.com/isod89/sloop-fm1) (isod89) |
-| The wiring `firmware/src/platform.c`, as [Dinghy](https://github.com/zvenson/dinghy) has it | zvenson |
-| The boot stub `firmware/stub/`, `firmware/crt0.S`, the stub's order in `ldr_core.c`, the kept loader in `ota.c`, `tools/fm1pkg_make.py` (the marker, the compensation), `tools/make_stub_test_pkg.py`, `tests/stub_test.c`, `tests/ota_test.c`, `tests/ldr_test.c`, `tests/stub_pkg_test.py` | ChoralRoot FM-1 contributors ([ChoralRoot FM-1](https://github.com/Quixotic7/ChoralRootFM1)) |
-| RemoteFM1's parts: `firmware/src/remote.c`, `firmware/src/remote_proto.h`, the vendor interface and the app hooks in `usb.c` (REMOTE_VENDOR), the TIMER5 hook in `platform.c`, `tools/m0_bench.py`, `tools/m0_bulk.c`, `web/m0_bench.html`, `tests/proto_test.c`, `tests/m0_sim.py`; M1: `firmware/src/rfm_app.c`, `rfm_draw.[ch]`, `rfm_push.[ch]`, the CIN 0xF SysEx hook and the RAM-staged loader in `ota.c`, `tests/rfm_draw_test.c`, `tests/session_test.c`, `tests/usb_midi_test.c`, `proto/`, `docs/PROTOCOL.md`, everything in `host/`, `README.md`, `PLAN.md` | RemoteFM1 contributors |
-| TransitFM1's parts: the foreign order and the commit after the package CRC in `ldr_core.c`, step 1 in `ota.c` (our own loader, restaged), `transit.c`, the identity, the tests of these, the docs | TransitFM1 contributors |
+| The firmware app: `firmware/app.c`, `app.h`, `fm1.toml`, `words.tsv`, `firmware/src/` (`rfm_main.c`, `rfm_dev.c`, `rfm_host.c`, `rfm_app.c`, `rfm_draw.[ch]`, `rfm_push.[ch]`, `remote_proto.h`), `firmware/tests/`, the changes in `firmware/patches/`, `build.sh`, `proto/rfm1.h` | RemoteFM1 contributors, MPL-2.0 |
+| [fm1-base](https://github.com/charlesvestal/fm1-base), `base/` (a git submodule, used as it is; `firmware/patches/fm1-base/` changes it at build time) | Charles Vestal, with Leo Kuroshita's Felucca code by his permission ([felucca-bsp#4](https://github.com/hugelton/felucca-bsp/issues/4)), MPL-2.0 |
+| [felucca-bsp](https://github.com/hugelton/felucca-bsp), `base/bsp/` (fm1-base's submodule; `firmware/patches/felucca-bsp/` changes it at build time) | Leo Kuroshita (@kurogedelic), Hügelton Instruments; Kerem Kilic (Ellic Studio), the USB host; keremimo, the MIDI clock and transport sync ([felucca-bsp#3](https://github.com/hugelton/felucca-bsp/pull/3)), MPL-2.0 |
+| `docs/PROTOCOL.md`, `host/`, `tools/m0_bench.py`, `tools/m0_bulk.c`, `web/m0_bench.html`, `web/remote/`, `tests/` (`proto_test.c`, `rfm_draw_test.c`, `session_test.c`, `usb_midi_test.c`, `run_tests.sh`), `README.md`, `PLAN.md` | RemoteFM1 contributors, GPL-3.0-only |
+| `tests/ble_sysex_test.c` (a test of fm1-base's Bluetooth MIDI, for its upstream) | RemoteFM1 contributors, MPL-2.0 |
+| `tools/fm1_install.py`, `web/installer/fm1ota.js`, `web/installer/fm1pkg.js`, `tests/install_test.py` | Leo Kuroshita (Felucca's tool), with the changes of Dinghy, TransitFM1, ChoralRoot FM-1 and RemoteFM1 contributors, GPL-3.0-only |
+| The site's player and catalog (`web/site/`, `web/managers/`, `web/engine/`), the installer page | RemoteFM1 contributors, GPL-3.0-only; the cores and firmwares it runs are their authors' (`web/vendor/`: fm1-emu, FM1VST, each under its own licence) |
 
 ## Third-party material
 
 | What | Licence | Where |
 | --- | --- | --- |
-| Terminus font 8x16 (ter-u16n), rendered into `firmware/gen/felucca_font.h` | SIL OFL 1.1 | `assets/fonts/Terminus-LICENSE.txt` |
-| JieLi AC79 SDK: `uboot.boot`, `cfg_tool.bin`, `eq_cfg_hw.bin` are read from your SDK checkout at build time and placed in the package; no SDK files are in this tree | Apache-2.0 | <https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK> |
-
-Dinghy's logo (the designburg signet) is not under the GPL and marks Dinghy itself: it is not part of TransitFM1.
+| JieLi AC79 SDK: the Bluetooth libraries (`btctrler.a`, `btstack.a`, `crypto_toolbox_Osize.a`, `lib_ccm_aes.a`, `wl_rf_common.a`), the few SDK sources fm1-base's build compiles with them, `uboot.boot`, `cfg_tool.bin`, `eq_cfg_hw.bin`: read from your SDK checkout at build time, linked or placed in the package. No SDK file is in this tree | Apache-2.0 | <https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK> |
+| fm1-base's `ble/midi/le_midi.c`: portions from the SDK's `le_trans_data.c` (JieLi) | MPL-2.0 AND Apache-2.0 | `base/LICENSES/Apache-2.0.txt` |
+| The fonts fm1-base renders at build time (Barlow Semi Condensed, Terminus) | SIL OFL 1.1 | `base/assets/fonts/` |
 
 ## Trademarks
 
 "Felucca" and "Hügelton Instruments" are names of Hügelton Instruments; "M-VAVE" and "FM-1" belong to their
-owners. TransitFM1 answers the update protocol with the official firmware's identity (`FM-1_015`) only so that
-installers accept it; it is not made or endorsed by M-VAVE, and its screen says what it is.
+owners. RemoteFM1 is not made or endorsed by M-VAVE, and its screen says what it is. 0.1 answered the update protocol
+with the official firmware's identity (`FM-1_015`) so that installers accepted it; 0.2 answers as itself
+(`FM-1_52XXYYZZ`).

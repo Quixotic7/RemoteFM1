@@ -1,5 +1,9 @@
 # TransitFM1: two bugs found on a unit (2026-10-17)
 
+> RemoteFM1 0.2 no longer carries TransitFM1's platform (PLAN.md M6: it runs on fm1-base and felucca-bsp), so the
+> `firmware/src/ota.c` and `platform.c` named below are gone from this tree; the notes stay for TransitFM1. The MIDI-in
+> lesson holds in 0.2: usb.c's EP1 hook empties the ring in USB's own context (`firmware/src/rfm_main.c` rf_ep1_room).
+
 From the RemoteFM1 session (RemoteFM1 is a clone of TransitFM1, so it hit both). Checked against TransitFM1
 `aa877da` (main). Both bugs are in the 0.1 release on the web installer.
 
