@@ -34,6 +34,18 @@ One message = a command byte + a body (8-bit bytes, multi-byte fields **little e
   is dropped. M0's diagnostics with long replies (SOURCE, STATS) are for USB. The device advertises "FM-1 XXXX" (four characters of its
   chip ID) and shows that name on its waiting screen; hosts find it as any FM-1 port, by HELLO (section 2). The
   updater (section 6) is USB only.
+- **Bluetooth: how a host paces frames.** A host tells a Bluetooth link from the HELLO_R that came over it: `sxq16`
+  (byte 29) is the free send packets on the transport asked, 128 over Bluetooth, 960 over USB (3584 in M0 and 0.1),
+  so `sxq <= 256` with `transports` bit4 set means Bluetooth (bit4 alone does not: it is set on USB replies too while
+  a Bluetooth computer is connected). Measured on a unit (2026-10-27, macOS): about 6 KB/s of TILES body host →
+  device, FRAME_ACK after 100–500 ms; its Bluetooth input (256 USB-MIDI packets, drained by the main loop) loses
+  packets when more than about 4 KB is sent unacknowledged (3.4 KB was clean). Whole messages are then lost: the
+  FRAME_ACK says fewer bytes, or a later frame's comes first. libremotefm1 paces a Bluetooth frame link so: at most
+  10 frames a second, a budget of 400 bytes a frame (4000 B/s, room left for LEDS, keepalives and PANEL_R), the next
+  frame no sooner than its body at 4000 B/s allows, at most 2048 framed TILES bytes unacknowledged (one frame alone
+  always goes; a frame is at most ~600 bytes on the wire), a FRAME_ACK timeout of max(2 s, 500 ms + 3 × what is in
+  flight at the rate), and SESSION retried after 1 s. With a USB port of the same unit it uses that one. USB-MIDI
+  and bulk keep their pacing (about 280 KB/s and 800 KB/s, at most 2 frames unacknowledged; `host/include/rfm`).
 - The device answers on the transport the request came in on. Panel events go out as plain MIDI (section 4) on the
   session's MIDI port.
 - A host may use both on USB: plain MIDI for the panel events and bulk for everything else. That is the recommended

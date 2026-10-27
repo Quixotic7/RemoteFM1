@@ -38,7 +38,7 @@ you try firmware changes without reflashing the unit, and run things the FM-1's 
   - USB-MIDI SysEx, which works everywhere, including Web MIDI and the iPad;
   - a vendor bulk interface for macOS (libusb) and Chrome (WebUSB), about 830 KB/s;
   - Bluetooth MIDI SysEx (0.2): the same messages over the air, at a few KB/s, so a still screen and the panel more
-    than a moving one.
+    than a moving one (the host paces frames for it: about 4 KB/s, at most 10 a second; docs/PROTOCOL.md section 1).
 
   The host uses bulk when it can. A session lives on the transport it started on; the panel's events go to that port
   (USB-MIDI for a USB session, Bluetooth for a Bluetooth one).
