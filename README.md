@@ -16,7 +16,7 @@ you try firmware changes without reflashing the unit, and run things the FM-1's 
 
 > **Status: 0.2.1 released on the site (2026-10-27).** 0.2 moves the firmware onto
 > [fm1-base](https://github.com/charlesvestal/fm1-base) and [felucca-bsp](https://github.com/hugelton/felucca-bsp) and
-> adds Bluetooth MIDI; 0.2.1 adds USB audio. Tested on an FM-1 on 2026-10-27 (the USB + Bluetooth package). 0.1.1 (on
+> adds Bluetooth MIDI; 0.2.1 adds USB audio. Tested on an FM-1 on 2026-10-27 (both packages). 0.1.1 (on
 > TransitFM1) stays there as the older release. The plan and every measurement are in [PLAN.md](PLAN.md).
 
 ## How it works

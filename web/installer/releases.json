@@ -20,7 +20,7 @@
         "Answers installers as itself, FM-1_52000201, on the USB device \"FM-1\" (0.1 answered as the official V15).",
         "REC held at power-on enters the chip's own USB update mode (0.1's key was OCT-). fm1-base's safeguards: the boot guard, the crash screen, the watchdog.",
         "Writes 0xF2000..0xF3FFF (Bluetooth's address) at its first Bluetooth start, and 0xFC000.. only when you calibrate the panel. The USB-only package has no radio.",
-        "Tested on an FM-1 on 2026-10-27 (the USB + Bluetooth package)."
+        "Tested on an FM-1 on 2026-10-27: both packages, and the way out to ChoralRoot 0.27 and back."
       ]
     },
     {

@@ -49,7 +49,7 @@ On an FM-1 on 2026-10-27, the USB + Bluetooth package:
   and MASTER, 155 frames of an interactive demo all acknowledged;
 - USB audio on the speaker and on headphones (headphones mute the speaker), MASTER as the volume without crackle.
 
-Not tested on an FM-1: the USB-only package, the write at 0xF2000, and the way back to M-VAVE's V15 from 0.2.
+Tested on an FM-1 on 2026-10-27: both packages; installs from RemoteFM1 0.2.0, FIZZ and ChoralRoot 0.27, and from 0.2.1 to ChoralRoot 0.27. Not tested on an FM-1: the way back to M-VAVE's V15 from 0.2.
 
 # RemoteFM1 0.1.1
 
