@@ -167,18 +167,21 @@ async function setup(opts = {}, build = () => {}, start = 3) {
 }
 
 // ------------------------------------------------------------------ 2. WebUSB bulk for frames, MIDI for the panel
-{
-    console.log('-- WebUSB: the chooser, interface 2, bulk frames, MIDI panel, losing USB');
+// (both layouts: the vendor interface 4 after USB audio, 0.2.1; 2, 0.1 / 0.2.0)
+for (const vendorIf of [4, 2]) {
+    console.log(`-- WebUSB: the chooser, interface ${vendorIf}, bulk frames, MIDI panel, losing USB`);
     const { world, remote, ev, run, until } = await setup({ usb: 'ask' }, w => {
         w.other = w.addOther('IAC Driver Bus 1');
-        w.unit = w.addUnit({ midiName: 'FM-1', bulk: true });
+        w.unit = w.addUnit({ midiName: 'FM-1', bulk: true, vendorIf });
     });
     const u = world.unit;
     await remote.connect();
     const f = world.requestDeviceFilters[0];
     check(f && f.filters.length === 1 && f.filters[0].vendorId === 0x1209 && f.filters[0].productId === 1 && f.filters[0].classCode === 0xff,
         'requestDevice({filters: [{vendorId: 0x1209, productId: 0x0001, classCode: 0xFF}]})');
-    check(world.claims.length === 1 && world.claims[0] === 2, 'only interface 2 claimed');
+    const claimed = u.usb.configuration.interfaces.find(i => i.interfaceNumber === world.claims[0]);
+    check(world.claims.length === 1 && world.claims[0] === vendorIf && claimed.alternate.interfaceClass === 0xff,
+        `only the vendor interface (${vendorIf}, class 0xFF) claimed`);
     let t = await until(() => remote.status.state === 'connected', 3000);
     check(t >= 0 && remote.status.transport === 'bulk' && world.session(u) === 2, `connected via bulk in ${t} ms`);
     const f1 = testFrame(3);

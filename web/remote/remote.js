@@ -11,8 +11,9 @@
 //     session sends HELLO to each and keeps only the one answering "RemoteFM1" proto 2. The port name proves
 //     nothing (macOS keeps whatever firmware's name it saw first, e.g. "ChoralRoot FM-1"), and no other device is
 //     ever sent a byte.
-//   - WebUSB (Chrome): the vendor interface (class 0xFF, interface 2, bulk EP 3) of 1209:0001. When it answers,
-//     frames and LEDs go over bulk; the panel's plain MIDI events always come over Web MIDI.
+//   - WebUSB (Chrome): the vendor interface of 1209:0001, found by its class (0xFF: interface 4 from 0.2.1, 2
+//     before; bulk EP 3). When it answers, frames and LEDs go over bulk; the panel's plain MIDI events always come
+//     over Web MIDI.
 // It runs on the page's main thread (or a Worker with WebUSB only), never in the AudioWorklet. See README.md.
 
 const KIND_SX = 0, KIND_BK = 1;

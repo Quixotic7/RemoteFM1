@@ -42,8 +42,9 @@ needs four things:
 
 - Web MIDI with `sysex: true`: `output.send(bytes)` as the SX link's write, and `input.onmidimessage` feeding
   `rfm_session_rx`.
-- WebUSB in Chrome: `claimInterface(2)`, `transferOut(3, ...)`, and a few `transferIn(3, 16384)` kept queued as the
-  BK link. The device needs a WebUSB descriptor for this.
+- WebUSB in Chrome: `claimInterface(n)` (the class-0xFF interface: 4 from firmware 0.2.1, 2 before),
+  `transferOut(3, ...)`, and a few `transferIn(3, 16384)` kept queued as the BK link. The device needs a WebUSB
+  descriptor for this.
 - A timer for `rfm_session_poll` (`setInterval`, or a worker).
 - The core in an AudioWorklet, with the same snapshot exchange (SharedArrayBuffer) that `engine.h` uses.
 

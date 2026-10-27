@@ -63,10 +63,18 @@ class UsbDevice {
         this.vendorId = 0x1209; this.productId = 0x0001; this.productName = 'FM-1'; this.manufacturerName = 'M-VAVE';
         this.opened = false; this.configuration = null; this.claimed = new Set(); this.reads = []; this.inBuf = [];
         this.gone = false;
-        const ep = (n, d) => ({ endpointNumber: n, direction: d, type: 'bulk', packetSize: 64 });
-        const mk = (n, cls, eps) => { const alt = { alternateSetting: 0, interfaceClass: cls, interfaceSubclass: 0, interfaceProtocol: 0, endpoints: eps };
-            return { interfaceNumber: n, alternate: alt, alternates: [alt], claimed: false }; };
-        this._config = { configurationValue: 1, interfaces: [mk(0, 1, []), mk(1, 1, [ep(1, 'in'), ep(1, 'out')]), mk(2, 0xff, [ep(3, 'in'), ep(3, 'out')])] };
+        const ep = (n, d, type = 'bulk', packetSize = 64) => ({ endpointNumber: n, direction: d, type, packetSize });
+        const alt = (a, cls, eps) => ({ alternateSetting: a, interfaceClass: cls, interfaceSubclass: 0, interfaceProtocol: 0, endpoints: eps });
+        const mk = (n, cls, eps, alt1) => { const a0 = alt(0, cls, eps);
+            return { interfaceNumber: n, alternate: a0, alternates: alt1 ? [a0, alt(1, cls, alt1)] : [a0], claimed: false }; };
+        // RemoteFM1 0.1 / 0.2.0: 0 audio control, 1 MIDI, 2 the vendor pair; 0.2.1 (USB audio): 2 audio in, 3 audio
+        // out (alt 0 empty, alt 1 an isochronous EP4), 4 the vendor pair
+        this.vendorIf = unit.vendorIf;
+        const ifs = [mk(0, 1, []), mk(1, 1, [ep(1, 'in'), ep(1, 'out')])];
+        if (this.vendorIf === 4)
+            ifs.push(mk(2, 1, [], [ep(4, 'in', 'isochronous', 184)]), mk(3, 1, [], [ep(4, 'out', 'isochronous', 196)]));
+        ifs.push(mk(this.vendorIf, 0xff, [ep(3, 'in'), ep(3, 'out')]));
+        this._config = { configurationValue: 1, interfaces: ifs };
     }
     _check() { if (this.gone) throw new DOMException('The device was disconnected.', 'NotFoundError'); }
     async open() { this._check(); this.opened = true; this.world.log.push('usb open'); }
@@ -76,13 +84,15 @@ class UsbDevice {
         this._check();
         this.world.claims.push(n);
         if (!this.configuration) throw new DOMException('no configuration', 'InvalidStateError');
-        if (n !== 2) throw new DOMException('protected interface class', 'SecurityError');
+        const it = this.configuration.interfaces.find(i => i.interfaceNumber === n);
+        if (!it) throw new DOMException('no such interface', 'NotFoundError');
+        if (it.alternate.interfaceClass !== 0xff) throw new DOMException('protected interface class', 'SecurityError');
         this.claimed.add(n);
     }
     async releaseInterface(n) { this.claimed.delete(n); }
     async transferOut(ep, data) {
         this._check();
-        if (ep !== 3 || !this.claimed.has(2)) throw new DOMException('bad endpoint', 'NotFoundError');
+        if (ep !== 3 || !this.claimed.has(this.vendorIf)) throw new DOMException('bad endpoint', 'NotFoundError');
         const b = Uint8Array.from(data);
         this.world.usbOut += b.length;
         if (!this.unit.unplugged) this.world._toFake(this.unit, 'bk', b);
@@ -90,7 +100,7 @@ class UsbDevice {
     }
     transferIn(ep, len) {
         try { this._check(); } catch (e) { return Promise.reject(e); }
-        if (ep !== 3 || !this.claimed.has(2)) return Promise.reject(new DOMException('bad endpoint', 'NotFoundError'));
+        if (ep !== 3 || !this.claimed.has(this.vendorIf)) return Promise.reject(new DOMException('bad endpoint', 'NotFoundError'));
         return new Promise((resolve, reject) => { this.reads.push({ len, resolve, reject }); this._serve(); });
     }
     _serve() {
@@ -163,9 +173,10 @@ export async function createWorld(createFakeUnit, { start = 1000 } = {}) {
         return { input: i, output: o };
     };
 
-    // a fake unit: the RemoteFM1 firmware (default), or another firmware (name / proto) or a silent one
+    // a fake unit: the RemoteFM1 firmware (default), or another firmware (name / proto) or a silent one; vendorIf: the
+    // vendor interface's number (4: 0.2.1 with USB audio, 2: 0.1 / 0.2.0)
     world.addUnit = ({ midiName = 'FM-1', name = '', proto = 0, silent = false, bulk = false, sxRate = 300000,
-        bkRate = 850000 } = {}) => {
+        bkRate = 850000, vendorIf = 4 } = {}) => {
         let p = 0;
         if (name) {
             p = F._malloc(name.length + 1);
@@ -173,10 +184,10 @@ export async function createWorld(createFakeUnit, { start = 1000 } = {}) {
         }
         const h = F._fk_new(bulk ? 1 : 0, silent ? 1 : 0, p, proto, sxRate, bkRate);   // (the fake copies the name)
         if (p) F._free(p);
-        return world._unit(h, midiName, bulk);
+        return world._unit(h, midiName, bulk, vendorIf);
     };
-    world._unit = (h, midiName, bulk) => {
-        const u = { h, midiName, sent: [], cmds: [], unplugged: false, split: { sx: false, cur: [] } };
+    world._unit = (h, midiName, bulk, vendorIf = 4) => {
+        const u = { h, midiName, vendorIf, sent: [], cmds: [], unplugged: false, split: { sx: false, cur: [] } };
         Object.assign(u, addPorts(midiName, u));
         if (bulk) u.usb = new UsbDevice(world, u);
         world.units.push(u);

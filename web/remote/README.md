@@ -19,7 +19,7 @@ unchanged, the same code fm1remote runs on macOS. `remote.js` is its back end, i
 ## Build and test
 
     web/remote/build.sh                       # needs emcc: ~/emsdk is sourced when emcc isn't on PATH
-    node web/remote/test/test_remote.mjs      # 68 checks; RFM_VERBOSE=1 prints the session's log
+    node web/remote/test/test_remote.mjs      # 78 checks; RFM_VERBOSE=1 prints the session's log
     node web/remote/test/run_page_test.mjs    # headless Chromium; screenshot in web/build/test/remote-page.png
 
 No test touches hardware. The page test replaces `navigator.requestMIDIAccess` and `navigator.usb` with the mocks
@@ -176,11 +176,12 @@ These are for the orchestrator, with the owner's FM-1:
 - WebUSB in Chrome on macOS:
   - the chooser lists the FM-1;
   - `open()` works while the OS owns the MIDI interfaces;
-  - `claimInterface(2)` works;
+  - `claimInterface(4)` works (the class-0xFF interface: 4 from 0.2.1, after USB audio; 2 on 0.1 / 0.2.0), with
+    the Mac's audio driver holding interfaces 2 and 3;
   - bulk frames converge and the status says "via bulk";
   - four queued `transferIn` deliver in order.
-- WebUSB on Windows: the firmware has no MS OS 2.0 descriptors, so WinUSB isn't bound to interface 2. Expect the
-  claim to fail there and the session to fall back to MIDI (the log says so). Linux needs a udev rule for
+- WebUSB on Windows: the firmware has no MS OS 2.0 descriptors, so WinUSB isn't bound to the vendor interface.
+  Expect the claim to fail there and the session to fall back to MIDI (the log says so). Linux needs a udev rule for
   1209:0001.
 - The unit's panel playing the browser firmware (keys, buttons, the 7 encoders, MASTER), its LEDs following, and
   `pagehide` / Stop putting it back on its waiting screen.
