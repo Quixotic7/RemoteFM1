@@ -30,9 +30,13 @@
 #define BLE_OUT_Q 128u
 
 /* the store: the panel calibration (the platform's, only written by OCT- + OCT+ at power-on) and Bluetooth's address
- * and pairing (written once at the first Bluetooth start); two 4 KiB sectors each, as fm1-base's template has them */
+ * and pairing (written once at the first Bluetooth start); two 4 KiB sectors each. Placed where other firmwares keep
+ * nothing, so hopping between RemoteFM1 and them loses no data: Bluetooth's at 0xF2000..0xF3FFF (free in ChoralRoot's
+ * map, below the stock firmware's resources at 0xF4000, above felucca-bsp's staging at 0xE0000..0xE4FFF and Felucca's
+ * store); the calibration at 0xFC000 as fm1-base's template has it (Felucca's globals: only on a calibration).
+ * Not 0xDC000..0xDFFFF (the template's): ChoralRoot's loop slots are 0xD2000..0xE5FFF. */
 enum { OBJ_PANEL, OBJ_BLE, OBJ_NOBJ };
-#define APP_STORE_MAP {0xDC000u, 0xDE000u}
+#define APP_STORE_MAP {0xFC000u, 0xF2000u}
 
 /* the contract: the platform calls these */
 void app_init(void);

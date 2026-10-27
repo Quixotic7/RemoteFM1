@@ -346,7 +346,7 @@ parser and encoder), `install_test.py`. `host/run_tests.sh` 7/7 (the cross test 
   second, `usb_permille`, `loop_max_us`) against M0's 115-132k polls/s; FRAME_ACK times; the push at fm1-base's
   60 MHz SPI (0.1 ran 20 MHz); LED levels.
 - Bluetooth: pair in Audio MIDI Setup; HELLO over "FM-1 1F2D"; a session over it (the site, FM1VST); its frame rate at
-  ~4-5 KB/s; a disconnect mid-frame; the first start writes 0xDE000..0xDFFFF (the radio's address).
+  ~4-5 KB/s; a disconnect mid-frame; the first start writes 0xF2000..0xF3FFF (the radio's address).
 - From 0.1.1 to 0.2: installed by 0.1.1's step 1 and TransitFM1's loader (the package is fm1-base's).
 
 **WiFi pass, later.** fm1-base's WiFi leaves an app a few KB of RAM and ~28 KB of pool: build with `RFM_SHADOW 0`

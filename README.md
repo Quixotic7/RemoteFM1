@@ -89,10 +89,9 @@ starts: safe mode, USB on), the crash screen and record, the watchdog, the USB s
 reaches past the app area (M-VAVE's V16, Baud Girl's) is refused by RemoteFM1's installers before anything is sent.
 
 **What it writes in flash:** the Bluetooth build keeps the radio's address (and any pairing) in two 4 KiB sectors at
-0xDE000..0xDFFFF, written at its first Bluetooth start; OCT- + OCT+ held at power-on (the panel calibration) writes
-0xDC000..0xDDFFF. Nothing else: the data an earlier firmware left elsewhere stays where it is. (ChoralRoot's legacy
-user preset banks lived at 0xDC000..0xDFFFF; ChoralRoot 0.22 and later only read them once, to migrate.) 0.1 wrote
-nothing but its staging area. [docs/SAFETY.md](docs/SAFETY.md) is 0.1's (TransitFM1's) design, kept for its history.
+0xF2000..0xF3FFF, written at its first Bluetooth start (free in ChoralRoot's map and the stock firmware's); OCT- + OCT+
+held at power-on (the panel calibration) writes 0xFC000..0xFDFFF. Nothing else: the data an earlier firmware left
+elsewhere stays where it is. Every update stages its loader at 0xE0000..0xE4FFF, as 0.1's did. [docs/SAFETY.md](docs/SAFETY.md) is 0.1's (TransitFM1's) design, kept for its history.
 
 Installing firmware is at your own risk. Keep the [FM-1 Transporter](https://github.com/kurogedelic/FM-1-transporter)
 or [MvaveFM1Unbricker](https://github.com/Quixotic7/MvaveFM1Unbricker) at hand.
