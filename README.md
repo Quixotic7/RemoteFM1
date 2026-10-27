@@ -14,10 +14,10 @@ MASTER pot to the computer, and shows whatever the computer sends back on its LE
 computer, an FM-1 firmware built for the emulator runs at full speed and uses the real FM-1 as its panel. That lets
 you try firmware changes without reflashing the unit, and run things the FM-1's own CPU and memory couldn't hold.
 
-> **Status: 0.1.1 released (on TransitFM1); 0.2 in the works (M6, 2026-10-27).** 0.2 moves the firmware onto
+> **Status: 0.2.1 released on the site (2026-10-27).** 0.2 moves the firmware onto
 > [fm1-base](https://github.com/charlesvestal/fm1-base) and [felucca-bsp](https://github.com/hugelton/felucca-bsp) and
-> adds Bluetooth MIDI: built and tested in fm1-base's host simulator, not yet on an FM-1. The plan and every
-> measurement are in [PLAN.md](PLAN.md).
+> adds Bluetooth MIDI; 0.2.1 adds USB audio. Tested on an FM-1 on 2026-10-27 (the USB + Bluetooth package). 0.1.1 (on
+> TransitFM1) stays there as the older release. The plan and every measurement are in [PLAN.md](PLAN.md).
 
 ## How it works
 
@@ -50,9 +50,11 @@ emulator exists for the FM-1's CPU.
 
 ## Using it
 
-1. **Install RemoteFM1** on the FM-1 with its web installer or any Felucca-family installer, for example
-   `python3 tools/fm1_install.py firmware/build/remotefm1.fwsc`. 0.2 answers installers as itself, `FM-1_52XXYYZZ`
-   (release X.Y.Z; fm1-base's scheme), on the USB device "FM-1"; 0.1 answered as the official V15 (`FM-1_015`).
+1. **Install RemoteFM1** on the FM-1 with [its web installer](https://quixotic7.github.io/RemoteFM1/installer/)
+   (USB + Bluetooth MIDI, or USB only) or any Felucca-family installer, for example
+   `python3 tools/fm1_install.py web/installer/firmware/remote-0.2.1.fwsc` (USB only: `remote-usb-0.2.1.fwsc`).
+   0.2 answers installers as itself, `FM-1_52XXYYZZ` (release X.Y.Z; fm1-base's scheme), on the USB device "FM-1";
+   0.1 answered as the official V15 (`FM-1_015`).
 2. **Without a host**, the screen reads REMOTE FM1 / WAITING FOR HOST, with USB's state, the Bluetooth name it
    advertises ("FM-1 1F2D") and whether a computer is connected, and the battery; the key lights glow dim.
 3. **Run a firmware on the Mac:**
@@ -75,8 +77,8 @@ macOS keeps the MIDI port name of the first firmware it saw on the unit (for exa
 finds RemoteFM1 by asking (HELLO), never by name. If the port shows up offline after a firmware change, use
 `--midi-restart` or Audio MIDI Setup > Rescan MIDI.
 
-**Over Bluetooth** (0.2, the `remotefm1.fwsc` package; `remotefm1-usb.fwsc` has no radio): Bluetooth is on at every
-power-on. Connect the FM-1 in Audio MIDI Setup > MIDI Studio > Bluetooth (on a Mac) or the app's Bluetooth MIDI page;
+**Over Bluetooth** (0.2, the default package `remote-0.2.1.fwsc`; `remote-usb-0.2.1.fwsc` has no radio): Bluetooth
+is on at every power-on. Connect the FM-1 in Audio MIDI Setup > MIDI Studio > Bluetooth (on a Mac) or the app's Bluetooth MIDI page;
 its port is named after what it advertises, "FM-1 1F2D". The site and FM1VST send HELLO to any port whose name holds
 "FM-1", so they find it there too. The update path stays USB-only.
 
@@ -90,9 +92,10 @@ hosts find the vendor interface by its class (0xFF), not its number.
 
 From 0.2, RemoteFM1 is an fm1-base firmware, with fm1-base's and felucca-bsp's safeguards: the boot guard (two failed
 starts: safe mode, USB on), the crash screen and record, the watchdog, the USB soft key into the chip's update mode,
-**REC held at power-on** for update mode (also in safe mode; 0.1's was OCT-), felucca-bsp's update loader
-(`ota-FM-1_900`, writing the app area only), and the installers' way back to M-VAVE's firmware. A package whose image
-reaches past the app area (M-VAVE's V16, Baud Girl's) is refused by RemoteFM1's installers before anything is sent.
+**REC held at power-on** for that same mode (also in safe mode; 0.1's OCT- went to its own loader), felucca-bsp's
+update loader (`ota-FM-1_900`, writing the app area only), and the installers' way back to M-VAVE's firmware. A
+package whose image reaches past the app area (M-VAVE's V16, Baud Girl's) is refused by RemoteFM1's installers before
+anything is sent.
 
 **What it writes in flash:** the Bluetooth build keeps the radio's address (and any pairing) in two 4 KiB sectors at
 0xF2000..0xF3FFF, written at its first Bluetooth start (free in ChoralRoot's map and the stock firmware's); OCT- + OCT+
@@ -118,7 +121,7 @@ and the JieLi AC79 SDK (its Bluetooth libraries; never in this tree):
 git submodule update --init --recursive
 git clone --depth 1 --branch AC79NN_SDK_V1.2.1_2023-12-13 https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK.git ~/fw-AC79_AIoT_SDK
 ./build.sh --release 0.2.1           # -> firmware/build/remotefm1-0.2.1.fwsc (USB + Bluetooth MIDI), FM-1_52000201
-./build.sh --release 0.2.1 --no-ble  # -> firmware/build/remotefm1-usb-0.2.1.fwsc (USB only: nothing of JieLi's)
+./build.sh --release 0.2.1 --no-ble  # -> firmware/build/remotefm1-usb-0.2.1.fwsc (USB only: no Bluetooth library)
 ./build.sh                           # a development build, FM-1_5200
 tests/run_tests.sh                   # the app in fm1-base's host simulator (firmware/tests/), the protocol code,
                                      # the patched usb.c and Bluetooth SysEx, tools/fm1_install.py
