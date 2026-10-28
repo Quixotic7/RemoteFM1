@@ -3,7 +3,8 @@
 // added to its worklet, and the files each engine needs, fetched here (an engine can't fetch: API.md section 1).
 //
 //   const p = new Player(catalog, events);   events: { frame, leds, info, flash, halted, midiOut, error, status }
-//   await p.start();                         // in a user gesture (the autoplay policy)
+//   await p.start();                         // in a user gesture (the autoplay policy); p.unlock() is its synchronous part
+//   await p.setSink(id)                       the output device: "" the system's, else an enumerateDevices() id (sinkSupport())
 //   await p.load(entry, "native" | "emu" | "mock", flashBytes | null)
 //   p.panel(msg); p.midi(bytes); p.flashReq();
 //   p.setVolume(0..1)                         the page's volume: a GainNode after the worklet (recordings are taken before it)
@@ -28,11 +29,48 @@ async function fetchBytes(url, what) {
   return new Uint8Array(await r.arrayBuffer());
 }
 
+// iPhone, iPad, iPod touch (every browser there is WebKit; an iPad asks for the desktop page as a Mac with touch)
+export const isIOS = () => typeof navigator !== "undefined" &&
+  (/iP(hone|ad|od)/.test(navigator.userAgent || "") || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
+
+// iOS plays Web Audio as "ambient" sound, which the ring/silent switch mutes. "playback" is what a music app uses: it
+// plays with the switch on silent (navigator.audioSession, Safari 16.4+). Without it, a silent <audio> kept playing
+// does the same (a playing media element moves the page's audio to playback).
+function playbackSession() {
+  try { if (navigator.audioSession && navigator.audioSession.type !== "playback") navigator.audioSession.type = "playback"; } catch (_) { /* (not settable here) */ }
+}
+let silentUrl = null;
+function silentWav() {   // 0.5 s of 8 kHz 8-bit mono silence
+  if (silentUrl) return silentUrl;
+  const n = 4000, b = new ArrayBuffer(44 + n), v = new DataView(b);
+  const str = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
+  str(0, "RIFF"); v.setUint32(4, 36 + n, true); str(8, "WAVEfmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, 8000, true); v.setUint32(28, 8000, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true); str(36, "data"); v.setUint32(40, n, true);
+  new Uint8Array(b, 44).fill(128);
+  return (silentUrl = URL.createObjectURL(new Blob([b], { type: "audio/wav" })));
+}
+
+// how this browser can pick the page's output device: "context" (AudioContext.setSinkId: Chrome, Edge 110+),
+// "element" (an <audio> element's setSinkId with selectAudioOutput(): Firefox), or null (Safari: the system's output)
+export function sinkSupport() {
+  if (typeof window === "undefined") return null;
+  const AC = window.AudioContext;
+  if (AC && "setSinkId" in AC.prototype) return "context";
+  if (AC && "createMediaStreamDestination" in AC.prototype && typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype
+      && navigator.mediaDevices && typeof navigator.mediaDevices.selectAudioOutput === "function") return "element";
+  return null;
+}
+
 export class Player {
   constructor(catalog, events = {}) {
     this.catalog = catalog;
     this.ev = events;
     this.ctx = null; this.node = null; this.out = null; this.volume = 1;
+    this.setup = null;           // Promise: the worklet module and the host node
+    this.sinkId = "";            // the output device asked for ("" the system's)
+    this.applied = "";           // ... and the one the sound goes to
+    this.tag = null;             // iOS without navigator.audioSession: the silent <audio> that keeps playback on
+    this.route = null;           // { dest, el }: the "element" output route (Firefox)
     this.added = new Map();      // engine name -> Promise (its module added to the worklet)
     this.hook = undefined;       // W2's catalog.mjs (null: none)
     this.current = null;         // { entry, engine }
@@ -40,24 +78,84 @@ export class Player {
   emit(name, ...a) { if (this.ev[name]) this.ev[name](...a); }
   get running() { return !!this.ctx && this.ctx.state === "running"; }
 
-  // the context and the host node; resolves once audio runs (call it from a user gesture; resolves false if the
-  // browser still holds the audio back)
-  async start() {
+  // the part of start() that must run inside the user gesture, so synchronous: iOS Safari forgets the gesture at the
+  // first await (and a touch's pointerdown is no gesture there at all). The audio session, the context, resume(),
+  // and a one-sample sound started at once (what wakes iOS's output). Safe to call from any click, key or touch.
+  unlock() {
+    playbackSession();
     if (!this.ctx) {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC || !("audioWorklet" in AC.prototype)) throw new Error("This browser has no AudioWorklet: use a current Chrome, Edge, Firefox or Safari.");
       this.ctx = new AC({ latencyHint: "interactive" });
-      await this.ctx.audioWorklet.addModule(abs("worklet/host.js"));
-      this.node = new AudioWorkletNode(this.ctx, "fm1-host", { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
-      this.node.port.onmessage = (e) => this.onMessage(e.data);
-      this.out = this.ctx.createGain();
-      this.out.gain.value = this.volume;
-      this.node.connect(this.out);
-      this.out.connect(this.ctx.destination);
+      this.ctx.onstatechange = () => this.emit("audioState", this.ctx.state);
     }
-    if (this.ctx.state !== "running") { try { await this.ctx.resume(); } catch (_) { /* (no gesture yet) */ } }
+    if (this.ctx.state !== "running") {
+      this.ctx.resume().catch(() => { /* (no gesture: a later one resumes) */ });
+      try {
+        const b = this.ctx.createBufferSource();
+        b.buffer = this.ctx.createBuffer(1, 1, this.ctx.sampleRate);
+        b.connect(this.ctx.destination); b.start(0);
+      } catch (_) { /* (closed) */ }
+    }
+    if (isIOS() && !navigator.audioSession) {
+      if (!this.tag) { this.tag = new Audio(silentWav()); this.tag.loop = true; this.tag.setAttribute("playsinline", ""); this.tag.setAttribute("x-webkit-airplay", "deny"); }
+      if (this.tag.paused) this.tag.play().catch(() => { /* (no gesture yet) */ });
+    }
+  }
+
+  // the context and the host node; resolves once audio runs (call it from a user gesture; resolves false if the
+  // browser still holds the audio back)
+  async start() {
+    this.unlock();
+    if (!this.setup) {
+      this.setup = (async () => {
+        await this.ctx.audioWorklet.addModule(abs("worklet/host.js"));
+        this.node = new AudioWorkletNode(this.ctx, "fm1-host", { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
+        this.node.port.onmessage = (e) => this.onMessage(e.data);
+        this.out = this.ctx.createGain();
+        this.out.gain.value = this.volume;
+        this.node.connect(this.out);
+        this.out.connect(this.route && this.sinkId ? this.route.dest : this.ctx.destination);
+      })();
+      this.setup.catch(() => { this.setup = null; this.node = null; });
+    }
+    await this.setup;
+    // (Chrome keeps resume() pending until a gesture: don't wait for it forever)
+    if (this.ctx.state !== "running") await Promise.race([this.ctx.resume().catch(() => {}), new Promise((r) => setTimeout(r, 1500))]);
     return this.ctx.state === "running";
   }
+  get audioState() { return this.ctx ? this.ctx.state : "none"; }
+
+  // the output device: "" the system's output, else a deviceId from enumerateDevices() / selectAudioOutput().
+  // Resolves once the sound goes there; throws when the browser refuses (the device gone, no permission).
+  async setSink(id = "") {
+    id = id || "";
+    const how = sinkSupport();
+    if (!how) { if (id) throw new Error("This browser plays through the system's sound output only."); return; }
+    if (!this.ctx) { this.sinkId = id; return; }   // (start() comes first; applySink() then)
+    if (this.applied === id) { this.sinkId = id; return; }
+    if (how === "context") {
+      if ((this.ctx.sinkId || "") !== id) await this.ctx.setSinkId(id);
+    } else {
+      // Firefox: the sound through a MediaStream into an <audio> element, whose output can be picked
+      if (id && !this.route) {
+        const dest = this.ctx.createMediaStreamDestination(), el = new Audio();
+        el.srcObject = dest.stream;
+        this.route = { dest, el };
+      }
+      if (this.route) {
+        await this.route.el.setSinkId(id);
+        if (this.out) {
+          try { this.out.disconnect(); } catch (_) { /* (not connected) */ }
+          this.out.connect(id ? this.route.dest : this.ctx.destination);
+        }
+        if (id) await this.route.el.play(); else this.route.el.pause();
+      }
+    }
+    this.sinkId = this.applied = id;
+  }
+  // after start(): the device asked for before the context existed
+  async applySink() { if (this.ctx && this.sinkId !== this.applied) await this.setSink(this.sinkId); }
   // a context that runs without a gesture (an embed in a page that already has one, a test browser): try quietly
   async tryAutostart() {
     try {

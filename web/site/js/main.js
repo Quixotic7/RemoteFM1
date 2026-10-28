@@ -8,6 +8,7 @@ import { Controls, DeviceView, ScreenView, Lcd, VIEW, SRC, PANEL_LABELS } from "
 import { PRESETS, DEFAULT_THEME, presetNamed, css, derive } from "./theme.js";
 import { Keyboard, attachPointer, MidiInput } from "./input.js";
 import { Player } from "./audio.js";
+import { SoundOut } from "./sound-out.js";
 import * as saves from "./saves.js";
 import { Sheet, icon } from "./sheet.js";
 import { makeSite } from "./remote-hook.js";
@@ -43,6 +44,7 @@ const state = {
   recBits: prefs.recBits === 16 ? 16 : 24, recCountIn: prefs.recCountIn === true,          // the recorder (js/rec-ui.js)
 };
 let catalog = null, snapshot = null, emuHook = null, player = null, sheet = null, site = null, siteEmit = () => {}, fm1 = null;
+let soundOut = null;   // the output device: the system's or the FM-1's USB audio (sound-out.js)
 let editor = null;   // the Editor button and panel: the firmware's own manager, hosted (editor-panel.js)
 let rec = null;      // the recorder: the header's record button and Takes (rec-ui.js)
 const editorChanged = () => { if (editor) editor.update(); };
@@ -417,6 +419,7 @@ function makePlayer() {
     load: onLoad,
     rec(m) { if (rec) rec.onRec(m); else if (m.type === "recChunk") player.recBuf(m.l, m.r); },
     beforeLoad() { if (rec) rec.beforeLoad(); },
+    audioState(s) { if (s !== "running") setTimeout(soundHeldBack, 800); },
     error(msg) {
       console.warn("worklet:", msg);
       if (/^load:/.test(msg) && state.engine !== "mock") fallback(msg.replace(/^load:\s*/, "The engine could not start: ") + ".");
@@ -424,6 +427,7 @@ function makePlayer() {
     },
   });
   player.setVolume(state.volume);
+  soundOut = new SoundOut({ player, media: navigator.mediaDevices, prefs, save: savePrefs, onChange: () => { if (sheet) sheet.render(); } });
 }
 let flashTimer = 0, pendingSave = null;
 const lastSaved = new Map();
@@ -441,18 +445,44 @@ const currentFlash = () => new Promise((resolve, reject) => {
   setTimeout(() => { if (pendingSave === resolve) { pendingSave = null; reject(new Error("The engine did not answer.")); } }, 3000);
 });
 
-async function start() {
-  if (state.running) return true;
-  try {
-    if (!player) makePlayer();
-    const ok = await player.start();
-    if (!ok) return false;
-  } catch (e) { toast(e.message || String(e), "bad"); return false; }
-  state.running = true;
-  document.body.classList.add("running");
-  $("start").hidden = true;
-  if (state.entry) await boot();
-  return true;
+// the sound: from a click, a key or a touch. player.unlock() runs first and synchronously, inside that gesture (iOS
+// Safari forgets it at the first await); a start that the browser held back is tried again on the next gesture.
+let starting = null, startWanted = false;
+function start() {
+  if (state.running) return Promise.resolve(true);
+  try { if (!player) makePlayer(); player.unlock(); } catch (e) { toast(e.message || String(e), "bad"); return Promise.resolve(false); }
+  startWanted = true;
+  return starting || (starting = (async () => {
+    try {
+      const ok = await player.start();
+      if (!ok) return false;
+    } catch (e) { toast(e.message || String(e), "bad"); return false; }
+    finally { starting = null; }
+    state.running = true;
+    document.body.classList.add("running");
+    $("start").hidden = true;
+    player.applySink().catch(() => {}).then(() => soundOut.apply()).catch(() => {});
+    if (state.entry) await boot();
+    return true;
+  })());
+}
+// any later gesture: the start the browser held back (a touch's pointerdown is no gesture on iOS: its pointerup /
+// touchend is), and the sound again after iOS stopped it (a call, Siri, another app's audio, the page in the background)
+const regesture = () => {
+  if (!player || !player.ctx || player.ctx.state === "running" || !(state.running || startWanted)) return;
+  try { player.unlock(); } catch (_) { return; }
+  if (!state.running) start();
+};
+for (const t of ["pointerup", "touchend", "click", "keydown"]) addEventListener(t, regesture, { capture: true, passive: true });
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden || !state.running || !player || !player.ctx || player.ctx.state === "running") return;
+  player.ctx.resume().catch(() => {});
+  setTimeout(soundHeldBack, 800);
+});
+// still held back once the page shows: say how to bring it back
+function soundHeldBack() {
+  if (!state.running || document.hidden || !player || player.audioState === "running" || player.audioState === "closed") return;
+  toast("The sound was paused by the system: tap or press a key to bring it back.", "", 6000);
 }
 
 // ------------------------------------------------------------- my FM-1 ---
@@ -469,7 +499,11 @@ function onFm1(v) {
   note.className = "start-note " + v.tone;
   note.textContent = v.tone === "on" ? `Your FM-1 is connected${v.via ? " over " + v.via : ""}: press Play and it plays this firmware.` : v.detail;
   if (fm1Tone !== null && v.tone !== fm1Tone) {
-    if (v.tone === "on") toast(playingSelf() ? selfLine("on") : `FM-1 connected${v.via ? " over " + v.via : ""}: its keys, knobs and screen are the panel.`, "ok", playingSelf() ? 6500 : 0);
+    if (v.tone === "on") {
+      // over USB the FM-1 is a sound output too: say where to pick it, unless the sound already goes there
+      const hear = v.via !== "Bluetooth" && soundOut && soundOut.support && !soundOut.on ? " Its sound: Settings > Sound output > FM-1." : "";
+      toast(playingSelf() ? selfLine("on") : `FM-1 connected${v.via ? " over " + v.via : ""}: its keys, knobs and screen are the panel.${hear}`, "ok", playingSelf() ? 6500 : hear ? 7000 : 0);
+    }
     else if (v.tone === "bad") toast(v.detail, "bad");
   }
   fm1Tone = v.tone;
@@ -543,6 +577,13 @@ const app = {
     prefs.engine = { ...(prefs.engine || {}), [e.id]: name }; prefs.engineAt = { ...(prefs.engineAt || {}), [e.id]: e.version }; savePrefs();
     openFirmware(e, name);
   },
+  // the output: the system's or the FM-1's (sound-out.js); from the sheet's Sound output row (a click)
+  get soundOut() { if (!player) makePlayer(); return soundOut; },
+  async useFm1Out() {
+    try { await this.soundOut.useFm1(); toast(`The sound goes to ${soundOut.device.label}: MASTER is its volume.`, "ok"); }
+    catch (e) { toast(e.message || String(e), "bad"); }
+  },
+  async useSystemOut() { await this.soundOut.useSystem(); },
   async enableMidi() { if (await midi.enable()) { if (!midi.selected) midi.select(prefs.midi || "*"); } },
   selectMidi(id) { midi.select(id); prefs.midi = id; savePrefs(); },
   async loadSave(rec) { state.selectedSave = rec.name; if (sheet) sheet.render(); if (state.running) await boot(rec); toast(`Started from "${rec.name}".`); },

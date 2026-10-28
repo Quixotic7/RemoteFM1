@@ -94,6 +94,7 @@ jobs:
         run: |
           node web/site/test.mjs
           node web/site/test-wav.mjs
+          node web/site/test-audio.mjs
           node web/installer/test_installer.mjs
           node web/managers/test.mjs
 

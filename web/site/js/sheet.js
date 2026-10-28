@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // The settings sheet: FM1VST plugin/Sheet.cpp's Graphite sheet, as DOM. It slides in from the right over a dimmed
 // scrim (180 ms, eased); a click on the scrim or Esc closes it. Pages:
-//   main      FIRMWARE, SAVES, USE MY FM-1, PLAYING, RECORDING, LOOK, VIEW, ENGINE, ABOUT
+//   main      FIRMWARE, SAVES, USE MY FM-1, PLAYING (volume, sound output, MIDI), RECORDING, LOOK, VIEW, ENGINE, ABOUT
 //   firmware  the browser: a search field, category chips, a card per firmware (the loaded one outlined)
 //   about     the loaded firmware (author, licence, its source at the version that runs), the engine, the credits
 // app (main.js) holds the state and the actions; the sheet re-renders its page on app.changed().
@@ -137,6 +137,13 @@ export class Sheet {
         oninput: (ev) => { val.textContent = ev.target.value + "%"; a.setVolume(ev.target.value / 100, false); },
         onchange: (ev) => a.setVolume(ev.target.value / 100, true) });
       out.push(row("Volume", "this page's output; recordings keep the firmware's own level", h("div", { class: "vol-wrap" }, range, val)));
+    }
+    // where the sound goes: the system's output or the FM-1's USB audio (sound-out.js); Safari: a line on how
+    if (a.soundOut) {
+      const so = a.soundOut.view();
+      out.push(row("Sound output", so.sub, so.support
+        ? segmented(["System", "FM-1"], so.want === "fm1" ? 1 : 0, (i) => (i ? a.useFm1Out() : a.useSystemOut()), so.busy ? new Set([0, 1]) : undefined)
+        : h("span", { class: "muted small" }, "System")));
     }
     out.push(row("Transpose", "octaves, for MIDI notes", stepper(String(st.transpose), (d) => a.set("transpose", Math.max(-3, Math.min(3, st.transpose + d))))));
     const m = a.midi;

@@ -88,7 +88,9 @@ its port is named after what it advertises, "FM-1 1F2D". The site and FM1VST sen
 
 **USB audio** (0.2.1): the Mac sees the FM-1 as a sound output ("FM-1" in System Settings > Sound and Audio MIDI
 Setup) and plays through its speaker and headphones, with MASTER as its volume. Pick it as the output of fm1remote's
-sound (or the Mac's) to hear the firmware on the unit. The FM-1 is an audio input too, carrying what it plays. The
+sound (or the Mac's) to hear the firmware on the unit. On the site, Settings > Playing > Sound output > FM-1 does it in
+Chrome and Edge (Chrome asks once for the microphone, the only way it names the outputs; nothing is recorded) and in
+Firefox (its output chooser); in Safari, pick FM-1 as the Mac's output. The FM-1 is an audio input too, carrying what it plays. The
 USB interfaces are 0 audio control, 1 MIDI, 2 audio in, 3 audio out and 4 the vendor bulk pair (2 in 0.1 and 0.2.0);
 hosts find the vendor interface by its class (0xFF), not its number.
 
