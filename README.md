@@ -94,6 +94,12 @@ Firefox (its output chooser); in Safari, pick FM-1 as the Mac's output. The FM-1
 USB interfaces are 0 audio control, 1 MIDI, 2 audio in, 3 audio out and 4 the vendor bulk pair (2 in 0.1 and 0.2.0);
 hosts find the vendor interface by its class (0xFF), not its number.
 
+**On an iPhone or iPad**, Safari and Chrome play the site's firmwares, but they have no Web MIDI, so the FM-1 can't
+be their panel. [MIDIWeb Browser](https://apps.apple.com/us/app/midiweb-browser/id6757226617), an iOS browser that
+adds Web MIDI, runs the whole site: the FM-1 as the panel over Bluetooth or USB, and its USB audio. Tested on an
+iPhone 13 Pro Max on 2026-10-28. In any iOS browser, an FM-1 plugged in by USB becomes the phone's sound output by
+itself (a Lightning iPhone needs a Lightning to USB camera adapter).
+
 ## Safety
 
 From 0.2, RemoteFM1 is an fm1-base firmware, with fm1-base's and felucca-bsp's safeguards: the boot guard (two failed
