@@ -3,6 +3,24 @@
   "repo": "https://github.com/Quixotic7/RemoteFM1",
   "releases": [
     {
+      "version": "0.2.2",
+      "date": "2026-10-27",
+      "tag": "v0.2.2",
+      "identity": "FM-1_52000202",
+      "license": "MPL-2.0",
+      "sha256": "489857fcc91104cd4edf19c7c975c0e6258d311931830838e9d9e6913bb3cb89",
+      "usbOnly": {
+        "file": "remote-usb-0.2.2.fwsc",
+        "sha256": "4414f8f0b0936cb22c3fac91889e0df2cfa274d6322844edf13af5408841fc4d"
+      },
+      "notes": [
+        "Bluetooth about 6x faster: the radio now uses 2M, long link packets, 244-byte writes and a 7.5 ms interval (measured with a Mac: about 35 KB/s, was about 6).",
+        "Over Bluetooth each screen change appears whole: the old screen stays until the new one has arrived, so no half-drawn pages or numbers.",
+        "Hosts (this site's player, fm1remote) pace and simplify the screen for Bluetooth; USB is unchanged.",
+        "Tested on an FM-1 on 2026-10-27 with ChoralRoot in this site's player over Bluetooth, and over USB."
+      ]
+    },
+    {
       "version": "0.2.1",
       "date": "2026-10-27",
       "tag": "v0.2.1",

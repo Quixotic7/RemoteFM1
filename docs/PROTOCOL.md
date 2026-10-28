@@ -41,7 +41,7 @@ One message = a command byte + a body (8-bit bytes, multi-byte fields **little e
   a Bluetooth computer is connected). Measured on a unit (2026-10-27, macOS): about 6 KB/s of TILES body host →
   device, FRAME_ACK after 100–500 ms; its Bluetooth input (256 USB-MIDI packets, drained by the main loop) loses
   packets when more than about 4 KB is sent unacknowledged (3.4 KB was clean). Whole messages are then lost: the
-  FRAME_ACK says fewer bytes, or a later frame's comes first. libremotefm1 paces a Bluetooth frame link so: 5500 B/s
+  FRAME_ACK says fewer bytes, or a later frame's comes first. libremotefm1 paces a Bluetooth frame link to a unit before 0.2.2 (no `caps` bit8; 0.2.2 below) so: 5500 B/s
   of TILES body (6.0–6.3 KB/s measured with 1 KB frames, ACKs back in < 100 ms; ~6.3 KB/s framed, the rest left for
   LEDS, keepalives, PANEL_R and BLE MIDI's packet headers), a budget of 550 bytes a frame (100 ms of the rate), at
   most 20 frames a second (a small change goes within 50 ms), the next frame no sooner than its body at the rate
@@ -104,7 +104,7 @@ One message = a command byte + a body (8-bit bytes, multi-byte fields **little e
   | offset | field |
   |---|---|
   | 51 | `screen_w16` (240), `screen_h16` (240) |
-  | 55 | `caps16`: bit0 shadow frame buffer, bit1 COPY, bit2 RLE, bit3 PAL, bit4 battery reading, bit5 PLAY green LED, bit6 five LED levels (else: lit / dim / faint, mid shown as dim), bit7 TILES' HOLD flag (0.2.2, section 3) |
+  | 55 | `caps16`: bit0 shadow frame buffer, bit1 COPY, bit2 RLE, bit3 PAL, bit4 battery reading, bit5 PLAY green LED, bit6 five LED levels (else: lit / dim / faint, mid shown as dim), bit7 TILES' HOLD flag (0.2.2, section 3), bit8 fast Bluetooth radio (0.2.2: 2M, long link packets, MTU 247; section 1) |
   | 57 | `max_frames_in_flight8` (2) |
   | 58 | `session8` (1 while a session is active) |
   | 59 | `fw_ver[8]` (the RemoteFM1 version string) |
@@ -286,5 +286,7 @@ RemoteFM1 message starts `F0 7D 52 46`.
 - The vendor interface's number: 4 from 0.2.1, with USB audio in and out beside it (2 before). Found by class.
 - The identity `FM-1_52XXYYZZ` (HELLO_R `identity` "FM-1_520"); `loader_state` -2 for an unknown flash chip.
 - Three LED levels (mid and dim merge), no battery reading: `caps` 0x2F.
-- 0.2.2: TILES' HOLD flag (section 3), `caps` bit7 (0xAF), `RFM_HOLD_MS`; libremotefm1 sends a Bluetooth screen
-  change whole (section 1).
+- 0.2.2: TILES' HOLD flag (section 3), `caps` bit7, `RFM_HOLD_MS`; libremotefm1 sends a Bluetooth screen
+  change whole (section 1). The Bluetooth radio at 2M, long link packets, MTU 247, 16 receive buffers, 7.5 ms asked
+  first; `caps` bit8 (`RFM_CAP_BLE_FAST`; 0x1AF in all): libremotefm1 then paces Bluetooth at 30000 B/s with 8 KB
+  in flight and budgets up to 3000 B (measured with a Mac: ~35 KB/s of 1 KB frames, nothing lost at 14 KB in flight).

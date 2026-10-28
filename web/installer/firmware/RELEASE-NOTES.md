@@ -1,3 +1,35 @@
+# RemoteFM1 0.2.2
+
+Released 2026-10-27, built with `./build.sh --release 0.2.2` (and `--no-ble` for the USB-only package). It replaces
+0.2.1. Both packages install as `FM-1_52000202`.
+
+| Package | sha256 |
+| --- | --- |
+| `remote-0.2.2.fwsc`, USB + Bluetooth MIDI (the default) | `489857fcc91104cd4edf19c7c975c0e6258d311931830838e9d9e6913bb3cb89` |
+| `remote-usb-0.2.2.fwsc`, USB only | `4414f8f0b0936cb22c3fac91889e0df2cfa274d6322844edf13af5408841fc4d` |
+
+## What changed from 0.2.1
+
+- **Bluetooth about 6x faster.** The radio now uses the 2M PHY, 251-byte link-layer packets (Data Length
+  Extension), an ATT MTU of 247 (244-byte writes), 16 receive buffers and a 1024-packet input queue, and asks for a
+  7.5 ms connection interval first. JieLi's SDK left all of these off. Measured on an FM-1 with a Mac, 1 KB SysEx
+  frames: about 6 KB/s in 0.2.1, about 35 KB/s now (38 KB/s with more in flight), nothing lost with 14 KB
+  unacknowledged. macOS took 2M, 130-byte link packets and 7.5 ms. HELLO_R `caps` bit 8 says so.
+- **Each screen change appears whole over Bluetooth.** A new TILES flag, HOLD (`caps` bit 7): the FM-1 draws held
+  frames into its off-screen copy and shows them with the frame that completes the change. Turning a knob that
+  changes big text shows whole screens, never half old and half new. A change that stalls is shown by itself after
+  1.5 s.
+- **Hosts** (this site's player and libremotefm1): over Bluetooth they pace frames for the link (30 KB/s with 0.2.2,
+  5.5 KB/s with older units), send busy tiles with 4 colours first and the exact colours once the screen is still
+  for a second, and send each change as one snapshot. USB and the vendor bulk interface are unchanged.
+- STATS_R carries what the Bluetooth link negotiated (interval, MTU, data length, PHY), for diagnosing a slow link.
+
+## Testing
+
+On an FM-1 on 2026-10-27: installed over 0.2.1 and development builds; over USB-MIDI SysEx a session, every TILES
+encoding, FRAME_ACK and LEDS (about 300 small frames a second round trip); over Bluetooth MIDI with a Mac, this
+site's player running ChoralRoot: page changes and a turning PRESETS knob shown whole, no timeouts or lost frames.
+
 # RemoteFM1 0.2.1
 
 Released 2026-10-27, built with `./build.sh --release 0.2.1` (and `--no-ble` for the USB-only package). It replaces

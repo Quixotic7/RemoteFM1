@@ -5,6 +5,8 @@ Source: <https://github.com/Quixotic7/RemoteFM1>, at each release's tag. The rep
 
 | Package | RemoteFM1's firmware | Also in the package |
 | --- | --- | --- |
+| `remote-0.2.2.fwsc` (USB + Bluetooth MIDI) | MPL-2.0 (`LICENSES/MPL-2.0.txt`) | fm1-base and felucca-bsp (MPL-2.0); JieLi's Bluetooth library, linked as a binary (Apache-2.0); the JieLi AC79 SDK's `uboot.boot`, `cfg_tool.bin`, `eq_cfg_hw.bin` (Apache-2.0); the Barlow Semi Condensed font (OFL-1.1) |
+| `remote-usb-0.2.2.fwsc` (USB only) | MPL-2.0 (`LICENSES/MPL-2.0.txt`) | fm1-base and felucca-bsp (MPL-2.0); the JieLi AC79 SDK's `uboot.boot`, `cfg_tool.bin`, `eq_cfg_hw.bin` (Apache-2.0); the Barlow Semi Condensed font (OFL-1.1). No Bluetooth library |
 | `remote-0.2.1.fwsc` (USB + Bluetooth MIDI) | MPL-2.0 (`LICENSES/MPL-2.0.txt`) | fm1-base and felucca-bsp (MPL-2.0); JieLi's Bluetooth library, linked as a binary (Apache-2.0); the JieLi AC79 SDK's `uboot.boot`, `cfg_tool.bin`, `eq_cfg_hw.bin` (Apache-2.0); the Barlow Semi Condensed font (OFL-1.1) |
 | `remote-usb-0.2.1.fwsc` (USB only) | MPL-2.0 (`LICENSES/MPL-2.0.txt`) | fm1-base and felucca-bsp (MPL-2.0); the JieLi AC79 SDK's `uboot.boot`, `cfg_tool.bin`, `eq_cfg_hw.bin` (Apache-2.0); the Barlow Semi Condensed font (OFL-1.1). No Bluetooth library |
 | `remote-0.1.1.fwsc` | GPL-3.0-only (`LICENSE`) | TransitFM1's platform, from Dinghy and Felucca (GPL-3.0-only); the JieLi AC79 SDK's three files (Apache-2.0); the Terminus font (OFL-1.1) |
