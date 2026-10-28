@@ -26,7 +26,7 @@
 #define SXQ 1024u
 #endif
 /* Bluetooth MIDI's queues (fm1-base device/radio.c, in packets): SysEx comes and goes as packets of three bytes */
-#define BLE_IN_Q 256u
+#define BLE_IN_Q 1024u
 #define BLE_OUT_Q 128u
 
 /* the store: the panel calibration (the platform's, only written by OCT- + OCT+ at power-on) and Bluetooth's address

@@ -1,0 +1,11 @@
+--- a/ble/midi/le_midi.c
++++ b/ble/midi/le_midi.c
+@@ -80,7 +80,7 @@
+ };
+ 
+ #define ADV_INTERVAL_MIN     (160)              /* 0.625 ms units: 100 ms (the SDK demo: 500 ms) */
+-#define ATT_LOCAL_MTU_SIZE   (64)
++#define ATT_LOCAL_MTU_SIZE   (247)             /* 244 B a write from the computer (was 64): Bluetooth MIDI SysEx about 4x faster */
+ #define ATT_SEND_CBUF_SIZE   (512 * (1 + BLE_MIDI_CENTRAL))   /* both links share it with the central */
+ #define ATT_RAM_BUFSIZE      (ATT_CTRL_BLOCK_SIZE + ATT_LOCAL_MTU_SIZE + ATT_SEND_CBUF_SIZE)
+ static u8 att_ram_buffer[ATT_RAM_BUFSIZE] __attribute__((aligned(4)));
