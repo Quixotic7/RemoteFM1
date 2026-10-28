@@ -102,3 +102,19 @@ Bluetooth queues sizable by the app; the simulator's `sysex` command**
 > notes and clocks; another sender's packets (continued SysEx, a clock inside, cut by a note, running status); 50,000
 > random packets under ASan/UBSan. RemoteFM1's simulator scripts drive its protocol over this path. Not yet on an FM-1
 > at the time of writing (RemoteFM1 0.2 is its first user).
+
+## fm1-base: `fm1-base/0003-ble-radio-dle-2m-rx-interval.patch` (being measured; not for upstream yet)
+
+`ble/midi/le_midi.c`, `tools/build.py`. PR title: **Bluetooth MIDI: optional Data Length Extension, 2M PHY, a larger
+receive pool and a 7.5 ms interval request (fm1.toml ble_dle, ble_2m, ble_rx_bufs, ble_fast_interval)**
+
+> JieLi's controller has Data Length Extension and the 2M PHY (`ll_data_extension.c`, `ll_multiple_phys.c` in
+> `btctrler.a`), but the SDK's `lib_btctrler_config.c` says it has neither (`config_btctler_le_features =
+> LE_ENCRYPTION`): `ll_hci_set_data_length` and `ll_hci_set_phy` return at once without the feature bits, and a
+> central sees no DLE or 2M in the feature exchange, so every link runs 27-byte packets at 1M. With the options off a
+> firmware builds as before. `ble_dle`: the feature, the controller's packet length 251 (the SDK's comment; its
+> transmit buffers grow from 700 to 2940 B of the Bluetooth heap), and `le_midi.c` asks the computer for 251 octets
+> once the ATT MTU is exchanged. `ble_2m`: the feature, and `le_midi.c` asks for 2M after the data length's change (or
+> at the CCC write). `ble_rx_bufs = N`: the controller's receive pool, N × 294 B (the SDK's 5): a 251-byte packet
+> takes 271 B of it until the stack has taken it, the two the radio receives into 275 B each. `ble_fast_interval`:
+> 7.5..22.5 ms asked first, then the table as before. `FM1B_BLE_RADIO="dle,2m,rx16,ci"` sets them for a test build.

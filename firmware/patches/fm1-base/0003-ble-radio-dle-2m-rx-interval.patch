@@ -1,0 +1,195 @@
+--- a/ble/midi/le_midi.c
++++ b/ble/midi/le_midi.c
+@@ -52,6 +52,18 @@
+ #ifndef BLE_MIDI_CENTRAL
+ #define BLE_MIDI_CENTRAL 0
+ #endif
++/* the radio (tools/build.py: fm1.toml ble_dle, ble_2m, ble_fast_interval, or FM1B_BLE_RADIO for a test build; the SDK's
++ * controller configuration, lib_btctrler_config.c, gets the matching features): asked of the computer once the link is up,
++ * one link-layer procedure at a time (the data length first, the PHY after its change) */
++#ifndef BLE_MIDI_DLE
++#define BLE_MIDI_DLE 0                           /* 251-byte link-layer packets (Data Length Extension; 27 without) */
++#endif
++#ifndef BLE_MIDI_2M
++#define BLE_MIDI_2M 0                            /* the 2M PHY (1M without) */
++#endif
++#ifndef BLE_MIDI_FAST_CI
++#define BLE_MIDI_FAST_CI 0                       /* a 7.5 ms connection interval asked for first */
++#endif
+ extern void ble_midi_receive(uint32_t pkt, uint32_t ts);   /* ts: the sender's millisecond (13 bits) */
+ extern uint32_t shim_ms(void);
+ extern void ble_midi_name(char *name);              /* "FM-1 " + four hex digits: this FM-1's (device/radio.c) */
+@@ -109,6 +121,9 @@
+ static const uint8_t connection_update_enable = 1;
+ static uint8_t connection_update_cnt;
+ static const struct conn_update_param_t connection_param_table[] = {
++#if BLE_MIDI_FAST_CI
++    {6, 18, 0, 400},                /* 7.5..22.5 ms (Apple's rules ask 11.25 ms at least, for HID; refused: the next) */
++#endif
+     {9, 21, 0, 400},                /* 11.25..26.25 ms (1.25 ms units; Apple: max >= min + 15 ms), 4 s timeout */
+     {9, 12, 0, 400},                /* 11.25..15 ms (BLE MIDI's own advice) */
+     {12, 24, 0, 400},               /* 15..30 ms */
+@@ -136,6 +151,23 @@
+ {
+     if (connection_update_enable && connection_update_cnt < CONN_PARAM_TABLE_CNT)
+         send_request_connect_parameter(connection_update_cnt);
++}
++static u8 radio_asked, radio_dl_seen;           /* bit 0 the data length asked, bit 1 the PHY; a length change seen */
++static void radio_ask(int now)                   /* the next of what this build asks of the link (stack's context);
++                                                  * now: the PHY too, without waiting for the length's change */
++{
++    if (!con_handle)
++        return;
++    if (BLE_MIDI_DLE && !(radio_asked & 1u) && !radio_dl_seen) {
++        radio_asked |= 1u;
++        ble_op_set_data_length(con_handle, 251, 2120);   /* 251 octets, 2120 us (251 at 1M): a 244 B write in one packet */
++        if (!now)
++            return;                              /* (the PHY after the length's change, or at the CCC write) */
++    }
++    if (BLE_MIDI_2M && !(radio_asked & 2u)) {
++        radio_asked |= 2u;
++        ble_op_set_ext_phy(con_handle, 0, CONN_SET_2M_PHY, CONN_SET_2M_PHY, CONN_SET_PHY_OPTIONS_NONE);
++    }
+ }
+ static void connection_update_complete_success(u8 *packet)
+ {
+@@ -390,6 +422,8 @@
+     case H_CCC:
+         set_ble_work_state(BLE_ST_NOTIFY_IDICATE);
+         check_connetion_updata_deal();
++        radio_ask(1);                            /* what is left (a length the computer changed itself, before we
++                                                  * asked, gives no change event): the PHY now */
+         log_info("ccc %02x\n", buffer[0]);
+         CCC_SET(connection_handle, att_handle, buffer[0]);
+         break;
+@@ -710,6 +744,7 @@
+ /* ---- the stack's events */
+ static void server_profile_start(u16 handle)
+ {
++    radio_asked = radio_dl_seen = 0;
+ #if BLE_MIDI_CENTRAL
+     ble_op_multi_att_send_conn_handle(handle, 0, ROLE_SERVER);
+ #else
+@@ -756,11 +791,27 @@
+             if (little_endian_read_16(packet, 4) == con_handle)
+                 connection_update_complete_success(packet);
+             break;
++        case HCI_SUBEVENT_LE_DATA_LENGTH_CHANGE:
++            if (hci_subevent_le_data_length_change_get_connection_handle(packet) != con_handle)
++                break;
++            printf("data length: tx %d rx %d\n", hci_subevent_le_data_length_change_get_max_tx_octets(packet),
++                   hci_subevent_le_data_length_change_get_max_rx_octets(packet));
++            radio_dl_seen = 1;
++            radio_ask(0);                        /* (the PHY next) */
++            break;
++        case HCI_SUBEVENT_LE_PHY_UPDATE_COMPLETE:
++            if (little_endian_read_16(packet, 4) != con_handle)
++                break;
++            printf("phy: status %x tx %d rx %d\n", hci_event_le_meta_get_phy_update_complete_status(packet),
++                   hci_event_le_meta_get_phy_update_complete_tx_phy(packet),
++                   hci_event_le_meta_get_phy_update_complete_rx_phy(packet));
++            break;
+         }
+         break;
+     case HCI_EVENT_DISCONNECTION_COMPLETE:
+         if (little_endian_read_16(packet, 3) != con_handle)
+             break;
++        radio_asked = radio_dl_seen = 0;
+         printf("computer: disconnected %x\n", packet[5]);
+         sx_reset(0);
+ #if BLE_MIDI_CENTRAL
+@@ -791,6 +842,7 @@
+         ble_op_att_set_send_mtu(mtu);
+ #endif
+         send_mtu = (u16)(mtu > 64 ? 64 : mtu);
++        radio_ask(0);                            /* the link is up and settled: the data length (or the PHY) */
+         break;
+     case L2CAP_EVENT_CONNECTION_PARAMETER_UPDATE_RESPONSE:
+         if (little_endian_read_16(packet, 2) != con_handle)
+--- a/tools/build.py
++++ b/tools/build.py
+@@ -38,6 +38,14 @@
+                              RAM: Melodee's measure ~18 KB and ~4 KB); not with ble_central
+   ble_no_pairing = true      with ble_trim: no pairing or encryption either (~19 KB more flash; iOS and macOS connect)
+   ble_central = true         and the FM-1 connects to Bluetooth MIDI devices too (FM1B_BLE_CENTRAL), beside a computer
++  ble_dle = true             Bluetooth's link-layer packets 251 bytes (Data Length Extension; 27 without): the controller
++                             says it can, ble/midi asks the computer once the link is up (a 244 B write in one packet)
++  ble_2m = true              the 2M PHY: the controller says it can, ble/midi asks for it after the data length
++  ble_rx_bufs = 16           the controller's receive pool, in 294-byte buffers (the SDK's 5; +294 B of the Bluetooth
++                             heap each): more of a connection event's packets taken before the stack drains them
++  ble_fast_interval = true   a 7.5 ms connection interval asked for first (Apple's rules say 11.25 ms; refused, the rest)
++                             FM1B_BLE_RADIO="dle,2m,rx16,ci" in the environment sets these four for a test build
++                             ("" or "none": all off), whatever fm1.toml says
+   usb_audio_in = true        the FM-1 recordable over USB (FM1B_UAC; the default: true)
+   usb_audio_out = true       a computer plays through the FM-1 over USB (FM1B_UAC_OUT; the default: true)
+   usb_host = true            the USB port as a MIDI host when the app asks (FM1B_USB_HOST: felucca-bsp's
+@@ -371,10 +379,45 @@
+ BLE_CONFIG_NO_SM = {"apps/common/config/log_config/lib_btctrler_config.c": [
+     (r"(const int config_le_sm_support_enable\s*=\s*)1", r"\g<1>0"),
+     (r"(const uint64_t config_btctler_le_features\s*=\s*)\(LE_ENCRYPTION\)", r"\g<1>(0)")]}
++
++
++def ble_radio():
++    """the radio's options: fm1.toml ble_dle, ble_2m, ble_rx_bufs, ble_fast_interval, or FM1B_BLE_RADIO's
++    ("dle,2m,rx16,ci"); {"dle": bool, "2m": bool, "rx": int or 0 (the SDK's), "ci": bool}"""
++    env = os.environ.get("FM1B_BLE_RADIO")
++    if env is None:
++        return {"dle": bool(CONF.get("ble_dle")), "2m": bool(CONF.get("ble_2m")), "rx": int(CONF.get("ble_rx_bufs", 0)),
++                "ci": bool(CONF.get("ble_fast_interval"))}
++    r = {"dle": False, "2m": False, "rx": 0, "ci": False}
++    for w in filter(None, (x.strip() for x in env.lower().split(","))):
++        if w in ("dle", "2m", "ci"):
++            r[w] = True
++        elif re.fullmatch(r"rx\d+", w):
++            r["rx"] = int(w[2:])
++        elif w != "none":
++            raise SystemExit(f"FM1B_BLE_RADIO: {w!r}? (dle, 2m, rxN, ci)")
++    return r
++
++
++def ble_radio_config():
++    """the controller configuration's cuts for ble_radio(): the features it says it has, its packet length, its pool"""
++    r = ble_radio()
++    if r["rx"] and not 2 <= r["rx"] <= 32:
++        raise SystemExit(f"ble_rx_bufs {r['rx']}: 2..32")
++    feats = [f for k, f in (("dle", "LE_DATA_PACKET_LENGTH_EXTENSION"), ("2m", "LE_2M_PHY")) if r[k]]
++    cuts = []
++    if feats:
++        cuts.append((r"(const uint64_t config_btctler_le_features\s*=\s*)(\([^;]*\))", r"\g<1>(\g<2> | " + " | ".join(feats) + ")"))
++    if r["dle"]:                                  # (the SDK's own comment: 27 or 251; the transmit buffers sized to it)
++        cuts.append((r"(const int config_btctler_le_acl_packet_length\s*=\s*)27\b", r"\g<1>251"))
++    if r["rx"]:
++        cuts.append((r"(const int config_btctler_le_rx_nums\s*=\s*)[^;]+", rf"\g<1>{r['rx']}"))
++    return {"apps/common/config/log_config/lib_btctrler_config.c": cuts} if cuts else {}
+ 
+ 
+ def ble_config(sdk, dst):
+-    """the SDK's configuration sources into dst, as BLE_CONFIG cuts them (ble_trim); written only when changed"""
++    """the SDK's configuration sources into dst, as BLE_CONFIG cuts them (ble_trim) and the radio's options; written
++    only when changed"""
+     import re as _re
+     import shutil
+     cuts = {}
+@@ -382,6 +425,9 @@
+         for d in (BLE_CONFIG, BLE_CONFIG_NO_SM if CONF.get("ble_no_pairing") else {}):
+             for f, rs in d.items():
+                 cuts.setdefault(f, []).extend(rs)
++    if BLE:
++        for f, rs in ble_radio_config().items():
++            cuts.setdefault(f, []).extend(rs)
+     for f in BLE_SDK_SRC:
+         text = (sdk / f).read_text(errors="ignore")
+         for rx, rep in cuts.get(f, []):
+@@ -489,6 +535,12 @@
+     # controller's link count, the multi-link stack). Written from the SDK's each build, as this one wants it
+     cfg = "apps/demo/demo_ble/include/app_config.h"
+     text = (sdk / cfg).read_text(errors="ignore")
++    if BLE:                                       # the radio's options (ble_radio): ble/midi asks for them
++        r = ble_radio()
++        flags += [f"-D{m}=1" for k, m in (("dle", "BLE_MIDI_DLE"), ("2m", "BLE_MIDI_2M"), ("ci", "BLE_MIDI_FAST_CI")) if r[k]]
++        print("radio    Bluetooth: " + ", ".join(
++            [("251-byte packets" if r["dle"] else "27-byte packets"), ("2M PHY" if r["2m"] else "1M PHY"),
++             f"{r['rx'] or 5} receive buffers", ("7.5 ms interval asked first" if r["ci"] else "11.25 ms interval asked first")]))
+     if BLE and CONF.get("ble_central"):
+         flags.append("-DBLE_MIDI_CENTRAL=1")
+         for old, new in (("#define TRANS_DATA_EN                             1",
