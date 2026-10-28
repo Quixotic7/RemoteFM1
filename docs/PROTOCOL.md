@@ -258,6 +258,18 @@ ECHO `0x04` / ECHO_R `0x44`, STATS `0x05` / STATS_R `0x45`, STATS_RESET `0x06`, 
 SINK `0x02`, SOURCE `0x03` / DATA `0x43` / SOURCE_DONE `0x50`, and M0's raw TILE `0x08`. They work as in M0, in and
 out of a session.
 
+Bluetooth radio test builds (firmware/patches/fm1-base 0004, the Bluetooth build only): STATS_R carries 40 more bytes
+after its `n` counters, what the computer's Bluetooth link negotiated (fm1-base `le_midi.c` `ble_midi_radio`),
+little-endian: `'R'` (0x52), 1 (the layout), the build's asks (bit0 data length 251, bit1 2M PHY, bit2 7.5 ms interval
+first), the controller's receive buffers; u16 connection interval (1.25 ms units), latency, supervision timeout (10
+ms), ATT MTU (0 = no exchange), then the last LE Data Length Change: max tx octets, max tx time (us), max rx octets,
+max rx time (all 0 = none: 27 / 328); u8 tx PHY, rx PHY (1 = 1M, 2 = 2M, 3 = coded; 0 = no PHY update, so 1M), the
+PHY update's status (0xFF = none), data length changes, PHY updates, connection updates, the connection-parameter
+row accepted (0xFF = none yet), requests refused, linked (1 = a computer is connected); u32 the Bluetooth heap's most
+ever and its size; u8 the controller's packet length (27 or 251), and which of the build's asks went (bits as above).
+The values stay after a disconnect until the next connection. Ask over USB (a reply this long may not find room on
+the Bluetooth link).
+
 ## 6. Updater
 
 The M-UPGRADE SysEx path (`F0 00 59 …`, the soft key, `fm1_install.py`) is untouched and works at any time over USB,

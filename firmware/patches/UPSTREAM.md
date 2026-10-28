@@ -118,3 +118,9 @@ receive pool and a 7.5 ms interval request (fm1.toml ble_dle, ble_2m, ble_rx_buf
 > at the CCC write). `ble_rx_bufs = N`: the controller's receive pool, N × 294 B (the SDK's 5): a 251-byte packet
 > takes 271 B of it until the stack has taken it, the two the radio receives into 275 B each. `ble_fast_interval`:
 > 7.5..22.5 ms asked first, then the table as before. `FM1B_BLE_RADIO="dle,2m,rx16,ci"` sets them for a test build.
+
+## fm1-base: `fm1-base/0004-ble-radio-readout.patch` (test only)
+
+`ble/midi/le_midi.c`: `ble_midi_radio(b)`, 40 bytes of what the computer's link negotiated (interval, latency,
+timeout, ATT MTU, the last data length change, the PHY, the connection-parameter result, the Bluetooth heap), for
+RemoteFM1's STATS_R (docs/PROTOCOL.md section 5). Drop it with `firmware/src/rfm_main.c`'s `RF_RADIO_N` part.

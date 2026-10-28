@@ -580,10 +580,18 @@ static void rf_row(void *c, uint32_t x, uint32_t y, uint32_t w, const uint16_t *
 #endif
 
 /* ------------------------------------------------------------------ M0's diagnostics --- */
+#if FM1B_BLE && !defined(PLAT_HOST)
+/* a test readout (Bluetooth radio builds, firmware/patches/fm1-base 0004): what the computer's Bluetooth link
+ * negotiated, 40 bytes after STATS_R's counters (fm1-base le_midi.c ble_midi_radio: the layout; PROTOCOL.md section 5) */
+#define RF_RADIO_N 40u
+extern void ble_midi_radio(uint8_t *b);
+#else
+#define RF_RADIO_N 0u
+#endif
 static void rf_stats_send(uint32_t t)
 {
     uint32_t v[RF_ST_N], i, k, c[RC_N];
-    uint8_t b[1 + 4 * RF_ST_N];
+    uint8_t b[1 + 4 * RF_ST_N + RF_RADIO_N];
     const rf_tstats_t *s;
     for (i = 0; i < RF_ST_N; i++)
         v[i] = 0;
@@ -640,6 +648,9 @@ static void rf_stats_send(uint32_t t)
     b[0] = RF_ST_N;
     for (i = 0; i < RF_ST_N; i++)
         rf_wr32(b + 1 + 4 * i, v[i]);
+#if RF_RADIO_N
+    ble_midi_radio(b + 1 + 4 * RF_ST_N);
+#endif
     rf_send(t, RF_STATS_R, b, sizeof b);
 }
 
