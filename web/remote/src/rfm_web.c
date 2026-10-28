@@ -42,6 +42,7 @@ static uint16_t frame_host[RFM_W * RFM_H], frame_be[RFM_W * RFM_H];
 static uint8_t leds_levels[RFM_NCOL * 4u];
 static uint32_t out32[64];
 static char host_name[17] = "web";
+static int ble_colors = -1;                             /* rw_set_ble_colors(); -1: the library's default */
 
 static int w_link(void *ctx, const uint8_t *p, uint32_t n) { return js_write((int)(intptr_t)ctx, p, n); }
 static void cb_event(void *ctx, const rfm_event_t *e)
@@ -80,6 +81,8 @@ EMSCRIPTEN_KEEPALIVE int rw_init(int fps, int transport, int keepalive_ms, int b
         c.keepalive_ms = (uint32_t)keepalive_ms;
     if (budget > 0)
         c.budget = (uint32_t)budget;
+    if (ble_colors >= 0)
+        c.ble_colors = (uint32_t)ble_colors;
     if (name && *name) {
         strncpy(host_name, name, 16);
         host_name[16] = 0;
@@ -173,6 +176,15 @@ EMSCRIPTEN_KEEPALIVE void rw_set_leds(int play_green)
         }
     l.flags = play_green >= 176 ? RFM_LEDS_F_PLAY_GREEN : 0;
     rfm_session_set_leds(S, &l);
+}
+
+/* Bluetooth's lossy tiles: 0 lossless (the reduced tiles shown are then sent exactly at once), 2..16 colours a tile,
+ * -1 the library's default (RFM_BLE_COLORS); now and for later sessions (rw_init) */
+EMSCRIPTEN_KEEPALIVE void rw_set_ble_colors(int n)
+{
+    ble_colors = n;
+    if (S)
+        rfm_session_set_ble_colors(S, n >= 0 ? (uint32_t)n : RFM_BLE_COLORS);
 }
 
 EMSCRIPTEN_KEEPALIVE void rw_stop(uint32_t now)

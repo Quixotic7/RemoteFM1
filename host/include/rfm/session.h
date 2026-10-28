@@ -23,12 +23,18 @@
  *   STOPPING  stop(): SESSION start=0, until its ACK or stop_ms; then STOPPED.
  *
  * Bluetooth: a SysEx frame link whose HELLO_R says Bluetooth (rfm_hello_is_ble: sxq <= 256 with the Bluetooth bit)
- * is paced for it: frames at most RFM_BLE_FPS a second, a budget of RFM_BUDGET_BLE_BPS / RFM_BLE_FPS (cfg.budget, if
- * set, at most RFM_BLE_BUDGET_MAX), the next frame no sooner than its body at RFM_BUDGET_BLE_BPS allows, at most
+ * is paced for it: frames at most RFM_BLE_FPS a second, a budget of RFM_BUDGET_BLE_BPS / 10 (100 ms of the rate;
+ * cfg.budget, if set, at most RFM_BLE_BUDGET_MAX; the rate is then 10 x the budget), the next frame no sooner than its
+ * body at the rate allows (small changes go at up to 20 a second, a page change at the rate), at most
  * RFM_BLE_WIRE_CAP framed TILES bytes unacknowledged (the unit's Bluetooth input drops packets beyond a few KB; one
  * frame alone always goes), FRAME_ACK timeout max(ack_timeout_ms, RFM_BLE_ACK_MIN_MS, 500 + 3 x what is in flight at
  * the rate), SESSION retried after max(start_ms, 1000), heartbeat_ms / lost_ms at least 2500 / 3000. A USB SysEx
- * link of the same unit is preferred to a Bluetooth one. USB and bulk links are paced as before. */
+ * link of the same unit is preferred to a Bluetooth one. USB and bulk links are paced as before.
+ *   Bluetooth frames are lossy (cfg.ble_colors, screen.h): a tile with more colours goes reduced to its best
+ * ble_colors when that is smaller (a ChoralRoot page change: ~40 % fewer bytes at 4), sent once and then left as it
+ * is. When no tile has changed for cfg.ble_refine_ms, the reduced tiles are sent again exactly, one frame in flight at
+ * a time; a change stops that (it goes first; the refinement starts again once the screen is still). USB and bulk
+ * links are never lossy. */
 #ifndef RFM_SESSION_H
 #define RFM_SESSION_H
 #include <stdint.h>
@@ -43,10 +49,12 @@ extern "C" {
 enum { RFM_T_AUTO = 0, RFM_T_MIDI = 1, RFM_T_BULK = 2 };
 enum { RFM_S_DISCOVER = 0, RFM_S_STARTING, RFM_S_ACTIVE, RFM_S_STOPPING, RFM_S_STOPPED };
 #define RFM_MAX_LINKS 16
-#define RFM_BLE_FPS 10u                                 /* Bluetooth pacing (above) */
+#define RFM_BLE_FPS 20u                                 /* Bluetooth pacing (above) */
 #define RFM_BLE_WIRE_CAP 2048u                          /* framed TILES bytes unacknowledged (3.4 KB measured clean) */
 #define RFM_BLE_BUDGET_MAX 800u                         /* a frame stays well under the cap */
 #define RFM_BLE_ACK_MIN_MS 2000u
+#define RFM_BLE_COLORS 4u                               /* cfg.ble_colors' default: 2 bpp PAL tiles */
+#define RFM_BLE_REFINE_MS 1000u
 
 typedef struct {
     uint32_t fps;                                       /* 20 */
@@ -62,6 +70,8 @@ typedef struct {
     uint32_t settle_ms;                                 /* 60: panel.h */
     uint32_t sx_body_max, bk_body_max;                  /* 0: the spec's (1024 / 16384), lowered by HELLO_R's */
     int transport;                                      /* RFM_T_* */
+    uint32_t ble_colors;                                /* RFM_BLE_COLORS: lossy tiles over Bluetooth; 0 lossless */
+    uint32_t ble_refine_ms;                             /* RFM_BLE_REFINE_MS: still this long -> exact; 0 never */
     const char *host_name;                              /* HELLO's body ("fm1remote") */
 } rfm_session_cfg_t;
 void rfm_session_cfg_default(rfm_session_cfg_t *c);
@@ -86,6 +96,10 @@ typedef struct {
     uint32_t frame_ms;                                  /* the frame period in use */
     uint32_t wire_cap;                                  /* framed TILES bytes allowed unacknowledged; 0: no cap */
     uint32_t wire_in_flight;                            /* framed TILES bytes unacknowledged now */
+    uint32_t reduced;                                   /* tiles sent reduced (Bluetooth, ble_colors) */
+    uint32_t refined;                                   /* reduced tiles sent again exactly */
+    uint32_t inexact;                                   /* tiles the unit shows reduced now */
+    uint32_t lossy;                                     /* the colours a tile is reduced to now; 0 lossless */
 } rfm_session_stats_t;
 
 typedef struct rfm_session rfm_session_t;
@@ -99,6 +113,8 @@ void rfm_session_poll(rfm_session_t *s, uint32_t now_ms);
 
 void rfm_session_set_frame(rfm_session_t *s, const uint16_t *lcd);     /* a new screen (copied) */
 void rfm_session_set_leds(rfm_session_t *s, const rfm_leds_t *l);
+/* cfg.ble_colors now (0: lossless; a Bluetooth link's reduced tiles are then sent exactly at once) */
+void rfm_session_set_ble_colors(rfm_session_t *s, uint32_t colors);
 void rfm_session_stop(rfm_session_t *s, uint32_t now_ms);               /* SESSION start=0, then STOPPED */
 void rfm_session_restart(rfm_session_t *s, uint32_t now_ms);            /* back to DISCOVER (after stop too) */
 

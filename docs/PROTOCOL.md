@@ -40,12 +40,25 @@ One message = a command byte + a body (8-bit bytes, multi-byte fields **little e
   a Bluetooth computer is connected). Measured on a unit (2026-10-27, macOS): about 6 KB/s of TILES body host →
   device, FRAME_ACK after 100–500 ms; its Bluetooth input (256 USB-MIDI packets, drained by the main loop) loses
   packets when more than about 4 KB is sent unacknowledged (3.4 KB was clean). Whole messages are then lost: the
-  FRAME_ACK says fewer bytes, or a later frame's comes first. libremotefm1 paces a Bluetooth frame link so: at most
-  10 frames a second, a budget of 400 bytes a frame (4000 B/s, room left for LEDS, keepalives and PANEL_R), the next
-  frame no sooner than its body at 4000 B/s allows, at most 2048 framed TILES bytes unacknowledged (one frame alone
-  always goes; a frame is at most ~600 bytes on the wire), a FRAME_ACK timeout of max(2 s, 500 ms + 3 × what is in
-  flight at the rate), and SESSION retried after 1 s. With a USB port of the same unit it uses that one. USB-MIDI
-  and bulk keep their pacing (about 280 KB/s and 800 KB/s, at most 2 frames unacknowledged; `host/include/rfm`).
+  FRAME_ACK says fewer bytes, or a later frame's comes first. libremotefm1 paces a Bluetooth frame link so: 5500 B/s
+  of TILES body (6.0–6.3 KB/s measured with 1 KB frames, ACKs back in < 100 ms; ~6.3 KB/s framed, the rest left for
+  LEDS, keepalives, PANEL_R and BLE MIDI's packet headers), a budget of 550 bytes a frame (100 ms of the rate), at
+  most 20 frames a second (a small change goes within 50 ms), the next frame no sooner than its body at the rate
+  allows, at most 2048 framed TILES bytes unacknowledged (one frame alone always goes; a frame is at most ~640 bytes
+  on the wire; on a link slower than the rate this cap, not the rate, sets the pace), a FRAME_ACK timeout of
+  max(2 s, 500 ms + 3 × what is in flight at the rate), and SESSION retried after 1 s. With a USB port of the same
+  unit it uses that one. USB-MIDI and bulk keep their pacing (about 280 KB/s and 800 KB/s, at most 2 frames
+  unacknowledged; `host/include/rfm`).
+- **Bluetooth: lossy tiles (host side only; the wire format is unchanged).** Over Bluetooth libremotefm1 sends a
+  16×16 tile with more than 4 colours (`ble_colors`, 0 = lossless, 2..16) as its best 4 (median cut + k-means on the
+  tile's own colours, each drawn in a colour the tile has) when that encodes smaller, mostly PAL at 2 bpp instead of
+  4 bpp: a ChoralRoot page change of 11 KB becomes 6.4 KB (2.0 s → 1.2 s at 5500 B/s). Anti-aliased text loses
+  some of its in-between greys; background and text colours stay exact. The host's model holds what the device
+  shows and, per tile, the screen it was sent for; a tile is sent again only when that screen changes, so a still
+  screen sends nothing and nothing flickers. Once no tile has changed for 1 s (`ble_refine_ms`), the reduced tiles
+  are sent again exactly, one frame in flight at a time, so a change is never queued behind more than one frame;
+  a change drops the refinement, which starts again when the screen is still. The device sees ordinary TILES
+  either way.
 - The device answers on the transport the request came in on. Panel events go out as plain MIDI (section 4) on the
   session's MIDI port.
 - A host may use both on USB: plain MIDI for the panel events and bulk for everything else. That is the recommended

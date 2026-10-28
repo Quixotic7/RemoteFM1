@@ -204,7 +204,8 @@ for (const vendorIf of [4, 2]) {
 }
 
 // ------------------------------------------------------------------ 2b. Bluetooth MIDI: paced for it
-// (the unit's HELLO_R over Bluetooth says sxq 128: 10 fps, 400 B a frame, at most 2 KB of TILES unacknowledged)
+// (the unit's HELLO_R over Bluetooth says sxq 128: 5500 B/s, up to 20 fps, 550 B a frame, at most 2 KB of TILES
+// unacknowledged; tiles reduced to 4 colours, then sent exactly once the screen is still)
 {
     console.log('-- Web MIDI over Bluetooth: paced (HELLO_R sxq 128), frames converge, no ack timeout');
     const { world, remote, ev, run, until } = await setup({ usb: 'off' }, w => {
@@ -215,9 +216,9 @@ for (const vendorIf of [4, 2]) {
     let t = await until(() => remote.status.state === 'connected', 3000);
     check(t >= 0 && remote.status.transport === 'midi', `connected via midi (Bluetooth) in ${t} ms`);
     let s = remote.stats();
-    check(s.ble === 1 && s.budget === 400 && s.frame_ms === 100 && s.wire_cap === 2048,
-        `stats: ble ${s.ble}, budget ${s.budget} B/frame, frame ${s.frame_ms} ms, cap ${s.wire_cap} B in flight`);
-    check(ev.log.some(m => /Bluetooth link: budget 400 B\/frame, 10 fps, cap 2048 B in flight/.test(m)), 'logged the Bluetooth pacing');
+    check(s.ble === 1 && s.budget === 550 && s.frame_ms === 50 && s.wire_cap === 2048 && s.lossy === 4,
+        `stats: ble ${s.ble}, budget ${s.budget} B/frame, frame ${s.frame_ms} ms, cap ${s.wire_cap} B in flight, lossy ${s.lossy}`);
+    check(ev.log.some(m => /Bluetooth link: 5500 B\/s, budget 550 B\/frame, 20 fps, cap 2048 B in flight, tiles reduced to 4 colours/.test(m)), 'logged the Bluetooth pacing');
     let maxWire = 0;
     for (let i = 0; i < 60; i++) {
         remote.setFrame(200 + i, testFrame(i));
@@ -229,6 +230,14 @@ for (const vendorIf of [4, 2]) {
     check(s.ack_timeouts === 0 && s.decode_errs === 0 && s.shadow_resets === 0 && s.sessions === 1,
         `no ack timeout (${s.ack_timeouts}), no decode error, one session (${s.sessions})`);
     check(maxWire > 0 && maxWire <= 2048, `TILES in flight at most ${maxWire} B`);
+    check(s.reduced > 0 && s.refined > 0 && s.inexact === 0, `lossy tiles: ${s.reduced} reduced, ${s.refined} refined, ${s.inexact} left`);
+    // lossless from now on: a new screen goes exactly, nothing reduced
+    remote.setBleColors(0);
+    const reduced = s.reduced;
+    remote.setFrame(300, testFrame(7));
+    t = await until(() => sameBytes(world.shadow(u), beBytes(testFrame(7))), 20000);
+    s = remote.stats();
+    check(t >= 0 && s.lossy === 0 && s.reduced === reduced, `setBleColors(0): exact in ${t} ms, lossy ${s.lossy}, reduced ${s.reduced}`);
     await Promise.all([remote.disconnect(), run(400)]);
 }
 {
@@ -237,8 +246,8 @@ for (const vendorIf of [4, 2]) {
     await remote.connect();
     await until(() => remote.status.state === 'connected', 3000);
     const s = remote.stats();
-    check(s.ble === 0 && s.budget === 14000 && s.frame_ms === 50 && s.wire_cap === 0,
-        `stats: ble ${s.ble}, budget ${s.budget} B/frame, frame ${s.frame_ms} ms, no cap`);
+    check(s.ble === 0 && s.budget === 14000 && s.frame_ms === 50 && s.wire_cap === 0 && s.lossy === 0,
+        `stats: ble ${s.ble}, budget ${s.budget} B/frame, frame ${s.frame_ms} ms, no cap, lossless`);
     await Promise.all([remote.disconnect(), run(400)]);
 }
 

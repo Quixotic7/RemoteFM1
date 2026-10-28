@@ -606,10 +606,13 @@ static void test_bluetooth(int ble)
     CHECK(rfm_session_state(b->s) == RFM_S_ACTIVE);
     rfm_session_stats(b->s, &st);
     if (ble)
-        CHECKF(st.ble == 1 && rfm_session_budget(b->s) == 400u && st.frame_ms == 100u && st.wire_cap == 2048u,
-               "ble %u budget %u frame %u ms cap %u", st.ble, rfm_session_budget(b->s), st.frame_ms, st.wire_cap);
+        CHECKF(st.ble == 1 && rfm_session_budget(b->s) == RFM_BUDGET_BLE_BPS / 10u && st.frame_ms == 50u &&
+                   st.wire_cap == 2048u && st.lossy == RFM_BLE_COLORS,
+               "ble %u budget %u frame %u ms cap %u lossy %u", st.ble, rfm_session_budget(b->s), st.frame_ms,
+               st.wire_cap, st.lossy);
     else
-        CHECK(st.ble == 0 && rfm_session_budget(b->s) == 14000u && st.frame_ms == 50u && st.wire_cap == 0);
+        CHECK(st.ble == 0 && rfm_session_budget(b->s) == 14000u && st.frame_ms == 50u && st.wire_cap == 0 &&
+              st.lossy == 0);
     memset(&leds, 0, sizeof leds);
     for (t = 0; t < 400; t++) {                         /* 20 s at 20 Hz */
         if (t / 100u % 2u == 1u && t % 100u < 10u) {     /* a page change now and then */
@@ -637,9 +640,9 @@ static void test_bluetooth(int ble)
     rfm_fake_stats(b->f, &fs);
     if (b->verbose)
         printf("  bluetooth %s: %u frames, %u acks, ack max %u ms, %u timeouts, %u msgs lost, queue max %u B, "
-               "%u B in flight max, body %u B (%u B/s)\n", ble ? "paced" : "as USB", st.frames, st.acks,
-               st.ack_ms_max, st.ack_timeouts, b->lost_msgs, b->max_queued, b->max_wire, st.body_bytes,
-               st.body_bytes / 20u);
+               "%u B in flight max, body %u B (%u B/s), %u tiles reduced\n", ble ? "paced" : "as USB", st.frames,
+               st.acks, st.ack_ms_max, st.ack_timeouts, b->lost_msgs, b->max_queued, b->max_wire, st.body_bytes,
+               st.body_bytes / 20u, st.reduced);
     if (!ble) {
         CHECKF(b->lost_msgs > 0 && st.ack_timeouts > 0, "USB pacing on the Bluetooth link: %u lost, %u timeouts",
                b->lost_msgs, st.ack_timeouts);
@@ -670,6 +673,153 @@ static void test_bluetooth(int ble)
     }
     rfm_session_free(b->s);
     rfm_fake_free(b->f);
+}
+
+/* a Bluetooth session on the modelled link (BT_*); colors: cfg.ble_colors */
+static void bt_open(bt_t *b, uint32_t colors)
+{
+    rfm_session_cfg_t sc;
+    rfm_session_cb_t cb;
+    rfm_fake_cfg_t fc;
+    memset(b, 0, sizeof *b);
+    b->verbose = getenv("RFM_VERBOSE") != NULL;
+    b->now = 1000;
+    rfm_session_cfg_default(&sc);
+    sc.ble_colors = colors;
+    memset(&cb, 0, sizeof cb);
+    cb.ctx = b;
+    cb.state = bt_state;
+    cb.log = bt_log;
+    cb.event = bt_event;
+    b->s = rfm_session_new(&sc, &cb);
+    rfm_fake_cfg_default(&fc);
+    fc.has_bulk = 0;
+    fc.ble = 1;
+    b->f = rfm_fake_new(&fc);
+    b->id = rfm_session_add_link(b->s, RFM_LINK_SX, bt_w, b, "FM-1 7938");
+    bt_step(b, 600);
+    CHECK(rfm_session_state(b->s) == RFM_S_ACTIVE);
+}
+
+static void bt_close(bt_t *b)
+{
+    rfm_session_free(b->s);
+    rfm_fake_free(b->f);
+}
+
+/* steps until nothing is pending or in flight (a refinement not yet queued); the ms it took */
+static uint32_t bt_settle(bt_t *b, uint32_t max_ms)
+{
+    uint32_t t;
+    for (t = 0; t < max_ms; t += 5) {
+        rfm_session_stats_t st;
+        rfm_session_stats(b->s, &st);
+        if (!st.pending && !st.in_flight)
+            return t;
+        bt_step(b, 5);
+    }
+    return max_ms;
+}
+
+/* a page with anti-aliased text and a gradient band: tiles of many colours */
+static void lossy_page(uint16_t *img, uint32_t t)
+{
+    static uint16_t g[FR_N];
+    fr_ui(img, t);
+    fr_gradient(g, t);
+    memcpy(img + 168 * FR_W, g + 168 * FR_W, (FR_H - 168) * FR_W * 2u);
+}
+
+static int shadow_is_model(bt_t *b)
+{
+    return !memcmp(rfm_fake_shadow(b->f), rfm_screen_model(rfm_session_screen(b->s)), FR_N * 2);
+}
+
+/* Bluetooth's lossy tiles: a page change costs fewer bytes than lossless; the unit shows the reduction, which is not
+ * sent again while the screen is still (no resends, no flicker); after ble_refine_ms still, the reduced tiles go
+ * again exactly and the unit converges to the exact image; a change during the refinement goes first (the
+ * refinement is dropped, then done again); turning lossy off sends the reduced tiles exactly at once */
+static void test_bluetooth_lossy(void)
+{
+    static uint16_t img[FR_N], img2[FR_N], shown[FR_N];
+    bt_t *b = &BT;
+    rfm_session_stats_t st, st0;
+    uint32_t exact_bytes, lossy_bytes, ms, t;
+
+    /* lossless over Bluetooth (ble_colors 0): the page's bytes */
+    bt_open(b, 0);
+    lossy_page(img, 5);
+    rfm_session_set_frame(b->s, img);
+    bt_settle(b, 30000);
+    rfm_session_stats(b->s, &st);
+    exact_bytes = st.body_bytes;
+    CHECKF(shadow_is(b->f, img) && st.reduced == 0 && st.inexact == 0 && st.lossy == 0, "reduced %u inexact %u",
+           st.reduced, st.inexact);
+    bt_close(b);
+
+    /* lossy (the default) */
+    bt_open(b, RFM_BLE_COLORS);
+    rfm_session_set_frame(b->s, img);
+    ms = bt_settle(b, 30000);
+    rfm_session_stats(b->s, &st);
+    lossy_bytes = st.body_bytes;
+    if (b->verbose)
+        printf("  lossy page: %u B (lossless %u B), %u tiles reduced, %u ms\n", lossy_bytes, exact_bytes, st.reduced,
+               ms);
+    CHECKF(st.reduced > 20u && st.inexact == st.reduced && lossy_bytes * 10u < exact_bytes * 8u,
+           "reduced %u inexact %u, %u B lossy vs %u B exact", st.reduced, st.inexact, lossy_bytes, exact_bytes);
+    CHECK(shadow_is_model(b) && !shadow_is(b->f, img));
+    /* still, under ble_refine_ms: nothing is sent, the unit's image stays as it is */
+    memcpy(shown, rfm_fake_shadow(b->f), sizeof shown);
+    st0 = st;
+    for (t = 0; t < 16; t++) {
+        rfm_session_set_frame(b->s, img);
+        bt_step(b, 50);
+        rfm_session_stats(b->s, &st);
+        CHECKF(st.frames == st0.frames && !memcmp(rfm_fake_shadow(b->f), shown, sizeof shown), "%u frames, %u",
+               st.frames, st0.frames);
+    }
+    /* then the refinement: exact */
+    CHECK(bt_converged(b, img, 10000));
+    rfm_session_stats(b->s, &st);
+    CHECKF(st.inexact == 0 && st.refined == st0.reduced, "inexact %u, refined %u of %u", st.inexact, st.refined,
+           st0.reduced);
+    st0 = st;
+    for (t = 0; t < 40; t++) {                          /* exact and still: nothing more */
+        rfm_session_set_frame(b->s, img);
+        bt_step(b, 50);
+    }
+    rfm_session_stats(b->s, &st);
+    CHECK(st.frames == st0.frames && shadow_is(b->f, img));
+
+    /* a new page, still until its refinement starts, then a change: the change goes first */
+    lossy_page(img2, 9);
+    rfm_session_set_frame(b->s, img2);
+    bt_settle(b, 30000);
+    for (t = 0; t < 2000u && !rfm_screen_refining(rfm_session_screen(b->s)); t += 5) {
+        rfm_session_set_frame(b->s, img2);
+        bt_step(b, 5);
+    }
+    CHECK(rfm_screen_refining(rfm_session_screen(b->s)) > 2u);
+    bt_step(b, 5);
+    fr_rect(img2, 0, 0, 64, 32, fr_rgb(255, 0, 0));    /* the change */
+    rfm_session_set_frame(b->s, img2);
+    bt_step(b, 1);
+    CHECK(rfm_screen_refining(rfm_session_screen(b->s)) == 0);   /* dropped while it goes */
+    CHECK(bt_converged(b, img2, 10000));                /* and done again once still */
+    rfm_session_stats(b->s, &st);
+    CHECK(st.inexact == 0 && st.ack_timeouts == 0 && b->lost_msgs == 0 && st.sessions == 1);
+
+    /* lossy off at once: the reduced tiles are sent exactly without waiting */
+    rfm_session_set_frame(b->s, img);
+    bt_settle(b, 30000);
+    rfm_session_stats(b->s, &st);
+    CHECK(st.inexact > 0);
+    rfm_session_set_ble_colors(b->s, 0);
+    bt_settle(b, 30000);
+    rfm_session_stats(b->s, &st);
+    CHECKF(st.inexact == 0 && st.lossy == 0 && shadow_is(b->f, img), "inexact %u lossy %u", st.inexact, st.lossy);
+    bt_close(b);
 }
 
 /* a unit on Bluetooth MIDI and USB MIDI at once (two SysEx ports, no bulk; the Bluetooth bit set on both): frames
@@ -710,6 +860,7 @@ int main(void)
     test_link_failure();
     test_bluetooth(1);
     test_bluetooth(0);
+    test_bluetooth_lossy();
     test_usb_before_bluetooth();
     return check_done("test_session");
 }

@@ -19,7 +19,7 @@ unchanged, the same code fm1remote runs on macOS. `remote.js` is its back end, i
 ## Build and test
 
     web/remote/build.sh                       # needs emcc: ~/emsdk is sourced when emcc isn't on PATH
-    node web/remote/test/test_remote.mjs      # 85 checks; RFM_VERBOSE=1 prints the session's log
+    node web/remote/test/test_remote.mjs      # 87 checks; RFM_VERBOSE=1 prints the session's log
     node web/remote/test/run_page_test.mjs    # headless Chromium; screenshot in web/build/test/remote-page.png
 
 No test touches hardware. The page test replaces `navigator.requestMIDIAccess` and `navigator.usb` with the mocks
@@ -62,6 +62,7 @@ const remote = new RemoteFM1(opts);
 | `await connect()` | **call it from a click** (the WebUSB chooser needs the user gesture). Resolves once the search runs, not when the unit is found. It then keeps a session up, reconnecting by itself, until `stop()` / `disconnect()`. It rejects only when there is neither Web MIDI with SysEx nor a WebUSB device (Safari; SysEx refused). After `stop()`, `connect()` resumes. |
 | `await connect({gesture: false})` | never prompts: no WebUSB chooser, and Web MIDI only if its permission is already `'granted'`. The session is **quiet** (`status.quiet`): HELLO at most every `quietHelloMs` (2000) per port. Resolves `false` (status `idle`) when Web MIDI isn't permitted. A later click's `connect()` makes it a normal session (and may open the chooser then). |
 | `await autoConnect()` | at page load: connects by itself wherever the browser already allows it, and again when the unit is plugged in later (MIDIAccess `statechange`, `navigator.usb` `connect`; debounced, a new session at most every `autoMinMs`, 2000). Checks `navigator.permissions.query({name: 'midi', sysex: true})`: only `'granted'` uses Web MIDI (`'prompt'`/`'denied'`: nothing is asked or sent); WebUSB only for an FM-1 paired before. A quiet session starts only while an FM-1-named port is there and ends when it goes. After `disconnect()` it waits for the next plug-in. Resolves `{midi, usb}`. |
+| `setBleColors(n)` / option `bleColors` | Bluetooth MIDI only (USB is always lossless): a 16x16 tile with more colours than `n` goes reduced to its best `n` (default 4, about 40 % fewer bytes for a ChoralRoot page) and is sent again exactly once the screen has been still for 1 s. `0`: lossless, and what the unit shows reduced is sent exactly at once; `null`: the default. `stats()` has `reduced`, `refined`, `inexact`, `lossy`. |
 | `setQuiet(on)` | a running session looks on quietly (the page does this when a click's search found nothing in 10 s) |
 | `midiPermission(navigator?)` | exported: `'granted'`, `'prompt'`, `'denied'`, `'unknown'` or `'unsupported'`, without asking |
 | `await stop()` | SESSION 0. It is sent **synchronously** on Web MIDI, so it is safe in `pagehide`. It resolves on the ACK or after about 300 ms. The unit goes back to its waiting screen, and every key is released (one last panel with all zeros). |

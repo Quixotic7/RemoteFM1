@@ -20,11 +20,17 @@ typedef struct {                                        /* a planned rect */
 } rect_t;
 
 struct rfm_screen {
-    uint16_t model[RFM_NPIX];
+    uint16_t model[RFM_NPIX];                           /* what the device shows */
+    uint16_t basis[RFM_NPIX];                           /* the target each model tile was sent for (= model where
+                                                         * the tile went exact): what "changed?" compares with */
     uint16_t target[RFM_NPIX];
+    uint16_t send[RFM_NPIX];                            /* lossy: each pending tile as it would be sent */
     uint32_t age[RFM_NTILES];
     uint8_t dirty[RFM_NTILES], forced[RFM_NTILES];
-    uint32_t seq;
+    uint8_t refine[RFM_NTILES];                         /* queued for an exact resend (never while dirty) */
+    uint8_t inexact[RFM_NTILES];                        /* the model holds a reduction of the basis */
+    uint8_t prep[RFM_NTILES], prep_red[RFM_NTILES];     /* send[] holds the tile for this target; reduced */
+    uint32_t seq, lossy;
     int merge;
     rect_t tile_rects[RFM_NTILES][T];                   /* encode()'s per-tile plans (scratch) */
     uint8_t msg[RFM_BK_BODY_MAX];
@@ -200,6 +206,232 @@ uint32_t rfm_rect_encode(const uint16_t *img, uint32_t x, uint32_t y, uint32_t w
     return emit_rect(img, x, y, w, h, enc, &a, out);
 }
 
+/* ---------------------------------------------------------------- colour reduction ---- */
+/* Median cut over the rect's distinct colours (weighted by pixel count, in 8-bit RGB with weights 2:4:3), a few
+ * k-means rounds, then each cluster is represented by its member colour nearest the cluster's mean: the palette is
+ * made of colours the rect already has (a background or a text colour that dominates its cluster stays exact).
+ * Integer arithmetic only, ties broken by index: the same rect always gives the same result, on every platform. */
+#define QMAX (T * T)
+#define QW_R 2u
+#define QW_G 4u
+#define QW_B 3u
+
+typedef struct {
+    uint16_t slot, n;
+    uint8_t c[3];                                       /* r, g, b, 8-bit */
+} qcol_t;
+
+static void slot_rgb(uint16_t slot, uint8_t *c)
+{
+    uint8_t m[2];
+    uint32_t v, r, g, b;
+    memcpy(m, &slot, 2);                                /* the slot's memory bytes = the BE pixel */
+    v = (uint32_t)m[0] << 8 | m[1];
+    r = v >> 11;
+    g = (v >> 5) & 63u;
+    b = v & 31u;
+    c[0] = (uint8_t)(r << 3 | r >> 2);
+    c[1] = (uint8_t)(g << 2 | g >> 4);
+    c[2] = (uint8_t)(b << 3 | b >> 2);
+}
+
+static const uint32_t qw[3] = {QW_R, QW_G, QW_B};
+
+static uint32_t qdist(const uint8_t *a, const uint32_t *m)  /* m: a mean, 8-bit x 16 */
+{
+    uint32_t k, d = 0;
+    for (k = 0; k < 3; k++) {
+        const int32_t e = (int32_t)a[k] * 16 - (int32_t)m[k];
+        d += qw[k] * (uint32_t)(e * e >> 4);
+    }
+    return d;
+}
+
+typedef struct {
+    uint32_t lo, hi;                                    /* uniq[lo, hi) */
+    uint64_t sse;                                       /* weighted squared error x pixels */
+} qbox_t;
+
+/* the weighted SSE of uniq[lo, hi) times its pixel count, and the axis of the largest weighted variance */
+static uint64_t box_sse(const qcol_t *u, uint32_t lo, uint32_t hi, uint32_t *axis)
+{
+    uint64_t sum[3] = {0, 0, 0}, sq[3] = {0, 0, 0}, n = 0, tot = 0, best = 0;
+    uint32_t i, k;
+    for (i = lo; i < hi; i++) {
+        n += u[i].n;
+        for (k = 0; k < 3; k++) {
+            sum[k] += (uint64_t)u[i].n * u[i].c[k];
+            sq[k] += (uint64_t)u[i].n * u[i].c[k] * u[i].c[k];
+        }
+    }
+    *axis = 0;
+    for (k = 0; k < 3; k++) {
+        const uint64_t v = qw[k] * (n * sq[k] - sum[k] * sum[k]);
+        tot += v;
+        if (v > best) {
+            best = v;
+            *axis = k;
+        }
+    }
+    return n ? tot / n : 0;
+}
+
+static int qcol_less(const qcol_t *a, const qcol_t *b, uint32_t axis)
+{
+    if (a->c[axis] != b->c[axis])
+        return a->c[axis] < b->c[axis];
+    return a->slot < b->slot;
+}
+
+uint32_t rfm_tile_reduce(const uint16_t *src, uint32_t stride, uint32_t w, uint32_t h, uint16_t *dst,
+                         uint32_t dst_stride, uint32_t ncolors)
+{
+    qcol_t u[QMAX], tmp;
+    qbox_t box[RFM_PAL_MAX];
+    uint32_t mean[RFM_PAL_MAX][3], pal_idx[RFM_PAL_MAX];
+    uint16_t pal[RFM_PAL_MAX];
+    uint8_t asg[QMAX];
+    uint32_t nu = 0, nb, i, j, k, it, npal = 0;
+    if (ncolors < 1u)
+        ncolors = 1u;
+    if (ncolors > RFM_PAL_MAX)
+        ncolors = RFM_PAL_MAX;
+    if (!w || !h || w * h > QMAX)
+        return 0;
+    /* the distinct colours, in first-seen order */
+    for (j = 0; j < h; j++)
+        for (i = 0; i < w; i++) {
+            const uint16_t c = src[j * stride + i];
+            for (k = 0; k < nu && u[k].slot != c; k++)
+                ;
+            if (k == nu) {
+                u[nu].slot = c;
+                u[nu].n = 0;
+                slot_rgb(c, u[nu].c);
+                nu++;
+            }
+            u[k].n++;
+        }
+    if (nu <= ncolors) {
+        for (j = 0; j < h; j++)
+            memmove(dst + j * dst_stride, src + j * stride, w * 2u);
+        return nu;
+    }
+    /* median cut: split the box of the largest error along its widest axis at the pixel median */
+    box[0].lo = 0;
+    box[0].hi = nu;
+    box[0].sse = box_sse(u, 0, nu, &k);
+    for (nb = 1; nb < ncolors; nb++) {
+        uint32_t b = nb, axis, lo, hi, half, cum, cut;
+        for (i = 0; i < nb; i++)
+            if (box[i].hi - box[i].lo >= 2u && box[i].sse && (b == nb || box[i].sse > box[b].sse))
+                b = i;
+        if (b == nb)
+            break;
+        lo = box[b].lo;
+        hi = box[b].hi;
+        box_sse(u, lo, hi, &axis);
+        for (i = lo + 1u; i < hi; i++) {                /* insertion sort on the axis (slot breaks ties) */
+            tmp = u[i];
+            for (j = i; j > lo && qcol_less(&tmp, &u[j - 1u], axis); j--)
+                u[j] = u[j - 1u];
+            u[j] = tmp;
+        }
+        for (i = lo, half = 0; i < hi; i++)
+            half += u[i].n;
+        cum = u[lo].n;                                  /* [lo, cut) holds half the pixels; lo < cut < hi */
+        for (cut = lo + 1u; cut < hi - 1u && cum * 2u < half; cut++)
+            cum += u[cut].n;
+        box[nb].lo = cut;
+        box[nb].hi = hi;
+        box[b].hi = cut;
+        box[b].sse = box_sse(u, lo, cut, &axis);
+        box[nb].sse = box_sse(u, cut, hi, &axis);
+    }
+    /* the boxes' means, then k-means rounds over the distinct colours */
+    for (i = 0; i < nu; i++)
+        for (k = 0; k < nb; k++)
+            if (i >= box[k].lo && i < box[k].hi)
+                asg[i] = (uint8_t)k;
+    for (it = 0; it < 4u; it++) {
+        uint64_t sum[RFM_PAL_MAX][3], cnt[RFM_PAL_MAX];
+        int moved = 0;
+        memset(sum, 0, sizeof sum);
+        memset(cnt, 0, sizeof cnt);
+        for (i = 0; i < nu; i++) {
+            cnt[asg[i]] += u[i].n;
+            for (k = 0; k < 3; k++)
+                sum[asg[i]][k] += (uint64_t)u[i].n * u[i].c[k];
+        }
+        for (j = 0; j < nb; j++)
+            if (cnt[j])
+                for (k = 0; k < 3; k++)
+                    mean[j][k] = (uint32_t)((sum[j][k] * 16u + cnt[j] / 2u) / cnt[j]);
+        if (it == 3u)
+            break;
+        for (i = 0; i < nu; i++) {
+            uint32_t best = asg[i], bd = qdist(u[i].c, mean[asg[i]]);
+            for (j = 0; j < nb; j++) {
+                const uint32_t d = qdist(u[i].c, mean[j]);
+                if (cnt[j] && d < bd) {
+                    bd = d;
+                    best = j;
+                }
+            }
+            if (best != asg[i]) {
+                asg[i] = (uint8_t)best;
+                moved = 1;
+            }
+        }
+        if (!moved) {
+            it = 2u;                                    /* one last mean pass, then stop */
+            continue;
+        }
+    }
+    /* each cluster's representative: its member nearest the mean (then the most pixels, then the lowest slot) */
+    for (j = 0; j < nb; j++) {
+        uint32_t best = nu, bd = 0;
+        for (i = 0; i < nu; i++) {
+            uint32_t d;
+            if (asg[i] != j)
+                continue;
+            d = qdist(u[i].c, mean[j]);
+            if (best == nu || d < bd || (d == bd && (u[i].n > u[best].n ||
+                                                      (u[i].n == u[best].n && u[i].slot < u[best].slot)))) {
+                best = i;
+                bd = d;
+            }
+        }
+        if (best < nu)
+            pal_idx[npal++] = best;
+    }
+    for (j = 0; j < npal; j++)
+        pal[j] = u[pal_idx[j]].slot;
+    /* every distinct colour to its nearest representative (a representative to itself) */
+    for (i = 0; i < nu; i++) {
+        uint32_t best = 0, bd = 0;
+        for (j = 0; j < npal; j++) {
+            uint32_t m[3], d;
+            for (k = 0; k < 3; k++)
+                m[k] = (uint32_t)u[pal_idx[j]].c[k] * 16u;
+            d = qdist(u[i].c, m);
+            if (j == 0 || d < bd) {
+                bd = d;
+                best = j;
+            }
+        }
+        asg[i] = (uint8_t)best;
+    }
+    for (j = 0; j < h; j++)
+        for (i = 0; i < w; i++) {
+            const uint16_t c = src[j * stride + i];
+            for (k = 0; u[k].slot != c; k++)
+                ;
+            dst[j * dst_stride + i] = pal[asg[k]];
+        }
+    return npal;
+}
+
 /* ---------------------------------------------------------------- the screen ---- */
 rfm_screen_t *rfm_screen_new(void)
 {
@@ -214,24 +446,34 @@ void rfm_screen_set_merge(rfm_screen_t *s, int on) { s->merge = on; }
 const uint16_t *rfm_screen_model(const rfm_screen_t *s) { return s->model; }
 const uint16_t *rfm_screen_target(const rfm_screen_t *s) { return s->target; }
 
-static int tile_differs(const rfm_screen_t *s, uint32_t t)
+static int tile_differs(const uint16_t *a, const uint16_t *b, uint32_t t)
 {
     uint32_t x = (t % TX) * T, y = (t / TX) * T, j;
     for (j = 0; j < T; j++)
-        if (memcmp(s->model + (y + j) * RFM_W + x, s->target + (y + j) * RFM_W + x, T * 2u))
+        if (memcmp(a + (y + j) * RFM_W + x, b + (y + j) * RFM_W + x, T * 2u))
             return 1;
     return 0;
 }
 
+static void copy_tile(uint16_t *dst, const uint16_t *src, uint32_t t)
+{
+    uint32_t x = (t % TX) * T, y = (t / TX) * T, j;
+    for (j = 0; j < T; j++)
+        memcpy(dst + (y + j) * RFM_W + x, src + (y + j) * RFM_W + x, T * 2u);
+}
+
+/* a tile is dirty when its target is not what it was last sent for (the basis): a reduced tile is not dirty while
+ * its target stays the same, however it differs from the model */
 static void refresh(rfm_screen_t *s)
 {
     uint32_t t;
     for (t = 0; t < RFM_NTILES; t++) {
-        if (s->forced[t] || tile_differs(s, t)) {
+        if (s->forced[t] || tile_differs(s->basis, s->target, t)) {
             if (!s->dirty[t]) {
                 s->dirty[t] = 1;
                 s->age[t] = s->seq;
             }
+            s->refine[t] = 0;
         } else {
             s->dirty[t] = 0;
         }
@@ -241,8 +483,54 @@ static void refresh(rfm_screen_t *s)
 void rfm_screen_reset_black(rfm_screen_t *s)
 {
     memset(s->model, 0, sizeof s->model);
+    memset(s->basis, 0, sizeof s->basis);
     memset(s->forced, 0, sizeof s->forced);
+    memset(s->inexact, 0, sizeof s->inexact);
+    memset(s->refine, 0, sizeof s->refine);
     refresh(s);
+}
+
+void rfm_screen_set_lossy(rfm_screen_t *s, uint32_t colors)
+{
+    if (colors > RFM_PAL_MAX)
+        colors = RFM_PAL_MAX;
+    if (colors && colors < RFM_PAL_MIN)
+        colors = RFM_PAL_MIN;
+    if (colors != s->lossy)
+        memset(s->prep, 0, sizeof s->prep);
+    s->lossy = colors;
+}
+
+uint32_t rfm_screen_lossy(const rfm_screen_t *s) { return s->lossy; }
+
+uint32_t rfm_screen_refine(rfm_screen_t *s, int on)
+{
+    uint32_t t, n = 0;
+    for (t = 0; t < RFM_NTILES; t++) {
+        if (!on)
+            s->refine[t] = 0;
+        else if (s->inexact[t] && !s->dirty[t] && !s->refine[t]) {
+            s->refine[t] = 1;
+            n++;
+        }
+    }
+    return n;
+}
+
+uint32_t rfm_screen_refining(const rfm_screen_t *s)
+{
+    uint32_t t, n = 0;
+    for (t = 0; t < RFM_NTILES; t++)
+        n += s->refine[t];
+    return n;
+}
+
+uint32_t rfm_screen_inexact(const rfm_screen_t *s)
+{
+    uint32_t t, n = 0;
+    for (t = 0; t < RFM_NTILES; t++)
+        n += s->inexact[t];
+    return n;
 }
 
 void rfm_screen_invalidate(rfm_screen_t *s)
@@ -253,23 +541,61 @@ void rfm_screen_invalidate(rfm_screen_t *s)
 
 void rfm_screen_submit(rfm_screen_t *s, const uint16_t *lcd)
 {
+    uint32_t t;
+    for (t = 0; t < RFM_NTILES; t++)                    /* a prepared (reduced) tile is kept while its target is */
+        if (s->prep[t] && tile_differs(s->target, lcd, t))
+            s->prep[t] = 0;
     memcpy(s->target, lcd, sizeof s->target);
     s->seq++;
     refresh(s);
 }
 
-int rfm_screen_tile_dirty(const rfm_screen_t *s, uint32_t t) { return t < RFM_NTILES && s->dirty[t]; }
+int rfm_screen_tile_dirty(const rfm_screen_t *s, uint32_t t)
+{
+    return t < RFM_NTILES && (s->dirty[t] || s->refine[t]);
+}
 
 uint32_t rfm_screen_pending(const rfm_screen_t *s)
 {
     uint32_t t, n = 0;
     for (t = 0; t < RFM_NTILES; t++)
-        n += s->dirty[t];
+        n += s->dirty[t] | s->refine[t];
     return n;
+}
+
+/* lossy: send[] gets tile t as it goes this time: its reduction to s->lossy colours when that encodes smaller
+ * (cached while the target tile stays the same), else the target's pixels; returns 1 if reduced */
+static int prepare(rfm_screen_t *s, uint32_t t)
+{
+    uint32_t x = (t % TX) * T, y = (t / TX) * T;
+    an_t a;
+    if (s->refine[t] && !s->dirty[t]) {                 /* a refinement: exact */
+        copy_tile(s->send, s->target, t);
+        s->prep[t] = 0;
+        return 0;
+    }
+    if (s->prep[t])
+        return s->prep_red[t];
+    s->prep[t] = 1;
+    s->prep_red[t] = 0;
+    analyze(s->target, x, y, T, T, &a);
+    if (a.ncol > s->lossy) {
+        int e;
+        const uint32_t exact = rfm_rect_cost(s->target, x, y, T, T, &e);
+        uint16_t *d = s->send + y * RFM_W + x;
+        rfm_tile_reduce(s->target + y * RFM_W + x, RFM_W, T, T, d, RFM_W, s->lossy);
+        if (rfm_rect_cost(s->send, x, y, T, T, &e) < exact) {
+            s->prep_red[t] = 1;
+            return 1;
+        }
+    }
+    copy_tile(s->send, s->target, t);
+    return 0;
 }
 
 typedef struct {
     rfm_screen_t *s;
+    const uint16_t *img;                                /* what is sent: the target, or send[] when lossy */
     uint32_t body_max, len, nr, msgs, body_bytes;
     uint16_t frame;
     rfm_emit_fn emit;
@@ -292,8 +618,8 @@ static void pk_rect(packer_t *p, const rect_t *r)
     uint32_t n;
     if (p->len + r->cost > p->body_max || p->nr == 255u)
         pk_flush(p, 0);
-    analyze(p->s->target, r->x, r->y, r->w, r->h, &a);
-    n = emit_rect(p->s->target, r->x, r->y, r->w, r->h, r->enc, &a, p->s->msg + p->len);
+    analyze(p->img, r->x, r->y, r->w, r->h, &a);
+    n = emit_rect(p->img, r->x, r->y, r->w, r->h, r->enc, &a, p->s->msg + p->len);
     assert(n == r->cost);                               /* the plan's size is the encoding's */
     (void)n;
     p->len += r->cost;
@@ -309,11 +635,11 @@ static int cmp_age(const void *pa, const void *pb, const rfm_screen_t *s)
 }
 
 /* plans tile t alone: one rect, or (if its best encoding is too big for a message) strips of hs rows */
-static uint32_t plan_tile(const rfm_screen_t *s, uint32_t t, uint32_t max_rect, rect_t *out, uint32_t *nout)
+static uint32_t plan_tile(const uint16_t *img, uint32_t t, uint32_t max_rect, rect_t *out, uint32_t *nout)
 {
     uint32_t x = (t % TX) * T, y = (t / TX) * T, c, hs, j, total = 0;
     int enc = RFM_ENC_RAW;
-    c = rfm_rect_cost(s->target, x, y, T, T, &enc);
+    c = rfm_rect_cost(img, x, y, T, T, &enc);
     if (c <= max_rect) {
         out[0].x = (uint8_t)x;
         out[0].y = (uint8_t)y;
@@ -331,7 +657,7 @@ static uint32_t plan_tile(const rfm_screen_t *s, uint32_t t, uint32_t max_rect, 
     for (j = 0; j < T; j += hs) {
         uint32_t h = T - j < hs ? T - j : hs;
         rect_t *r = &out[(*nout)++];
-        c = rfm_rect_cost(s->target, x, y + j, T, h, &enc);
+        c = rfm_rect_cost(img, x, y + j, T, h, &enc);
         r->x = (uint8_t)x;
         r->y = (uint8_t)(y + j);
         r->w = T;
@@ -350,7 +676,8 @@ uint32_t rfm_screen_encode(rfm_screen_t *s, uint16_t frame, uint32_t budget, uin
     uint16_t order[RFM_NTILES];
     uint32_t nd = 0, t, k, remaining = budget, max_rect, rect_bytes = 0;
     uint32_t ntr[RFM_NTILES], tcost[RFM_NTILES];
-    uint8_t sel[RFM_NTILES];
+    uint8_t sel[RFM_NTILES], red[RFM_NTILES], fine[RFM_NTILES];
+    const uint16_t *img = s->lossy ? s->send : s->target;
     rfm_enc_stats_t dummy;
     packer_t pk;
     if (!st)
@@ -365,9 +692,9 @@ uint32_t rfm_screen_encode(rfm_screen_t *s, uint16_t frame, uint32_t budget, uin
     for (t = 0; t < RFM_NTILES; t++)
         if (s->dirty[t])
             order[nd++] = (uint16_t)t;
-    if (!nd)
+    if (!nd && !rfm_screen_refining(s))
         return 0;
-    /* oldest first, raster order among equals (insertion sort: <= 225 entries) */
+    /* oldest first, raster order among equals (insertion sort: <= 225 entries); refinements after them all */
     for (k = 1; k < nd; k++) {
         uint16_t v = order[k];
         uint32_t j = k;
@@ -377,14 +704,24 @@ uint32_t rfm_screen_encode(rfm_screen_t *s, uint16_t frame, uint32_t budget, uin
         }
         order[j] = v;
     }
+    for (t = 0; t < RFM_NTILES; t++)
+        if (s->refine[t] && !s->dirty[t])
+            order[nd++] = (uint16_t)t;
     memset(sel, 0, sizeof sel);
+    memset(red, 0, sizeof red);
+    memset(fine, 0, sizeof fine);
     for (k = 0; k < nd; k++) {
         t = order[k];
-        tcost[t] = plan_tile(s, t, max_rect, tile_rects[t], &ntr[t]);
+        fine[t] = (uint8_t)(s->refine[t] && !s->dirty[t]);
+        if (s->lossy)
+            red[t] = (uint8_t)prepare(s, t);
+        tcost[t] = plan_tile(img, t, max_rect, tile_rects[t], &ntr[t]);
         if (k == 0 || tcost[t] <= remaining) {
             sel[t] = 1;
             remaining = tcost[t] >= remaining ? 0u : remaining - tcost[t];
             st->tiles++;
+            st->reduced += red[t];
+            st->refined += fine[t];
             if (s->seq - s->age[t] > st->max_wait)
                 st->max_wait = s->seq - s->age[t];
         }
@@ -393,6 +730,7 @@ uint32_t rfm_screen_encode(rfm_screen_t *s, uint16_t frame, uint32_t budget, uin
     }
 
     pk.s = s;
+    pk.img = img;
     pk.body_max = body_max;
     pk.len = RFM_TILES_HDR;
     pk.nr = 0;
@@ -413,7 +751,7 @@ uint32_t rfm_screen_encode(rfm_screen_t *s, uint16_t frame, uint32_t budget, uin
                     an_t a;
                     int enc = RFM_ENC_RAW;
                     uint32_t mw = (uint32_t)cur.w + T, mc;
-                    analyze(s->target, cur.x, cur.y, mw, T, &a);
+                    analyze(img, cur.x, cur.y, mw, T, &a);
                     mc = best_of(&a, mw, T, &enc);
                     if (mc <= max_rect && mc < (uint32_t)cur.cost + tcost[t]) {
                         cur.w = (uint8_t)mw;
@@ -455,17 +793,16 @@ uint32_t rfm_screen_encode(rfm_screen_t *s, uint16_t frame, uint32_t budget, uin
     }
     pk_flush(&pk, 1);
 
-    /* the model takes what was sent */
+    /* the model takes what was sent, the basis the target it was sent for */
     for (t = 0; t < RFM_NTILES; t++) {
-        uint32_t x, y, j;
         if (!sel[t])
             continue;
-        x = (t % TX) * T;
-        y = (t / TX) * T;
-        for (j = 0; j < T; j++)
-            memcpy(s->model + (y + j) * RFM_W + x, s->target + (y + j) * RFM_W + x, T * 2u);
+        copy_tile(s->model, img, t);
+        copy_tile(s->basis, s->target, t);
+        s->inexact[t] = red[t];
         s->dirty[t] = 0;
         s->forced[t] = 0;
+        s->refine[t] = 0;
     }
     st->rect_bytes = rect_bytes;
     st->body_bytes = pk.body_bytes;

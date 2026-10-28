@@ -27,7 +27,7 @@ const NKEYS = 27, NBTN = 14, NENC = 7;
 const STAT_NAMES = ['frames', 'msgs', 'tiles', 'rects', 'body_bytes', 'wire_bytes', 'acks', 'ack_ms_sum',
     'ack_ms_max', 'ack_timeouts', 'decode_errs', 'shadow_resets', 'leds_sent', 'keepalives', 'panel_r', 'events',
     'sessions', 'discoveries', 'lost', 'in_flight', 'pending', 'last_ack_ms', 'ble', 'frame_ms', 'wire_cap',
-    'wire_in_flight'];
+    'wire_in_flight', 'reduced', 'refined', 'inexact', 'lossy'];
 
 // A port that may be an FM-1: its name says so. Updater ports are never touched (as host/src/macos/coremidi.c).
 export function isCandidatePortName(name) {
@@ -77,6 +77,7 @@ async function midiPermissionStatus(nav) {
 export class RemoteFM1 {
     // opts: { fps: 20, transport: 'auto' | 'midi' | 'bulk', usb: 'ask' | 'known' | 'off', keepaliveMs: 3000,
     //         budget: 0 (bytes per frame, 0 = the transport's), moduleUrl, portMatch(name) -> bool,
+    //         bleColors: null (Bluetooth's lossy tiles: null the library's default (4), 0 lossless, 2..16),
     //         quietHelloMs: 2000 (a quiet session's HELLO, per port, at most this often),
     //         autoMinMs: 2000, autoDebounceMs: 250 (autoConnect()'s looks after a plug-in),
     //         navigator (tests), now() -> ms (tests), timers: true (false: the caller calls tick()) }
@@ -196,6 +197,7 @@ export class RemoteFM1 {
             M.rfmState = (st, why) => this._state(st, why);
             M.rfmRescan = () => this._rescan();
             M.rfmLog = msg => this._log(msg);
+            M._rw_set_ble_colors(this.opts.bleColors == null ? -1 : this.opts.bleColors | 0);
             if (M._rw_init(this.opts.fps | 0, TRANSPORTS[this.opts.transport] ?? 0, this.opts.keepaliveMs | 0,
                 this.opts.budget | 0, np)) throw new Error('out of memory');
             M._free(np);
@@ -238,6 +240,13 @@ export class RemoteFM1 {
         auto.info.usb = (await this._pickUsb(false)).length;
         this._autoKick(true);
         return auto.info;
+    }
+
+    // Bluetooth's lossy tiles now: 0 lossless (what the unit shows reduced is sent again exactly at once), 2..16
+    // colours a tile at most, null the default. USB is always lossless.
+    setBleColors(n) {
+        this.opts.bleColors = n;
+        if (this._M) this._M._rw_set_ble_colors(n == null ? -1 : n | 0);
     }
 
     // A session that keeps looking quietly (HELLO every opts.quietHelloMs), or back to normal.

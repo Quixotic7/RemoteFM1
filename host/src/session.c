@@ -44,6 +44,7 @@ struct rfm_session {
     uint32_t fperiod, wire_cap, wire_frame_max;         /* the frame period; the cap on unacknowledged TILES bytes
                                                          * (0: none) and the largest frame sent under it */
     uint32_t start_ms, heartbeat_ms, lost_ms;           /* cfg's, raised for Bluetooth */
+    uint32_t t_busy;                                    /* the last poll with a changed tile to send */
     int expect_reset;
     rfm_leds_t leds, leds_sent;
     int leds_valid;
@@ -72,6 +73,8 @@ void rfm_session_cfg_default(rfm_session_cfg_t *c)
     c->settle_ms = 60;
     c->transport = RFM_T_AUTO;
     c->host_name = "fm1remote";
+    c->ble_colors = RFM_BLE_COLORS;
+    c->ble_refine_ms = RFM_BLE_REFINE_MS;
 }
 
 static void logf_(rfm_session_t *s, const char *fmt, ...)
@@ -205,6 +208,7 @@ static void enter_active(rfm_session_t *s)
     s->last_rx = s->now;
     s->last_tx = s->now;
     s->last_panel_r = s->now;
+    s->t_busy = s->now;
     s->st.sessions++;
     set_state(s, RFM_S_ACTIVE, "session started");
 }
@@ -220,8 +224,8 @@ static uint32_t wire_in_flight(const rfm_session_t *s)
     return n;
 }
 
-/* Bluetooth's rate, body bytes a second: the budget at the frame rate (RFM_BUDGET_BLE_BPS by default) */
-static uint32_t ble_rate(const rfm_session_t *s) { return s->budget * (1000u / s->fperiod); }
+/* Bluetooth's rate, body bytes a second: a budget is 100 ms of it (RFM_BUDGET_BLE_BPS by default) */
+static uint32_t ble_rate(const rfm_session_t *s) { return s->budget * 10u; }
 
 /* the oldest frame's FRAME_ACK is late: over Bluetooth it scales with what is queued ahead of it at the rate */
 static uint32_t ack_timeout(const rfm_session_t *s)
@@ -229,6 +233,22 @@ static uint32_t ack_timeout(const rfm_session_t *s)
     if (!s->ble)
         return s->cfg.ack_timeout_ms;
     return max_u(max_u(s->cfg.ack_timeout_ms, RFM_BLE_ACK_MIN_MS), 500u + 3000u * wire_in_flight(s) / ble_rate(s));
+}
+
+/* the refinement of reduced tiles (rfm/session.h): queued once nothing changed for ble_refine_ms (at once when the
+ * link went lossless), dropped while tiles change; the frame check sends a refinement alone in flight */
+static void refine_poll(rfm_session_t *s, uint32_t now)
+{
+    const uint32_t refining = rfm_screen_refining(s->screen), lossy = rfm_screen_lossy(s->screen);
+    if (rfm_screen_pending(s->screen) > refining) {
+        s->t_busy = now;
+        if (refining)
+            rfm_screen_refine(s->screen, 0);
+        return;
+    }
+    if (!refining && (!lossy || s->cfg.ble_refine_ms) && rfm_screen_inexact(s->screen) &&
+        after(now, s->t_busy, lossy ? s->cfg.ble_refine_ms : 0u))
+        rfm_screen_refine(s->screen, 1);
 }
 
 static int decide(rfm_session_t *s)
@@ -267,7 +287,7 @@ static int decide(rfm_session_t *s)
     s->lost_ms = s->cfg.lost_ms;
     if (s->ble) {
         s->fperiod = max_u(s->period, 1000u / RFM_BLE_FPS);
-        s->budget = s->cfg.budget ? s->cfg.budget : RFM_BUDGET_BLE_BPS / (1000u / s->fperiod);
+        s->budget = s->cfg.budget ? s->cfg.budget : RFM_BUDGET_BLE_BPS / 10u;
         if (s->budget > RFM_BLE_BUDGET_MAX)
             s->budget = RFM_BLE_BUDGET_MAX;
         s->wire_cap = RFM_BLE_WIRE_CAP;
@@ -284,15 +304,20 @@ static int decide(rfm_session_t *s)
     }
     if (!s->budget)
         s->budget = 1;
+    rfm_screen_set_lossy(s->screen, s->ble ? s->cfg.ble_colors : 0u);
     s->max_in_flight = s->hello.max_in_flight ? s->hello.max_in_flight : RFM_FRAMES_IN_FLIGHT;
     if (s->max_in_flight > MAX_FLIGHT)
         s->max_in_flight = MAX_FLIGHT;
     logf_(s, "found %s (fw %s, caps 0x%x): frames on %s, panel on %s, body max %u, budget %u B/frame, %u in flight",
           s->hello.name, s->hello.fw_ver, s->hello.caps, s->links[frame].name, sx >= 0 ? s->links[sx].name : "none",
           s->body_max, s->budget, s->max_in_flight);
-    if (s->ble)
-        logf_(s, "Bluetooth link: budget %u B/frame, %u fps, cap %u B in flight", s->budget, 1000u / s->fperiod,
-              s->wire_cap);
+    if (s->ble) {
+        char tiles[40] = "tiles exact";
+        if (rfm_screen_lossy(s->screen))
+            snprintf(tiles, sizeof tiles, "tiles reduced to %u colours", rfm_screen_lossy(s->screen));
+        logf_(s, "Bluetooth link: %u B/s, budget %u B/frame, %u fps, cap %u B in flight, %s", ble_rate(s), s->budget,
+              1000u / s->fperiod, s->wire_cap, tiles);
+    }
     if (sx < 0)
         logf_(s, "no MIDI link answered: panel input comes from PANEL_R only (every 500 ms)");
     return 1;
@@ -575,8 +600,10 @@ void rfm_session_poll(rfm_session_t *s, uint32_t now)
         }
         if (s->leds_valid && (!rfm_leds_equal(&s->leds, &s->leds_sent) || after(now, s->last_led_tx, 1000u)))
             send_leds(s);
+        refine_poll(s, now);
         if (after(now, s->next_frame, 0) && s->nfl < s->max_in_flight && rfm_screen_pending(s->screen) &&
-            (!s->wire_cap || !s->nfl || wire_in_flight(s) + s->wire_frame_max <= s->wire_cap)) {
+            (!s->wire_cap || !s->nfl || wire_in_flight(s) + s->wire_frame_max <= s->wire_cap) &&
+            (!s->nfl || rfm_screen_pending(s->screen) > rfm_screen_refining(s->screen))) {
             rfm_enc_stats_t es;
             const uint16_t f = s->frame_no++;
             s->cur_body = s->cur_msgs = s->cur_wire = 0;
@@ -595,6 +622,8 @@ void rfm_session_poll(rfm_session_t *s, uint32_t now)
             s->st.tiles += es.tiles;
             s->st.rects += es.rects;
             s->st.body_bytes += es.body_bytes;
+            s->st.reduced += es.reduced;
+            s->st.refined += es.refined;
             s->next_frame += s->fperiod;
             if (after(now, s->next_frame, 0))
                 s->next_frame = now + s->fperiod;
@@ -620,6 +649,16 @@ void rfm_session_poll(rfm_session_t *s, uint32_t now)
 }
 
 void rfm_session_set_frame(rfm_session_t *s, const uint16_t *lcd) { rfm_screen_submit(s->screen, lcd); }
+
+void rfm_session_set_ble_colors(rfm_session_t *s, uint32_t colors)
+{
+    s->cfg.ble_colors = colors;
+    if (s->frame_link < 0 || !s->ble)
+        return;
+    rfm_screen_set_lossy(s->screen, colors);
+    if (!colors && rfm_screen_refine(s->screen, 1))
+        logf_(s, "lossless now: %u reduced tiles sent again exactly", rfm_screen_refining(s->screen));
+}
 
 void rfm_session_set_leds(rfm_session_t *s, const rfm_leds_t *l)
 {
@@ -666,4 +705,6 @@ void rfm_session_stats(const rfm_session_t *s, rfm_session_stats_t *st)
     st->frame_ms = s->frame_link >= 0 ? s->fperiod : s->period;
     st->wire_cap = s->frame_link >= 0 ? s->wire_cap : 0;
     st->wire_in_flight = wire_in_flight(s);
+    st->inexact = rfm_screen_inexact(s->screen);
+    st->lossy = rfm_screen_lossy(s->screen);
 }

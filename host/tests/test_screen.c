@@ -433,6 +433,216 @@ static void report(int nppm, char **ppm)
     (void)g;
 }
 
+/* ---------------------------------------------------------------- lossy (Bluetooth) ---- */
+/* lossless (the default, USB and bulk): byte for byte what the encoder sent before lossy tiles existed (the hash of
+ * that encoder, commit cca5874, over the same frames) */
+#define LOSSLESS_HASH 0x9a978d5a61d8cefeull
+/* the bytes the lossless encoder emits for every frame set at the three transports' budgets, hashed (FNV-1a 64) */
+static uint64_t g_fnv;
+static void on_hash(void *ctx, const uint8_t *body, uint32_t n, int last)
+{
+    uint32_t i;
+    (void)ctx;
+    g_fnv = (g_fnv ^ (uint64_t)last) * 1099511628211ull;
+    for (i = 0; i < n; i++)
+        g_fnv = (g_fnv ^ body[i]) * 1099511628211ull;
+}
+
+static uint64_t lossless_hash(void)
+{
+    static uint16_t img[FR_N];
+    static const uint32_t budgets[3] = {400u, 14000u, 40000u}, bmax[3] = {1024u, 1024u, 16384u};
+    uint32_t c, t;
+    int set;
+    g_fnv = 1469598103934665603ull;
+    for (c = 0; c < 3; c++)
+        for (set = 0; set < NSETS; set++) {
+            rfm_screen_t *s = rfm_screen_new();
+            uint32_t seed = 7u + (uint32_t)set;
+            for (t = 0; t < 12u; t++) {
+                gen(set, t, img, &seed);
+                rfm_screen_submit(s, img);
+                rfm_screen_encode(s, (uint16_t)t, budgets[c], bmax[c], on_hash, NULL, NULL);
+            }
+            while (rfm_screen_pending(s))
+                rfm_screen_encode(s, (uint16_t)t++, budgets[c], bmax[c], on_hash, NULL, NULL);
+            rfm_screen_free(s);
+        }
+    return g_fnv;
+}
+
+static void test_lossless_unchanged(void)
+{
+    const uint64_t h = lossless_hash();
+    CHECKF(h == LOSSLESS_HASH, "lossless bytes changed: hash %016llx", (unsigned long long)h);
+}
+
+static uint32_t tile_colours(const uint16_t *p, uint32_t stride, uint16_t *pal)
+{
+    uint32_t n = 0, i, j, k;
+    for (j = 0; j < 16u; j++)
+        for (i = 0; i < 16u; i++) {
+            const uint16_t c = p[j * stride + i];
+            for (k = 0; k < n && pal[k] != c; k++)
+                ;
+            if (k == n)
+                pal[n++] = c;
+        }
+    return n;
+}
+
+/* the quantizer: at most N colours, all of them the tile's own, deterministic, exact for a tile of N or fewer,
+ * in place too; a dominant colour (a background) stays exact */
+static void test_reduce(void)
+{
+    static uint16_t img[FR_N];
+    uint16_t a[256], b[256], c[256], pal_src[256], pal_out[256];
+    uint32_t seed = 11, set, t, n, N, i, k, ns, no, tiles = 0;
+    for (set = 0; set < 3; set++) {
+        if (set == 0)
+            fr_ui(img, 3);
+        else if (set == 1)
+            fr_gradient(img, 5);
+        else
+            fr_noise(img, &seed);
+        for (t = 0; t < RFM_NTILES; t += 7) {
+            const uint16_t *src = img + (t / RFM_TILES_X) * 16u * FR_W + (t % RFM_TILES_X) * 16u;
+            ns = tile_colours(src, FR_W, pal_src);
+            for (N = 1; N <= 16u; N *= 2) {
+                n = rfm_tile_reduce(src, FR_W, 16, 16, a, 16, N);
+                no = tile_colours(a, 16, pal_out);
+                CHECKF(n == no && n <= N && n >= 1u && (ns > N || n == ns), "N %u: %u colours of %u (said %u)", N,
+                       no, ns, n);
+                for (i = 0; i < no; i++) {              /* the palette: the tile's own colours */
+                    for (k = 0; k < ns && pal_src[k] != pal_out[i]; k++)
+                        ;
+                    CHECK(k < ns);
+                }
+                if (ns <= N)
+                    for (i = 0; i < 16u; i++)
+                        CHECK(!memcmp(a + i * 16u, src + i * FR_W, 32));
+                rfm_tile_reduce(src, FR_W, 16, 16, b, 16, N);
+                CHECK(!memcmp(a, b, sizeof a));         /* deterministic */
+                for (i = 0; i < 16u; i++)
+                    memcpy(c + i * 16u, src + i * FR_W, 32);
+                rfm_tile_reduce(c, 16, 16, 16, c, 16, N);
+                CHECK(!memcmp(a, c, sizeof a));         /* in place */
+                tiles++;
+            }
+        }
+    }
+    CHECK(tiles > 100u);
+    /* anti-aliased white text on black (black 200 px, white 30, 26 greys): 4 colours keep black and white exact */
+    for (i = 0; i < 256u; i++)
+        c[i] = i < 200u ? fr_rgb(0, 0, 0) : i < 230u ? fr_rgb(255, 255, 255) : fr_rgb(i - 225u, i - 225u, i - 225u);
+    n = rfm_tile_reduce(c, 16, 16, 16, a, 16, 4);
+    CHECK(n == 4u);
+    for (i = 0; i < 230u; i++)
+        CHECK(a[i] == c[i]);
+    /* a hue survives: a red ramp reduced to 4 colours stays red */
+    for (i = 0; i < 256u; i++)
+        c[i] = fr_rgb(100u + (i % 16u) * 9u, 10u, 20u);
+    rfm_tile_reduce(c, 16, 16, 16, a, 16, 4);
+    for (i = 0; i < 256u; i++) {
+        uint8_t m[2];
+        uint32_t v;
+        memcpy(m, &a[i], 2);
+        v = (uint32_t)m[0] << 8 | m[1];
+        CHECK((v >> 11) >= 12u && ((v >> 5) & 63u) <= 3u && (v & 31u) <= 3u);
+    }
+    CHECK(rfm_tile_reduce(c, 16, 17, 16, a, 16, 4) == 0u);   /* more than 256 pixels */
+}
+
+/* the screen, lossy: fewer bytes, the shadow is the model (the reduction), a still screen sends nothing more however
+ * the model differs from the target; a changed tile goes again; refine sends the reduced tiles exactly */
+static void test_lossy_screen(void)
+{
+    static uint16_t img[FR_N];
+    static dec_t d, d0;
+    rfm_screen_t *s = rfm_screen_new(), *s0 = rfm_screen_new();
+    rfm_enc_stats_t st;
+    uint32_t t, bytes = 0, bytes0 = 0, reduced = 0, n, tile;
+    memset(&d, 0, sizeof d);
+    memset(&d0, 0, sizeof d0);
+    rfm_screen_set_lossy(s, 4);
+    CHECK(rfm_screen_lossy(s) == 4u && rfm_screen_lossy(s0) == 0u);
+    fr_gradient(img, 2);
+    fr_rect(img, 0, 0, 240, 100, fr_rgb(0, 0, 0));
+    fr_text(img, 10, 10, "TINE EP 98 Coarse", fr_rgb(240, 240, 240), fr_rgb(0, 0, 0));
+    rfm_screen_submit(s, img);
+    rfm_screen_submit(s0, img);
+    for (t = 0; t < 400u && (rfm_screen_pending(s) || rfm_screen_pending(s0)); t++) {
+        st = frame(s, &d, 550, 1024);
+        bytes += st.body_bytes;
+        reduced += st.reduced;
+        CHECK(st.refined == 0u);
+        st = frame(s0, &d0, 550, 1024);
+        bytes0 += st.body_bytes;
+        CHECK(st.reduced == 0u);
+    }
+    CHECK(!rfm_screen_pending(s) && !rfm_screen_pending(s0));
+    CHECKF(bytes * 2u < bytes0 && reduced > 50u && rfm_screen_inexact(s) == reduced, "%u B vs %u B, %u reduced",
+           bytes, bytes0, reduced);
+    CHECK(same(d0.shadow, img) && !same(d.shadow, img) && rfm_screen_inexact(s0) == 0u);
+    for (t = 0; t < 5; t++) {                           /* still: nothing to send */
+        rfm_screen_submit(s, img);
+        CHECK(rfm_screen_pending(s) == 0u);
+        CHECK(rfm_screen_encode(s, 0, 550, 1024, on_emit, &d, NULL) == 0u);
+    }
+    /* one tile changes: that tile alone goes (reduced again) */
+    tile = 8u * RFM_TILES_X + 3u;
+    fr_rect(img, 3 * 16 + 2, 8 * 16 + 2, 4, 4, fr_rgb(255, 0, 0));
+    rfm_screen_submit(s, img);
+    CHECK(rfm_screen_pending(s) == 1u && rfm_screen_tile_dirty(s, tile));
+    st = frame(s, &d, 550, 1024);
+    CHECK(st.tiles == 1u && st.reduced == 1u && !rfm_screen_pending(s));
+    /* refine: the reduced tiles go exactly, after any dirty tile */
+    n = rfm_screen_refine(s, 1);
+    CHECK(n == rfm_screen_inexact(s) && rfm_screen_refining(s) == n && rfm_screen_pending(s) == n);
+    CHECK(rfm_screen_refine(s, 1) == 0u);               /* already queued */
+    fr_rect(img, 0, 0, 8, 8, fr_rgb(0, 255, 0));        /* a change in a tile not reduced: first */
+    rfm_screen_submit(s, img);
+    st = frame(s, &d, 1, 1024);                         /* a budget for one tile */
+    CHECK(st.tiles == 1u && st.refined == 0u && !rfm_screen_tile_dirty(s, 0));
+    while (rfm_screen_pending(s)) {
+        st = frame(s, &d, 550, 1024);
+        CHECK(st.reduced == 0u && st.refined == st.tiles);
+    }
+    CHECK(rfm_screen_inexact(s) <= 1u && rfm_screen_refining(s) == 0u);   /* tile 0 went reduced, if it was */
+    rfm_screen_refine(s, 1);
+    while (rfm_screen_pending(s))
+        frame(s, &d, 550, 1024);
+    CHECK(same(d.shadow, img) && rfm_screen_inexact(s) == 0u && rfm_screen_refining(s) == 0u);
+    /* refine off drops the queue; a dirty tile drops its own refinement */
+    rfm_screen_submit(s, img);
+    fr_gradient(img, 9);
+    rfm_screen_submit(s, img);
+    while (rfm_screen_pending(s))
+        frame(s, &d, 550, 1024);
+    CHECK(rfm_screen_refine(s, 1) > 0u);
+    rfm_screen_refine(s, 0);
+    CHECK(rfm_screen_refining(s) == 0u && rfm_screen_pending(s) == 0u && rfm_screen_inexact(s) > 0u);
+    rfm_screen_refine(s, 1);
+    fr_gradient(img, 12);
+    rfm_screen_submit(s, img);
+    CHECK(rfm_screen_refining(s) == 0u && rfm_screen_pending(s) > 0u);
+    /* invalidate: everything again, reduced the same way (the shadow ends as the model) */
+    while (rfm_screen_pending(s))
+        frame(s, &d, 550, 1024);
+    rfm_screen_invalidate(s);
+    while (rfm_screen_pending(s))
+        frame(s, &d, 550, 1024);
+    CHECK(same(d.shadow, rfm_screen_model(s)) && !same(d.shadow, img));
+    /* lossless again: refine brings it exact */
+    rfm_screen_set_lossy(s, 0);
+    rfm_screen_refine(s, 1);
+    while (rfm_screen_pending(s))
+        frame(s, &d, 550, 1024);
+    CHECK(same(d.shadow, img) && rfm_screen_inexact(s) == 0u);
+    rfm_screen_free(s);
+    rfm_screen_free(s0);
+}
+
 int main(int argc, char **argv)
 {
     if (argc > 1 && !strcmp(argv[1], "--report")) {
@@ -444,5 +654,8 @@ int main(int argc, char **argv)
     test_fairness();
     test_invalidate();
     test_merge();
+    test_lossless_unchanged();
+    test_reduce();
+    test_lossy_screen();
     return check_done("test_screen");
 }
