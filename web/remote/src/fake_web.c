@@ -12,9 +12,10 @@ static uint8_t *inbuf, outbuf[1u << 19];
 static uint32_t incap;
 static uint32_t out32[32];
 
-/* name NULL / "": "RemoteFM1"; proto 0: 2; rates in bytes/s (0: instant); ble: rfm_fake_cfg_t's (1: on Bluetooth) */
+/* name NULL / "": "RemoteFM1"; proto 0: 2; rates in bytes/s (0: instant); ble: rfm_fake_cfg_t's (1: on Bluetooth);
+ * hold: rfm_fake_cfg_t's (1: RemoteFM1 0.2.2's HOLD, 0: an older unit) */
 EMSCRIPTEN_KEEPALIVE rfm_fake_t *fk_new(int has_bulk, int silent, const char *name, int proto, int sx_rate,
-                                         int bk_rate, int ble)
+                                         int bk_rate, int ble, int hold)
 {
     rfm_fake_cfg_t c;
     rfm_fake_cfg_default(&c);
@@ -30,6 +31,7 @@ EMSCRIPTEN_KEEPALIVE rfm_fake_t *fk_new(int has_bulk, int silent, const char *na
     c.sx_rate_bps = (uint32_t)sx_rate;
     c.bk_rate_bps = (uint32_t)bk_rate;
     c.ble = ble;
+    c.hold = hold;
     return rfm_fake_new(&c);
 }
 EMSCRIPTEN_KEEPALIVE void fk_free(rfm_fake_t *f) { rfm_fake_free(f); }
@@ -63,6 +65,8 @@ EMSCRIPTEN_KEEPALIVE void fk_drop_midi(rfm_fake_t *f, uint32_t n) { rfm_fake_dro
 
 EMSCRIPTEN_KEEPALIVE int fk_session(rfm_fake_t *f) { return rfm_fake_session(f); }
 EMSCRIPTEN_KEEPALIVE const uint8_t *fk_shadow(rfm_fake_t *f) { return rfm_fake_shadow(f); }   /* 240*240*2, BE */
+EMSCRIPTEN_KEEPALIVE const uint8_t *fk_panel(rfm_fake_t *f) { return rfm_fake_panel(f); }     /* what it shows */
+EMSCRIPTEN_KEEPALIVE int fk_holding(rfm_fake_t *f) { return rfm_fake_holding(f); }
 EMSCRIPTEN_KEEPALIVE const uint8_t *fk_leds(rfm_fake_t *f) { return (const uint8_t *)rfm_fake_leds(f); }  /* 45 */
 EMSCRIPTEN_KEEPALIVE uint32_t *fk_stats(rfm_fake_t *f)
 {

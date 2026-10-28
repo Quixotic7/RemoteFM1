@@ -6,7 +6,8 @@
 // Node test (simulated clock: step()) and the headless-Chromium page (real timers: run()).
 
 export const FAKE_STATS = ['hellos', 'sessions_started', 'sessions_ended', 'keepalive_expired', 'leds', 'tiles_msgs',
-    'frames', 'acks', 'acks_dropped', 'tile_bytes', 'decode_errs', 'panel_r', 'panel_req', 'msgs', 'sx_msgs', 'bk_msgs'];
+    'frames', 'acks', 'acks_dropped', 'tile_bytes', 'decode_errs', 'panel_r', 'panel_req', 'msgs', 'sx_msgs', 'bk_msgs',
+    'held_frames', 'hold_timeouts', 'panel_updates'];
 
 // split a MIDI byte stream into messages, as Web MIDI delivers them (one SysEx, or one channel message, per event)
 export function splitMidi(bytes, state) {
@@ -175,15 +176,15 @@ export async function createWorld(createFakeUnit, { start = 1000 } = {}) {
 
     // a fake unit: the RemoteFM1 firmware (default), or another firmware (name / proto) or a silent one; vendorIf: the
     // vendor interface's number (4: 0.2.1 with USB audio, 2: 0.1 / 0.2.0); ble: its MIDI ports are Bluetooth MIDI (its
-    // HELLO_R says so: sxq 128)
+    // HELLO_R says so: sxq 128); hold: RemoteFM1 0.2.2's HOLD (false: an older unit)
     world.addUnit = ({ midiName = 'FM-1', name = '', proto = 0, silent = false, bulk = false, sxRate = 300000,
-        bkRate = 850000, vendorIf = 4, ble = false } = {}) => {
+        bkRate = 850000, vendorIf = 4, ble = false, hold = true } = {}) => {
         let p = 0;
         if (name) {
             p = F._malloc(name.length + 1);
             F.stringToUTF8(name, p, name.length + 1);
         }
-        const h = F._fk_new(bulk ? 1 : 0, silent ? 1 : 0, p, proto, sxRate, bkRate, ble ? 1 : 0);   // (copies the name)
+        const h = F._fk_new(bulk ? 1 : 0, silent ? 1 : 0, p, proto, sxRate, bkRate, ble ? 1 : 0, hold ? 1 : 0);   // (copies the name)
         if (p) F._free(p);
         return world._unit(h, midiName, bulk, vendorIf);
     };
@@ -272,6 +273,8 @@ export async function createWorld(createFakeUnit, { start = 1000 } = {}) {
     world.session = u => F._fk_session(u.h);
     world.stats = u => { const p = F._fk_stats(u.h) >> 2, o = {}; FAKE_STATS.forEach((k, i) => { o[k] = F.HEAPU32[p + i]; }); return o; };
     world.shadow = u => F.HEAPU8.slice(F._fk_shadow(u.h), F._fk_shadow(u.h) + 240 * 240 * 2);
+    world.panel = u => F.HEAPU8.slice(F._fk_panel(u.h), F._fk_panel(u.h) + 240 * 240 * 2);   // what the unit shows
+    world.holding = u => F._fk_holding(u.h) !== 0;
     world.leds = u => { const p = F._fk_leds(u.h), b = F.HEAPU8;
         return { lit: b.slice(p, p + 11), mid: b.slice(p + 11, p + 22), dim: b.slice(p + 22, p + 33), faint: b.slice(p + 33, p + 44), flags: b[p + 44] }; };
     world.key = (u, k, d) => F._fk_key(u.h, k, d ? 1 : 0);

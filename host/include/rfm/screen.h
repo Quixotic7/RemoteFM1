@@ -24,7 +24,16 @@
  * shows) and the basis the target it was sent for. "Dirty" compares the target with the basis, so a reduced tile is
  * sent once and left alone while its target stays the same (no resends, no flicker). refine(1) queues every reduced
  * tile that is not dirty for an exact resend, after all dirty tiles; a tile whose target changes drops it. With
- * lossy 0 (the default) nothing is reduced, the basis is the model, and every byte is as before. */
+ * lossy 0 (the default) nothing is reduced, the basis is the model, and every byte is as before.
+ *
+ * Snapshots (set_snapshot(1): the session's Bluetooth links to a unit with RFM_CAP_HOLD): every screen change is shown
+ * at once. A frame that leaves dirty tiles for later frames carries HOLD with its END (the unit draws it into its
+ * shadow and shows nothing yet); the frame that sends the last of them has no HOLD and shows the whole change. While a
+ * change is part sent ("holding"), submit() keeps the newest screen aside instead of changing the target, so the
+ * change goes on as it was latched; once it is shown, the newest screen becomes the target (the ones in between are
+ * skipped). Before its first frame a change may still be replaced by a newer screen. invalidate() and reset_black()
+ * end it (everything goes again, from the newest screen). Refinements are frames of their own, not held: each shows
+ * at once (the same screen, its colours exact). Off (the default) every frame is as before. */
 #ifndef RFM_SCREEN_H
 #define RFM_SCREEN_H
 #include <stdint.h>
@@ -63,6 +72,7 @@ typedef struct {
     uint32_t max_wait;                                  /* the oldest sent tile's wait, in submits */
     uint32_t reduced;                                   /* tiles sent reduced (lossy) */
     uint32_t refined;                                   /* reduced tiles sent again exactly (refine) */
+    uint32_t held;                                      /* 1: this frame's END carried HOLD (snapshots) */
 } rfm_enc_stats_t;
 
 typedef struct rfm_screen rfm_screen_t;
@@ -84,6 +94,10 @@ uint32_t rfm_screen_lossy(const rfm_screen_t *s);
 uint32_t rfm_screen_refine(rfm_screen_t *s, int on);
 uint32_t rfm_screen_refining(const rfm_screen_t *s);    /* tiles queued for refinement (counted in pending) */
 uint32_t rfm_screen_inexact(const rfm_screen_t *s);     /* tiles the device shows reduced */
+/* snapshots (above): on / off (off: a change being held goes on unheld, the newest screen the target at once) */
+void rfm_screen_set_snapshot(rfm_screen_t *s, int on);
+int rfm_screen_snapshot(const rfm_screen_t *s);
+int rfm_screen_holding(const rfm_screen_t *s);          /* a change is part sent: the device holds its tiles */
 /* one frame; returns the number of TILES bodies emitted (0: nothing was dirty, nothing emitted) */
 uint32_t rfm_screen_encode(rfm_screen_t *s, uint16_t frame, uint32_t budget, uint32_t body_max, rfm_emit_fn emit,
                            void *ctx, rfm_enc_stats_t *st);

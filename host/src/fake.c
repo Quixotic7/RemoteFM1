@@ -34,6 +34,9 @@ struct rfm_fake {
     int session;                                        /* 0, 1 + link */
     uint32_t keepalive_ms, last_rx, last_panel_r;
     uint8_t shadow[RFM_W * RFM_H * 2];
+    uint8_t panel[RFM_W * RFM_H * 2];                   /* what the unit shows */
+    int held;                                           /* tiles in the shadow not on the panel (HOLD) */
+    uint32_t tiles_ms;                                  /* the last TILES (RFM_HOLD_MS) */
     rfm_leds_t leds;
     /* the panel */
     uint32_t keys, buttons;
@@ -60,6 +63,14 @@ void rfm_fake_cfg_default(rfm_fake_cfg_t *c)
     c->sx_body_max = RFM_SX_BODY_MAX;
     c->bk_body_max = RFM_BK_BODY_MAX;
     c->tiles_outside_session = 1;
+    c->hold = 1;
+}
+
+static void show(rfm_fake_t *f)
+{
+    memcpy(f->panel, f->shadow, sizeof f->panel);
+    f->held = 0;
+    f->st.panel_updates++;
 }
 
 /* ---------------------------------------------------------------- output ---- */
@@ -176,7 +187,7 @@ static void on_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
         h.screen_w = RFM_W;
         h.screen_h = RFM_H;
         h.caps = RFM_CAP_SHADOW | RFM_CAP_COPY | RFM_CAP_RLE | RFM_CAP_PAL | RFM_CAP_BATTERY | RFM_CAP_PLAY_GREEN |
-                 RFM_CAP_LED5;
+                 RFM_CAP_LED5 | (f->cfg.hold ? RFM_CAP_HOLD : 0u);
         h.max_in_flight = RFM_FRAMES_IN_FLIGHT;
         h.session = f->session ? 1 : 0;
         strncpy(h.fw_ver, "m1-fake", 8);
@@ -193,6 +204,7 @@ static void on_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
             f->session = 1 + link;
             f->keepalive_ms = ka;
             memset(f->shadow, 0, sizeof f->shadow);
+            show(f);
             memset(&f->leds, 0, sizeof f->leds);
             f->nacks = 0;
             f->frame_bytes = 0;
@@ -206,6 +218,7 @@ static void on_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
             if (f->session)
                 f->st.sessions_ended++;
             f->session = 0;
+            f->held = 0;                                /* (the waiting screen; held tiles are never shown) */
             reply(f, link, RFM_ACK, NULL, 0);
         }
         break;
@@ -246,6 +259,7 @@ static void on_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
             rc = rfm_tiles_apply(f->shadow, b, n, 0, &info);
         }
         f->frame_bytes += n;
+        f->tiles_ms = f->now;
         if (rc != RFM_REF_OK) {
             f->frame_err = 1;
             f->st.decode_errs++;
@@ -265,6 +279,13 @@ static void on_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
             f->reset_pending = 0;
             f->frame_bytes = 0;
             f->frame_err = 0;
+            if (info.flags & RFM_TILES_F_HOLD)
+                f->st.held_frames++;
+            if (f->cfg.hold && f->session && (info.flags & RFM_TILES_F_HOLD)) {
+                f->held = 1;
+            } else {
+                show(f);
+            }
         }
         break;
     }
@@ -364,9 +385,14 @@ void rfm_fake_poll(rfm_fake_t *f, uint32_t now)
         memmove(f->acks, f->acks + i, (f->nacks - i) * sizeof f->acks[0]);
         f->nacks -= i;
     }
+    if (f->held && (int32_t)(now - f->tiles_ms) >= (int32_t)RFM_HOLD_MS) {
+        show(f);                                        /* the host went quiet holding tiles */
+        f->st.hold_timeouts++;
+    }
     if (f->session) {
         if (f->keepalive_ms && (int32_t)(now - f->last_rx) >= (int32_t)f->keepalive_ms) {
             f->session = 0;                             /* back to the waiting screen */
+            f->held = 0;
             f->st.keepalive_expired++;
             f->st.sessions_ended++;
         } else if ((int32_t)(now - f->last_panel_r) >= 500) {
@@ -420,6 +446,7 @@ void rfm_fake_master(rfm_fake_t *f, uint32_t adc)
 void rfm_fake_reboot(rfm_fake_t *f)
 {
     memset(f->shadow, 0, sizeof f->shadow);
+    show(f);
     memset(&f->leds, 0, sizeof f->leds);
     if (f->session)
         f->st.sessions_ended++;
@@ -439,5 +466,7 @@ void rfm_fake_drop_midi(rfm_fake_t *f, uint32_t n) { f->drop_midi = n; }
 void rfm_fake_decode_error(rfm_fake_t *f) { f->decode_err_next = 1; }
 int rfm_fake_session(const rfm_fake_t *f) { return f->session; }
 const uint8_t *rfm_fake_shadow(const rfm_fake_t *f) { return f->shadow; }
+const uint8_t *rfm_fake_panel(const rfm_fake_t *f) { return f->panel; }
+int rfm_fake_holding(const rfm_fake_t *f) { return f->held; }
 const rfm_leds_t *rfm_fake_leds(const rfm_fake_t *f) { return &f->leds; }
 void rfm_fake_stats(const rfm_fake_t *f, rfm_fake_stats_t *st) { *st = f->st; }

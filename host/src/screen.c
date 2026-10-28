@@ -32,6 +32,10 @@ struct rfm_screen {
     uint8_t prep[RFM_NTILES], prep_red[RFM_NTILES];     /* send[] holds the tile for this target; reduced */
     uint32_t seq, lossy;
     int merge;
+    int snapshot;                                       /* set_snapshot(1): screen changes as held snapshots */
+    int open;                                           /* a snapshot is part sent: the device holds its tiles */
+    int have_latest;                                    /* latest[] came while it was open */
+    uint16_t latest[RFM_NPIX];
     rect_t tile_rects[RFM_NTILES][T];                   /* encode()'s per-tile plans (scratch) */
     uint8_t msg[RFM_BK_BODY_MAX];
 };
@@ -433,6 +437,8 @@ uint32_t rfm_tile_reduce(const uint16_t *src, uint32_t stride, uint32_t w, uint3
 }
 
 /* ---------------------------------------------------------------- the screen ---- */
+static void close_snapshot(rfm_screen_t *s);
+
 rfm_screen_t *rfm_screen_new(void)
 {
     rfm_screen_t *s = (rfm_screen_t *)calloc(1, sizeof *s);
@@ -488,6 +494,7 @@ void rfm_screen_reset_black(rfm_screen_t *s)
     memset(s->inexact, 0, sizeof s->inexact);
     memset(s->refine, 0, sizeof s->refine);
     refresh(s);
+    close_snapshot(s);
 }
 
 void rfm_screen_set_lossy(rfm_screen_t *s, uint32_t colors)
@@ -537,9 +544,10 @@ void rfm_screen_invalidate(rfm_screen_t *s)
 {
     memset(s->forced, 1, sizeof s->forced);
     refresh(s);
+    close_snapshot(s);                                  /* everything goes again: from the newest screen */
 }
 
-void rfm_screen_submit(rfm_screen_t *s, const uint16_t *lcd)
+static void set_target(rfm_screen_t *s, const uint16_t *lcd)
 {
     uint32_t t;
     for (t = 0; t < RFM_NTILES; t++)                    /* a prepared (reduced) tile is kept while its target is */
@@ -549,6 +557,35 @@ void rfm_screen_submit(rfm_screen_t *s, const uint16_t *lcd)
     s->seq++;
     refresh(s);
 }
+
+/* the snapshot is over (sent, or nothing the device holds is worth finishing): the newest screen is the target */
+static void close_snapshot(rfm_screen_t *s)
+{
+    s->open = 0;
+    if (s->have_latest) {
+        s->have_latest = 0;
+        set_target(s, s->latest);
+    }
+}
+
+void rfm_screen_submit(rfm_screen_t *s, const uint16_t *lcd)
+{
+    if (s->open) {                                      /* the snapshot being sent goes on as it was latched */
+        memcpy(s->latest, lcd, sizeof s->latest);
+        s->have_latest = 1;
+        return;
+    }
+    set_target(s, lcd);
+}
+
+void rfm_screen_set_snapshot(rfm_screen_t *s, int on)
+{
+    s->snapshot = on ? 1 : 0;
+    if (!on)
+        close_snapshot(s);
+}
+int rfm_screen_snapshot(const rfm_screen_t *s) { return s->snapshot; }
+int rfm_screen_holding(const rfm_screen_t *s) { return s->open; }
 
 int rfm_screen_tile_dirty(const rfm_screen_t *s, uint32_t t)
 {
@@ -598,13 +635,14 @@ typedef struct {
     const uint16_t *img;                                /* what is sent: the target, or send[] when lossy */
     uint32_t body_max, len, nr, msgs, body_bytes;
     uint16_t frame;
+    uint8_t end_flags;                                  /* END, and HOLD while the snapshot is not complete */
     rfm_emit_fn emit;
     void *ctx;
 } packer_t;
 
 static void pk_flush(packer_t *p, int last)
 {
-    rfm_tiles_header(p->s->msg, p->frame, last ? RFM_TILES_F_END : 0u, (uint8_t)p->nr);
+    rfm_tiles_header(p->s->msg, p->frame, last ? p->end_flags : 0u, (uint8_t)p->nr);
     p->emit(p->ctx, p->s->msg, p->len, last);
     p->msgs++;
     p->body_bytes += p->len;
@@ -677,6 +715,7 @@ uint32_t rfm_screen_encode(rfm_screen_t *s, uint16_t frame, uint32_t budget, uin
     uint32_t nd = 0, t, k, remaining = budget, max_rect, rect_bytes = 0;
     uint32_t ntr[RFM_NTILES], tcost[RFM_NTILES];
     uint8_t sel[RFM_NTILES], red[RFM_NTILES], fine[RFM_NTILES];
+    int hold = 0;
     const uint16_t *img = s->lossy ? s->send : s->target;
     rfm_enc_stats_t dummy;
     packer_t pk;
@@ -739,6 +778,10 @@ uint32_t rfm_screen_encode(rfm_screen_t *s, uint16_t frame, uint32_t budget, uin
     pk.frame = frame;
     pk.emit = emit;
     pk.ctx = ctx;
+    if (s->snapshot)                                    /* dirty tiles left for later frames: this one is held */
+        for (t = 0; t < RFM_NTILES && !hold; t++)
+            hold = s->dirty[t] && !sel[t];
+    pk.end_flags = (uint8_t)(RFM_TILES_F_END | (hold ? RFM_TILES_F_HOLD : 0u));
 
     /* tile rows: greedy merge of selected neighbours, then pack */
     for (k = 0; k < TY; k++) {
@@ -804,6 +847,11 @@ uint32_t rfm_screen_encode(rfm_screen_t *s, uint16_t frame, uint32_t budget, uin
         s->forced[t] = 0;
         s->refine[t] = 0;
     }
+    st->held = (uint32_t)hold;
+    if (hold)
+        s->open = 1;
+    else if (s->open)
+        close_snapshot(s);                              /* the device shows it now: on to the newest screen */
     st->rect_bytes = rect_bytes;
     st->body_bytes = pk.body_bytes;
     st->msgs = pk.msgs;

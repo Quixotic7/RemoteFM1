@@ -6,7 +6,10 @@
  * It has a MIDI side (SysEx in, SysEx replies and the panel's plain MIDI out) and, optionally, a bulk side. The
  * host writes with rx_sx / rx_bk; the replies queue until the host takes them (take_sx / take_bk). poll() runs its
  * timers: keepalive expiry, PANEL_R every 500 ms in a session, FRAME_ACKs when the simulated wire has carried the
- * frame (rate_bps per side, 0: at once). It draws TILES with the reference decoder (tiles_ref.h).
+ * frame (rate_bps per side, 0: at once). It draws TILES with the reference decoder (tiles_ref.h) into its shadow, and
+ * its panel shows the shadow at every END, except an END with HOLD (cfg.hold, RemoteFM1 0.2.2): that one's tiles show
+ * with the next END without HOLD, or after RFM_HOLD_MS without TILES. Without cfg.hold the HOLD bit is ignored, as
+ * 0.2.1 ignores it.
  * Outside a session it sends no PANEL_R; whether it still draws and acknowledges TILES is cfg.tiles_outside_session
  * (the spec leaves that open).
  * Faults for the tests: reboot (shadow black, session over, the next FRAME_ACK says shadow reset), deafness (host
@@ -30,6 +33,8 @@ typedef struct {
     int ble;                                            /* 1: the MIDI side is Bluetooth MIDI (0.2): its HELLO_R
                                                          * says sxq 128 and the Bluetooth bits; 2: USB while a
                                                          * Bluetooth computer is connected (the bits, sxq 960) */
+    int hold;                                           /* 1 (default): HELLO_R caps has RFM_CAP_HOLD, and HOLD
+                                                         * holds; 0: a unit before 0.2.2 */
     int tiles_outside_session;                          /* 1 (default): TILES / LEDS outside a session are still
                                                          * drawn and acknowledged (FRAME_ACK says shadow reset after
                                                          * a reboot); 0: ignored, no FRAME_ACK */
@@ -40,6 +45,9 @@ typedef struct {
     uint32_t hellos, sessions_started, sessions_ended, keepalive_expired;
     uint32_t leds, tiles_msgs, frames, acks, acks_dropped, tile_bytes, decode_errs, panel_r, panel_req, msgs;
     uint32_t sx_msgs, bk_msgs;
+    uint32_t held_frames, hold_timeouts, panel_updates; /* ENDs with HOLD (held only with cfg.hold, in a session);
+                                                         * held tiles shown by the timeout; times the panel took
+                                                         * the shadow */
 } rfm_fake_stats_t;
 
 typedef struct rfm_fake rfm_fake_t;
@@ -67,6 +75,8 @@ void rfm_fake_decode_error(rfm_fake_t *f);              /* the next TILES body i
 
 int rfm_fake_session(const rfm_fake_t *f);              /* 0 none, 1 on SysEx, 2 on bulk */
 const uint8_t *rfm_fake_shadow(const rfm_fake_t *f);    /* 240 x 240 x 2 bytes, BE: emu_hal_t.lcd's layout */
+const uint8_t *rfm_fake_panel(const rfm_fake_t *f);     /* what the unit shows (the same layout) */
+int rfm_fake_holding(const rfm_fake_t *f);              /* tiles drawn and not shown (HOLD) */
 const rfm_leds_t *rfm_fake_leds(const rfm_fake_t *f);
 void rfm_fake_stats(const rfm_fake_t *f, rfm_fake_stats_t *st);
 

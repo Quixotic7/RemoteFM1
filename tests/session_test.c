@@ -7,7 +7,8 @@
  * docs/PROTOCOL.md: HELLO_R (67 bytes, and its SysEx framing), SESSION -> ACK + PANEL_R + MASTER, the black screen,
  * LEDS mapped to three levels, frames over several TILES with END -> FRAME_ACK (shadow reset, decode error, two
  * ENDs while a push runs, an empty frame), the panel events as plain MIDI, PANEL_R on request and every 500 ms,
- * the keepalive ending the session, SESSION 0, a USB loss, TILES outside a session, ECHO, M0's raw TILE.
+ * the keepalive ending the session, SESSION 0, a USB loss, TILES outside a session, ECHO, HOLD (held frames, the
+ * commit, the input waiting, the timeout, a session end), M0's raw TILE.
  *   cc -std=c99 -Ifirmware/src -o session_test tests/session_test.c && ./session_test */
 #include <stdint.h>
 #include <stdio.h>
@@ -216,6 +217,16 @@ static void check_ack(const msg_t *m, uint32_t t, uint32_t frame, uint32_t statu
                 m->b[11]);
 }
 
+/* the replies so far, FRAME_ACKs only (PANEL_R comes every 500 ms in a session): how many */
+static uint32_t only_acks(void)
+{
+    uint32_t i, k = 0;
+    for (i = 0; i < nout && i < 64; i++)
+        if (out[i].cmd == RFM_FRAME_ACK)
+            out[k++] = out[i];
+    return nout = k;
+}
+
 /* a TILES body: frame, flags, one FILL rect */
 static uint32_t tiles_fill(uint8_t *b, uint32_t frame, uint32_t flags, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
                            uint32_t c)
@@ -260,7 +271,8 @@ int main(void)
             want[i] = (uint8_t)(0xA0 + i);
         memcpy(want + 43, "FM-1_015", 8);
         want[51] = 240, want[53] = 240;
-        want[55] = 0x2F;                                /* shadow, COPY, RLE, PAL, PLAY green; no battery, 3 levels */
+        want[55] = 0xAF;                                /* shadow, COPY, RLE, PAL, PLAY green, HOLD; no battery,
+                                                         * 3 levels */
         want[57] = 2;
         want[58] = 0;
         memcpy(want + 59, "0.1", 3);
@@ -489,6 +501,68 @@ int main(void)
     rfm_app_usb_lost();
     poll(100);
     CHECK(session_on == 0 && nout == 0);
+
+    /* ---- HOLD (0.2.2): a held END is acknowledged at once, its tiles in the shadow and not on the panel; the next END
+     * without HOLD shows them all with its own; the input waits while that push runs or is due; a held END that
+     * comes anyway is acknowledged after the push's, in order; held tiles show after RFM_HOLD_MS without TILES; a
+     * session end drops them; outside a session HOLD is an END */
+    {
+        static uint16_t before[240 * 240];
+        b[0] = 1, b[1] = 0, b[2] = 0;
+        send_sx(RFM_SESSION, b, 3);
+        poll(40);
+        CHECK(session_on == 1 && !rfm_app_rx_wait(RF_T_SX));
+        nout = 0;
+        send_sx(RFM_TILES, b, tiles_fill(b, 1, RFM_TILES_F_END, 0, 0, 240, 240, 0x1234));
+        poll(200);
+        CHECK(only_acks() == 1 && !memcmp(panel, shadow, sizeof panel) && !rfa.hold_used);
+        memcpy(before, panel, sizeof before);
+        nout = 0;
+        send_sx(RFM_TILES, b, tiles_fill(b, 2, RFM_TILES_F_END | RFM_TILES_F_HOLD, 0, 0, 64, 64, 0xF800));
+        CHECK(only_acks() == 1);                        /* acknowledged as decoded */
+        check_ack(&out[0], RF_T_SX, 2, 0, 11, 0);
+        CHECK(rfa.held && rfa.hold_used && px(0, 0, shadow) == 0xF800);
+        poll(100);
+        CHECK(!memcmp(panel, before, sizeof panel) && !rfm_app_pushing() && !rfm_app_rx_wait(RF_T_SX));
+        nout = 0;
+        send_sx(RFM_TILES, b, tiles_fill(b, 3, 0, 100, 100, 16, 16, 0x07E0));   /* a held frame in two messages */
+        send_sx(RFM_TILES, b, tiles_fill(b, 3, RFM_TILES_F_END | RFM_TILES_F_HOLD, 120, 100, 16, 16, 0x07E0));
+        poll(100);
+        CHECK(only_acks() == 1 && rd16(out[0].b) == 3 && rd32(out[0].b + 7) == 22);
+        CHECK(!memcmp(panel, before, sizeof panel) && px(100, 100, shadow) == 0x07E0);
+        nout = 0;
+        send_sx(RFM_TILES, b, tiles_fill(b, 4, RFM_TILES_F_END, 200, 200, 8, 8, 0x001F));
+        CHECK(only_acks() == 0 && rfm_app_rx_wait(RF_T_SX) && !rfm_app_rx_wait(RF_T_BK));   /* its push is due */
+        poll_same_ms(2);
+        CHECK(rfm_app_pushing() && rfm_app_rx_wait(RF_T_SX));
+        /* a held END the includer let in anyway: acknowledged after the push's, without a push of its own */
+        send_sx(RFM_TILES, b, tiles_fill(b, 5, RFM_TILES_F_END | RFM_TILES_F_HOLD, 0, 239, 1, 1, 0x0F0F));
+        CHECK(only_acks() == 0);
+        poll(200);
+        CHECK(only_acks() == 2);
+        check_ack(&out[0], RF_T_SX, 4, 0, 11, 1);
+        check_ack(&out[1], RF_T_SX, 5, 0, 11, 0);
+        CHECK(px(0, 0, panel) == 0xF800 && px(135, 115, panel) == 0x07E0 && px(207, 207, panel) == 0x001F);
+        CHECK(px(0, 239, panel) == 0x1234 && rfa.held && !rfm_app_rx_wait(RF_T_SX));
+        /* RFM_HOLD_MS without TILES (frame 5 came 200 ms ago): shown */
+        poll(RFM_HOLD_MS - 300u);
+        CHECK(rfa.hold_timeouts == 0 && px(0, 239, panel) == 0x1234);
+        poll(200);
+        CHECK(rfa.hold_timeouts == 1 && !rfa.held && !memcmp(panel, shadow, sizeof panel));
+        /* a session end with tiles held: never shown */
+        nout = 0;
+        send_sx(RFM_TILES, b, tiles_fill(b, 6, RFM_TILES_F_END | RFM_TILES_F_HOLD, 0, 0, 240, 240, 0xAAAA));
+        CHECK(only_acks() == 1 && rfa.held);
+        b[0] = 0;
+        send_sx(RFM_SESSION, b, 3);
+        CHECK(session_on == 0 && !rfa.held && !rfa.hold_used && !rfm_app_rx_wait(RF_T_SX));
+        poll(RFM_HOLD_MS + 100u);
+        CHECK(px(0, 0, panel) == 0xF800 && !rfm_app_pushing());
+        /* outside a session HOLD is an END: acknowledged, nothing held */
+        nout = 0;
+        send_sx(RFM_TILES, b, tiles_fill(b, 7, RFM_TILES_F_END | RFM_TILES_F_HOLD, 0, 0, 8, 8, 0x5555));
+        CHECK(only_acks() == 1 && rd16(out[0].b) == 7 && !rfa.held && !rfa.hold_used);
+    }
 
     /* ---- M0's raw TILE outside a session: into the shadow and onto the panel, no ACK */
     {

@@ -643,6 +643,126 @@ static void test_lossy_screen(void)
     rfm_screen_free(s0);
 }
 
+/* ---------------------------------------------------------------- snapshots (Bluetooth, HOLD) ---- */
+typedef struct {
+    dec_t d;
+    uint8_t panel[FR_N * 2];                            /* the unit's panel: the shadow at every END without HOLD */
+    uint32_t held, commits;
+} sdec_t;
+static void on_emit_snap(void *ctx, const uint8_t *body, uint32_t n, int last)
+{
+    sdec_t *q = (sdec_t *)ctx;
+    on_emit(&q->d, body, n, last);
+    CHECK(last || !(body[2] & RFM_TILES_F_HOLD));      /* HOLD only with END */
+    if (!last)
+        return;
+    if (body[2] & RFM_TILES_F_HOLD) {
+        q->held++;
+    } else {
+        q->commits++;
+        memcpy(q->panel, q->d.shadow, sizeof q->panel);
+    }
+}
+static rfm_enc_stats_t snap_frame(rfm_screen_t *s, sdec_t *q, uint32_t budget)
+{
+    rfm_enc_stats_t st;
+    q->d.frame++;
+    q->d.end_seen = 0;
+    q->d.body_max = 1024u;
+    rfm_screen_encode(s, q->d.frame, budget, 1024u, on_emit_snap, q, &st);
+    CHECKF(same(q->d.shadow, rfm_screen_model(s)), "snapshot: shadow != model after frame %u", q->d.frame);
+    return st;
+}
+
+/* a change goes as frames with HOLD and a last one without: the panel shows nothing of it until then; submits while
+ * it is held do not change it, and the newest is next (the ones between skipped); before its first frame it may
+ * still be replaced; invalidate() and set_snapshot(0) end it; refinements are not held; off: as before */
+static void test_snapshot(void)
+{
+    static uint16_t a[FR_N], b[FR_N], c[FR_N], d[FR_N];
+    static sdec_t q;
+    rfm_screen_t *s = rfm_screen_new();
+    rfm_enc_stats_t st;
+    uint32_t n, seed = 5;
+    memset(&q, 0, sizeof q);
+    rfm_screen_set_snapshot(s, 1);
+    CHECK(rfm_screen_snapshot(s) && !rfm_screen_holding(s));
+    /* a whole screen at 400 B a frame: held frames, then the one that shows it */
+    gen(SET_UI, 0, a, &seed);
+    rfm_screen_submit(s, a);
+    for (n = 0; rfm_screen_pending(s); n++) {
+        st = snap_frame(s, &q, 400u);
+        CHECK(st.held == (uint32_t)!!rfm_screen_pending(s) && rfm_screen_holding(s) == !!rfm_screen_pending(s));
+        if (rfm_screen_pending(s))
+            CHECK(!memcmp(q.panel, b, sizeof q.panel));  /* (b: still black) */
+    }
+    CHECKF(n > 3 && q.held == n - 1u && q.commits == 1 && same(q.panel, a), "%u frames, %u held, %u commits", n,
+           q.held, q.commits);
+    /* a change, latched at its first frame: two newer screens meanwhile; the change shows whole, then the newest */
+    gen(SET_GRADIENT, 1, b, &seed);
+    gen(SET_GRADIENT, 2, c, &seed);
+    gen(SET_GRADIENT, 3, d, &seed);
+    rfm_screen_submit(s, b);
+    st = snap_frame(s, &q, 400u);
+    CHECK(st.held && rfm_screen_holding(s) && same(q.panel, a));
+    rfm_screen_submit(s, c);
+    rfm_screen_submit(s, d);
+    CHECK(!memcmp(rfm_screen_target(s), b, sizeof b));
+    q.commits = 0;
+    while (rfm_screen_holding(s)) {
+        snap_frame(s, &q, 400u);
+        CHECK(q.commits || same(q.panel, a));
+    }
+    CHECK(q.commits == 1 && same(q.panel, b) && !memcmp(rfm_screen_target(s), d, sizeof d) && rfm_screen_pending(s));
+    while (rfm_screen_pending(s))
+        snap_frame(s, &q, 400u);
+    CHECK(q.commits == 2 && same(q.panel, d));
+    /* before its first frame a change is replaced by a newer one */
+    rfm_screen_submit(s, b);
+    rfm_screen_submit(s, c);
+    CHECK(!rfm_screen_holding(s) && !memcmp(rfm_screen_target(s), c, sizeof c));
+    while (rfm_screen_pending(s))
+        snap_frame(s, &q, 400u);
+    CHECK(q.commits == 3 && same(q.panel, c));
+    /* invalidate while held: everything again, from the newest screen */
+    rfm_screen_submit(s, a);
+    snap_frame(s, &q, 400u);
+    CHECK(rfm_screen_holding(s));
+    rfm_screen_submit(s, b);
+    rfm_screen_invalidate(s);
+    CHECK(!rfm_screen_holding(s) && !memcmp(rfm_screen_target(s), b, sizeof b) && rfm_screen_pending(s) == RFM_NTILES);
+    while (rfm_screen_pending(s))
+        snap_frame(s, &q, 400u);
+    CHECK(same(q.panel, b));
+    /* off while held: the rest goes unheld, the newest screen next */
+    rfm_screen_submit(s, d);
+    snap_frame(s, &q, 400u);
+    rfm_screen_submit(s, a);
+    rfm_screen_set_snapshot(s, 0);
+    CHECK(!rfm_screen_holding(s) && !memcmp(rfm_screen_target(s), a, sizeof a));
+    q.held = 0;
+    while (rfm_screen_pending(s))
+        snap_frame(s, &q, 400u);
+    CHECK(q.held == 0 && same(q.panel, a));
+    /* lossy: the change held, its refinement not */
+    rfm_screen_set_snapshot(s, 1);
+    rfm_screen_set_lossy(s, 4);
+    gen(SET_UI, 9, b, &seed);
+    fr_gradient(c, 4);
+    memcpy(b + 168 * FR_W, c + 168 * FR_W, (FR_H - 168) * FR_W * 2u);
+    rfm_screen_submit(s, b);
+    q.held = q.commits = 0;
+    while (rfm_screen_pending(s))
+        snap_frame(s, &q, 400u);
+    CHECK(q.held > 0 && q.commits == 1 && rfm_screen_inexact(s) > 0);
+    CHECK(rfm_screen_refine(s, 1) > 0);
+    q.held = 0;
+    for (n = 0; rfm_screen_pending(s); n++)
+        snap_frame(s, &q, 400u);
+    CHECK(n > 1 && q.held == 0 && q.commits == 1 + n && same(q.panel, b) && !rfm_screen_inexact(s));
+    rfm_screen_free(s);
+}
+
 int main(int argc, char **argv)
 {
     if (argc > 1 && !strcmp(argv[1], "--report")) {
@@ -657,5 +777,6 @@ int main(int argc, char **argv)
     test_lossless_unchanged();
     test_reduce();
     test_lossy_screen();
+    test_snapshot();
     return check_done("test_screen");
 }

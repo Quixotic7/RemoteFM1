@@ -43,6 +43,7 @@ static uint8_t leds_levels[RFM_NCOL * 4u];
 static uint32_t out32[64];
 static char host_name[17] = "web";
 static int ble_colors = -1;                             /* rw_set_ble_colors(); -1: the library's default */
+static int ble_hold = -1;                               /* rw_set_ble_hold(); -1: the library's default (on) */
 
 static int w_link(void *ctx, const uint8_t *p, uint32_t n) { return js_write((int)(intptr_t)ctx, p, n); }
 static void cb_event(void *ctx, const rfm_event_t *e)
@@ -83,6 +84,8 @@ EMSCRIPTEN_KEEPALIVE int rw_init(int fps, int transport, int keepalive_ms, int b
         c.budget = (uint32_t)budget;
     if (ble_colors >= 0)
         c.ble_colors = (uint32_t)ble_colors;
+    if (ble_hold >= 0)
+        c.ble_hold = ble_hold;
     if (name && *name) {
         strncpy(host_name, name, 16);
         host_name[16] = 0;
@@ -185,6 +188,15 @@ EMSCRIPTEN_KEEPALIVE void rw_set_ble_colors(int n)
     ble_colors = n;
     if (S)
         rfm_session_set_ble_colors(S, n >= 0 ? (uint32_t)n : RFM_BLE_COLORS);
+}
+
+/* Bluetooth's whole screen changes (HOLD, a unit from 0.2.2): 1 on, 0 off (every frame shown as it arrives), -1 the
+ * library's default (on); now and for later sessions (rw_init) */
+EMSCRIPTEN_KEEPALIVE void rw_set_ble_hold(int on)
+{
+    ble_hold = on;
+    if (S)
+        rfm_session_set_ble_hold(S, on != 0);
 }
 
 EMSCRIPTEN_KEEPALIVE void rw_stop(uint32_t now)

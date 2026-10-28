@@ -31,7 +31,9 @@
  *
  * Screen. The push (rfm_push.c) never waits: it blits a piece only when lcd_idle() says the last DMA is over. With
  * RFM_SHADOW 0 (no 115,200 B shadow) rectangles go to the panel row by row as they are decoded (rf_row). The waiting
- * screen draws a line at a time, only while no session or push owns the panel. */
+ * screen draws a line at a time, only while no session or push owns the panel. A session that holds frames (TILES'
+ * HOLD, 0.2.2) has its transport's input left in its ring while a push runs or is due (rfm_app_rx_wait): a byte at a
+ * time on USB SysEx, a packet at a time on Bluetooth, a 256-byte piece at a time on bulk. */
 
 #define RF_T_BLE 2u                         /* SysEx over Bluetooth MIDI (remote_proto.h: RF_T_SX 0, RF_T_BK 1) */
 #define RF_NT 3u
@@ -53,7 +55,7 @@
 #define RFA_FW_VER APP_VERSION
 #define RFA_IDENTITY FELUCCA_ID
 #if RFM_SHADOW
-#define RFA_CAPS (RFM_CAP_SHADOW | RFM_CAP_COPY | RFM_CAP_RLE | RFM_CAP_PAL | RFM_CAP_PLAY_GREEN)
+#define RFA_CAPS (RFM_CAP_SHADOW | RFM_CAP_COPY | RFM_CAP_RLE | RFM_CAP_PAL | RFM_CAP_PLAY_GREEN | RFM_CAP_HOLD)
 #else
 #define RFA_CAPS (RFM_CAP_RLE | RFM_CAP_PAL | RFM_CAP_PLAY_GREEN)
 #endif
@@ -872,22 +874,26 @@ static void rf_rx_step(void)
     n = mrx_w - r;
     if (n > 512u)
         n = 512u;
-    got += n;
     RING_PUBLISH();                                 /* the slots after the index */
     for (i = 0; i < n; i++) {
+        if (rfm_app_rx_wait(RF_T_SX)) {             /* (HOLD: the push first) */
+            n = i;
+            break;
+        }
         rf_sx_byte(&rf_sx[0], rf_mrx[(r + i) & (RF_MRX_N - 1u)]);
         RING_PUBLISH();
         mrx_r = r + i + 1u;                         /* (a command may take long: free its bytes as they go) */
     }
     rf_raw_rx[RF_T_SX] += n;
-    for (k = 0; k < 4 && rp_bk_avail(); k++) {      /* the vendor bulk pair */
+    got = n;
+    for (k = 0; k < 4 && rp_bk_avail() && !rfm_app_rx_wait(RF_T_BK); k++) {   /* the vendor bulk pair */
         uint8_t b[256];
         n = rp_bk_read(b, sizeof b);
         rf_bk_feed(&rf_bk, b, n);
         rf_raw_rx[RF_T_BK] += n;
         got += n;
     }
-    for (k = 0; k < 64; k++) {                      /* Bluetooth (and what is left of USB MIDI in) */
+    for (k = 0; k < 64 && !rfm_app_rx_wait(RF_T_BLE); k++) {   /* Bluetooth (and what is left of USB MIDI in) */
         uint32_t f = plat_lock(), cin;              /* (usb.c empties the USB part from its context: rf_ep1_room) */
         int have = plat_midi_in(&pkt, &port);
         plat_unlock(f);

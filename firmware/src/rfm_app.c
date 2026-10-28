@@ -16,8 +16,15 @@
  *
  * Calls in: rfm_app_init, rfm_app_msg (a whole message), rfm_app_activity (bytes arrived: the keepalive),
  * rfm_app_panel (the panel once a millisecond), rfm_app_poll (often: the push, ACKs, timers), rfm_app_usb_lost,
- * rfm_app_lcd_lost (somebody else drew on the panel), rfm_app_tile_m0, rfm_app_pushing. The push runs in a session
- * (at every END, and once at its start to blacken the panel) and, outside one, only for M0's raw TILE.
+ * rfm_app_lcd_lost (somebody else drew on the panel), rfm_app_tile_m0, rfm_app_pushing, rfm_app_rx_wait. The push
+ * runs in a session (at every END without HOLD, and once at its start to blacken the panel) and, outside one, only
+ * for M0's raw TILE.
+ * HOLD (0.2.2, RFM_CAP_HOLD, docs/PROTOCOL.md section 3): a frame whose END carries HOLD is drawn into the shadow and
+ * acknowledged, and its tiles stay in the push's dirty set, unshown; the next END without HOLD pushes them all with
+ * its own (the host sends a screen change as held frames and a last one that shows it). So that a push never shows
+ * tiles of the next held frames (the push reads the shadow while the DMA runs), once a session has used HOLD its
+ * transport's input waits while a push runs or is due (rfm_app_rx_wait: the includer leaves the bytes in its rings).
+ * Held tiles are shown anyway after RFM_HOLD_MS without TILES (a host gone quiet in the middle of a change).
  * Without a shadow (rfm_app_init's fb NULL: the includer sets rfa.draw.row and rowbuf, RFM_SHADOW 0) the rectangles
  * go to the panel as they are decoded (the includer draws them only in a session), each END is acknowledged at once,
  * and a panel drawn on by someone else is owed by the host: the next FRAME_ACK says "shadow reset".
@@ -54,7 +61,7 @@ static void rfa_diag(uint32_t t, uint32_t cmd, const uint8_t *body, uint32_t len
 #define RFA_GREEN_COL 8u                    /* PLAY's green LED: column 8, row bit 1 (ChoralRoot ui_input.c) */
 #define RFA_GREEN_BIT 0x02u
 #ifndef RFA_CAPS
-#define RFA_CAPS (RFM_CAP_SHADOW | RFM_CAP_COPY | RFM_CAP_RLE | RFM_CAP_PAL | RFM_CAP_PLAY_GREEN)
+#define RFA_CAPS (RFM_CAP_SHADOW | RFM_CAP_COPY | RFM_CAP_RLE | RFM_CAP_PAL | RFM_CAP_PLAY_GREEN | RFM_CAP_HOLD)
 #endif
 #define RFA_QN 8u                           /* ENDs waiting for their FRAME_ACK */
 #define RFA_PANEL_MS 500u
@@ -63,7 +70,7 @@ static void rfa_diag(uint32_t t, uint32_t cmd, const uint8_t *body, uint32_t len
 
 typedef struct {
     uint16_t frame;
-    uint8_t t, status;
+    uint8_t t, status, held;                /* held: an END with HOLD, acknowledged without a push */
     uint32_t bytes, us;
 } rfa_end_t;
 
@@ -80,6 +87,8 @@ static struct {
     rfa_end_t q[RFA_QN];
     uint32_t qh, qn, covered;               /* ENDs queued, of which the running push covers `covered` */
     uint32_t push_t0, push_us, push_max_us;
+    uint8_t hold_used, held;                /* this session sent HOLD; tiles drawn and not shown (HOLD) */
+    uint32_t tiles_ms;                      /* the last TILES (RFM_HOLD_MS) */
     /* the panel as the events told it */
     uint32_t keys, buttons;
     int16_t enc[RFM_NENC];
@@ -87,7 +96,7 @@ static struct {
     uint32_t master_ms;
     uint16_t batt_mv;
     /* counters */
-    uint32_t frames, decode_errs, bad, sessions, lcd_lost;
+    uint32_t frames, decode_errs, bad, sessions, lcd_lost, held_frames, hold_timeouts;
 } rfa;
 
 static void rfm_app_init(uint16_t *fb, uint16_t *stage, uint32_t stage_px, const rfm_lcd_ops_t *lcd)
@@ -206,6 +215,7 @@ static void rfa_session_end(void)
     rfa.session = 0;
     rfa.qn = 0;                                         /* nobody waits for those ACKs any more */
     rfa.flush = 0;
+    rfa.hold_used = rfa.held = 0;                       /* (held tiles: never shown, the waiting screen comes) */
     rfa_push_reset(0);
     rfa_session_changed(0);
 }
@@ -220,6 +230,7 @@ static void rfa_session_start(uint32_t t, uint32_t keepalive)
     rfa.qn = 0;
     rfa.f_err = 0;
     rfa.f_bytes = rfa.f_us = 0;
+    rfa.hold_used = rfa.held = 0;
     rfa_push_reset(0);
     rfm_draw_clear(&rfa.draw, 0x0000u);                 /* the shadow black, all of it dirty */
     rfa.flush = 1;                                      /* and the panel black, without an END */
@@ -267,11 +278,14 @@ static void rfa_cmd_leds(const uint8_t *b, uint32_t len)
     rfa_leds(lit, glow, bg);
 }
 
-static void rfa_end_push(uint32_t t, uint32_t frame)
+/* an END: its FRAME_ACK at once (outside a session, without a shadow, or held with nothing queued before it), or
+ * queued for the push (held: behind ENDs still queued, acknowledged in order without a push of its own) */
+static void rfa_end_push(uint32_t t, uint32_t frame, uint32_t hold)
 {
     uint32_t st = rfa.f_err ? RFM_ACK_DECODE_ERR : 0u;
-    if (!rfa.session || !rfa.draw.fb) {                 /* no push outside a session (the waiting screen), nor
-                                                         * without a shadow (drawn as it was decoded) */
+    if (!rfa.session || !rfa.draw.fb || (hold && !rfa.qn)) {  /* no push outside a session (the waiting screen),
+                                                         * nor without a shadow (drawn as it was decoded), nor for
+                                                         * a held frame */
         rfa_frame_ack(t, frame, st, rfa.f_us, rfa.f_bytes, 0);
     } else {
         rfa_end_t *e;
@@ -282,11 +296,13 @@ static void rfa_end_push(uint32_t t, uint32_t frame)
             e->us += rfa.f_us;
             e->frame = (uint16_t)frame;
             e->t = (uint8_t)t;
+            e->held = (uint8_t)(e->held && hold);
         } else {
             e = &rfa.q[(rfa.qh + rfa.qn) % RFA_QN];
             e->frame = (uint16_t)frame;
             e->t = (uint8_t)t;
             e->status = (uint8_t)st;
+            e->held = (uint8_t)hold;
             e->bytes = rfa.f_bytes;
             e->us = rfa.f_us;
             rfa.qn++;
@@ -307,8 +323,15 @@ static void rfa_cmd_tiles(uint32_t t, const uint8_t *b, uint32_t len)
         rfa.f_err = 1;
         rfa.decode_errs++;
     }
-    if (r.err != RFM_DRAW_E_HDR && (r.flags & RFM_TILES_F_END))
-        rfa_end_push(t, r.frame);
+    rfa.tiles_ms = rfa.now;
+    if (r.err != RFM_DRAW_E_HDR && (r.flags & RFM_TILES_F_END)) {
+        uint32_t hold = (r.flags & RFM_TILES_F_HOLD) && rfa.session && rfa.draw.fb;
+        if (hold) {
+            rfa.hold_used = rfa.held = 1;
+            rfa.held_frames++;
+        }
+        rfa_end_push(t, r.frame, hold);
+    }
 }
 
 /* M0's raw TILE (x8 y8 w8 h8 px[w*h*2]): into the shadow and pushed at once, without a FRAME_ACK; 0 if bad */
@@ -422,8 +445,19 @@ static void rfm_app_poll(uint32_t now_ms)
         if (!rfm_push_step(&rfa.push))
             rfa_push_done();
     }
+    while (!rfa.push.active && rfa.qn && rfa.q[rfa.qh].held) {   /* held ENDs first in line: no push for them */
+        rfa_end_t *e = &rfa.q[rfa.qh];
+        rfa.qh = (rfa.qh + 1u) % RFA_QN;
+        rfa.qn--;
+        rfa_frame_ack(e->t, e->frame, e->status, e->us, e->bytes, rfa.qn);
+    }
+    if (rfa.held && rfa.session && !rfa.push.active && !rfa.qn && now_ms - rfa.tiles_ms >= RFM_HOLD_MS) {
+        rfa.flush = 1;                                  /* the host went quiet holding tiles: show them */
+        rfa.hold_timeouts++;
+    }
     if (!rfa.push.active && ((rfa.session && rfa.qn) || (rfa.flush && rfm_push_pending(&rfa.push)))) {
         rfa.flush = 0;
+        rfa.held = 0;                                   /* the push takes every tile drawn so far */
         rfa.covered = rfa.qn;
         rfa.push_t0 = rfa_us();
         rfm_push_start(&rfa.push);
@@ -450,3 +484,11 @@ static void rfm_app_lcd_lost(void)
 
 /* the push runs (the waiting screen keeps off the panel meanwhile) */
 static int rfm_app_pushing(void) { return rfa.push.active; }
+
+/* transport t's input waits (left in the includer's rings, nothing parsed): a session on t that uses HOLD has a push
+ * running or due, which must not show what the next messages draw. Checked before every piece of input, so the
+ * message after an END stays unread until its push is over (~22 ms for the whole screen). */
+static int rfm_app_rx_wait(uint32_t t)
+{
+    return rfa.session && rfa.hold_used && rfa.st == t && (rfa.push.active || rfa.qn);
+}

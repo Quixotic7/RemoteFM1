@@ -1,0 +1,78 @@
+# SPDX-License-Identifier: MPL-2.0
+# TILES' HOLD (0.2.2, caps bit7; docs/PROTOCOL.md section 3) over USB SysEx and bulk, in fm1-base's host simulator:
+# a held frame is acknowledged and drawn into the shadow but not shown; the next END without HOLD shows everything
+# held with its own; frames without HOLD as before; RFM_HOLD_MS (1500 ms) without TILES shows what is held; a
+# session end drops it; outside a session HOLD is an END. tests/run_tests.sh runs it (both builds).
+wait 300
+rf hello usb
+expect rf_hello_caps 175
+rf session usb 1 3000
+wait 50
+expect rf_screen_black 1
+# a frame without HOLD: shown at its END, as before
+rf tiles usb 1 end fill:0,0,240,240,1234
+wait 20
+expect rf_ack_frame 1
+expect rf_screen_ok 1
+expect rf_held 0
+rf snap
+# held frames: acknowledged at once, in the shadow, not on the panel
+rf tiles usb 2 hold fill:0,0,120,120,F800 raw:120,0,16,16,5
+expect rf_ack_frame 2
+expect rf_ack_status 0
+expect rf_held 1
+expect rf_shadow_ok 1
+expect rf_screen_ok 0
+expect rf_screen_snap 1
+rf tiles usb 3 more pal:0,200,30,20,4,5
+rf tiles usb 3 hold rle:100,100,50,4,1 copy:200,200,16,16,0,0
+wait 20
+expect rf_ack_frame 3
+expect rf_shadow_ok 1
+expect rf_screen_snap 1
+expect rf_held_frames 2
+# the next frame without HOLD shows all of it, with its own
+rf tiles usb 4 end fill:200,0,40,40,07E0
+wait 20
+expect rf_ack_frame 4
+expect rf_held 0
+expect rf_screen_ok 1
+# an empty END shows what is held too; over bulk the same
+rf snap
+rf tiles bk 5 hold fill:0,0,16,16,FFFF
+wait 20
+expect rf_ack_frame 5
+expect rf_ack_t 1
+expect rf_screen_snap 1
+rf tiles bk 6 end
+wait 20
+expect rf_ack_frame 6
+expect rf_screen_ok 1
+# a host that goes quiet holding tiles: shown after 1500 ms without TILES
+rf snap
+rf tiles usb 7 hold fill:50,50,100,100,001F
+wait 1300
+expect rf_screen_snap 1
+expect rf_hold_timeouts 0
+rf hello usb
+wait 300
+expect rf_hold_timeouts 1
+expect rf_held 0
+expect rf_screen_ok 1
+# a session end with tiles held: never shown; a new session is black
+rf tiles usb 8 hold fill:0,0,240,240,FFE0
+expect rf_held 1
+rf session usb 0
+wait 100
+expect rf_session 0
+expect rf_held 0
+rf session usb 1 3000
+wait 50
+expect rf_screen_black 1
+rf session usb 0
+wait 20
+# outside a session HOLD is an END: acknowledged, nothing held
+rf tiles usb 9 hold fill:0,0,16,16,FFFF
+expect rf_ack_frame 9
+expect rf_held 0
+expect rf_decode_errs 0

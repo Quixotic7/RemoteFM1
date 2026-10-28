@@ -9,7 +9,7 @@ expect rf_n_usb_41 1
 expect rf_n_bk_41 0
 expect rf_n_ble_41 0
 expect rf_hello_ident 1
-expect rf_hello_caps 47
+expect rf_hello_caps 175
 expect rf_hello_session 0
 expect rf_hello_sxq 960
 # outside a session: TILES decoded into the shadow and acknowledged, the waiting screen stays

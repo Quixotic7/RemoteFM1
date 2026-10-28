@@ -12,17 +12,20 @@
  *   rf hello T | rf panelreq T | rf session T 1|0 [KEEPALIVE_MS]
  *   rf led T WHAT LEVEL          one LED in the host's LED picture (WHAT: a key 0..26, bN a button by matrix number,
  *                                green; LEVEL lit, mid, dim, faint, off), and the whole picture sent (LEDS)
- *   rf tiles T FRAME end|more RECT...   one TILES message, each RECT drawn into the reference screen too:
+ *   rf tiles T FRAME end|hold|more RECT...   one TILES message (hold: END with HOLD), each RECT drawn into the
+ *                                reference screen too:
  *                                fill:X,Y,W,H,C (C: RGB565, hex)  raw:X,Y,W,H,SEED  pal:X,Y,W,H,N,SEED
  *                                rle:X,Y,W,H,SEED  copy:X,Y,W,H,SX,SY  badpal:X,Y,W,H (n = 1: malformed)
  *   rf raw T HEX...              bytes as they are on T (usb: SysEx bytes through the tap; bk: into the ring)
  *   rf ota                       an update frame (F0 00 59 ... F7) from USB, between RemoteFM1's
+ *   rf snap                      the reference screen kept as it is now (rf_screen_snap: the panel is that one)
  * expect (an int; "<N" / ">N" bounds): rf_session, rf_session_t (0 usb, 1 bk, 2 ble), rf_n_T_CC (replies of command
  * CC, hex, on T), rf_ack_frame, rf_ack_status, rf_ack_t, rf_ack_pending, rf_hello_caps, rf_hello_session,
  * rf_hello_transports, rf_hello_sxq, rf_hello_ident (1: the identity's first 8 characters), rf_panel_flags,
  * rf_panel_keys, rf_panel_buttons, rf_panel_master, rf_panel_encN, rf_shadow_ok (the shadow is the reference),
- * rf_screen_ok (the panel is), rf_screen_black, rf_frames, rf_decode_errs, rf_ota_frames, rf_bad_T, rf_drop_T,
- * rf_lit_keys, rf_lit_btns (plat.h's labels), rf_mid_keys, rf_glow_keys */
+ * rf_screen_ok (the panel is), rf_screen_snap (the panel is the screen of rf snap), rf_screen_black, rf_frames,
+ * rf_decode_errs, rf_ota_frames, rf_bad_T, rf_drop_T, rf_lit_keys, rf_lit_btns (plat.h's labels), rf_mid_keys,
+ * rf_glow_keys, rf_held (tiles drawn, not shown: HOLD), rf_held_frames, rf_hold_timeouts */
 #include <stdlib.h>
 #include <string.h>
 static void run_ms(uint32_t ms);                    /* (plat_host.c's, below) */
@@ -189,6 +192,7 @@ static int hb_send(int t, uint32_t cmd, const uint8_t *body, uint32_t n)   /* a 
 
 /* ------------------------------------------------------------------ the reference screen --- */
 static uint16_t ref[RFM_W * RFM_H];                  /* RGB565 values (the shadow keeps them byte-swapped) */
+static uint16_t snap[RFM_W * RFM_H];                 /* ref as rf snap found it */
 static uint16_t hb_px(uint32_t x, uint32_t y, uint32_t seed) { return (uint16_t)(x * 2654435761u ^ y * 40503u ^ seed * 977u); }
 static uint16_t hb_pal(uint32_t k, uint32_t seed) { return (uint16_t)(seed * 9973u + k * 4099u + 0x1111u); }
 static uint8_t hb_body[RFM_BK_BODY_MAX];
@@ -329,6 +333,10 @@ int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, c
         hb_run();
         return 1;
     }
+    if (!strcmp(a, "snap")) {
+        memcpy(snap, ref, sizeof snap);
+        return 1;
+    }
     if (!strcmp(a, "ota")) {                         /* an update frame: F0 00 59 + its packed body + F7 */
         static const uint8_t F[] = {0xF0, 0x00, 0x59, 0x11, 0x00, 0x00, 0x00, 0x40, 0x7F, 0xF7};
         uint32_t i;
@@ -397,7 +405,7 @@ int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, c
         hb_len = 0;
         hb_put(frame & 0xFFu);
         hb_put(frame >> 8);
-        hb_put(!strcmp(d, "end") ? RFM_TILES_F_END : 0u);
+        hb_put(!strcmp(d, "end") ? RFM_TILES_F_END : !strcmp(d, "hold") ? RFM_TILES_F_END | RFM_TILES_F_HOLD : 0u);
         hb_put(0);
         for (k = 0;; k++) {
             const char *w = hb_word(plat_host_line, 5 + (int)k);
@@ -436,14 +444,16 @@ int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, c
     return 1;
 }
 
-static int hb_screen_is(const uint16_t *s)           /* a screen (byte-swapped, as the panel takes it) is ref */
+static int hb_screen_eq(const uint16_t *s, const uint16_t *r)   /* a screen (byte-swapped, as the panel takes it)
+                                                                 * is r */
 {
     uint32_t i;
     for (i = 0; i < RFM_W * RFM_H; i++)
-        if (s[i] != swap16(ref[i]))
+        if (s[i] != swap16(r[i]))
             return 0;
     return 1;
 }
+static int hb_screen_is(const uint16_t *s) { return hb_screen_eq(s, ref); }
 
 int app_expect(const char *what, int *got)
 {
@@ -505,6 +515,14 @@ int app_expect(const char *what, int *got)
 #endif
     else if (!strcmp(what, "rf_screen_ok"))
         *got = hb_screen_is(fb);
+    else if (!strcmp(what, "rf_screen_snap"))
+        *got = hb_screen_eq(fb, snap);
+    else if (!strcmp(what, "rf_held"))
+        *got = rfa.held;
+    else if (!strcmp(what, "rf_held_frames"))
+        *got = (int)rfa.held_frames;
+    else if (!strcmp(what, "rf_hold_timeouts"))
+        *got = (int)rfa.hold_timeouts;
     else if (!strcmp(what, "rf_screen_diff")) {     /* the first pixel that differs, -1 none (debugging) */
         uint32_t i;
         *got = -1;

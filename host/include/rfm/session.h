@@ -34,7 +34,13 @@
  * ble_colors when that is smaller (a ChoralRoot page change: ~40 % fewer bytes at 4), sent once and then left as it
  * is. When no tile has changed for cfg.ble_refine_ms, the reduced tiles are sent again exactly, one frame in flight at
  * a time; a change stops that (it goes first; the refinement starts again once the screen is still). USB and bulk
- * links are never lossy. */
+ * links are never lossy.
+ *   Bluetooth screen changes go whole (cfg.ble_hold, when the unit's caps have RFM_CAP_HOLD: RemoteFM1 0.2.2): each
+ * change is a snapshot (screen.h) sent as frames with HOLD and a last one without, so the unit keeps showing the old
+ * screen until the new one is all there, then shows it at once; a source that changes meanwhile is latched again
+ * only when the snapshot is shown (the screens in between are skipped). Refinements are not held. A lost or late
+ * frame resends the screen as before (a new snapshot, from the newest screen); the unit shows what it holds by itself
+ * after RFM_HOLD_MS without TILES. USB, bulk and older units: no HOLD, every frame as before. */
 #ifndef RFM_SESSION_H
 #define RFM_SESSION_H
 #include <stdint.h>
@@ -72,6 +78,7 @@ typedef struct {
     int transport;                                      /* RFM_T_* */
     uint32_t ble_colors;                                /* RFM_BLE_COLORS: lossy tiles over Bluetooth; 0 lossless */
     uint32_t ble_refine_ms;                             /* RFM_BLE_REFINE_MS: still this long -> exact; 0 never */
+    int ble_hold;                                       /* 1 (default): whole screen changes (HOLD) over Bluetooth */
     const char *host_name;                              /* HELLO's body ("fm1remote") */
 } rfm_session_cfg_t;
 void rfm_session_cfg_default(rfm_session_cfg_t *c);
@@ -100,6 +107,8 @@ typedef struct {
     uint32_t refined;                                   /* reduced tiles sent again exactly */
     uint32_t inexact;                                   /* tiles the unit shows reduced now */
     uint32_t lossy;                                     /* the colours a tile is reduced to now; 0 lossless */
+    uint32_t hold;                                      /* 1: screen changes go whole (HOLD) on this link now */
+    uint32_t held;                                      /* frames sent with HOLD */
 } rfm_session_stats_t;
 
 typedef struct rfm_session rfm_session_t;
@@ -115,6 +124,8 @@ void rfm_session_set_frame(rfm_session_t *s, const uint16_t *lcd);     /* a new 
 void rfm_session_set_leds(rfm_session_t *s, const rfm_leds_t *l);
 /* cfg.ble_colors now (0: lossless; a Bluetooth link's reduced tiles are then sent exactly at once) */
 void rfm_session_set_ble_colors(rfm_session_t *s, uint32_t colors);
+/* cfg.ble_hold now (0: every frame shown as it arrives, as before 0.2.2; a change being held goes on unheld) */
+void rfm_session_set_ble_hold(rfm_session_t *s, int on);
 void rfm_session_stop(rfm_session_t *s, uint32_t now_ms);               /* SESSION start=0, then STOPPED */
 void rfm_session_restart(rfm_session_t *s, uint32_t now_ms);            /* back to DISCOVER (after stop too) */
 

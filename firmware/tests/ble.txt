@@ -32,6 +32,19 @@ expect rf_shadow_ok 1
 expect rf_screen_ok 1
 rf led ble 5 lit
 expect rf_lit_keys 32
+# HOLD over Bluetooth (0.2.2): a held frame waits, the next one shows both; the input waits while that push runs
+rf snap
+rf tiles ble 2 hold fill:0,100,240,40,07E0 rle:0,150,60,8,2
+wait 30
+expect rf_ack_frame 2
+expect rf_ack_t 2
+expect rf_held 1
+expect rf_screen_snap 1
+rf tiles ble 3 end fill:0,200,16,16,FFFF
+wait 30
+expect rf_ack_frame 3
+expect rf_held 0
+expect rf_screen_ok 1
 # a USB host's HELLO meanwhile: answered on USB, the session stays on Bluetooth
 rf hello usb
 expect rf_n_usb_41 1

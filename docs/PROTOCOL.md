@@ -6,7 +6,8 @@ bulk header) are M0's, in `firmware/src/remote_proto.h`, unchanged. Version 1 wa
 M0 command number and adds the session, LED, screen and panel messages.
 
 Firmware 0.2 (on fm1-base and felucca-bsp) still speaks version 2. What it changed is additive: a third transport
-(Bluetooth MIDI), two HELLO_R transport bits, its own identity, and fewer LED levels. Section 7 lists it.
+(Bluetooth MIDI), two HELLO_R transport bits, its own identity, and fewer LED levels; 0.2.2 adds TILES' HOLD flag
+(caps bit7), so that a host can show each screen change at once. Section 7 lists it.
 
 Both files are **owned by the orchestrator**. An agent that finds a problem in the spec reports it and does not
 edit them.
@@ -59,6 +60,20 @@ One message = a command byte + a body (8-bit bytes, multi-byte fields **little e
   are sent again exactly, one frame in flight at a time, so a change is never queued behind more than one frame;
   a change drops the refinement, which starts again when the screen is still. The device sees ordinary TILES
   either way.
+- **Bluetooth: whole screen changes (0.2.2, `RFM_CAP_HOLD`; host option `ble_hold`, on by default).** A page change
+  takes 0.5–2 s over Bluetooth, many frames, and a device that shows every frame as it comes shows it appearing in
+  pieces (and, while a knob changes big text, half old and half new). To a unit with caps bit7, libremotefm1 sends
+  each change as a **snapshot**: the screen is latched when the change's first frame goes; every frame of it that
+  leaves tiles for later frames ends with END + HOLD (section 3: drawn into the shadow, not shown); the frame with
+  its last tiles ends with END alone and shows the whole change at once. A screen submitted while a snapshot is part
+  sent waits; when the snapshot is shown, the newest screen is the next one (those in between are skipped), so a
+  turning knob shows whole screens at whatever rate the link allows. A change that has sent nothing yet may still be
+  replaced by a newer screen. Refinement frames (exact colours once still) are not held: each shows at once, the
+  same screen with its colours exact. A frame lost or late (a FRAME_ACK timeout, a FRAME_ACK out of order or short)
+  and a session start end the snapshot: everything is sent again, from the newest screen. The unit shows what it
+  holds by itself after `RFM_HOLD_MS` (1500 ms) without TILES, so a host that stalls mid-change never freezes it
+  (at the paced rate the gap between frames is ~0.1–0.5 s). USB-MIDI and bulk never hold, and their bytes are as
+  before; a unit before 0.2.2 (no bit7) is sent no HOLD.
 - The device answers on the transport the request came in on. Panel events go out as plain MIDI (section 4) on the
   session's MIDI port.
 - A host may use both on USB: plain MIDI for the panel events and bulk for everything else. That is the recommended
@@ -74,7 +89,7 @@ One message = a command byte + a body (8-bit bytes, multi-byte fields **little e
   |---|---|
   | 0 | `name[16]`: "RemoteFM1" |
   | 16 | `proto8`: 2 |
-  | 17 | `ver[8]`: the firmware's version ("0.2.1") |
+  | 17 | `ver[8]`: the firmware's version ("0.2.2") |
   | 25 | `transports8` (`RFM_HELLO_TRANSPORTS`, bits `RFM_TR_*`, in rfm1.h from 0.2): bit0 USB configured, bit1 vendor bulk built in, bit2 RemoteFM1 SysEx heard over USB, bit3 bulk heard; 0.2: bit4 a Bluetooth computer connected, bit5 RemoteFM1 SysEx heard over Bluetooth |
   | 26 | `usb_mode8`: 1, the main loop polls USB |
   | 27 | `lcd_baud8` |
@@ -89,7 +104,7 @@ One message = a command byte + a body (8-bit bytes, multi-byte fields **little e
   | offset | field |
   |---|---|
   | 51 | `screen_w16` (240), `screen_h16` (240) |
-  | 55 | `caps16`: bit0 shadow frame buffer, bit1 COPY, bit2 RLE, bit3 PAL, bit4 battery reading, bit5 PLAY green LED, bit6 five LED levels (else: lit / dim / faint, mid shown as dim) |
+  | 55 | `caps16`: bit0 shadow frame buffer, bit1 COPY, bit2 RLE, bit3 PAL, bit4 battery reading, bit5 PLAY green LED, bit6 five LED levels (else: lit / dim / faint, mid shown as dim), bit7 TILES' HOLD flag (0.2.2, section 3) |
   | 57 | `max_frames_in_flight8` (2) |
   | 58 | `session8` (1 while a session is active) |
   | 59 | `fw_ver[8]` (the RemoteFM1 version string) |
@@ -98,9 +113,9 @@ One message = a command byte + a body (8-bit bytes, multi-byte fields **little e
   name of whatever firmware it saw first. Over Bluetooth the port is named after what the FM-1 advertises
   ("FM-1 7938"), so a host sends HELLO to every port whose name holds "FM-1".
 
-  `caps` from 0.2: 0x2F (shadow, COPY, RLE, PAL, PLAY green). A build without the shadow (`RFM_SHADOW 0`, for a
-  build short of RAM) answers 0x2C: no shadow, no COPY. 0.2 has no battery reading (bit4 off, `battery_mv` 0) and
-  three LED levels (bit6 off, section 3).
+  `caps` from 0.2: 0x2F (shadow, COPY, RLE, PAL, PLAY green); from 0.2.2: 0xAF (and HOLD). A build without the
+  shadow (`RFM_SHADOW 0`, for a build short of RAM) answers 0x2C: no shadow, no COPY, no HOLD. 0.2 has no battery
+  reading (bit4 off, `battery_mv` 0) and three LED levels (bit6 off, section 3).
 
 - **SESSION** (`0x10`, body: `start8 keepalive_ms16`).
   - `start = 1`: the host takes over. The device clears its screen and shadow to black (0x0000), turns all LEDs
@@ -147,6 +162,16 @@ Body: `frame16 flags8 nrects8`, then `nrects` rectangles, each `x8 y8 w8 h8 enc8
 - `flags` bit0 **END**: this message completes frame `frame`. The device pushes everything drawn since the last END
   to the panel, then sends **FRAME_ACK**. A frame may also be empty: a TILES with `nrects = 0` and END is a pure
   flush/ack.
+- `flags` bit1 **HOLD** (0.2.2, `RFM_TILES_F_HOLD`, only where `caps` bit7 says so; meaningful only with END): the
+  frame is drawn into the shadow and acknowledged when decoded (FRAME_ACK at once: `draw_us` is the decode alone),
+  but nothing is pushed: the panel keeps what it shows. The next END **without** HOLD pushes everything drawn since
+  the last push, held frames included, so the panel changes once, to the whole new screen (an empty END shows them
+  too). In a session that has used HOLD the device reads no more of that transport's input while a push runs or is
+  due (~22 ms for the whole screen), so a push never shows tiles of the frames after it. If no TILES arrives for
+  `RFM_HOLD_MS` (1500 ms) while tiles are held, the device shows them by itself. A session start or end drops held
+  tiles (never shown); outside a session, and in a build without the shadow, HOLD is ignored (an END as before).
+  Units before 0.2.2 ignore bit1 (every flag but END), so a frame with HOLD is shown there as it comes: a host still
+  sets it only when `caps` has bit7. Other flag bits are reserved (0) and ignored.
 - Rectangles are applied **in order** into the device's shadow frame buffer (the screen as the host believes it
   is). Pixels are RGB565.
 
@@ -249,3 +274,5 @@ RemoteFM1 message starts `F0 7D 52 46`.
 - The vendor interface's number: 4 from 0.2.1, with USB audio in and out beside it (2 before). Found by class.
 - The identity `FM-1_52XXYYZZ` (HELLO_R `identity` "FM-1_520"); `loader_state` -2 for an unknown flash chip.
 - Three LED levels (mid and dim merge), no battery reading: `caps` 0x2F.
+- 0.2.2: TILES' HOLD flag (section 3), `caps` bit7 (0xAF), `RFM_HOLD_MS`; libremotefm1 sends a Bluetooth screen
+  change whole (section 1).

@@ -3,7 +3,8 @@
 /* The session against scripted fake units (fake.c), on a simulated millisecond clock: discovery among other
  * firmwares, frames and flow control, LEDs and keepalive, panel events and PANEL_R repair, shadow reset (a reboot),
  * keepalive loss (a deaf unit), a lost FRAME_ACK, a decode error, stop, transports; Bluetooth MIDI's pacing on a
- * slow link that loses what overflows the unit's input. */
+ * slow link that loses what overflows the unit's input; Bluetooth's whole screen changes (HOLD): a moving source
+ * shows only screens that were submitted, an older unit gets no HOLD, a stall, the option turned off mid-change. */
 #include <stdlib.h>
 #include <string.h>
 
@@ -247,6 +248,9 @@ static void test_sysex_flow(void)
            "in flight %u, bulk msgs %u, decode errors %u, ack timeouts %u", h.max_in_flight, fs.bk_msgs,
            fs.decode_errs, st.ack_timeouts);
     CHECKF(st.ack_ms_max >= 40, "ACK latency max %u ms: the simulated wire should show", st.ack_ms_max);
+    CHECKF(st.hold == 0 && st.held == 0 && fs.held_frames == 0, "USB: hold %u, held %u / %u", st.hold, st.held,
+           fs.held_frames);                             /* (the fake has RFM_CAP_HOLD: USB never holds) */
+    CHECK(!memcmp(rfm_fake_panel(h.f[0]), rfm_fake_shadow(h.f[0]), FR_N * 2));
     teardown(&h);
 }
 
@@ -675,8 +679,9 @@ static void test_bluetooth(int ble)
     rfm_fake_free(b->f);
 }
 
-/* a Bluetooth session on the modelled link (BT_*); colors: cfg.ble_colors */
-static void bt_open(bt_t *b, uint32_t colors)
+/* a Bluetooth session on the modelled link (BT_*); colors: cfg.ble_colors; unit_hold: the fake has RFM_CAP_HOLD;
+ * hold: cfg.ble_hold */
+static void bt_open2(bt_t *b, uint32_t colors, int unit_hold, int hold)
 {
     rfm_session_cfg_t sc;
     rfm_session_cb_t cb;
@@ -686,6 +691,7 @@ static void bt_open(bt_t *b, uint32_t colors)
     b->now = 1000;
     rfm_session_cfg_default(&sc);
     sc.ble_colors = colors;
+    sc.ble_hold = hold;
     memset(&cb, 0, sizeof cb);
     cb.ctx = b;
     cb.state = bt_state;
@@ -695,11 +701,13 @@ static void bt_open(bt_t *b, uint32_t colors)
     rfm_fake_cfg_default(&fc);
     fc.has_bulk = 0;
     fc.ble = 1;
+    fc.hold = unit_hold;
     b->f = rfm_fake_new(&fc);
     b->id = rfm_session_add_link(b->s, RFM_LINK_SX, bt_w, b, "FM-1 7938");
     bt_step(b, 600);
     CHECK(rfm_session_state(b->s) == RFM_S_ACTIVE);
 }
+static void bt_open(bt_t *b, uint32_t colors) { bt_open2(b, colors, 1, 1); }
 
 static void bt_close(bt_t *b)
 {
@@ -822,6 +830,156 @@ static void test_bluetooth_lossy(void)
     bt_close(b);
 }
 
+/* ---------------------------------------------------------------- Bluetooth: whole screen changes ---- */
+/* a knob turned: blocks and a number, each change a few frames' worth over Bluetooth (~2 KB lossless) */
+static void knob(uint16_t *f, uint32_t t)
+{
+    char b[16];
+    uint32_t k;
+    fr_ui(f, 0);
+    for (k = 0; k < 3u; k++)
+        fr_rect(f, 8 + (int)((t * 37u + k * 53u) % 170u), 56 + (int)((t * 19u + k * 29u) % 120u), 40, 24,
+                fr_rgb(t * 40u + k * 30u, 200u - k * 20u, 100u + t * 10u));
+    snprintf(b, sizeof b, "%3u", t % 1000u);
+    fr_text(f, 20, 30, b, fr_rgb(240, 240, 240), fr_rgb(36, 40, 52));
+}
+static uint64_t fnv(const void *p, uint32_t n)
+{
+    const uint8_t *q = (const uint8_t *)p;
+    uint64_t h = 1469598103934665603ull;
+    uint32_t i;
+    for (i = 0; i < n; i++)
+        h = (h ^ q[i]) * 1099511628211ull;
+    return h;
+}
+static int panel_is(bt_t *b, const uint16_t *img) { return !memcmp(rfm_fake_panel(b->f), img, FR_N * 2); }
+static int panel_is_shadow(bt_t *b) { return !memcmp(rfm_fake_panel(b->f), rfm_fake_shadow(b->f), FR_N * 2); }
+
+/* steps until the unit holds tiles (a change part sent); 0: it never did */
+static int bt_until_holding(bt_t *b, uint32_t max_ms)
+{
+    uint32_t t;
+    for (t = 0; t < max_ms; t++) {
+        if (rfm_fake_holding(b->f))
+            return 1;
+        bt_step(b, 1);
+    }
+    return 0;
+}
+
+/* a moving source over Bluetooth, lossless (the unit's panel can then be compared with the screens submitted):
+ * with HOLD every screen the panel shows was submitted, the old one stays until the new one is all there; without
+ * it (ble_hold 0) the panel shows screens that never were. An older unit (no RFM_CAP_HOLD) gets no HOLD. A stall
+ * mid-change: the unit shows what it holds after RFM_HOLD_MS, then everything converges. ble_hold off mid-change:
+ * the change goes on unheld, nothing stays held. */
+static void test_bluetooth_hold(void)
+{
+    static uint16_t img[FR_N], prev[FR_N];
+    static uint64_t src[256];
+    bt_t *b = &BT;
+    rfm_session_stats_t st;
+    rfm_fake_stats_t fs;
+    uint32_t t, k, i, nsrc, shown, bad, last, pass;
+
+    for (pass = 0; pass < 2; pass++) {
+        const int hold = pass == 0;
+        bt_open2(b, 0, 1, hold);
+        rfm_session_stats(b->s, &st);
+        CHECKF(st.ble == 1 && st.hold == (uint32_t)hold && st.lossy == 0, "ble %u hold %u lossy %u", st.ble,
+               st.hold, st.lossy);
+        memset(img, 0, sizeof img);
+        nsrc = 0;
+        src[nsrc++] = fnv(img, sizeof img);             /* black: the session's start */
+        shown = bad = 0;
+        rfm_fake_stats(b->f, &fs);
+        last = fs.panel_updates;
+        for (t = 0; t < 100; t++) {                     /* 20 changes a second for 5 s */
+            knob(img, t);
+            src[nsrc++] = fnv(img, sizeof img);
+            rfm_session_set_frame(b->s, img);
+            for (k = 0; k < 50; k++) {
+                bt_step(b, 1);
+                rfm_fake_stats(b->f, &fs);
+                if (fs.panel_updates != last) {
+                    const uint64_t h = fnv(rfm_fake_panel(b->f), FR_N * 2);
+                    last = fs.panel_updates;
+                    shown++;
+                    for (i = 0; i < nsrc && src[i] != h; i++)
+                        ;
+                    bad += i == nsrc;
+                }
+            }
+        }
+        CHECK(bt_converged(b, img, 30000));
+        CHECK(panel_is(b, img));
+        rfm_session_stats(b->s, &st);
+        rfm_fake_stats(b->f, &fs);
+        if (b->verbose)
+            printf("  knob over Bluetooth, %s: 100 changes in 5 s, the panel changed %u times, %u of them to a screen "
+                   "never submitted; %u frames, %u held\n", hold ? "HOLD" : "no HOLD", shown, bad, st.frames, st.held);
+        if (hold)
+            CHECKF(bad == 0 && shown >= 5 && st.held > 0 && fs.held_frames == st.held && fs.hold_timeouts == 0 &&
+                       st.ack_timeouts == 0 && b->lost_msgs == 0,
+                   "HOLD: %u of %u shown never submitted, held %u / %u, hold timeouts %u, ack timeouts %u, lost %u",
+                   bad, shown, st.held, fs.held_frames, fs.hold_timeouts, st.ack_timeouts, b->lost_msgs);
+        else
+            CHECKF(bad > 0 && st.held == 0 && fs.held_frames == 0, "no HOLD: %u of %u shown never submitted, held %u",
+                   bad, shown, st.held);
+        bt_close(b);
+    }
+
+    /* an older unit (0.2.1: no RFM_CAP_HOLD): no HOLD goes out, every frame shows */
+    bt_open2(b, RFM_BLE_COLORS, 0, 1);
+    for (t = 0; t < 20; t++) {
+        knob(img, t);
+        rfm_session_set_frame(b->s, img);
+        bt_step(b, 50);
+    }
+    bt_settle(b, 30000);
+    rfm_session_stats(b->s, &st);
+    rfm_fake_stats(b->f, &fs);
+    CHECKF(st.hold == 0 && st.held == 0 && fs.held_frames == 0 && shadow_is_model(b) && panel_is_shadow(b),
+           "older unit: hold %u, held %u / %u", st.hold, st.held, fs.held_frames);
+    bt_close(b);
+
+    /* a stall in the middle of a change: the unit hears nothing; it keeps the old screen for RFM_HOLD_MS, then shows
+     * what it holds; when it hears again, the screen is sent again and all agree */
+    bt_open2(b, 0, 1, 1);
+    knob(prev, 1);
+    rfm_session_set_frame(b->s, prev);
+    CHECK(bt_converged(b, prev, 30000) && panel_is(b, prev));
+    knob(img, 2);
+    rfm_session_set_frame(b->s, img);
+    CHECK(bt_until_holding(b, 2000));
+    rfm_fake_deaf(b->f, 1);
+    bt_step(b, RFM_HOLD_MS - 100u);
+    rfm_fake_stats(b->f, &fs);
+    CHECKF(rfm_fake_holding(b->f) && panel_is(b, prev) && fs.hold_timeouts == 0, "stall: holding %d, old screen %d",
+           rfm_fake_holding(b->f), panel_is(b, prev));
+    bt_step(b, 200);
+    rfm_fake_stats(b->f, &fs);
+    CHECKF(!rfm_fake_holding(b->f) && fs.hold_timeouts == 1 && panel_is_shadow(b), "stall: holding %d, timeouts %u",
+           rfm_fake_holding(b->f), fs.hold_timeouts);
+    rfm_fake_deaf(b->f, 0);
+    CHECK(bt_converged(b, img, 30000));
+    rfm_session_stats(b->s, &st);
+    CHECKF(panel_is(b, img) && st.sessions == 1 && st.ack_timeouts >= 1, "after the stall: sessions %u, timeouts %u",
+           st.sessions, st.ack_timeouts);
+
+    /* ble_hold off in the middle of a change: the rest goes unheld and shows; on again */
+    knob(img, 3);
+    rfm_session_set_frame(b->s, img);
+    CHECK(bt_until_holding(b, 2000));
+    rfm_session_set_ble_hold(b->s, 0);
+    CHECK(bt_converged(b, img, 30000));
+    rfm_session_stats(b->s, &st);
+    CHECK(st.hold == 0 && !rfm_fake_holding(b->f) && panel_is(b, img));
+    rfm_session_set_ble_hold(b->s, 1);
+    rfm_session_stats(b->s, &st);
+    CHECK(st.hold == 1);
+    bt_close(b);
+}
+
 /* a unit on Bluetooth MIDI and USB MIDI at once (two SysEx ports, no bulk; the Bluetooth bit set on both): frames
  * and the panel go over USB, paced as before */
 static void test_usb_before_bluetooth(void)
@@ -861,6 +1019,7 @@ int main(void)
     test_bluetooth(1);
     test_bluetooth(0);
     test_bluetooth_lossy();
+    test_bluetooth_hold();
     test_usb_before_bluetooth();
     return check_done("test_session");
 }

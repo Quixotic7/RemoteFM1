@@ -3,7 +3,7 @@
 # Copyright (C) 2026 RemoteFM1 contributors
 # RemoteFM1's tests without a device (nothing here opens a MIDI or USB port):
 #   - the app in fm1-base's host simulator (./build.sh --host): the scripted sessions in firmware/tests/ over USB SysEx,
-#     the vendor bulk pair and Bluetooth MIDI, the update's SysEx beside RemoteFM1's; again built USB-only (--no-ble)
+#     the vendor bulk pair and Bluetooth MIDI, the update's SysEx beside RemoteFM1's, TILES' HOLD; again built USB-only (--no-ble)
 #     and without the shadow frame buffer (RFM_SHADOW 0, the WiFi build's RAM);
 #   - the protocol code alone: M0's framing, the TILES decoder (with and without the shadow) and the push, the
 #     protocol layer in a scripted session;
@@ -38,10 +38,11 @@ sim() {   # sim BINARY SCRIPT...
 
 echo "== the app in fm1-base's host simulator: USB SysEx, bulk, Bluetooth, the update's SysEx beside (firmware/tests)"
 env -u CC ./build.sh --host >/dev/null
-sim "$SIM/remotefm1_host" firmware/tests/session.txt firmware/tests/bulk_ota.txt firmware/tests/ble.txt
+sim "$SIM/remotefm1_host" firmware/tests/session.txt firmware/tests/bulk_ota.txt firmware/tests/ble.txt \
+    firmware/tests/hold.txt
 echo "== the same, the USB-only build (--no-ble)"
 env -u CC ./build.sh --host --no-ble >/dev/null
-sim "$SIM/remotefm1-usb_host" firmware/tests/session.txt firmware/tests/bulk_ota.txt
+sim "$SIM/remotefm1-usb_host" firmware/tests/session.txt firmware/tests/bulk_ota.txt firmware/tests/hold.txt
 echo "== without the shadow frame buffer (RFM_SHADOW 0: rectangles straight to the panel, no COPY)"
 CC="$PWD/firmware/tests/cc_noshadow.sh" ./build.sh --host >/dev/null
 sim "$SIM/remotefm1_host" firmware/tests/noshadow.txt

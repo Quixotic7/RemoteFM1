@@ -75,6 +75,7 @@ void rfm_session_cfg_default(rfm_session_cfg_t *c)
     c->host_name = "fm1remote";
     c->ble_colors = RFM_BLE_COLORS;
     c->ble_refine_ms = RFM_BLE_REFINE_MS;
+    c->ble_hold = 1;
 }
 
 static void logf_(rfm_session_t *s, const char *fmt, ...)
@@ -170,6 +171,12 @@ static void emit_tiles(void *ctx, const uint8_t *body, uint32_t n, int last)
     s->cur_body += n;
     s->cur_msgs++;
     s->st.msgs++;
+}
+
+/* whole screen changes (HOLD): a Bluetooth frame link, the option on, a unit that has it */
+static int hold_on(const rfm_session_t *s)
+{
+    return s->frame_link >= 0 && s->ble && s->cfg.ble_hold && (s->hello.caps & RFM_CAP_HOLD);
 }
 
 /* ---------------------------------------------------------------- states ---- */
@@ -305,6 +312,7 @@ static int decide(rfm_session_t *s)
     if (!s->budget)
         s->budget = 1;
     rfm_screen_set_lossy(s->screen, s->ble ? s->cfg.ble_colors : 0u);
+    rfm_screen_set_snapshot(s->screen, hold_on(s));
     s->max_in_flight = s->hello.max_in_flight ? s->hello.max_in_flight : RFM_FRAMES_IN_FLIGHT;
     if (s->max_in_flight > MAX_FLIGHT)
         s->max_in_flight = MAX_FLIGHT;
@@ -315,8 +323,10 @@ static int decide(rfm_session_t *s)
         char tiles[40] = "tiles exact";
         if (rfm_screen_lossy(s->screen))
             snprintf(tiles, sizeof tiles, "tiles reduced to %u colours", rfm_screen_lossy(s->screen));
-        logf_(s, "Bluetooth link: %u B/s, budget %u B/frame, %u fps, cap %u B in flight, %s", ble_rate(s), s->budget,
-              1000u / s->fperiod, s->wire_cap, tiles);
+        logf_(s, "Bluetooth link: %u B/s, budget %u B/frame, %u fps, cap %u B in flight, %s, %s", ble_rate(s),
+              s->budget, 1000u / s->fperiod, s->wire_cap, tiles,
+              hold_on(s) ? "screen changes shown whole (HOLD)"
+                         : s->hello.caps & RFM_CAP_HOLD ? "HOLD off" : "the unit has no HOLD (before 0.2.2)");
     }
     if (sx < 0)
         logf_(s, "no MIDI link answered: panel input comes from PANEL_R only (every 500 ms)");
@@ -624,6 +634,7 @@ void rfm_session_poll(rfm_session_t *s, uint32_t now)
             s->st.body_bytes += es.body_bytes;
             s->st.reduced += es.reduced;
             s->st.refined += es.refined;
+            s->st.held += es.held;
             s->next_frame += s->fperiod;
             if (after(now, s->next_frame, 0))
                 s->next_frame = now + s->fperiod;
@@ -658,6 +669,13 @@ void rfm_session_set_ble_colors(rfm_session_t *s, uint32_t colors)
     rfm_screen_set_lossy(s->screen, colors);
     if (!colors && rfm_screen_refine(s->screen, 1))
         logf_(s, "lossless now: %u reduced tiles sent again exactly", rfm_screen_refining(s->screen));
+}
+
+void rfm_session_set_ble_hold(rfm_session_t *s, int on)
+{
+    s->cfg.ble_hold = on ? 1 : 0;
+    if (s->frame_link >= 0)
+        rfm_screen_set_snapshot(s->screen, hold_on(s));
 }
 
 void rfm_session_set_leds(rfm_session_t *s, const rfm_leds_t *l)
@@ -707,4 +725,5 @@ void rfm_session_stats(const rfm_session_t *s, rfm_session_stats_t *st)
     st->wire_in_flight = wire_in_flight(s);
     st->inexact = rfm_screen_inexact(s->screen);
     st->lossy = rfm_screen_lossy(s->screen);
+    st->hold = s->frame_link >= 0 && rfm_screen_snapshot(s->screen);
 }

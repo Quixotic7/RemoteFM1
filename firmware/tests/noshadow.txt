@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MPL-2.0
 # RemoteFM1 without the shadow frame buffer (RFM_SHADOW 0: the WiFi build's RAM), in the host simulator built so
-# (tests/cc_noshadow.sh): HELLO_R's caps without shadow and COPY, rectangles straight to the panel, COPY refused,
-# TILES outside a session left off the panel, the update screen owed by the host ("shadow reset").
+# (tests/cc_noshadow.sh): HELLO_R's caps without shadow, COPY and HOLD, rectangles straight to the panel (held ones
+# too), COPY refused, TILES outside a session left off the panel, the update screen owed by the host ("shadow reset").
 wait 300
 rf hello usb
 expect rf_hello_caps 44
@@ -27,5 +27,11 @@ rf tiles usb 3 end fill:200,0,40,240,07E0
 wait 20
 expect rf_ack_frame 3
 expect rf_ack_status 0
+expect rf_screen_ok 1
+# HOLD without a shadow: no caps bit for it, and a held frame is drawn as it comes
+rf tiles usb 4 hold fill:0,0,40,40,F800
+wait 20
+expect rf_ack_frame 4
+expect rf_held 0
 expect rf_screen_ok 1
 shot noshadow.png

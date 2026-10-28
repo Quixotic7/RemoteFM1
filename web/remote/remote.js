@@ -27,7 +27,7 @@ const NKEYS = 27, NBTN = 14, NENC = 7;
 const STAT_NAMES = ['frames', 'msgs', 'tiles', 'rects', 'body_bytes', 'wire_bytes', 'acks', 'ack_ms_sum',
     'ack_ms_max', 'ack_timeouts', 'decode_errs', 'shadow_resets', 'leds_sent', 'keepalives', 'panel_r', 'events',
     'sessions', 'discoveries', 'lost', 'in_flight', 'pending', 'last_ack_ms', 'ble', 'frame_ms', 'wire_cap',
-    'wire_in_flight', 'reduced', 'refined', 'inexact', 'lossy'];
+    'wire_in_flight', 'reduced', 'refined', 'inexact', 'lossy', 'hold', 'held'];
 
 // A port that may be an FM-1: its name says so. Updater ports are never touched (as host/src/macos/coremidi.c).
 export function isCandidatePortName(name) {
@@ -78,6 +78,8 @@ export class RemoteFM1 {
     // opts: { fps: 20, transport: 'auto' | 'midi' | 'bulk', usb: 'ask' | 'known' | 'off', keepaliveMs: 3000,
     //         budget: 0 (bytes per frame, 0 = the transport's), moduleUrl, portMatch(name) -> bool,
     //         bleColors: null (Bluetooth's lossy tiles: null the library's default (4), 0 lossless, 2..16),
+    //         bleHold: null (Bluetooth: each screen change shown whole on a unit from 0.2.2; null the default (on),
+    //         false every frame shown as it arrives),
     //         quietHelloMs: 2000 (a quiet session's HELLO, per port, at most this often),
     //         autoMinMs: 2000, autoDebounceMs: 250 (autoConnect()'s looks after a plug-in),
     //         navigator (tests), now() -> ms (tests), timers: true (false: the caller calls tick()) }
@@ -198,6 +200,7 @@ export class RemoteFM1 {
             M.rfmRescan = () => this._rescan();
             M.rfmLog = msg => this._log(msg);
             M._rw_set_ble_colors(this.opts.bleColors == null ? -1 : this.opts.bleColors | 0);
+            M._rw_set_ble_hold(this.opts.bleHold == null ? -1 : this.opts.bleHold ? 1 : 0);
             if (M._rw_init(this.opts.fps | 0, TRANSPORTS[this.opts.transport] ?? 0, this.opts.keepaliveMs | 0,
                 this.opts.budget | 0, np)) throw new Error('out of memory');
             M._free(np);
@@ -247,6 +250,14 @@ export class RemoteFM1 {
     setBleColors(n) {
         this.opts.bleColors = n;
         if (this._M) this._M._rw_set_ble_colors(n == null ? -1 : n | 0);
+    }
+
+    // Bluetooth's whole screen changes now (RemoteFM1 0.2.2): true / null (the default) the unit keeps the old screen
+    // until a change is all there, then shows it at once; false every frame shown as it arrives (a change appears in
+    // pieces). USB never holds; an older unit is unaffected.
+    setBleHold(on) {
+        this.opts.bleHold = on;
+        if (this._M) this._M._rw_set_ble_hold(on == null ? -1 : on ? 1 : 0);
     }
 
     // A session that keeps looking quietly (HELLO every opts.quietHelloMs), or back to normal.

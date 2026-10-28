@@ -39,7 +39,9 @@ you try firmware changes without reflashing the unit, and run things the FM-1's 
   - a vendor bulk interface for macOS (libusb) and Chrome (WebUSB), about 830 KB/s;
   - Bluetooth MIDI SysEx (0.2): the same messages over the air, at a few KB/s, so a still screen and the panel more
     than a moving one (the host paces frames for it: about 5.5 KB/s, at most 20 a second, tiles reduced to 4 colours
-    until the screen is still, then sent exactly; docs/PROTOCOL.md section 1).
+    until the screen is still, then sent exactly; docs/PROTOCOL.md section 1). From 0.2.2 each screen change shows
+    whole: the FM-1 keeps the old screen until the new one has all arrived, then switches at once (TILES' HOLD flag;
+    a turning knob shows whole screens at the rate the link allows).
 
   The host uses bulk when it can. A session lives on the transport it started on; the panel's events go to that port
   (USB-MIDI for a USB session, Bluetooth for a Bluetooth one).

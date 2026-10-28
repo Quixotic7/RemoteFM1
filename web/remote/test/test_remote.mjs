@@ -218,7 +218,8 @@ for (const vendorIf of [4, 2]) {
     let s = remote.stats();
     check(s.ble === 1 && s.budget === 550 && s.frame_ms === 50 && s.wire_cap === 2048 && s.lossy === 4,
         `stats: ble ${s.ble}, budget ${s.budget} B/frame, frame ${s.frame_ms} ms, cap ${s.wire_cap} B in flight, lossy ${s.lossy}`);
-    check(ev.log.some(m => /Bluetooth link: 5500 B\/s, budget 550 B\/frame, 20 fps, cap 2048 B in flight, tiles reduced to 4 colours/.test(m)), 'logged the Bluetooth pacing');
+    check(ev.log.some(m => /Bluetooth link: 5500 B\/s, budget 550 B\/frame, 20 fps, cap 2048 B in flight, tiles reduced to 4 colours, screen changes shown whole \(HOLD\)/.test(m)), 'logged the Bluetooth pacing');
+    check(s.hold === 1, `whole screen changes (HOLD) on: ${s.hold}`);
     let maxWire = 0;
     for (let i = 0; i < 60; i++) {
         remote.setFrame(200 + i, testFrame(i));
@@ -231,6 +232,8 @@ for (const vendorIf of [4, 2]) {
         `no ack timeout (${s.ack_timeouts}), no decode error, one session (${s.sessions})`);
     check(maxWire > 0 && maxWire <= 2048, `TILES in flight at most ${maxWire} B`);
     check(s.reduced > 0 && s.refined > 0 && s.inexact === 0, `lossy tiles: ${s.reduced} reduced, ${s.refined} refined, ${s.inexact} left`);
+    check(s.held > 0 && world.stats(u).held_frames === s.held && sameBytes(world.panel(u), world.shadow(u)),
+        `${s.held} frames held, the unit shows its shadow`);
     // lossless from now on: a new screen goes exactly, nothing reduced
     remote.setBleColors(0);
     const reduced = s.reduced;
@@ -238,6 +241,46 @@ for (const vendorIf of [4, 2]) {
     t = await until(() => sameBytes(world.shadow(u), beBytes(testFrame(7))), 20000);
     s = remote.stats();
     check(t >= 0 && s.lossy === 0 && s.reduced === reduced, `setBleColors(0): exact in ${t} ms, lossy ${s.lossy}, reduced ${s.reduced}`);
+    // a moving band (a knob turned), lossless: every screen the unit shows is one that was given, never a mix
+    const knob = i => { const px = testFrame(7); for (let y = 40; y < 80; y++) for (let x = 0; x < 240; x++) px[y * 240 + x] = ((x + i * 5) >> 3) & 1 ? 0xffff : 0x07e0; return px; };
+    const given = [beBytes(testFrame(7))];
+    let last = world.panel(u), shown = 0, bad = 0;
+    for (let i = 0; i < 30; i++) {
+        const f = knob(i);
+        given.push(beBytes(f));
+        remote.setFrame(400 + i, f);
+        for (let k = 0; k < 5; k++) {
+            await run(10);
+            const p = world.panel(u);
+            if (!sameBytes(p, last)) { last = p; shown++; if (!given.some(g => sameBytes(g, p))) bad++; }
+        }
+    }
+    t = await until(() => sameBytes(world.panel(u), given[given.length - 1]), 20000);
+    check(t >= 0 && shown > 1 && bad === 0, `HOLD: a moving band showed ${shown} whole screens, ${bad} mixed`);
+    // HOLD off: frames shown as they come
+    const held = remote.stats().held;
+    remote.setBleHold(false);
+    remote.setFrame(500, knob(100));
+    t = await until(() => sameBytes(world.panel(u), beBytes(knob(100))), 20000);
+    s = remote.stats();
+    check(t >= 0 && s.hold === 0 && s.held === held, `setBleHold(false): hold ${s.hold}, no frame held (${s.held - held})`);
+    remote.setBleHold(null);
+    check(remote.stats().hold === 1, 'setBleHold(null): the default (on)');
+    await Promise.all([remote.disconnect(), run(400)]);
+}
+{
+    console.log('-- Web MIDI over Bluetooth to an older unit (no HOLD): every frame as before');
+    const { world, remote, ev, run, until } = await setup({ usb: 'off' }, w => {
+        w.unit = w.addUnit({ midiName: 'FM-1 7938', ble: true, sxRate: 6000, hold: false });
+    });
+    const u = world.unit;
+    await remote.connect();
+    await until(() => remote.status.state === 'connected', 3000);
+    remote.setFrame(1, testFrame(3));
+    const t = await until(() => sameBytes(world.panel(u), world.shadow(u)) && remote.stats().pending === 0 && remote.stats().in_flight === 0, 30000);
+    const s = remote.stats();
+    check(t >= 0 && s.hold === 0 && s.held === 0 && world.stats(u).held_frames === 0 &&
+        ev.log.some(m => /the unit has no HOLD/.test(m)), `older unit: hold ${s.hold}, held ${s.held}`);
     await Promise.all([remote.disconnect(), run(400)]);
 }
 {

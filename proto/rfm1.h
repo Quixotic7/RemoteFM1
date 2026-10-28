@@ -52,7 +52,8 @@ enum {
 #define RFM_HELLO_LEN 67u
 enum {
     RFM_CAP_SHADOW = 1u << 0, RFM_CAP_COPY = 1u << 1, RFM_CAP_RLE = 1u << 2, RFM_CAP_PAL = 1u << 3,
-    RFM_CAP_BATTERY = 1u << 4, RFM_CAP_PLAY_GREEN = 1u << 5, RFM_CAP_LED5 = 1u << 6
+    RFM_CAP_BATTERY = 1u << 4, RFM_CAP_PLAY_GREEN = 1u << 5, RFM_CAP_LED5 = 1u << 6,
+    RFM_CAP_HOLD = 1u << 7              /* 0.2.2: TILES' HOLD flag (a frame drawn into the shadow, shown later) */
 };
 
 /* SESSION body: start8 keepalive_ms16 */
@@ -71,6 +72,9 @@ enum {
 #define RFM_TILES_HDR 4u
 #define RFM_RECT_HDR 5u
 #define RFM_TILES_F_END 1u
+#define RFM_TILES_F_HOLD 2u             /* 0.2.2 (RFM_CAP_HOLD), with END: acknowledged, into the shadow, not shown
+                                         * until an END without HOLD (or RFM_HOLD_MS without TILES) */
+#define RFM_HOLD_MS 1500u               /* the device shows held tiles by itself after this long without TILES */
 enum { RFM_ENC_RAW = 0x00, RFM_ENC_FILL = 0x01, RFM_ENC_PAL = 0x02, RFM_ENC_RLE = 0x03, RFM_ENC_COPY = 0x04 };
 #define RFM_PAL_MIN 2u
 #define RFM_PAL_MAX 16u

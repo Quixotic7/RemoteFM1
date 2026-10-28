@@ -18,6 +18,11 @@
  * never more than 2 frames in flight on either side. Also: a free-running animation, idling on keepalive and the
  * PANEL_R heartbeat, a lost FRAME_ACK, a lost SESSION ACK, a device-side session loss and a device reboot
  * mid-animation, the device's keepalive expiring while the host is frozen, stop.
+ * Bluetooth (run_ble): the unit answers as over Bluetooth (sxq 128), the link carries 6 KB/s, and the device's input
+ * waits while a push runs once the session holds (rfm_app_rx_wait, as rfm_main.c's rf_rx_step). With HOLD, after
+ * every push the panel is exactly a screen the host committed (the image its TILES built when an END without HOLD
+ * went out), and with lossless tiles exactly one of the screens submitted: a moving source shows only whole screens.
+ * Without HOLD (ble_hold 0) the same moving source shows screens that never were.
  *   test_cross [a.ppm ...]        (RFM_VERBOSE=1: the session's log) */
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,6 +32,7 @@
 #include "frames.h"
 #include "rfm/codec.h"
 #include "rfm/session.h"
+#include "rfm/tiles_ref.h"
 
 /* ---------------------------------------------------------------- the device's own code ---- */
 #include "remote_proto.h"
@@ -42,10 +48,12 @@
 #define RATE_H2D_BK 0.85
 #define RATE_D2H_SX 0.20
 #define RATE_D2H_BK 0.85
+#define RATE_BLE 0.006                                  /* Bluetooth MIDI, both ways: 6 KB/s */
 
 static uint64_t now_us;
 static uint32_t now_ms(void) { return (uint32_t)(now_us / 1000u); }
 static int verbose;
+static int ble_mode;                                    /* run_ble: the SysEx link is Bluetooth */
 
 /* ---------------------------------------------------------------- pipes ---- */
 typedef struct {
@@ -186,7 +194,9 @@ static void rfa_hello_dev(uint8_t *h, uint32_t t)      /* as remote.c fills it *
     h[26] = 1;
     h[27] = 2;
     h[28] = 0;
-    rf_wr16(h + 29, 4096u - 512u);
+    rf_wr16(h + 29, ble_mode ? 128u : 4096u - 512u);  /* (Bluetooth: rfm_main.c's BLE_OUT_Q) */
+    if (ble_mode)
+        h[25] |= RFM_TR_BLE | RFM_TR_BLE_HEARD;
     rf_wr32(h + 31, 32768u);
     rf_wr32(h + 35, 8192u);
     rf_wr16(h + 39, RF_SX_BODY_MAX);
@@ -297,8 +307,74 @@ static void dev_boot(int power_on)
     rf_body_init(&dsx.b, &dst[RF_T_SX], dsx_buf, sizeof dsx_buf, dev_on_msg, (void *)(uintptr_t)RF_T_SX);
     rf_body_init(&dbk.b, &dst[RF_T_BK], dbk_buf, sizeof dbk_buf, dev_on_msg, (void *)(uintptr_t)RF_T_BK);
     rfm_app_init(shadow, stage, RFM_W * 16u, &OPS);
-    pipe_init(&h2d[RF_T_SX], RATE_H2D_SX);
+    pipe_init(&h2d[RF_T_SX], ble_mode ? RATE_BLE : RATE_H2D_SX);
     pipe_init(&h2d[RF_T_BK], RATE_H2D_BK);
+}
+
+/* the panel after a push, against the screens it may show (run_ble): FNV-1a 64 of 240 x 240 wire pixels */
+#define NHASH 8192u
+typedef struct {
+    uint64_t h[NHASH];
+    uint32_t n;
+} hset_t;
+static hset_t committed, sources;                       /* the host's committed images; the screens submitted */
+static int coherence;                                   /* 0 off, 1 committed, 2 sources */
+static uint32_t pushes_seen, incoherent, last_xfers;
+static uint64_t fnv(const void *p, uint32_t n)
+{
+    const uint8_t *b = (const uint8_t *)p;
+    uint64_t h = 1469598103934665603ull;
+    uint32_t i;
+    for (i = 0; i < n; i++)
+        h = (h ^ b[i]) * 1099511628211ull;
+    return h;
+}
+static void hset_add(hset_t *s, uint64_t h) { s->h[s->n++ % NHASH] = h; }
+static int hset_has(const hset_t *s, uint64_t h)
+{
+    uint32_t i, n = s->n < NHASH ? s->n : NHASH;
+    for (i = 0; i < n; i++)
+        if (s->h[i] == h)
+            return 1;
+    return 0;
+}
+static void check_coherent(void)
+{
+    uint64_t h;
+    if (!coherence || L.xfers == last_xfers || L.busy || rfa.push.active)
+        return;
+    last_xfers = L.xfers;
+    pushes_seen++;
+    h = fnv(panel, sizeof panel);
+    if (!hset_has(coherence == 1 ? &committed : &sources, h)) {
+        if (verbose && incoherent < 5)
+            printf("    %7u ms  the panel shows a screen that was never %s\n", now_ms(),
+                   coherence == 1 ? "committed" : "submitted");
+        incoherent++;
+    }
+}
+
+/* what the host sends on the Bluetooth link, decoded by the reference decoder: the image it builds, committed at
+ * every END without HOLD, black at every SESSION start */
+static rfm_rx_t *hmon;
+static uint8_t hsent[RFM_W * RFM_H * 2];
+static uint32_t h_held, h_commits;
+static void hmon_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
+{
+    rfm_tiles_info_t info;
+    (void)ctx;
+    if (cmd == RFM_SESSION && n >= 1 && b[0]) {
+        memset(hsent, 0, sizeof hsent);
+        hset_add(&committed, fnv(hsent, sizeof hsent));
+    } else if (cmd == RFM_TILES && rfm_tiles_apply(hsent, b, n, 0, &info) != RFM_REF_SHORT_HDR &&
+               (info.flags & RFM_TILES_F_END)) {
+        if (info.flags & RFM_TILES_F_HOLD) {
+            h_held++;
+        } else {
+            h_commits++;
+            hset_add(&committed, fnv(hsent, sizeof hsent));
+        }
+    }
 }
 
 /* once a millisecond (remote.c rf_ms_step): the panel to rfm_app.c, then the events out */
@@ -325,11 +401,14 @@ static void dev_pass(void)
         dev_ms();
     }
     dsx.b.now_ms = dbk.b.now_ms = now_ms();
-    n = pipe_take(&h2d[RF_T_SX], 512u, &p);             /* remote.c rf_rx_step */
-    for (i = 0; i < n; i++)
-        rf_sx_byte(&dsx, p[i]);
-    got += n;
-    n = pipe_take(&h2d[RF_T_BK], 1024u, &p);
+    for (i = 0; i < 512u && !rfm_app_rx_wait(RF_T_SX); i++) {   /* remote.c rf_rx_step: a byte at a time, none
+                                                                 * while a held session's push runs or is due */
+        if (!pipe_take(&h2d[RF_T_SX], 1u, &p))
+            break;
+        rf_sx_byte(&dsx, p[0]);
+        got++;
+    }
+    n = rfm_app_rx_wait(RF_T_BK) ? 0u : pipe_take(&h2d[RF_T_BK], 1024u, &p);
     for (i = 0; i < n; i += 256u)
         rf_bk_feed(&dbk, p + i, n - i < 256u ? n - i : 256u);
     got += n;
@@ -337,6 +416,7 @@ static void dev_pass(void)
         rfm_app_activity();
     rfm_app_poll(now_ms());
     lcd_advance();
+    check_coherent();
     if (rfa.qn > D.max_qn)
         D.max_qn = rfa.qn;
 }
@@ -360,6 +440,8 @@ static uint32_t chunk_seed = 7;
 static int w_dev(void *ctx, const uint8_t *p, uint32_t n)
 {
     pipe_put(&h2d[(uintptr_t)ctx], p, n);
+    if (hmon && (uintptr_t)ctx == RF_T_SX)
+        rfm_rx_feed(hmon, p, n);
     return 0;
 }
 static int w_decoy(void *ctx, const uint8_t *p, uint32_t n)
@@ -713,7 +795,7 @@ static void run_cfg(const cfg_t *c, int nppm, char **ppm)
     printf("  discovery + SESSION: active after %u ms\n", i);
     h = rfm_session_hello(S);
     CHECK(!strcmp(h->name, "RemoteFM1") && h->proto == 2 && h->v2 && h->screen_w == 240 && h->screen_h == 240);
-    CHECK(h->caps == (RFM_CAP_SHADOW | RFM_CAP_COPY | RFM_CAP_RLE | RFM_CAP_PAL | RFM_CAP_PLAY_GREEN));
+    CHECK(h->caps == (RFM_CAP_SHADOW | RFM_CAP_COPY | RFM_CAP_RLE | RFM_CAP_PAL | RFM_CAP_PLAY_GREEN | RFM_CAP_HOLD));
     CHECK(h->max_in_flight == 2 && !strcmp(h->fw_ver, "0.1-x") && !strcmp(h->identity, "FM-1_015"));
     CHECK(h->sx_body_max == RF_SX_BODY_MAX && h->bk_body_max == RF_BK_BODY_MAX);
     CHECK(rfm_session_frame_link(S) == (c->transport == RFM_T_BULK ? bk_id : sx_id));
@@ -940,6 +1022,183 @@ static void run_cfg(const cfg_t *c, int nppm, char **ppm)
     S = NULL;
 }
 
+/* ---------------------------------------------------------------- Bluetooth ---- */
+/* a moving source (a knob turned: big blocks and a number change every 50 ms), each change several frames' worth */
+static void knob(uint16_t *f, uint32_t t)
+{
+    char b[16];
+    uint32_t k;
+    fr_ui(f, 0);
+    for (k = 0; k < 10u; k++)
+        fr_rect(f, 8 + (int)((t * 37u + k * 53u) % 170u), 56 + (int)((t * 19u + k * 29u) % 120u), 56, 40,
+                fr_rgb(t * 40u + k * 30u, 200u - k * 20u, 100u + t * 10u));
+    snprintf(b, sizeof b, "%3u", t % 1000u);
+    fr_text(f, 20, 30, b, fr_rgb(240, 240, 240), fr_rgb(36, 40, 52));
+}
+
+/* the knob for n changes at 20 a second, then still; returns the pushes that showed a screen never submitted
+ * (sources) or never committed (committed) */
+static uint32_t turn_knob(const char *where, uint32_t t0, uint32_t n, int against)
+{
+    uint32_t t, bad0 = incoherent, p0 = pushes_seen, c0 = h_commits, hd0 = h_held;
+    int ms;
+    coherence = against;
+    for (t = 0; t < n; t++) {
+        knob(fbuf, t0 + t);
+        hset_add(&sources, fnv(fbuf, sizeof fbuf));
+        rfm_session_set_frame(S, fbuf);
+        run_ms(50);
+    }
+    ms = settle(30000);
+    CHECKF(ms >= 0, "%s: did not settle", where);
+    coherence = 0;
+    printf("  %s: %u changes in %u ms, then still %d ms later: %u pushes, %u commits, %u held frames; %u pushes "
+           "showed a screen never %s\n", where, n, n * 50u, ms, pushes_seen - p0, h_commits - c0, h_held - hd0,
+           incoherent - bad0, against == 1 ? "committed" : "submitted");
+    return incoherent - bad0;
+}
+
+static void run_ble(int hold, int nppm, char **ppm)
+{
+    rfm_session_cfg_t sc;
+    rfm_session_cb_t cb;
+    rfm_session_stats_t st;
+    uint32_t t, i, seed = 1, bad;
+    char where[96];
+
+    printf("\n== Bluetooth MIDI, %s\n", hold ? "HOLD (whole screen changes)" : "HOLD off (ble_hold 0)");
+    ble_mode = 1;
+    now_us = 5000000;
+    dev_boot(1);
+    pipe_init(&d2h[RF_T_SX], RATE_BLE);
+    pipe_init(&d2h[RF_T_BK], RATE_D2H_BK);
+    memset(state_changes, 0, sizeof state_changes);
+    memset(mon_cmd, 0, sizeof mon_cmd);
+    memset(&committed, 0, sizeof committed);
+    memset(&sources, 0, sizeof sources);
+    mon_midi = decoy_bytes = 0;
+    errs_seen = 0;
+    host_frozen = 0;
+    last_master_change = 0;
+    pushes_seen = incoherent = h_held = h_commits = 0;
+    last_xfers = 0;
+    memset(&leds, 0, sizeof leds);
+    run_ms(20);
+    rfm_session_cfg_default(&sc);                       /* as the web player: auto, 20 fps, the link's budget */
+    sc.ble_hold = hold;
+    memset(&cb, 0, sizeof cb);
+    cb.state = cb_state;
+    cb.log = cb_log;
+    S = rfm_session_new(&sc, &cb);
+    for (t = 0; t < 2; t++) {
+        rfm_rx_free(mon[t]);
+        mon[t] = rfm_rx_new(t ? RFM_LINK_BK : RFM_LINK_SX, t ? RFM_BK_BODY_MAX + 64u : RFM_SX_BODY_MAX + 64u, mon_msg,
+                            t ? NULL : mon_midi_fn, NULL);
+    }
+    rfm_rx_free(hmon);
+    hmon = rfm_rx_new(RFM_LINK_SX, RFM_SX_BODY_MAX + 64u, hmon_msg, NULL, NULL);
+    sx_id = rfm_session_add_link(S, RFM_LINK_SX, w_dev, (void *)(uintptr_t)RF_T_SX, "FM-1 7938");
+    bk_id = -1;
+    for (i = 0; i < 4000 && rfm_session_state(S) != RFM_S_ACTIVE; i++)
+        step_ms();
+    CHECKF(rfm_session_state(S) == RFM_S_ACTIVE, "bluetooth: no session after %u ms", i);
+    rfm_session_stats(S, &st);
+    CHECKF(st.ble == 1 && st.hold == (uint32_t)hold && st.lossy == RFM_BLE_COLORS, "ble %u hold %u lossy %u", st.ble,
+           st.hold, st.lossy);
+    CHECK(rfm_session_hello(S)->caps & RFM_CAP_HOLD);
+    CHECK(settle(5000) >= 0);
+    fr_fill(fbuf, 0);
+    CHECK(screens_equal("bluetooth session start", fbuf));
+
+    /* still screens, lossy: model == shadow == panel after each; every push shows a committed screen */
+    coherence = 1;
+    for (t = 0; t <= 6; t++) {
+        gen(t % 2u ? SET_TEXT : SET_UI, t, fbuf, &seed);
+        if (t % 3u == 1u)
+            new_leds();
+        snprintf(where, sizeof where, "bluetooth screen %u", t);
+        rfm_session_set_frame(S, fbuf);
+        CHECKF(settle(30000) >= 0, "%s: did not settle", where);
+        screens_equal(where, NULL);
+        leds_equal(where);
+    }
+    for (i = 0; i < (uint32_t)nppm && i < 3u; i++)
+        if (!fr_load_ppm(ppm[i], fbuf)) {
+            rfm_session_set_frame(S, fbuf);
+            CHECKF(settle(60000) >= 0, "bluetooth %s: did not settle", ppm[i]);
+            screens_equal(ppm[i], NULL);
+        }
+    run_ms(1500);                                       /* the refinement: exact */
+    CHECK(settle(30000) >= 0);
+    screens_equal("bluetooth refined", fbuf);
+    coherence = 0;
+    CHECKF(!incoherent, "bluetooth: %u pushes showed a screen never committed", incoherent);
+    check_clean("bluetooth screens");
+
+    /* the knob, lossy: whole committed screens only (with HOLD) */
+    bad = turn_knob("knob, lossy", 0, 60, 1);
+    if (hold)
+        CHECKF(!bad, "bluetooth knob: %u pushes showed a screen never committed", bad);
+    /* the knob, lossless: whole submitted screens only (with HOLD); without HOLD, screens that never were */
+    rfm_session_set_ble_colors(S, 0);
+    CHECK(settle(30000) >= 0);
+    bad = turn_knob("knob, lossless", 100, 60, 2);
+    if (hold)
+        CHECKF(!bad, "bluetooth knob: %u pushes showed a screen never submitted", bad);
+    else
+        CHECKF(bad > 0, "bluetooth knob without HOLD: every push showed a whole screen (the test cannot tell)");
+    screens_equal("knob", fbuf);
+    rfm_session_set_ble_colors(S, RFM_BLE_COLORS);
+    CHECKF(rfa.hold_timeouts == 0, "bluetooth: %u held screens shown by the timeout", rfa.hold_timeouts);
+    if (hold)
+        CHECKF(D.tiles_in_push == 0, "bluetooth: %u TILES decoded during a push", D.tiles_in_push);
+    rfm_session_stats(S, &st);
+    CHECKF(hold ? st.held > 0 && rfa.held_frames == st.held : st.held == 0 && rfa.held_frames == 0,
+           "held frames: host %u, device %u", st.held, rfa.held_frames);
+    check_clean("bluetooth knob");
+
+    /* a FRAME_ACK lost in the middle of a change: the host resends, all agree again */
+    D.drop_frame_acks = 1;
+    knob(fbuf, 500);
+    rfm_session_set_frame(S, fbuf);
+    CHECKF(settle(30000) >= 0, "bluetooth lost FRAME_ACK: did not settle");
+    screens_equal("bluetooth lost FRAME_ACK", NULL);
+    CHECK(D.dropped_frame_acks == 1);
+    rfm_session_stats(S, &st);
+    printf("  lost FRAME_ACK: recovered (%u ack timeouts; held screens shown by the device's timeout: %u)\n",
+           st.ack_timeouts, rfa.hold_timeouts);
+    check_clean("bluetooth lost FRAME_ACK");
+
+    /* the device loses the session in the middle of a held change: a new one, the screen again */
+    {
+        uint32_t s0 = rfa.sessions;
+        for (t = 0; t < 30; t++) {
+            knob(fbuf, 600u + t);
+            rfm_session_set_frame(S, fbuf);
+            if (t == 7)
+                rfm_app_usb_lost();
+            run_ms(50);
+        }
+        CHECKF(settle(30000) >= 0, "bluetooth session loss: did not settle");
+        CHECKF(rfa.sessions == s0 + 1u, "bluetooth session loss: %u sessions after", rfa.sessions - s0);
+        screens_equal("bluetooth session loss", NULL);
+        check_clean("bluetooth session loss");
+    }
+
+    rfm_session_stop(S, now_ms());
+    for (i = 0; i < 3000 && rfm_session_state(S) != RFM_S_STOPPED; i++)
+        step_ms();
+    CHECK(rfm_session_state(S) == RFM_S_STOPPED && !rfa.session && !rfa.held && !rfa.hold_used);
+    rfm_session_stats(S, &st);
+    printf("  totals: host %u frames (%u held), %u body B; device %u FRAME_ACKs, %u pushes checked, %u TILES "
+           "arrived during a push\n", st.frames, st.held, st.body_bytes, D.frame_acks, pushes_seen, D.tiles_in_push);
+    rfm_session_free(S);
+    S = NULL;
+    rfm_rx_free(hmon);
+    hmon = NULL;
+    ble_mode = 0;
+}
+
 int main(int argc, char **argv)
 {
     static const cfg_t cfgs[] = {
@@ -954,6 +1213,8 @@ int main(int argc, char **argv)
     verbose = getenv("RFM_VERBOSE") != NULL;
     for (i = 0; i < sizeof cfgs / sizeof cfgs[0]; i++)
         run_cfg(&cfgs[i], argc - 1, argv + 1);
+    run_ble(1, argc - 1, argv + 1);
+    run_ble(0, argc - 1, argv + 1);
     for (i = 0; i < 2; i++) {
         rfm_rx_free(mon[i]);
         free(h2d[i].b);
