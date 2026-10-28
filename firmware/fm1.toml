@@ -10,6 +10,12 @@ usb_product = "FM-1"           # the USB product name as RemoteFM1 0.1 had it (t
 include = ["src"]              # the protocol layer, the decoder and the push (src/: host/ compiles them too)
 words = "words.tsv"
 ble = true                     # Bluetooth MIDI with a computer or tablet (--no-ble: the USB-only package)
+# Bluetooth's radio (patch 0003; measured on an FM-1 with a Mac, 2026-10-27, 1 KB SysEx frames: 6 KB/s stock,
+# 12.5 KB/s with MTU 247 alone, 35-38 KB/s with these four; macOS took 2M, 130-byte link packets and 7.5 ms)
+ble_dle = true
+ble_2m = true
+ble_rx_bufs = 16
+ble_fast_interval = true
 usb_audio_in = true            # USB audio (0.2.1): the computer sees the FM-1 as a sound output and plays through
 usb_audio_out = true           # its speaker / headphones, MASTER its volume (fm1-base builds the output only with the
                                # input: the FM-1 is recordable too). Interfaces: 0 audio control, 1 MIDI, 2 audio in,

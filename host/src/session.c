@@ -294,10 +294,11 @@ static int decide(rfm_session_t *s)
     s->lost_ms = s->cfg.lost_ms;
     if (s->ble) {
         s->fperiod = max_u(s->period, 1000u / RFM_BLE_FPS);
-        s->budget = s->cfg.budget ? s->cfg.budget : RFM_BUDGET_BLE_BPS / 10u;
-        if (s->budget > RFM_BLE_BUDGET_MAX)
-            s->budget = RFM_BLE_BUDGET_MAX;
-        s->wire_cap = RFM_BLE_WIRE_CAP;
+        const int fast = (s->hello.caps & RFM_CAP_BLE_FAST) != 0;
+        s->budget = s->cfg.budget ? s->cfg.budget : (fast ? RFM_BUDGET_BLE_FAST_BPS : RFM_BUDGET_BLE_BPS) / 10u;
+        if (s->budget > (fast ? RFM_BLE_FAST_BUDGET_MAX : RFM_BLE_BUDGET_MAX))
+            s->budget = fast ? RFM_BLE_FAST_BUDGET_MAX : RFM_BLE_BUDGET_MAX;
+        s->wire_cap = fast ? RFM_BLE_FAST_WIRE_CAP : RFM_BLE_WIRE_CAP;
         /* a frame is one body of at most 4 + max(budget, a RAW tile) bytes while body_max allows it */
         s->wire_frame_max = rfm_sx_size(RFM_TILES_HDR + max_u(s->budget, RFM_RECT_HDR + 2u * RFM_TILE * RFM_TILE));
         s->start_ms = max_u(s->start_ms, 1000u);

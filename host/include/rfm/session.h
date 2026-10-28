@@ -58,6 +58,11 @@ enum { RFM_S_DISCOVER = 0, RFM_S_STARTING, RFM_S_ACTIVE, RFM_S_STOPPING, RFM_S_S
 #define RFM_BLE_FPS 20u                                 /* Bluetooth pacing (above) */
 #define RFM_BLE_WIRE_CAP 2048u                          /* framed TILES bytes unacknowledged (3.4 KB measured clean) */
 #define RFM_BLE_BUDGET_MAX 800u                         /* a frame stays well under the cap */
+/* a unit with RFM_CAP_BLE_FAST (0.2.2's radio: 2M, long link packets, MTU 247; measured with a Mac 35-38 KB/s of
+ * 1 KB frames, nothing lost with 14 KB unacknowledged): this rate, cap and largest budget instead */
+#define RFM_BUDGET_BLE_FAST_BPS 30000u
+#define RFM_BLE_FAST_WIRE_CAP 8192u
+#define RFM_BLE_FAST_BUDGET_MAX 3000u
 #define RFM_BLE_ACK_MIN_MS 2000u
 #define RFM_BLE_COLORS 4u                               /* cfg.ble_colors' default: 2 bpp PAL tiles */
 #define RFM_BLE_REFINE_MS 1000u

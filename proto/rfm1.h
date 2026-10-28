@@ -53,7 +53,8 @@ enum {
 enum {
     RFM_CAP_SHADOW = 1u << 0, RFM_CAP_COPY = 1u << 1, RFM_CAP_RLE = 1u << 2, RFM_CAP_PAL = 1u << 3,
     RFM_CAP_BATTERY = 1u << 4, RFM_CAP_PLAY_GREEN = 1u << 5, RFM_CAP_LED5 = 1u << 6,
-    RFM_CAP_HOLD = 1u << 7              /* 0.2.2: TILES' HOLD flag (a frame drawn into the shadow, shown later) */
+    RFM_CAP_HOLD = 1u << 7,             /* 0.2.2: TILES' HOLD flag (a frame drawn into the shadow, shown later) */
+    RFM_CAP_BLE_FAST = 1u << 8          /* 0.2.2: Bluetooth at 2M, long link packets, MTU 247: ~35 KB/s, ~9 KB in flight clean */
 };
 
 /* SESSION body: start8 keepalive_ms16 */

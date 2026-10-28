@@ -55,7 +55,8 @@
 #define RFA_FW_VER APP_VERSION
 #define RFA_IDENTITY FELUCCA_ID
 #if RFM_SHADOW
-#define RFA_CAPS (RFM_CAP_SHADOW | RFM_CAP_COPY | RFM_CAP_RLE | RFM_CAP_PAL | RFM_CAP_PLAY_GREEN | RFM_CAP_HOLD)
+#define RFA_CAPS (RFM_CAP_SHADOW | RFM_CAP_COPY | RFM_CAP_RLE | RFM_CAP_PAL | RFM_CAP_PLAY_GREEN | RFM_CAP_HOLD | \
+                  RFM_CAP_BLE_FAST)        /* (the radio's settings: fm1.toml ble_dle, ble_2m, ble_rx_bufs) */
 #else
 #define RFA_CAPS (RFM_CAP_RLE | RFM_CAP_PAL | RFM_CAP_PLAY_GREEN)
 #endif
