@@ -7,6 +7,8 @@
 #   index.html css/ js/ worklet/ mock/ fonts/ catalog.json      the player (web/site)
 #   engines/native/engine.js + <core>.wasm                       W1 (needs the FM1VST submodule at web/vendor/FM1VST)
 #   engines/emu/engine.js catalog.mjs fm1_web.wasm LICENSE-fm1-emu.txt   W2 (needs web/vendor/fm1-emu)
+#   engines/rfm1/engine.js, engines/common/shared.js              the .rfm1 engine (the visitor's own files), and the
+#                                                                module it and the native engine import
 #   remote/remote.js, build/remote/remotefm1.mjs                 W4 (Use my FM-1)
 #   installer/                                                   the RemoteFM1 installer and its packages (firmware/: every
 #                                                                release releases.json lists, checked against SHA256SUMS)
@@ -174,8 +176,11 @@ jobs:
 
       - name: The player and the installer
         run: |
-          mkdir -p _site
+          mkdir -p _site _site/engines/common _site/engines/rfm1
           cp -R web/site/index.html web/site/css web/site/js web/site/worklet web/site/mock web/site/fonts web/site/native _site/
+          # the .rfm1 engine (the visitor's own files: nothing to build) and the module it and the native engine import
+          cp web/engines/common/shared.js _site/engines/common/
+          cp web/engines/rfm1/engine.js _site/engines/rfm1/
           ext=()
           if [ -f web/build/native-ext/index.json ]; then ext=(--native-ext web/build/native-ext/index.json); fi
           # the catalog: the Hub's live one, else the snapshot in the tree; native only where the core's .wasm is here

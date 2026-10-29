@@ -2,12 +2,13 @@
 
 **Owned by the orchestrator.** Agents implement it exactly and report problems rather than editing it.
 
-The site has two engines that run FM-1 firmwares in the browser:
+The site has three engines that run FM-1 firmwares in the browser:
 
 | Engine | Code | Runs |
 |---|---|---|
 | **native** | `web/engines/native/`, agent W1 | FM1VST's own cores, compiled with Emscripten; and firmware authors' own builds of theirs (`docs/NATIVE-AUTHORS.md`) |
 | **emu** | `web/engines/emu/`, agent W2 | fm1-emu's chip emulator |
+| **rfm1** | `web/engines/rfm1/` | the visitor's own `.rfm1` files (section 6) |
 
 The page (`web/site/`, agent W3) only ever talks to an engine through this interface, inside one AudioWorklet.
 `web/remote/` (agent W4) connects a real FM-1 running RemoteFM1 to the page.
@@ -19,12 +20,13 @@ An engine is an ES module that loads inside an `AudioWorkletGlobalScope`, so it 
 
 ```js
 // web/engines/<name>/engine.js
-export const ENGINE = { name: "native" | "emu", version: "x.y" };
+export const ENGINE = { name: "native" | "emu" | "rfm1", version: "x.y" };
 
 // Create one instance. `files` holds everything the engine needs, fetched by the page:
 //   native: { wasm: ArrayBuffer, flags? }   (the core's .wasm; flags, for an author's build: its manifest's
 //                                            { asyncify, abi }, checked against the module before it runs)
 //   emu:    { wasm: ArrayBuffer, fwsc: Uint8Array }
+//   rfm1:   { wasm: ArrayBuffer }        (the .rfm1 file itself, checked before it runs: section 6)
 export async function createEngine({ sampleRate, files, flash /* Uint8Array | null */, options /* {} */ }) -> Engine
 ```
 
@@ -66,7 +68,7 @@ Matrix ids and orders are RemoteFM1's and FM1VST's (`proto/rfm1.h`, FM1VST `core
 ## 3. Worklet ↔ page messages (owned by W3; W1 and W2 don't need them)
 
 The page creates `new AudioWorkletNode(ctx, "fm1-host")` and sends `{type: "load", engine, files, flash, options}`.
-The host processor imports `engines/native/engine.js` or `engines/emu/engine.js`.
+The host processor imports `engines/native/engine.js`, `engines/emu/engine.js` or `engines/rfm1/engine.js`.
 
 | Direction | Message |
 |---|---|
@@ -100,3 +102,35 @@ two differ (FM1VST `nomansky` vs the Hub's `nmsfm`), the catalog maps them. An a
 (`native.by: "author"`, its module under `engines/native/ext/<id>/<version>/`) takes the native slot when its version
 is newer than FM1VST's core or the same (`nativeAlt` and `nativeWhy` name the other build); it is the same "native"
 engine, and its saves are the firmware's native saves at that version.
+
+## 6. The .rfm1 engine
+
+An `.rfm1` file is a firmware's host build (FM1VST's fm1core, ABI 6) compiled to WebAssembly, with `rfm1_*` exports,
+WASI-only imports and a JSON manifest in a custom section `rfm1` (the format: RemoteFM1IOS `docs/RFM1-FORMAT.md`,
+version 1; RemoteFM1 for iOS runs the same files). Firmware releases carry them (FM1VST's `fm1_add_rfm1`; the set
+at https://github.com/Quixotic7/RemoteFM1FW/releases/latest). The site hosts none: the visitor opens one from the
+firmware browser's "Open a file..." or drops it on the page, and the page keeps it in IndexedDB by its SHA-256
+(`web/site/js/library.js`, the browser's "Your firmware").
+
+- `files`: `{ wasm }`, the file's bytes. `createEngine` throws, with the reason, for a file the format refuses (its
+  section 7): the magic; the `rfm1` section and the manifest's required fields; imports other than
+  `wasi_snapshot_preview1`'s `fd_write`, `fd_read`, `fd_close`, `fd_seek`, `clock_time_get`, `proc_exit` (each with
+  its signature); a missing or mistyped export; a memory that is not the module's own, exported, fixed and at most
+  32 MiB; a passive data segment; `rfm1_version() != 1`, `rfm1_get(6) == 0`; any `rfm1_layout` value other than
+  fm1panel_t's and fm1core_t's wasm32 offsets; a descriptor whose id, name or version differ from the manifest's.
+  `inspect(bytes)` (exported) makes the file's own checks alone and returns `{ manifest, credits, licenses }`.
+- Boot as the format's section 7 step 4: `rfm1_flash_stage` (the saved flash, or 0, 0), `rfm1_options` with
+  `"fm1core:staged"`, `rfm1_boot_options(-1, 0, -1)`, the panel's `ready` = 2, `rfm1_init(0)`. The clock, the panel
+  writes, the LCD's byte swap and the resampler are the native engine's (`wasm_glue.c run_ms`, in JavaScript; the
+  resampler and the MIDI packets are `web/engines/common/shared.js`, shared with it), so a file built from the same
+  source as a native core sounds and draws the same, sample for sample.
+- `info()` is the native engine's, with the manifest's `license` and `source` (its `source_url`), and also
+  `authors`, `glueUrl` (the manifest's `glue_url`), `builtBy`, `licenseTexts` (the `rfm1.license.<n>` sections) and
+  `credits` (`rfm1.credits`, else the descriptor's).
+- A trap ends the instance: `halted()` is then 0x100 | code after `proc_exit(code)`, 0x200 after any other trap;
+  `render()` gives silence and the other calls do nothing (the flash stays readable, so the page can boot it again).
+- Saves of an `.rfm1` firmware are the firmware's under engine `"rfm1"`, apart from its native and emulated ones.
+- Its Node test: `node web/engines/rfm1/test.mjs [--dir DIR]` over the files in `web/build/rfm1/` (section 4's
+  checks, a flash round trip, the reboot script, the render cost per quantum, refused files, and the audio against
+  the same firmware's native core where `web/build/native/<id>.wasm` exists). The page end to end:
+  `node web/site/tools/rfm1-e2e.mjs`.

@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// The FM-1 player page: the catalog, the panel and its input, the audio host, saves, the sheet, deep links.
-//   ?fw=<id>          open that firmware (a Hub id)
+// The FM-1 player page: the catalog, the panel and its input, the audio host, saves, the sheet, deep links, and the
+// visitor's own .rfm1 files (js/library.js: opened from a file or dropped on the page, kept in this browser).
+//   ?fw=<id>          open that firmware (a Hub id; not the visitor's .rfm1 files)
 //   &engine=native|emu  pick the engine (where both can)
 //   &view=screen      the screen view
 //   &embed=1          only the device: no header, no settings
 import { Controls, DeviceView, ScreenView, Lcd, VIEW, SRC, PANEL_LABELS } from "./panel.js";
 import { PRESETS, DEFAULT_THEME, presetNamed, css, derive } from "./theme.js";
 import { Keyboard, attachPointer, MidiInput } from "./input.js";
-import { Player } from "./audio.js";
+import { Player, sha256hex } from "./audio.js";
 import { SoundOut } from "./sound-out.js";
 import * as saves from "./saves.js";
+import * as library from "./library.js";
 import { Sheet, icon } from "./sheet.js";
 import { makeSite } from "./remote-hook.js";
 import { createFm1, mountUseFm1, mountHeader } from "./use-fm1.js";
@@ -42,6 +44,7 @@ const state = {
   pixels: null, frameSeq: 0, levels: new Uint8Array(44), playGreen: 0,
   volume: typeof prefs.volume === "number" ? Math.max(0, Math.min(1, prefs.volume)) : 1,   // the page's volume (not the recording's)
   recBits: prefs.recBits === 16 ? 16 : 24, recCountIn: prefs.recCountIn === true,          // the recorder (js/rec-ui.js)
+  library: [],                                              // the visitor's .rfm1 files (library.js records, no bytes)
 };
 let catalog = null, snapshot = null, emuHook = null, player = null, sheet = null, site = null, siteEmit = () => {}, fm1 = null;
 let soundOut = null;   // the output device: the system's or the FM-1's USB audio (sound-out.js)
@@ -142,6 +145,10 @@ const selfLine = (tone = fm1Tone) => tone === "on" ? "Your FM-1 is now remotely 
 // --------------------------------------------------------------- firmware ---
 const versionOf = (e, engine) => (!e ? "" : engine === "native" && e.native ? e.native.version : e.version);
 const findEntry = (id) => catalog.firmwares.find((f) => f.id === id) || null;
+// the visitor's .rfm1 files: prefs.last is "rfm1:<sha256>" for one of them
+const RFM1_LAST = "rfm1:";
+const libEntry = (sha) => { const r = state.library.find((x) => x.sha256 === sha); return r ? library.entryOf(r) : null; };
+const sameEntry = (a, b) => !!a && !!b && (a.rfm1 || b.rfm1 ? !!a.rfm1 && !!b.rfm1 && a.rfm1.sha256 === b.rfm1.sha256 : a === b);
 
 // the deep link's engine, the visitor's choice (until a new release), else the default (newest wins: live.js)
 const engineFor = (e, want) => chooseEngine(e, want, prefs);
@@ -163,12 +170,15 @@ async function openFirmware(id, want = null) {
   state.info = null; state.selectedSave = null;
   controls.releaseLatches();
   hideOffer();
-  if (!e.local) { prefs.last = e.id; savePrefs(); }
+  if (!e.local || e.rfm1) { prefs.last = e.rfm1 ? RFM1_LAST + e.rfm1.sha256 : e.id; savePrefs(); }
   updateTitle();
-  if (!EMBED && !e.local) {
+  if (!EMBED && (!e.local || e.rfm1)) {
     const u = new URL(location.href);
-    u.searchParams.set("fw", e.id);
-    if (e.engines.length > 1 && state.wantEngine !== e.defaultEngine) u.searchParams.set("engine", state.wantEngine); else u.searchParams.delete("engine");
+    if (e.rfm1) { u.searchParams.delete("fw"); u.searchParams.delete("engine"); }   // (no deep link: a reload reopens it from prefs.last)
+    else {
+      u.searchParams.set("fw", e.id);
+      if (e.engines.length > 1 && state.wantEngine !== e.defaultEngine) u.searchParams.set("engine", state.wantEngine); else u.searchParams.delete("engine");
+    }
     history.replaceState(null, "", u);
   }
   device.setButtonNames(null); device.setKeymap(null);
@@ -200,6 +210,13 @@ async function boot(fromSave = null) {
       if (got.entry !== e) { replaceEntry(got.entry); e = got.entry; }
       e = { ...e, localBytes: got.bytes };
     }
+    // an .rfm1 file: its bytes from this browser (library.js)
+    if (eng === "rfm1" && !e.localBytes) {
+      const b = await library.bytes(e.rfm1.sha256).catch(() => null);
+      if (seq !== bootSeq || state.entry !== e) return;
+      if (!b) throw new Error(`${e.name}'s .rfm1 file is not in this browser any more: open it again.`);
+      e = { ...e, localBytes: b };
+    }
     const ver = versionOf(state.entry, eng);
     const rec = fromSave || (await saves.get(state.entry.id, eng, ver, saves.AUTOSAVE));
     const clk = mhzFor(state.entry.id, prefs, HOST);
@@ -211,7 +228,7 @@ async function boot(fromSave = null) {
   } catch (err) {
     if (seq !== bootSeq) return;
     const msg = err.message || String(err);
-    await fallback(/worklet|module/i.test(msg) ? `The ${eng === "native" ? "native" : "emulated"} engine is not on this site yet.` : msg);
+    await fallback(/worklet|module/i.test(msg) && !/rfm1/.test(msg) ? `The ${eng === "native" ? "native" : eng === "rfm1" ? ".rfm1" : "emulated"} engine is not on this site yet.` : msg);
   }
 }
 // ---------------------------------------------------------- the CPU clock ---
@@ -325,12 +342,18 @@ function creditStatus() {
 function metaLine() {
   const e = state.entry;
   if (!e) return "";
-  const eng = state.engine === "mock" ? "test engine (the real one is not here yet)" : state.engine === "native" ? (e.native && e.native.by === "author" ? "native, built by the author" : "native") : `emulated, ${state.mhz} MHz`;
+  const eng = state.engine === "mock" ? "test engine (the real one is not here yet)" : state.engine === "native" ? (e.native && e.native.by === "author" ? "native, built by the author" : "native")
+    : state.engine === "rfm1" ? "native, your file" : `emulated, ${state.mhz} MHz`;
   return `${e.category} · ${e.tag} · ${e.author} · ${eng}`;
 }
 function engineNote() {
   const e = state.entry;
   if (!e) return "";
+  if (e.rfm1) {
+    const r = e.rfm1;
+    return [`Your .rfm1 file ${r.fileName}: ${e.name}'s own code, built to WebAssembly${r.builtBy ? ` (${r.builtBy})` : ""}, runs natively here as in RemoteFM1 for iOS. It is kept in this browser (SHA-256 ${r.sha256.slice(0, 12)}...); its saves are its own, apart from any native or emulated ones.`,
+      state.engine === "mock" ? "Now: a test engine, because the .rfm1 engine could not start." : ""].filter(Boolean).join(" ");
+  }
   const o = nativeOrigin(e);
   const n = !e.native ? null : (e.nativeBehind
     ? `Native: ${o.long}, older than the Hub's ${e.version}, compiled to WebAssembly; starts at once and is lighter on the CPU.`
@@ -614,14 +637,51 @@ const app = {
       await refreshSaves();
     } catch (err) { toast(err.message || String(err), "bad"); }
   },
+  get library() { return state.library.map((r) => library.entryOf(r)); },
+  isCurrent: (e) => sameEntry(state.entry, e) || (!!state.entry && !state.entry.local && !e.local && state.entry.id === e.id),
+  openRfm1(sha) { const e = libEntry(sha); if (e) openFirmware(e); },
+  async removeRfm1(sha) {
+    const e = libEntry(sha);
+    try { await library.remove(sha); } catch (err) { toast(err.message || String(err), "bad"); return; }
+    state.library = state.library.filter((r) => r.sha256 !== sha);
+    if (prefs.last === RFM1_LAST + sha) { delete prefs.last; savePrefs(); }
+    if (e) toast(`Removed ${e.name} ${e.version} from this browser${state.entry && state.entry.rfm1 && state.entry.rfm1.sha256 === sha ? " (it plays until you pick another)" : ""}; its saves stay.`);
+    if (sheet) sheet.render();
+  },
   async openLocalFile(file) {
     const bytes = new Uint8Array(await file.arrayBuffer());
+    // an .rfm1 file (a WebAssembly module): the rfm1 engine, and kept in this browser
+    if (/\.rfm1$/i.test(file.name) || (bytes[0] === 0 && bytes[1] === 0x61 && bytes[2] === 0x73 && bytes[3] === 0x6d)) return importRfm1(file.name, bytes);
     const id = "local-" + file.name.replace(/[^\w.-]+/g, "_");
     openFirmware({ id, name: file.name.replace(/\.fwsc$/i, ""), version: "file", author: "your file", authorFull: "a file from your computer",
       category: "Other", categories: ["Other"], tag: "your package", what: `${file.name}, ${bytes.length} bytes, from your computer.`,
       license: null, source: null, engines: ["emu"], defaultEngine: "emu", native: null, emu: { pkg: null }, local: true, localBytes: bytes }, "emu");
   },
 };
+
+// an .rfm1 file opened or dropped: checked by the rfm1 engine itself (the file, then a power-on here), kept in IndexedDB by
+// its SHA-256 (the same file again: the one kept), and opened
+async function importRfm1(fileName, bytes) {
+  const spec = catalog.paths.engines.rfm1;
+  let file;
+  try {
+    if (!spec) throw new Error("this site has no .rfm1 engine");
+    const m = await import(new URL(spec.module, document.baseURI).href);
+    file = m.inspect(bytes);
+    const eng = await m.createEngine({ sampleRate: 44100, files: { wasm: bytes }, flash: null, options: {} });
+    eng.dispose();
+  } catch (err) { toast(`${fileName}: ${err.message || err}`, "bad", 9000); return; }
+  const sha = await sha256hex(bytes);
+  let rec = state.library.find((r) => r.sha256 === sha), kept = true;
+  if (!rec) {
+    try { rec = await library.add({ sha256: sha, fileName, manifest: file.manifest, credits: file.credits, bytes }); }
+    catch (_) { kept = false; rec = { sha256: sha, fileName, size: bytes.length, manifest: file.manifest, credits: file.credits, added: new Date().toISOString() }; }
+    state.library.push(rec);
+  }
+  const e = { ...library.entryOf(rec), localBytes: bytes };
+  toast(kept ? `${e.name} ${e.version} is in Your firmware (kept in this browser).` : `${e.name} ${e.version}: this browser can't keep it, so it plays until you leave the page.`, kept ? "ok" : "bad");
+  await openFirmware(e);
+}
 
 function applyTheme() {
   device.setTheme(state.theme); screen.setTheme(state.theme);
@@ -662,7 +722,7 @@ async function main() {
   let mindex = null;
   try { const r = await fetch(new URL("index.json", mbase), { cache: "no-cache" }); if (r.ok) mindex = await r.json(); } catch (_) { mindex = null; }
   editor = new EditorPanel({ getState: () => state, index: mindex, base: mbase.href, onLayout: layout,
-    toEngine: (b) => { if (player && state.engine === "native") player.midi(b); }, setEngine: (n) => app.setEngine(n) });
+    toEngine: (b) => { if (player && (state.engine === "native" || state.engine === "rfm1")) player.midi(b); }, setEngine: (n) => app.setEngine(n) });
   window.FM1Editor = editor;
   app.installerUrl = catalog.paths.installer;
   $("install-link").href = catalog.paths.installer;
@@ -724,9 +784,23 @@ async function main() {
     if (sheet.inline) { sheet.inline = null; sheet.render(); } else if (sheet.page !== "main") sheet.show("main"); else sheet.close();
   }, true);
 
-  // the firmware: the deep link, the last one, or the first native one
+  // a file dropped anywhere on the page: an .rfm1 or a .fwsc, opened as from the browser's "Open a file..."
+  addEventListener("dragover", (ev) => { if (ev.dataTransfer && Array.from(ev.dataTransfer.types || []).includes("Files")) { ev.preventDefault(); ev.dataTransfer.dropEffect = "copy"; } });
+  addEventListener("drop", (ev) => {
+    const f = ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files[0];
+    if (!f) return;
+    ev.preventDefault();
+    if (!/\.(rfm1|fwsc)$/i.test(f.name)) { toast(`${f.name}: drop an .rfm1 firmware or a .fwsc package.`, "bad"); return; }
+    if (sheet.isOpen) sheet.close();
+    app.openLocalFile(f);
+  });
+
+  // the visitor's .rfm1 files, kept in this browser
+  state.library = await library.list();
+  // the firmware: the deep link, the last one (a catalog id, or one of the visitor's .rfm1 files), or the first native one
   const want = params.get("fw") || prefs.last;
-  const first = (want && findEntry(want)) || findEntry("felucca") || catalog.firmwares[0];
+  const mine = !params.get("fw") && want && want.startsWith(RFM1_LAST) ? libEntry(want.slice(RFM1_LAST.length)) : null;
+  const first = mine || (want && findEntry(want)) || findEntry("felucca") || catalog.firmwares[0];
   if (params.get("fw") && !findEntry(params.get("fw"))) toast(`No firmware "${params.get("fw")}": showing ${first.name}.`, "bad");
   layout();
   await openFirmware(first, params.get("engine"));

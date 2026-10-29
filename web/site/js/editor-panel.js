@@ -2,12 +2,14 @@
 // The header's Editor button and its panel: the running firmware's own manager / editor (web/managers/, hosted on this
 // site) in an iframe beside the FM-1, talking to the firmware through managers.js ManagerBridge. The FM-1 keeps
 // playing, with sound, while the panel is open; "Pop out" opens the manager in a tab of its own (a BroadcastChannel).
-//   native firmware with a hosted manager   the manager
+//   native firmware (or an .rfm1 file) with a hosted manager   the manager
 //   emulated (or the test engine)           "Editors work with the native engine; switch Engine to Native"
 //   no native build, an editor on its site  "This firmware's editor needs a real FM-1" and a link to it
 import { ManagerBridge, editorOf, portOf } from "./managers.js";
 
 const $ = (id) => document.getElementById(id);
+// the engines that run the firmware's own code, so its manager's SysEx gets answers: native, and an .rfm1 file
+const runsOwnCode = (s) => s.engine === "native" || s.engine === "rfm1";
 
 export class EditorPanel {
   // deps: getState() (main.js state), index (managers/index.json or null), base (the managers folder's URL),
@@ -36,9 +38,9 @@ export class EditorPanel {
       this.btn.setAttribute("aria-expanded", String(this.open));
       this.btn.classList.toggle("on", this.open);
     }
-    const running = s.engine === "native" && s.engineState === "running" && !!s.info;
+    const running = runsOwnCode(s) && s.engineState === "running" && !!s.info;
     const port = running ? portOf(e, this.index) : null;
-    this.bridge.setTarget({ port, firmware: port ? `${e.name} ${s.info.version || ""}`.trim() : null, engine: port ? "native" : null });
+    this.bridge.setTarget({ port, firmware: port ? `${e.name} ${s.info.version || ""}`.trim() : null, engine: port ? s.engine : null });
     if (this.open && !ed) this.close();
     else if (this.open) this.render();
   }
@@ -69,7 +71,7 @@ export class EditorPanel {
     dot.className = "fm1-dot " + (t.connected ? "on" : "off");
     $("ed-sub").textContent = t.connected
       ? `port "${t.port}" · ${s.entry.name} in this page${this.bridge.count > 1 ? ` · ${this.bridge.count} editors` : ""}`
-      : ed && ed.kind === "hosted" && s.engine === "native" && s.engineState !== "running" ? "starting the firmware..." : "no port";
+      : ed && ed.kind === "hosted" && runsOwnCode(s) && s.engineState !== "running" ? "starting the firmware..." : "no port";
     $("ed-pop").hidden = !ed;
     $("ed-pop").textContent = ed && ed.kind === "real" ? "Open its site ↗" : "Pop out ↗";
     const m = ed && ed.kind === "hosted" ? ed.manager : null;
@@ -82,8 +84,7 @@ export class EditorPanel {
     const s = this.d.getState(), e = s.entry, ed = this.editor;
     this.renderHead();
     if (!ed) { this.dropFrame(); return; }
-    const native = s.engine === "native";
-    if (ed.kind === "hosted" && native) {
+    if (ed.kind === "hosted" && runsOwnCode(s)) {
       if (this.frameFor === ed.manager.id) return;          // (the same manager stays: a reboot only moves its port)
       this.dropFrame();
       const f = document.createElement("iframe");

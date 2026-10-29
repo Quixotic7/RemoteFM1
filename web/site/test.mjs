@@ -509,6 +509,20 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   ok(rf.url === "https://github.com/Quixotic7/RemoteFM1/tree/v" + F("remotefm1").version && rf.title.includes(` · ${F("remotefm1").license} · source at v`), "source: RemoteFM1, this repo at its release's tag");
   ok(sourceOf({ id: "local-FM-1.fwsc", name: "FM-1", local: true, source: null }, "emu") === null && sourceOf({ id: "y", name: "Y", source: null, repo: null }, "emu") === null && sourceOf(null, "emu") === null,
      "source: stock M-VAVE / a local .fwsc -> none");
+  // the visitor's .rfm1 file (js/library.js): its manifest's source_url <repo>@<commit>, and its glue_url
+  const { entryOf } = await import("./js/library.js");
+  const re = entryOf({ sha256: "ab".repeat(32), fileName: "felucca-1.6.1.rfm1", size: 1072881, manifest: { rfm1: 1, abi: 6, id: "felucca", name: "Felucca", version: "1.6.1",
+    license: "GPL-3.0-only", source_url: "https://github.com/hugelton/Felucca@a53ecf428c29c780108fd70a31b71a32a6b5c313", authors: ["Leo Kuroshita (Hügelton Instruments)"],
+    glue_url: "https://github.com/Quixotic7/FM1VST/tree/0da04482a3af", built_by: "FM1VST 0.6.2" } });
+  const rs = sourceOf(re, "rfm1", credits);
+  ok(re.local && re.engines.join() === "rfm1" && re.defaultEngine === "rfm1" && re.license === "GPL-3.0-only" && re.author === "Leo Kuroshita (Hügelton Instruments)"
+     && rs.url === "https://github.com/hugelton/Felucca/tree/a53ecf428c29c780108fd70a31b71a32a6b5c313" && rs.refKind === "commit" && rs.repo === "hugelton/Felucca"
+     && rs.glue.url === "https://github.com/Quixotic7/FM1VST/tree/0da04482a3af" && rs.glue.label === "Quixotic7/FM1VST @ 0da0448"
+     && /Felucca 1\.6\.1 by Leo Kuroshita .* · GPL-3\.0-only · source at commit a53ecf4, the commit this \.rfm1 was built from/.test(rs.title),
+     "source: an .rfm1 file, its manifest's <repo>@<commit> as the tree at that commit, its glue_url as the glue");
+  const L2 = await import("./js/live.js");
+  ok(L2.chooseEngine(re, null, { engine: { felucca: "native" } }) === "rfm1" && L2.nameOf(re, "rfm1") === "Felucca",
+     "source: an .rfm1 entry runs on the rfm1 engine, whatever engine the catalog's Felucca was picked on");
   const shtml = readFileSync(new URL("./index.html", import.meta.url), "utf8");
   ok(/<a id="fw-src"[^>]*target="_blank" rel="noopener"/.test(shtml) && /<a id="site-src"[^>]*>Site source<\/a>/.test(shtml) && !/>Source<\/a>/.test(shtml),
      "source: the header's firmware link opens a new tab (noopener); the site's own is \"Site source\"");
@@ -571,7 +585,7 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
      "catalog filter: a warning names the missing cores");
   // the guard on a fake site: what the filtered catalog names, and the engines, managers, installer
   const mgr = { managers: [{ id: "choralroot", path: "choralroot/" }, { id: "pigeon", path: "pigeon/webapp/pigeon/" }] };
-  const siteOf = (c) => new Set([...c.firmwares.filter((f) => f.native).map((f) => f.native.wasm), "engines/native/engine.js",
+  const siteOf = (c) => new Set([...c.firmwares.filter((f) => f.native).map((f) => f.native.wasm), "engines/native/engine.js", "engines/rfm1/engine.js", "engines/common/shared.js",
     "engines/emu/engine.js", "engines/emu/fm1_web.wasm", "engines/emu/catalog.mjs", ...c.firmwares.filter((f) => f.emu && f.emu.from === "site").map((f) => f.emu.pkg),
     "installer/index.html", "managers/fm1-shim.js", "managers/choralroot/index.html", "managers/pigeon/webapp/pigeon/index.html", "remote/remote.js", "build/remote/remotefm1.mjs"]);
   const guard = (c, files, managers = mgr) => G.guardSite({ catalog: c, has: (p) => files.has(p), expected: exp, managers });
@@ -598,6 +612,11 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   ok(guard(cf, noMgr).errors.some((e) => /manager pigeon: managers\/pigeon\/webapp\/pigeon\/index\.html/.test(e)) && guard(cf, noShim).errors.length === 1
      && guard(cf, noMod).errors.length === 1 && !guard(cf, noRemote).errors.length && !guard(cf, siteOf(cf), null).errors.length,
      "guard: a listed manager's page, the shim, remote.js's module missing: not deployed (no managers, no remote: deployed)");
+  const noShared = siteOf(cf); noShared.delete("engines/common/shared.js");
+  const noRfm1 = siteOf(cf); noRfm1.delete("engines/rfm1/engine.js");
+  ok(guard(cf, noShared).errors.length === 2 && guard(cf, noShared).errors.every((e) => /without engines\/common\/shared\.js/.test(e))
+     && guard(cf, noRfm1).errors.length === 1 && /the \.rfm1 engine engines\/rfm1\/engine\.js/.test(guard(cf, noRfm1).errors[0]),
+     "guard: the .rfm1 engine, or the module it and the native engine import, missing: not deployed");
   const ann = G.nativeAnnotations({ built: ["felucca"], failed: [{ id: "speak37", stage: "configure", log: "ModuleNotFoundError: No module named 'numpy'" }] });
   const none = G.nativeAnnotations(null);
   ok(ann.length === 1 && ann[0].level === "warning" && /speak37/.test(ann[0].title) && /numpy/.test(ann[0].message) && none.length === 1 && none[0].level === "error",

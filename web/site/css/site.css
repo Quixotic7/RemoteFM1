@@ -428,6 +428,23 @@ kbd { font: 600 11px/1 "Inter Tight", sans-serif; border: 1px solid var(--line);
 .card.file { border-style: dashed; background: none; }
 .card.file .card-ver { color: var(--knob-off); }
 .empty { grid-column: 1 / -1; text-align: center; color: var(--muted); padding: 14px 0; margin: 0; }
+/* Your firmware: the visitor's .rfm1 files (js/library.js), each with a remove button in its corner */
+.mine-head { margin-top: 14px; }
+.cards.mine { margin-bottom: 4px; }
+.card-wrap { position: relative; min-width: 0; display: grid; }
+.card-wrap .card { padding-right: 26px; }
+.card-wrap .card.current { padding-right: 25px; }
+.card-x { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 6px; background: none;
+  color: var(--muted); cursor: pointer; display: grid; place-items: center; opacity: .55; }
+.card-x .ic { width: 11px; height: 11px; }
+.card-x:hover, .card-x:focus-visible { opacity: 1; background: var(--raised-hover); color: var(--red); }
+.card.mine-ask { cursor: default; height: auto; min-height: 58px; gap: 4px; }
+.card.mine-ask .pills { margin-top: 2px; gap: 6px; }
+.card.mine-ask .pill { height: 26px; font-size: 12px; }
+.get-rfm1 { margin-top: 10px; font-size: 12.5px; }
+.lic-list { margin-top: 8px; }
+.lic summary { cursor: pointer; color: var(--row-text); font-size: 12.5px; padding: 5px 0; }
+.lic .credits { margin: 2px 0 6px; }
 
 /* ---- About */
 .about-what { color: var(--row-text); font-size: 13.5px; margin: 0 0 10px; }

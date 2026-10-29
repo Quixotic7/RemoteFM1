@@ -100,6 +100,15 @@ adds Web MIDI, runs the whole site: the FM-1 as the panel over Bluetooth or USB,
 iPhone 13 Pro Max on 2026-10-28. In any iOS browser, an FM-1 plugged in by USB becomes the phone's sound output by
 itself (a Lightning iPhone needs a Lightning to USB camera adapter).
 
+**Your own .rfm1 firmwares.** The site's player also runs `.rfm1` files: a firmware's own code built to WebAssembly
+(FM1VST's core of it), the format RemoteFM1 for iOS runs. Download one from
+[RemoteFM1FW's releases](https://github.com/Quixotic7/RemoteFM1FW/releases/latest) (or a firmware's own release),
+then open it with the firmware browser's "Open a file..." or drop it on the page. It runs natively, as the site's own
+native cores do, and stays in the browser under "Your firmware" (IndexedDB) with its saves, apart from the firmware's
+native and emulated ones. The About page shows its licence, its authors and its source at the commit it was built
+from. The site checks the file before it runs: its manifest, imports, exports and memory (web/engine/API.md
+section 6).
+
 ## Safety
 
 From 0.2, RemoteFM1 is an fm1-base firmware, with fm1-base's and felucca-bsp's safeguards: the boot guard (two failed

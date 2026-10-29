@@ -17,6 +17,9 @@
     "wasm": "../build/emu/fm1_web.wasm",
     "hook": "../engines/emu/catalog.mjs"
    },
+   "rfm1": {
+    "module": "../engines/rfm1/engine.js"
+   },
    "mock": {
     "module": "mock/engine.js"
    }

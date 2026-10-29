@@ -42,6 +42,7 @@ const PATHS = {
     engines: {
       native: { module: "../engines/native/engine.js", wasm: "../build/native/{core}.wasm", ext: "../build/native-ext/ext/" },
       emu: { module: "../engines/emu/engine.js", wasm: "../build/emu/fm1_web.wasm", hook: "../engines/emu/catalog.mjs" },
+      rfm1: { module: "../engines/rfm1/engine.js" },          // (the visitor's .rfm1 files: no files of its own)
       mock: { module: "mock/engine.js" },
     },
     remote: "../remote/remote.js",
@@ -52,6 +53,7 @@ const PATHS = {
     engines: {
       native: { module: "engines/native/engine.js", wasm: "engines/native/{core}.wasm", ext: "engines/native/ext/" },
       emu: { module: "engines/emu/engine.js", wasm: "engines/emu/fm1_web.wasm", hook: "engines/emu/catalog.mjs" },
+      rfm1: { module: "engines/rfm1/engine.js" },
       mock: { module: "mock/engine.js" },
     },
     remote: "remote/remote.js",

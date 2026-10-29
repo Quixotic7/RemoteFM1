@@ -269,6 +269,8 @@ export async function packageFor(entry, { fetchPackage, recheck = null }) {
 //   emulated   the Hub's source: github.com/<owner>/<repo>/tree/<tag> as it is; a bare repo with a GitHub release tag
 //              gets /tree/<tag>; a bare repo with no tag stays bare (its default branch)
 //   RemoteFM1  the same rule: this repo, its release's tag
+//   an .rfm1   (the visitor's file, js/library.js) its manifest's source_url, <repo>@<commit>: the tree at that commit;
+//              its glue_url (FM1VST at a commit, the build glue) as the glue
 //   a file     (M-VAVE's stock firmware or any .fwsc from the visitor's computer): null, no public source
 const GH_REPO = /^https?:\/\/(?:www\.)?github\.com\/([^/\s?#]+)\/([^/\s?#]+?)(?:\.git)?\/?$/;
 const GH_TREE = /^https?:\/\/(?:www\.)?github\.com\/([^/\s?#]+)\/([^/\s?#]+)\/(?:tree|commit|blob)\/([^?#]+?)\/?$/;
@@ -292,7 +294,25 @@ function hubSource(e) {
   }
   return { url: src, repo: src.replace(/^https?:\/\/(www\.)?/, ""), ref: null, refKind: null };   // (not GitHub: as the Hub gives it)
 }
+// an .rfm1 manifest's source_url ("https://github.com/<owner>/<repo>@<commit>", or any URL) -> { url, repo, ref, refKind }
+export function rfm1Source(url) {
+  const at = /^(.*?)@([^@/\s]+)$/.exec(String(url || ""));
+  const base = at ? at[1] : String(url || ""), ref = at ? at[2] : null, m = GH_REPO.exec(base);
+  if (m && ref) return { url: `https://github.com/${m[1]}/${m[2]}/tree/${ref}`, repo: `${m[1]}/${m[2]}`, ref, refKind: isHash(ref) ? "commit" : "ref" };
+  if (m) return { url: `https://github.com/${m[1]}/${m[2]}`, repo: `${m[1]}/${m[2]}`, ref: null, refKind: null };
+  const t = GH_TREE.exec(base);
+  if (t) { const r = dec(t[3]); return { url: base, repo: `${t[1]}/${t[2]}`, ref: r, refKind: isHash(r) ? "commit" : "ref" }; }
+  return url ? { url: String(url), repo: base.replace(/^https?:\/\/(www\.)?/, ""), ref, refKind: ref && isHash(ref) ? "commit" : ref ? "ref" : null } : null;
+}
 export function sourceOf(e, engine, credits = {}) {
+  if (e && e.rfm1) {
+    const s = rfm1Source(e.source);
+    if (!s) return null;
+    const g = e.rfm1.glueUrl ? rfm1Source(e.rfm1.glueUrl) : null;
+    const glue = g ? { url: g.url, path: g.repo, label: g.ref ? `${g.repo} @ ${g.refKind === "commit" ? g.ref.slice(0, 7) : g.ref}` : g.repo } : null;
+    const title = `${e.name} ${e.version} by ${e.authorFull || e.author} · ${e.license || "licence: see its source"} · ${s.ref ? "source at " : "source: "}${refLabel(s.ref, s.refKind)}, the commit this .rfm1 was built from`;
+    return { ...s, title, glue, native: false, rfm1: true };
+  }
   if (!e || e.local) return null;
   const nat = engine === "native" && e.native;
   let s = null, glue = null;

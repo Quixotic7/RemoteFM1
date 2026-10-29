@@ -5,7 +5,7 @@
 //   const p = new Player(catalog, events);   events: { frame, leds, info, flash, halted, midiOut, error, status }
 //   await p.start();                         // in a user gesture (the autoplay policy); p.unlock() is its synchronous part
 //   await p.setSink(id)                       the output device: "" the system's, else an enumerateDevices() id (sinkSupport())
-//   await p.load(entry, "native" | "emu" | "mock", flashBytes | null)
+//   await p.load(entry, "native" | "emu" | "rfm1" | "mock", flashBytes | null)
 //   p.panel(msg); p.midi(bytes); p.flashReq();
 //   p.setVolume(0..1)                         the page's volume: a GainNode after the worklet (recordings are taken before it)
 //   p.recStart({ id, chunkFrames, maxFrames }); p.recStop(); p.recBuf(l, r)   the recorder (js/rec-ui.js); events: rec(m)
@@ -219,6 +219,11 @@ export class Player {
       const wasm = (await fetchBytes(abs(entry.native.wasm), `The native core of ${entry.name}`)).buffer;
       // an author's own build (engines/native/ext/): its manifest's flags, which the engine checks against the module
       return entry.native.by === "author" ? { wasm, flags: { asyncify: !!entry.native.asyncify, abi: entry.native.abi || 6 } } : { wasm };
+    }
+    // an .rfm1 file the visitor opened (js/library.js): its bytes, which the page read from the file or this browser
+    if (engine === "rfm1") {
+      if (!entry.localBytes) throw new Error(`${entry.name}'s .rfm1 file is not in this browser any more.`);
+      return { wasm: entry.localBytes.slice().buffer };
     }
     if (engine === "emu") {
       const hook = await this.emuHook();

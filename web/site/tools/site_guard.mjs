@@ -6,6 +6,7 @@
 //       the deploy guard on an assembled site (_site). Fails (exit 1) when:
 //         - a catalog entry's native engine has no .wasm in SITE, or the native engine.js is missing;
 //         - more than a third of FM1VST's un-gated cores (data/cores.json, or --cores) have no .wasm in SITE;
+//         - the .rfm1 engine is missing, or engines/common/shared.js (the native and .rfm1 engines import it);
 //         - the catalog has emulated entries and the emulated engine (engine.js, fm1_web.wasm, catalog.mjs) is missing,
 //           or a package the site itself hosts (RemoteFM1's) is missing;
 //         - the hosted managers' index.json names a manager whose page is missing, or the Web MIDI shim is missing;
@@ -47,6 +48,13 @@ export function guardSite({ catalog, has, expected, managers = null }) {
   if (missing.length > expected.length * MAX_MISSING)
     errors.push(`${missing.length} of ${expected.length} native cores are missing (more than a third: ${missing.join(", ")}); the deployed site stays`);
   else if (missing.length) warnings.push(`${missing.length} of ${expected.length} native cores are missing (${missing.join(", ")}): their firmwares run emulated, or are left out`);
+  // the .rfm1 engine (the visitor's own files: JavaScript only, always published), and the module the native and the
+  // .rfm1 engines import (engines/common/shared.js, next to their folders)
+  if (E.rfm1 && !has(E.rfm1.module)) errors.push(`the .rfm1 engine ${E.rfm1.module} is not in the site`);
+  for (const k of ["native", "rfm1"]) {
+    const mod = E[k] && E[k].module, shared = mod ? mod.replace(/[^/]+\/[^/]+$/, "common/shared.js") : null;
+    if (mod && has(mod) && !has(shared)) errors.push(`the ${k} engine ${mod} is in the site without ${shared}, which it imports`);
+  }
   // emulated: the engine every Hub firmware runs on, and the packages the site hosts itself
   const emus = fws.filter((f) => f.engines && f.engines.includes("emu"));
   if (emus.length) for (const k of ["module", "wasm", "hook"]) {
