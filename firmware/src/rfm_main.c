@@ -193,6 +193,8 @@ static int rf_frame_due(void)                       /* usb_poll's context: the 1
     last = now;
     return 1;
 }
+
+static uint32_t rf_usb_ms(void) { return plat_ms(); }   /* usb_poll's context: the audio input's 20 ms stall check */
 #endif
 
 /* ------------------------------------------------------------------ out --- */

@@ -50,8 +50,9 @@ void app_say(const char *a, const char *b);
 #ifndef PLAT_HOST
 /* felucca-bsp's usb.c with RemoteFM1's vendor interface and its hooks (firmware/patches/felucca-bsp): the bulk pair
  * on EP3, its rings in the pool; every SysEx byte from USB to src/rfm_main.c's tap (RemoteFM1's messages only, so the
- * updater's frame slot is never held by one); EP1 held while RemoteFM1's ring is full; the frame-number check by the
- * clock (the main loop polls USB far more often than 2 kHz); macOS's odd CIN 0xF byte inside a long SysEx taken */
+ * updater's frame slot is never held by one); EP1 held while RemoteFM1's ring is full; the frame-number check and the
+ * audio input's stall check by the clock (the main loop polls USB far more often than 2 kHz); macOS's odd CIN 0xF
+ * byte inside a long SysEx taken */
 #define FELUCCA_VENDOR 1
 #define FELUCCA_VENDOR_IN_N 32768u
 #define FELUCCA_VENDOR_OUT_N 32768u
@@ -59,10 +60,12 @@ void app_say(const char *a, const char *b);
 static int rf_sx_tap(uint32_t b);
 static int rf_ep1_room(void);
 static int rf_frame_due(void);
+static uint32_t rf_usb_ms(void);
 static uint32_t rf_cinf;
 #define FELUCCA_SYSEX_TAP(b) rf_sx_tap(b)
 #define FELUCCA_EP1_ROOM() rf_ep1_room()
 #define FELUCCA_USB_FRAME_DUE() rf_frame_due()
+#define FELUCCA_USB_MS() rf_usb_ms()
 #define FELUCCA_CIN_F_SYSEX (rf_cinf++)
 #else
 /* the host simulator's checks and commands (src/rfm_host.c) */

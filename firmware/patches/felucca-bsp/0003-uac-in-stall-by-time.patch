@@ -1,0 +1,46 @@
+--- a/chip/usb.c
++++ b/chip/usb.c
+@@ -44,6 +44,8 @@
+  *   FELUCCA_EP1_ROOM()      before an EP1 OUT packet is taken: 0 leaves it for a later poll (NAKed meanwhile)
+  *   FELUCCA_USB_FRAME_DUE() the 10 ms frame-number check is due (nonzero): for an app that calls usb_poll from its
+  *                           main loop far more often than the 2 kHz timer does (default: every 20th poll)
++ *   FELUCCA_USB_MS()        a millisecond clock, for the same app: the audio input's 20 ms stall check by time
++ *                           (default: 40 polls of the 2 kHz timer; a busier poller would drop the stream every frame)
+  *   FELUCCA_CIN_F_SYSEX     defined: a CIN 0xF packet (one unparsed byte) inside a SysEx, or with an F0, is a SysEx
+  *                           byte, as CIN 4..7's are (macOS sends a long SysEx's odd byte so: dropped, a 2 KB message
+  *                           came one byte short) */
+@@ -195,7 +197,10 @@
+     volatile uint8_t flowing;    /* the host takes our packets (it may set alt 1 well before it reads) */
+     uint8_t queued;              /* a packet was queued since the stream (re)started */
+     uint8_t feed;                /* this render feeds the ring (sampled when it starts) */
+-    uint8_t wait;                /* polls the queued packet has waited */
++    uint8_t wait;                /* polls the queued packet has waited (FELUCCA_USB_MS: 1 once a stall is counted) */
++#ifdef FELUCCA_USB_MS
++    uint32_t t_queued;           /* FELUCCA_USB_MS() when the packet was queued */
++#endif
+     uint8_t e0_rx;               /* SET_CUR sampling frequency: data stage pending */
+     volatile uint32_t fill_min;  /* ring fill when the last render started */
+     uint32_t acc;                /* 44.1 frames per ms: 0.1 frame steps */
+@@ -1713,7 +1718,12 @@
+     sie_wr(S_INDEX, 4);
+     csr = sie_rd(S_TXCSR1);
+     if (csr & 0x01u) {                                  /* still queued */
++#ifdef FELUCCA_USB_MS
++        if (!uac.wait && uac.flowing && FELUCCA_USB_MS() - uac.t_queued > 20u) {
++            uac.wait = 1;
++#else
+         if (uac.wait < 255u && ++uac.wait == 40u && uac.flowing) {
++#endif
+             uac.flowing = 0;
+             uac.stalls++;
+         }
+@@ -1726,6 +1736,9 @@
+     }
+     uac.queued = 1;
+     uac.wait = 0;
++#ifdef FELUCCA_USB_MS
++    uac.t_queued = FELUCCA_USB_MS();
++#endif
+     n = uac_packet(ep4tx);
+     fm1_usb_ep4_send(ep4tx, n * 4u);
+     sie_wr(S_TXCSR1, 0x01);                             /* TxPktRdy (and UnderRun cleared) */
