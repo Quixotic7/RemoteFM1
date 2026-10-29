@@ -60,8 +60,11 @@ rsync -a --delete --exclude=.git --exclude=/core/tests/ --include=/LICENSE --inc
     --include=/assets/fonts/OFL.txt --exclude='*' "$FIZZ_SRC/" "$SRC/"
 echo "gitdir: $(git -C "$FIZZ_SRC" rev-parse --absolute-git-dir)" >"$SRC/.git"
 [ ! -e "$SRC/site" ] && [ ! -e "$SRC/core/tests" ] || { echo "GPL parts of FIZZ in $SRC"; exit 1; }
-# plutovg's rasterizer without setjmp in Wasm (the patch says why; the native build is unchanged)
-patch -s -p1 -d "$SRC" <"$ROOT/tools/rfm1/fizz/plutovg-ft-raster-wasm.patch"
+# plutovg's rasterizer without setjmp in Wasm (the patch says why; the native build is unchanged). FIZZ carries the
+# same change itself after 0.12.0-beta.12 (branch plutovg-wasm): then nothing is patched
+if ! grep -q 'ras.overflow = 1;' "$SRC/third_party/plutovg/source/plutovg-ft-raster.c"; then
+    patch -s -p1 -d "$SRC" <"$ROOT/tools/rfm1/fizz/plutovg-ft-raster-wasm.patch"
+fi
 
 EMCC=${FM1_EMCC:-$(command -v emcc || true)}
 if [ -z "$EMCC" ] && [ -f "$HOME/emsdk/emsdk_env.sh" ]; then
