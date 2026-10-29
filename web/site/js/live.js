@@ -16,6 +16,8 @@
 //   authorNative(build, extPath)  an author's own native build (web/site/tools/native_sync.mjs's index) as a native core
 //   preferNative(fm1vst, author)  which native build a firmware gets: the newer version; the author's when equal
 //   nativeOrigin(entry)           who built the native core that runs, in words (the sheet, the engine note)
+//   rfm1Entry(d, manifest, file)  a firmware this site hosts as an .rfm1 file (FIZZ), as a catalog entry
+//   siteRfm1(entry) / localRfm1(entry)   an entry with an .rfm1 of this site's / one of the visitor's own
 
 export const HUB = "https://thefirmwarehub.com/";
 export const SELF_ID = "remotefm1";
@@ -132,6 +134,31 @@ export function nativeOrigin(e) {
   return { short: "native · FM1VST's core", long: `FM1VST's ${nameOf(e, "native")} core ${n.version}` };
 }
 
+// ------------------------------------------------------------------ .rfm1 files ---
+// The site's own .rfm1 files (web/site/fw/, data/site-rfm1.json: FIZZ, built by tools/rfm1/) and the visitor's
+// (js/library.js: local). Both run on the rfm1 engine; their saves are the firmware's under engine "rfm1".
+export const siteRfm1 = (e) => !!(e && e.rfm1 && e.rfm1.from === "site");
+export const localRfm1 = (e) => !!(e && e.rfm1 && e.local);
+// d: data/site-rfm1.json's record (file, author, category, tag, what, source, release, site, beta); m: the file's
+// manifest (engines/rfm1/engine.js inspect); file: { sha256, size }. The id, name, version, licence, authors, source and
+// glue are the manifest's
+export function rfm1Entry(d, m, { sha256, size }) {
+  const authors = Array.isArray(m.authors) ? m.authors.map(String).filter(Boolean) : [];
+  const cat = d.category || "Other";
+  const gh = /^https:\/\/github\.com\/([^/@\s]+\/[^/@\s]+)/.exec(String(m.source_url || ""));
+  return {
+    id: m.id, name: m.name, version: String(m.version),
+    author: d.author || shortAuthor(authors[0]), authorFull: authors.join(", ") || d.author || "unknown",
+    category: cat, categories: [cat], tag: d.tag || tagOf(d.what), what: d.what || "",
+    license: m.license || null,
+    source: d.source || m.source_url || null, repo: gh ? gh[1] : null, release: d.release || null, site: d.site || null,
+    play: null, editor: null, beta: !!d.beta,
+    engines: ["rfm1"], defaultEngine: "rfm1", native: null, emu: null,
+    rfm1: { from: "site", file: d.file, sha256, size, fileName: String(d.file).split("/").pop(), version: String(m.version),
+            sourceUrl: m.source_url || null, glueUrl: typeof m.glue_url === "string" ? m.glue_url : null, builtBy: m.built_by || null, authors },
+  };
+}
+
 // ------------------------------------------------------------------ entries ---
 export const CAT = { synth: "Synth", groove: "Groovebox", chords: "Chords", drums: "Drums", other: "Other", dev: "Other" };
 export const CATEGORIES = ["All", "Synth", "Groovebox", "Chords", "Drums", "Other"];
@@ -190,7 +217,9 @@ const byName = (a, b) => a.name.localeCompare(b.name, "en", { sensitivity: "base
 //     (category, tag, the native core: its wasm and version). Its snapshot version is kept as .snapshot for packageFor.
 //   - a firmware only on the Hub: a new emulated entry.
 //   - a firmware that left the Hub: gone, unless it has a native core (then native only) or is RemoteFM1's own.
-//   - RemoteFM1's entry (a same-origin package) stays as it is.
+//   - RemoteFM1's entry (a same-origin package) stays as it is; so does a firmware this site hosts as an .rfm1: on the
+//     Hub too, it gets the Hub's package as its emulated engine, the .rfm1 stays its default; unless the emulator
+//     can't run that package (emuSkip: FIZZ's needs its data blob), then the .rfm1 alone.
 export function mergeLive(snapshot, hub, { emuSkip = {} } = {}) {
   const byId = new Map(snapshot.firmwares.map((f) => [f.id, f]));
   const seen = new Set(), out = [];
@@ -199,6 +228,7 @@ export function mergeLive(snapshot, hub, { emuSkip = {} } = {}) {
     const old = byId.get(h.id);
     if (old && old.emu && old.emu.from === "site") continue;
     seen.add(h.id);
+    if (siteRfm1(old) && emuSkip[h.id]) { out.push({ ...old, engines: ["rfm1"], defaultEngine: "rfm1", emu: null, live: true }); continue; }
     if (!old) { out.push({ ...siteEntry(h, { emuSkip }), live: true, added: true }); continue; }
     const emu = { ...old.emu, ...emuOf(h) };
     const e = { ...old, version: String(h.version ?? old.version), emu, live: true,
@@ -211,6 +241,7 @@ export function mergeLive(snapshot, hub, { emuSkip = {} } = {}) {
   for (const f of snapshot.firmwares) {
     if (seen.has(f.id)) continue;
     if (f.emu && f.emu.from === "site") out.push(f);
+    else if (siteRfm1(f)) out.push({ ...f, engines: f.engines.filter((k) => k !== "emu"), defaultEngine: "rfm1", emu: null });
     else if (f.native) out.push({ ...f, engines: ["native"], defaultEngine: "native", nativeBehind: false, offHub: true });
   }
   out.sort(byName);
@@ -269,8 +300,8 @@ export async function packageFor(entry, { fetchPackage, recheck = null }) {
 //   emulated   the Hub's source: github.com/<owner>/<repo>/tree/<tag> as it is; a bare repo with a GitHub release tag
 //              gets /tree/<tag>; a bare repo with no tag stays bare (its default branch)
 //   RemoteFM1  the same rule: this repo, its release's tag
-//   an .rfm1   (the visitor's file, js/library.js) its manifest's source_url, <repo>@<commit>: the tree at that commit;
-//              its glue_url (FM1VST at a commit, the build glue) as the glue
+//   an .rfm1   (the visitor's file, js/library.js, or this site's: FIZZ) its manifest's source_url, <repo>@<commit>: the
+//              tree at that commit; its glue_url (FM1VST at a commit, the build glue) as the glue
 //   a file     (M-VAVE's stock firmware or any .fwsc from the visitor's computer): null, no public source
 const GH_REPO = /^https?:\/\/(?:www\.)?github\.com\/([^/\s?#]+)\/([^/\s?#]+?)(?:\.git)?\/?$/;
 const GH_TREE = /^https?:\/\/(?:www\.)?github\.com\/([^/\s?#]+)\/([^/\s?#]+)\/(?:tree|commit|blob)\/([^?#]+?)\/?$/;
@@ -305,12 +336,12 @@ export function rfm1Source(url) {
   return url ? { url: String(url), repo: base.replace(/^https?:\/\/(www\.)?/, ""), ref, refKind: ref && isHash(ref) ? "commit" : ref ? "ref" : null } : null;
 }
 export function sourceOf(e, engine, credits = {}) {
-  if (e && e.rfm1) {
-    const s = rfm1Source(e.source);
+  if (e && e.rfm1 && (e.local || engine === "rfm1")) {
+    const s = rfm1Source(e.rfm1.sourceUrl || e.source);
     if (!s) return null;
     const g = e.rfm1.glueUrl ? rfm1Source(e.rfm1.glueUrl) : null;
     const glue = g ? { url: g.url, path: g.repo, label: g.ref ? `${g.repo} @ ${g.refKind === "commit" ? g.ref.slice(0, 7) : g.ref}` : g.repo } : null;
-    const title = `${e.name} ${e.version} by ${e.authorFull || e.author} · ${e.license || "licence: see its source"} · ${s.ref ? "source at " : "source: "}${refLabel(s.ref, s.refKind)}, the commit this .rfm1 was built from`;
+    const title = `${e.name} ${e.rfm1.version || e.version} by ${e.authorFull || e.author} · ${e.license || "licence: see its source"} · ${s.ref ? "source at " : "source: "}${refLabel(s.ref, s.refKind)}, the commit this .rfm1 was built from`;
     return { ...s, title, glue, native: false, rfm1: true };
   }
   if (!e || e.local) return null;
@@ -330,20 +361,21 @@ export function sourceOf(e, engine, credits = {}) {
 }
 
 // ------------------------------------------------------------------ the browser ---
-// The firmware browser's engine filter: "all", "native" (firmwares with a native core) or "emu" (every firmware the
-// emulator runs: not the ones known not to, nor a native-only one that left the Hub). Combined with a category chip
-// and a search.
+// The firmware browser's engine filter: "all", "native" (firmwares with a native core, or this site's .rfm1: FIZZ) or
+// "emu" (every firmware the emulator runs: not the ones known not to, nor a native-only one that left the Hub).
+// Combined with a category chip and a search.
 export const ENGINE_FILTERS = [["all", "All"], ["native", "Native"], ["emu", "Emulated"]];
 export function browse(list, { engine = "all", cat = "All", q = "" } = {}) {
   const s = String(q || "").trim().toLowerCase();
   return list.filter((f) =>
-    (engine === "all" || (engine === "native" ? !!f.native && f.engines.includes("native") : f.engines.includes("emu") && !f.emuNote)) &&
+    (engine === "all" || (engine === "native" ? (!!f.native && f.engines.includes("native")) || f.engines.includes("rfm1") : f.engines.includes("emu") && !f.emuNote)) &&
     (cat === "All" || (f.categories || []).includes(cat)) &&
     (!s || [f.name, f.author, f.authorFull, f.tag, f.what, f.id].some((x) => x && String(x).toLowerCase().includes(s))));
 }
 // what a card shows under a filter: { version, note, engine } (engine: the one a click starts; null: the default)
 export function cardView(f, engine = "all") {
   if (engine === "native" && f.native) return { version: f.native.version, note: f.nativeBehind ? `Hub: ${f.version}` : null, engine: "native" };
+  if (engine === "native" && f.engines.includes("rfm1")) return { version: f.rfm1.version || f.version, note: null, engine: "rfm1" };
   if (engine === "emu") return { version: f.version, note: null, engine: "emu" };
   return { version: f.version, note: f.nativeBehind ? `native: ${f.native.version}` : null, engine: null };
 }

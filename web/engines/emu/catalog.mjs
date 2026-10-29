@@ -19,7 +19,8 @@ export const HUB = "https://thefirmwarehub.com/";
 export const HUB_CATALOG = HUB + "catalog.json";
 
 // Hub firmwares known not to run in fm1-emu at its pinned commit (fm1-emu tools/hub_catalog.mjs SKIP)
-export const EMU_SKIP = { bubba: "boots to a black screen, no sound (needs M-VAVE's own loader)" };
+export const EMU_SKIP = { bubba: "boots to a black screen, no sound (needs M-VAVE's own loader)",
+  fizz: "shows FIZZ NEEDS ITS DATA, silent: its data blob is written over USB after the install, which the emulator can't do (this site runs its .rfm1)" };
 
 export const STOCK_ID = "mvave";
 

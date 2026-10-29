@@ -1,0 +1,59 @@
+SPDX-License-Identifier: FTL
+FIZZ's plutovg-ft-raster.c (FreeType's gray rasterizer, in plutovg) in the .rfm1 build: its render-pool overflow
+without setjmp / longjmp, which WebAssembly has only with its exception handling (not in an .rfm1: RFM1-FORMAT.md 6).
+The overflow becomes a flag; the band's cells after it go to a spare cell, the outline is decomposed to its end and
+the band is split as before, so the rows drawn are the same. Only under __wasm__: the native build is FIZZ's own.
+Applied by tools/rfm1/build_fizz.sh to its copy of FIZZ (patch -p1).
+
+--- a/third_party/plutovg/source/plutovg-ft-raster.c
++++ b/third_party/plutovg/source/plutovg-ft-raster.c
+@@ -189,6 +189,10 @@
+     int  band_shoot;
+ 
+     pvg_ft_jmp_buf  jump_buffer;
++#ifdef __wasm__
++    int    overflow;   /* RemoteFM1 .rfm1: the overflow as a flag (no setjmp in WebAssembly without its */
++    TCell  spare;      /* exceptions); the cells after it go to the spare and the band is split as before */
++#endif
+ 
+     void*       buffer;
+     long        buffer_size;
+@@ -291,7 +295,14 @@
+     }
+ 
+     if ( ras.num_cells >= ras.max_cells )
++#ifdef __wasm__
++    {
++      ras.overflow = 1;
++      return &ras.spare;
++    }
++#else
+       pvg_ft_longjmp( ras.jump_buffer, 1 );
++#endif
+ 
+     cell        = ras.cells + ras.num_cells++;
+     cell->x     = x;
+@@ -1632,6 +1643,15 @@
+   {
+     volatile int  error = 0;
+ 
++#ifdef __wasm__
++    /* RemoteFM1 .rfm1: the outline decomposed to its end, then the overflow reported as the longjmp would */
++    ras.overflow = 0;
++    error = PVG_FT_Outline_Decompose( &ras.outline, &ras );
++    if ( !ras.invalid )
++      gray_record_cell( RAS_VAR );
++    if ( ras.overflow )
++      error = ErrRaster_Memory_Overflow;
++#else
+     if ( pvg_ft_setjmp( ras.jump_buffer ) == 0 )
+     {
+       error = PVG_FT_Outline_Decompose( &ras.outline, &ras );
+@@ -1642,6 +1662,7 @@
+     {
+       error = ErrRaster_Memory_Overflow;
+     }
++#endif
+ 
+     return error;
+   }

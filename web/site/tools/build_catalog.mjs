@@ -8,6 +8,8 @@
 //     left the Hub);
 //   - RemoteFM1 itself (web/installer/releases.json, its first release): the one package this site hosts, fetched from
 //     the installer's firmware/ folder on the same site, not from the Hub. It plays nothing; it waits for a host;
+//   - the firmwares this site hosts as .rfm1 files (data/site-rfm1.json, web/site/fw/: FIZZ, built by tools/rfm1/), on
+//     the rfm1 engine: each file's SHA-256 checked and its manifest read (the id, name, version, licence, source, glue);
 //   - firmware authors' own native builds (--native-ext: web/site/tools/native_sync.mjs's index, the builds it checked
 //     and published under engines/native/ext/): where FM1VST also builds the firmware, the newer version runs, the
 //     author's at the same version (live.js preferNative); the other one is named in the entry (nativeAlt, nativeWhy).
@@ -29,7 +31,8 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { siteEntry, CATEGORIES, HUB, authorNative, preferNative } from "../js/live.js";
+import { siteEntry, CATEGORIES, HUB, authorNative, preferNative, rfm1Entry } from "../js/live.js";
+import { inspect } from "../../engines/rfm1/engine.js";
 import { nativeAvailability, ungatedCores, annotate } from "./site_guard.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url)), SITE = join(HERE, "..");
@@ -172,7 +175,8 @@ const withNative = (e, pick) => {
 };
 
 // Hub firmwares known not to run in fm1-emu: W2's web/engines/emu/catalog.mjs EMU_SKIP when it is there
-let EMU_SKIP = { bubba: "boots to a black screen, no sound (needs M-VAVE's own loader)" };
+let EMU_SKIP = { bubba: "boots to a black screen, no sound (needs M-VAVE's own loader)",
+  fizz: "shows FIZZ NEEDS ITS DATA, silent: its data blob is written over USB after the install, which the emulator can't do (this site runs its .rfm1)" };
 try { EMU_SKIP = (await import(new URL("../../engines/emu/catalog.mjs", import.meta.url).href)).EMU_SKIP || EMU_SKIP; } catch (_) { /* (W2's branch not merged) */ }
 
 // the native core's own source: the commit FM1VST pins (its submodule), and FM1VST's glue folder for it
@@ -237,10 +241,30 @@ function remoteEntry() {
   };
 }
 firmwares.splice(0, firmwares.length, ...firmwares.filter((f) => f.id !== REMOTE_ID), remoteEntry());
+
+// the site's own .rfm1 files (the same path from the page in both layouts: fw/ is in web/site). One the Hub lists too
+// keeps the Hub's package as its emulated engine; the .rfm1 is its default
+for (const d of JSON.parse(readFileSync(join(SITE, "data", "site-rfm1.json"), "utf8")).firmwares) {
+  const bytes = readFileSync(join(SITE, d.file));
+  const sha = createHash("sha256").update(bytes).digest("hex");
+  if (sha !== d.sha256) { console.error(`build_catalog: ${d.file} has SHA-256 ${sha}, data/site-rfm1.json says ${d.sha256}`); process.exit(1); }
+  let r;
+  try { r = rfm1Entry(d, inspect(new Uint8Array(bytes)).manifest, { sha256: sha, size: bytes.length }); }
+  catch (e) { console.error(`build_catalog: ${d.file}: ${e.message || e}`); process.exit(1); }
+  const i = firmwares.findIndex((f) => f.id === r.id);
+  if (i < 0) firmwares.push(r);
+  else {
+    const h = firmwares[i];
+    // (a package the emulator can't run, FIZZ's: the .rfm1 alone)
+    console.log(`build_catalog: ${r.id} is on the Hub too: its .rfm1 ${r.version} is the default${EMU_SKIP[r.id] ? "; the Hub's package does not run emulated" : `, the Hub's ${h.version} runs emulated`}`);
+    firmwares[i] = EMU_SKIP[r.id] ? r
+      : { ...h, engines: ["rfm1", ...h.engines.filter((k) => k !== "rfm1")], defaultEngine: "rfm1", rfm1: r.rfm1, license: h.license || r.license };
+  }
+}
 firmwares.sort((a, b) => a.name.localeCompare(b.name, "en", { sensitivity: "base" }));
 
 const catalog = {
-  about: "Built by web/site/tools/build_catalog.mjs from the FM-1 Firmware Hub's catalog, FM1VST's cores and RemoteFM1's own release (web/installer/releases.json). Edit those, not this file.",
+  about: "Built by web/site/tools/build_catalog.mjs from the FM-1 Firmware Hub's catalog, FM1VST's cores, RemoteFM1's own release (web/installer/releases.json) and the site's .rfm1 files (data/site-rfm1.json). Edit those, not this file.",
   generated: new Date().toISOString().slice(0, 10),
   hubUpdated: hub.updated || null,
   hubSource: hubLive ? "live" : "snapshot",
@@ -265,7 +289,8 @@ const nOff = firmwares.filter((f) => f.offHub).length;
 const nAuthor = firmwares.filter((f) => f.native && f.native.by === "author").length;
 // FM1VST's own native cores: running, or named as the other build where the author's runs
 const nFm1vst = firmwares.filter((f) => (f.native && f.native.by !== "author") || (f.nativeAlt && f.nativeAlt.by === "fm1vst")).length;
-console.log(`catalog: ${firmwares.length} firmwares (${nNative - nOff} native + emulated, ${nOff} native only, ${firmwares.length - nNative} emulated, RemoteFM1 among them; ${nAuthor} native built by the author), layout ${layout} -> ${out}`);
+const nRfm1 = firmwares.filter((f) => f.rfm1).length;
+console.log(`catalog: ${firmwares.length} firmwares (${nNative - nOff} native + emulated, ${nOff} native only, ${firmwares.length - nNative - nRfm1} emulated, RemoteFM1 among them; ${nAuthor} native built by the author; ${nRfm1} .rfm1 from this site), layout ${layout} -> ${out}`);
 // (the 21 un-gated cores, less those --native-dir does not have)
 const nUngated = ungatedCores(cores).length;
 if (nUngated !== 21) { console.error(`build_catalog: data/cores.json has ${nUngated} un-gated cores, expected 21`); process.exit(1); }

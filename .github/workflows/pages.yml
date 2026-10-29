@@ -9,6 +9,8 @@
 #   engines/emu/engine.js catalog.mjs fm1_web.wasm LICENSE-fm1-emu.txt   W2 (needs web/vendor/fm1-emu)
 #   engines/rfm1/engine.js, engines/common/shared.js              the .rfm1 engine (the visitor's own files), and the
 #                                                                module it and the native engine import
+#   fw/                                                          the site's own .rfm1 files (FIZZ: tools/rfm1/build_fizz.sh,
+#                                                                committed), checked against fw/SHA256SUMS
 #   remote/remote.js, build/remote/remotefm1.mjs                 W4 (Use my FM-1)
 #   installer/                                                   the RemoteFM1 installer and its packages (firmware/: every
 #                                                                release releases.json lists, checked against SHA256SUMS)
@@ -177,8 +179,10 @@ jobs:
       - name: The player and the installer
         run: |
           mkdir -p _site _site/engines/common _site/engines/rfm1
-          cp -R web/site/index.html web/site/css web/site/js web/site/worklet web/site/mock web/site/fonts web/site/native _site/
-          # the .rfm1 engine (the visitor's own files: nothing to build) and the module it and the native engine import
+          cp -R web/site/index.html web/site/css web/site/js web/site/worklet web/site/mock web/site/fonts web/site/native web/site/fw _site/
+          # the site's own .rfm1 files (FIZZ), as committed; the deploy guard also checks each against the catalog
+          (cd _site/fw && sha256sum -c SHA256SUMS)
+          # the .rfm1 engine (the visitor's own files and the site's: nothing to build) and the module it and the native engine import
           cp web/engines/common/shared.js _site/engines/common/
           cp web/engines/rfm1/engine.js _site/engines/rfm1/
           ext=()
@@ -211,7 +215,7 @@ jobs:
           done
 
       # the deploy guard (web/site/tools/site_guard.mjs): nothing the catalog names may be missing (a native core's .wasm,
-      # the emulated engine, RemoteFM1's package, a listed manager's page), and more than a third of the native cores
+      # the emulated engine, RemoteFM1's package, the site's .rfm1 files and their SHA-256, a listed manager's page), and more than a third of the native cores
       # missing is a systemic failure: the job fails, the deploy job does not run, and the deployed site stays
       - name: Deploy guard
         run: node web/site/tools/site_guard.mjs check _site

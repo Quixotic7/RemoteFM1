@@ -15,6 +15,8 @@
 // fetches and checks a package; a hook may also export engineFiles({ entry, fetch, paths }) to take the whole job.
 // Without it the Hub's package URL from catalog.json is fetched and checked here. RemoteFM1's own package (emu.from
 // "site") is the one exception: a path relative to the page, the installer's firmware/ folder on this same site.
+// The rfm1 engine runs the visitor's own .rfm1 files (their bytes, from the page) and this site's (FIZZ: rfm1.file,
+// fetched from fw/ and checked against the catalog's SHA-256).
 
 const abs = (p) => new URL(p, document.baseURI).href;
 
@@ -220,10 +222,15 @@ export class Player {
       // an author's own build (engines/native/ext/): its manifest's flags, which the engine checks against the module
       return entry.native.by === "author" ? { wasm, flags: { asyncify: !!entry.native.asyncify, abi: entry.native.abi || 6 } } : { wasm };
     }
-    // an .rfm1 file the visitor opened (js/library.js): its bytes, which the page read from the file or this browser
+    // an .rfm1 file the visitor opened (js/library.js): its bytes, which the page read from the file or this browser;
+    // this site's own (rfm1.from "site"): fetched from the site and checked
     if (engine === "rfm1") {
-      if (!entry.localBytes) throw new Error(`${entry.name}'s .rfm1 file is not in this browser any more.`);
-      return { wasm: entry.localBytes.slice().buffer };
+      if (entry.localBytes) return { wasm: entry.localBytes.slice().buffer };
+      if (!entry.rfm1 || !entry.rfm1.file) throw new Error(`${entry.name}'s .rfm1 file is not in this browser any more.`);
+      const b = await fetchBytes(abs(entry.rfm1.file), `The .rfm1 file of ${entry.name}`);
+      if (entry.rfm1.sha256 && (await sha256hex(b)) !== entry.rfm1.sha256)
+        throw new Error(`The .rfm1 file of ${entry.name} is not the one the catalog lists (its SHA-256 differs): reload the page.`);
+      return { wasm: b.buffer };
     }
     if (engine === "emu") {
       const hook = await this.emuHook();

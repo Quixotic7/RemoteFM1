@@ -34,7 +34,9 @@ const OUT = opt("--out") || path.join(WEB, "build/test");
 const NATIVE = path.join(WEB, "build/native");
 const FM1VST_DIR = process.env.FM1VST_DIR || path.join(WEB, "vendor/FM1VST");
 const GLUE = fs.existsSync(path.join(NATIVE, "src/core-glue")) ? path.join(NATIVE, "src/core-glue") : path.join(FM1VST_DIR, "core-glue");
-const conformance = (info) => readConformance([path.join(GLUE, info.family, `conformance_${info.id}.txt`), path.join(GLUE, info.family, "conformance.txt")]);
+// (a firmware this repo builds itself, FIZZ: tools/rfm1/<id>/conformance.txt)
+const conformance = (info) => readConformance([path.join(GLUE, info.family, `conformance_${info.id}.txt`), path.join(GLUE, info.family, "conformance.txt"),
+    path.join(WEB, "..", "tools", "rfm1", info.id, "conformance.txt")]);
 const runScript = (engine, lines, opts = {}) => runScriptIn(engine, lines, { ...opts, fm1vstDir: FM1VST_DIR });
 
 // ------------------------------------------------------------------------------------------------ per file ---

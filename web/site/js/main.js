@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // The FM-1 player page: the catalog, the panel and its input, the audio host, saves, the sheet, deep links, and the
 // visitor's own .rfm1 files (js/library.js: opened from a file or dropped on the page, kept in this browser).
-//   ?fw=<id>          open that firmware (a Hub id; not the visitor's .rfm1 files)
+//   ?fw=<id>          open that firmware (a catalog id: the Hub's, or this site's .rfm1 such as fizz; not the
+//                     visitor's .rfm1 files)
 //   &engine=native|emu  pick the engine (where both can)
 //   &view=screen      the screen view
 //   &embed=1          only the device: no header, no settings
@@ -15,7 +16,7 @@ import * as library from "./library.js";
 import { Sheet, icon } from "./sheet.js";
 import { makeSite } from "./remote-hook.js";
 import { createFm1, mountUseFm1, mountHeader } from "./use-fm1.js";
-import { liveCatalog, mergeLive, packageFor, chooseEngine, compareVersions, sourceOf, nativeOrigin, nameOf } from "./live.js";
+import { liveCatalog, mergeLive, packageFor, chooseEngine, compareVersions, sourceOf, nativeOrigin, nameOf, localRfm1, siteRfm1 } from "./live.js";
 import { loadPrefs, savePrefs as writePrefs, keyHintsOn, shiftHintDue } from "./prefs.js";
 import { mhzFor, pickMhz, stepDown, Governor, DEVICE_MHZ } from "./cpu.js";
 import { EditorPanel } from "./editor-panel.js";
@@ -123,12 +124,12 @@ const selfLine = (tone = fm1Tone) => tone === "on" ? "Your FM-1 is now remotely 
   : "I heard you liked firmwares so I made a firmware for your firmware so you can run firmwares without installing firmwares";
 
 // --------------------------------------------------------------- firmware ---
-const versionOf = (e, engine) => (!e ? "" : engine === "native" && e.native ? e.native.version : e.version);
+const versionOf = (e, engine) => (!e ? "" : engine === "native" && e.native ? e.native.version : engine === "rfm1" && e.rfm1 && e.rfm1.version ? e.rfm1.version : e.version);
 const findEntry = (id) => catalog.firmwares.find((f) => f.id === id) || null;
 // the visitor's .rfm1 files: prefs.last is "rfm1:<sha256>" for one of them
 const RFM1_LAST = "rfm1:";
 const libEntry = (sha) => { const r = state.library.find((x) => x.sha256 === sha); return r ? library.entryOf(r) : null; };
-const sameEntry = (a, b) => !!a && !!b && (a.rfm1 || b.rfm1 ? !!a.rfm1 && !!b.rfm1 && a.rfm1.sha256 === b.rfm1.sha256 : a === b);
+const sameEntry = (a, b) => !!a && !!b && (localRfm1(a) || localRfm1(b) ? localRfm1(a) && localRfm1(b) && a.rfm1.sha256 === b.rfm1.sha256 : a === b);
 
 // the deep link's engine, the visitor's choice (until a new release), else the default (newest wins: live.js)
 const engineFor = (e, want) => chooseEngine(e, want, prefs);
@@ -150,11 +151,11 @@ async function openFirmware(id, want = null) {
   state.info = null; state.selectedSave = null;
   controls.releaseLatches();
   hideOffer();
-  if (!e.local || e.rfm1) { prefs.last = e.rfm1 ? RFM1_LAST + e.rfm1.sha256 : e.id; savePrefs(); }
+  if (!e.local || e.rfm1) { prefs.last = localRfm1(e) ? RFM1_LAST + e.rfm1.sha256 : e.id; savePrefs(); }
   updateTitle();
   if (!EMBED && (!e.local || e.rfm1)) {
     const u = new URL(location.href);
-    if (e.rfm1) { u.searchParams.delete("fw"); u.searchParams.delete("engine"); }   // (no deep link: a reload reopens it from prefs.last)
+    if (localRfm1(e)) { u.searchParams.delete("fw"); u.searchParams.delete("engine"); }   // (no deep link: a reload reopens it from prefs.last)
     else {
       u.searchParams.set("fw", e.id);
       if (e.engines.length > 1 && state.wantEngine !== e.defaultEngine) u.searchParams.set("engine", state.wantEngine); else u.searchParams.delete("engine");
@@ -190,8 +191,8 @@ async function boot(fromSave = null) {
       if (got.entry !== e) { replaceEntry(got.entry); e = got.entry; }
       e = { ...e, localBytes: got.bytes };
     }
-    // an .rfm1 file: its bytes from this browser (library.js)
-    if (eng === "rfm1" && !e.localBytes) {
+    // the visitor's .rfm1 file: its bytes from this browser (library.js); this site's comes from the site (audio.js)
+    if (eng === "rfm1" && localRfm1(e) && !e.localBytes) {
       const b = await library.bytes(e.rfm1.sha256).catch(() => null);
       if (seq !== bootSeq || state.entry !== e) return;
       if (!b) throw new Error(`${e.name}'s .rfm1 file is not in this browser any more: open it again.`);
@@ -323,13 +324,18 @@ function metaLine() {
   const e = state.entry;
   if (!e) return "";
   const eng = state.engine === "mock" ? "test engine (the real one is not here yet)" : state.engine === "native" ? (e.native && e.native.by === "author" ? "native, built by the author" : "native")
-    : state.engine === "rfm1" ? "native, your file" : `emulated, ${state.mhz} MHz`;
+    : state.engine === "rfm1" ? (localRfm1(e) ? "native, your file" : "native (.rfm1)") : `emulated, ${state.mhz} MHz`;
   return `${e.category} · ${e.tag} · ${e.author} · ${eng}`;
 }
 function engineNote() {
   const e = state.entry;
   if (!e) return "";
-  if (e.rfm1) {
+  if (siteRfm1(e) && state.wantEngine === "rfm1") {
+    const r = e.rfm1;
+    return [`${e.name}'s own code, built to WebAssembly by this site from its release (${r.fileName}${r.builtBy ? `, ${r.builtBy}` : ""}), runs natively here as in RemoteFM1 for iOS. The file is this site's (SHA-256 ${r.sha256.slice(0, 12)}..., checked as it loads); its saves are the firmware's under the .rfm1 engine.`,
+      state.engine === "mock" ? "Now: a test engine, because the .rfm1 engine could not start." : ""].filter(Boolean).join(" ");
+  }
+  if (localRfm1(e)) {
     const r = e.rfm1;
     return [`Your .rfm1 file ${r.fileName}: ${e.name}'s own code, built to WebAssembly${r.builtBy ? ` (${r.builtBy})` : ""}, runs natively here as in RemoteFM1 for iOS. It is kept in this browser (SHA-256 ${r.sha256.slice(0, 12)}...); its saves are its own, apart from any native or emulated ones.`,
       state.engine === "mock" ? "Now: a test engine, because the .rfm1 engine could not start." : ""].filter(Boolean).join(" ");
@@ -704,7 +710,7 @@ const app = {
         const e = state.entry, name = file.name.replace(/\.[^.]+$/, "").slice(0, 40) || "Imported";
         await saves.put(e.id, state.wantEngine, versionOf(e, state.wantEngine), name, buf);
         state.selectedSave = name;
-        toast(`Imported "${name}" as a save of ${e.name} (${state.wantEngine === "native" ? "native" : "emulated"}).`, "ok");
+        toast(`Imported "${name}" as a save of ${e.name} (${state.wantEngine === "native" ? "native" : state.wantEngine === "rfm1" ? ".rfm1" : "emulated"}).`, "ok");
       }
       await refreshSaves();
     } catch (err) { toast(err.message || String(err), "bad"); }
@@ -717,7 +723,7 @@ const app = {
     try { await library.remove(sha); } catch (err) { toast(err.message || String(err), "bad"); return; }
     state.library = state.library.filter((r) => r.sha256 !== sha);
     if (prefs.last === RFM1_LAST + sha) { delete prefs.last; savePrefs(); }
-    if (e) toast(`Removed ${e.name} ${e.version} from this browser${state.entry && state.entry.rfm1 && state.entry.rfm1.sha256 === sha ? " (it plays until you pick another)" : ""}; its saves stay.`);
+    if (e) toast(`Removed ${e.name} ${e.version} from this browser${localRfm1(state.entry) && state.entry.rfm1.sha256 === sha ? " (it plays until you pick another)" : ""}; its saves stay.`);
     if (sheet) sheet.render();
   },
   async openLocalFile(file) {

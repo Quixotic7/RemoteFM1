@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# FIZZ's .rfm1 in web/engines/rfm1/test.mjs (FM1VST's conformance directives, as FIZZ's own core/glue/conformance.txt):
+# FIZZ powers on to its step view, where the keys are steps and play nothing. REC makes the keybed a keyboard for
+# the selected track (track 1, DRUMS: FM TONE's MARIMBA), so the prelude taps REC and the key held is heard.
+sound btn REC 60
+# the flash: FIZZ saves by itself a moment after a change. HOME wakes the step view, the key F3 toggles step 1 of
+# the pattern; the second unit boots from that image
+save wait 300
+save btn HOME
+save wait 200
+save btn F3 100
+save wait 1500
+save quit
+saved wait 1000
+saved quit
+reboot none FIZZ has no reboot, update mode or exit path

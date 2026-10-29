@@ -8,7 +8,7 @@
 // app (main.js) holds the state and the actions; the sheet re-renders its page on app.changed().
 import { PRESETS, CUSTOM_NAME, CHOICE_ROLES, accentOf, onAccent, css, hex } from "./theme.js";
 import { AUTOSAVE } from "./saves.js";
-import { browse, cardView, ENGINE_FILTERS, nativeOrigin, nameOf } from "./live.js";
+import { browse, cardView, ENGINE_FILTERS, nativeOrigin, nameOf, siteRfm1, localRfm1 } from "./live.js";
 import { RELEASES } from "./library.js";
 import { MHZ_CHOICES, DEVICE_MHZ, DEVICE_RANGE, OVERCLOCK, DUAL_CORE, isOverclock, inDeviceRange } from "./cpu.js";
 import { SPEEDS, srcLabel } from "./midi-map.js";
@@ -208,8 +208,14 @@ export class Sheet {
     if (e) {
       const both = e.engines.length > 1;
       const shown = st.engine === "mock" ? st.wantEngine : st.engine;
-      if (e.rfm1) {
+      if (localRfm1(e)) {
         out.push(row("Runs on", `your .rfm1 file ${e.rfm1.fileName}, the firmware's own code in WebAssembly`, h("span", { class: "muted small" }, "Native (.rfm1)")));
+      } else if (siteRfm1(e)) {
+        // this site's .rfm1 (FIZZ); on the Hub too: its package, emulated
+        const sub = `this site's .rfm1 build of ${e.name} ${e.rfm1.version}, the firmware's own code in WebAssembly`;
+        out.push(row("Runs on", both ? `${sub}; the Hub has ${e.version}` : sub, both
+          ? segmented(["Native (.rfm1)", "Emulated"], shown === "rfm1" ? 0 : 1, (i) => a.setEngine(i ? "emu" : "rfm1"))
+          : h("span", { class: "muted small" }, "Native (.rfm1)")));
       } else if (both && e.nativeBehind) {
         // two versions: the Hub's latest (emulated, the default) and FM1VST's older core (native), one per line
         out.push(row("Runs on", `the Hub has ${e.version}; the native core is ${e.native.version}`, null));
@@ -388,7 +394,8 @@ export class Sheet {
                 title: v.note ? (eng === "native" ? `The Hub has ${f.version}; FM1VST's native core is ${f.native.version}` : `FM1VST's native core is ${f.native.version}; the Hub's latest ${f.version} runs emulated`)
                   : "Runs both of the FM-1's cores: heavy to emulate" }, note))
             : h("span", { class: "card-meta" }, meta),
-          f.native ? h("span", { class: "card-badge" + (f.native.by === "author" ? " author" : ""), title: f.native.by === "author" ? "Runs natively (WebAssembly), built by its author" : "Runs natively (WebAssembly)" }) : null);
+          f.native ? h("span", { class: "card-badge" + (f.native.by === "author" ? " author" : ""), title: f.native.by === "author" ? "Runs natively (WebAssembly), built by its author" : "Runs natively (WebAssembly)" })
+            : siteRfm1(f) ? h("span", { class: "card-badge", title: "Runs natively (WebAssembly): this site's .rfm1 build of its release" }) : null);
         return card;
       }), h("label", { class: "card file", title: "An .rfm1 firmware (it runs natively and stays in this browser), or a package to emulate (for example M-VAVE's FM-1.fwsc). Or drop the file on the page." },
         h("span", { class: "card-top" }, h("b", {}, "Open a file..."), h("span", { class: "card-ver", html: icon("file") })),
@@ -416,7 +423,7 @@ export class Sheet {
     fill();
     return [search, lib.length ? mineHead : null, lib.length ? mine : null, lib.length ? h("h3", { class: "heading" }, "Catalog") : null, engines, chips, grid,
       h("div", { class: "links get-rfm1" }, link(RELEASES, "Get .rfm1 firmwares ↗"), h("span", { class: "muted small" }, " download one, then open it here (or drop it on the page)")),
-      h("p", { class: "note" }, "From ", link(cat.hub, "the FM-1 Firmware Hub"), ` (${cat.live ? "live, " : "as of "}${cat.hubUpdated || "snapshot"}). Firmwares with a dot run natively, compiled from FM1VST's cores or built by their authors (`, h("a", { href: "native/" }, "how to publish yours"), `; where the Hub has a newer release, it runs emulated unless you pick native); every firmware also runs emulated on `,
+      h("p", { class: "note" }, "From ", link(cat.hub, "the FM-1 Firmware Hub"), ` (${cat.live ? "live, " : "as of "}${cat.hubUpdated || "snapshot"}). Firmwares with a dot run natively, compiled from FM1VST's cores, built by their authors or built here as an .rfm1 (`, h("a", { href: "native/" }, "how to publish yours"), `; where the Hub has a newer release, it runs emulated unless you pick native); every firmware also runs emulated on `,
         link(cat.credits.fm1emu.source, "fm1-emu"), ", its package fetched from where the Hub points (RemoteFM1's from this site).")];
   }
 
@@ -455,8 +462,9 @@ export class Sheet {
       if (glue) out.push(kv("Glue", h("span", {}, "built with FM1VST's glue: ", glue)));
       if (e.release) out.push(kv("Release", link(e.release, "release page")));
       if (e.play) out.push(kv("Its own page", link(e.play, e.play.replace(/^https?:\/\//, ""))));
-      if (e.rfm1) out.push(kv("File", `${e.rfm1.fileName}, ${Math.round(e.rfm1.size / 1024)} KiB · SHA-256 ${e.rfm1.sha256.slice(0, 16)}...`));
-      if (e.rfm1 && e.rfm1.builtBy) out.push(kv("Built by", e.rfm1.builtBy));
+      const rf = e.rfm1 && (localRfm1(e) || shown === "rfm1");
+      if (rf) out.push(kv("File", `${e.rfm1.fileName}, ${Math.round(e.rfm1.size / 1024)} KiB · SHA-256 ${e.rfm1.sha256.slice(0, 16)}...${siteRfm1(e) ? " (this site's)" : ""}`));
+      if (rf && e.rfm1.builtBy) out.push(kv("Built by", e.rfm1.builtBy));
       if (info.credits && st.engine !== "mock") out.push(h("pre", { class: "credits" }, String(info.credits)));
       // an .rfm1's licence texts (its rfm1.license.<n> sections; the first line names each)
       if (e.rfm1 && st.engine === "rfm1" && Array.isArray(info.licenseTexts) && info.licenseTexts.length)
@@ -466,7 +474,11 @@ export class Sheet {
       out.push(h("p", { class: "note" }, a.engineNote()));
       if (shown === "emu")
         out.push(h("p", { class: "note" }, "Emulated by ", link(cat.credits.fm1emu.source, "fm1-emu"), ` by ${cat.credits.fm1emu.author} (${cat.credits.fm1emu.license}): the FM-1's chip, so the firmware's own package runs unchanged. ${e.emu && e.emu.from === "site" ? "The package is this site's own, the one its installer writes." : "The package comes from where the FM-1 Firmware Hub points; this site hosts no firmware but its own."}`));
-      if (shown === "rfm1")
+      if (shown === "rfm1" && siteRfm1(e))
+        out.push(h("p", { class: "note" }, "An .rfm1 file is a firmware's host build compiled to WebAssembly, the format RemoteFM1 for iOS runs. This one is this site's: built from ", e.name, "'s release with ",
+          link(cat.credits.fm1vst.source, "FM1VST"), "'s fm1_add_rfm1 (", link("https://github.com/Quixotic7/RemoteFM1/tree/main/tools/rfm1", "RemoteFM1's tools/rfm1"),
+          "), so its source is the firmware's at the commit above, with the glue and the one change for WebAssembly named in its credits; the licence texts it carries are above."));
+      else if (shown === "rfm1")
         out.push(h("p", { class: "note" }, "An .rfm1 file is a firmware's host build (", link(cat.credits.fm1vst.source, "FM1VST"), "'s core of it) compiled to WebAssembly, the format RemoteFM1 for iOS runs. This site checked the file (its manifest, imports, exports and memory) and runs it as it runs the native cores; the file came from your computer, not from this site. ",
           link(RELEASES, "Get .rfm1 firmwares"), "."));
       else if (shown === "native" && e.native && e.native.by === "author")

@@ -109,6 +109,13 @@ native and emulated ones. The About page shows its licence, its authors and its 
 from. The site checks the file before it runs: its manifest, imports, exports and memory (web/engine/API.md
 section 6).
 
+**FIZZ on the site.** [FIZZ](https://github.com/Quixotic7/FIZZ), the FM TONE step sequencer, is in the firmware
+browser as an `.rfm1` the site hosts itself (`web/site/fw/`, `?fw=fizz`): built from its release by
+`tools/rfm1/build_fizz.sh` with FM1VST's `fm1_add_rfm1`, nothing to download or import. PLAY starts its demo pattern;
+REC turns the keys into a keyboard. Its licence is `MPL-2.0 AND GPL-3.0-only AND MIT AND FTL AND OFL-1.1` (FIZZ,
+FM1VST's glue, plutovg and Emscripten's runtime, FreeType's rasterizer, the Inter Tight font); `tools/rfm1/README.md`
+says how to rebuild it for a new release.
+
 **An OMX-27 as the controller.** With the OMX-27 firmware that has REMOTE mode (the `q7-2026-3` branch), the site's
 player takes it over: Settings > Use my OMX-27 > Connect (Chrome or Edge, Web MIDI with SysEx; the port whose name
 holds "OMX"). The page puts it in REMOTE mode; its keys, encoder and five pots then play the firmware, and the page

@@ -29,6 +29,8 @@ contributors, moved onto fm1-base.
 | `tests/ble_sysex_test.c` (a test of fm1-base's Bluetooth MIDI, for its upstream) | RemoteFM1 contributors, MPL-2.0 |
 | `tools/fm1_install.py`, `web/installer/fm1ota.js`, `web/installer/fm1pkg.js`, `tests/install_test.py` | Leo Kuroshita (Felucca's tool), with the changes of Dinghy, TransitFM1, ChoralRoot FM-1 and RemoteFM1 contributors, GPL-3.0-only |
 | The site's player and catalog (`web/site/`, `web/managers/`, `web/engine/`), the installer page | RemoteFM1 contributors, GPL-3.0-only; the cores and firmwares it runs are their authors' (`web/vendor/`: fm1-emu, FM1VST, each under its own licence) |
+| `tools/rfm1/` (`build_fizz.sh`, `fizz/CMakeLists.txt`, `fizz/manifest.py`, `fizz/conformance.txt`, `README.md`): the build of FIZZ's .rfm1 | RemoteFM1 contributors, GPL-3.0-only; `fizz/fizz_desc.c` MPL-2.0 (FIZZ's descriptor, as RemoteFM1IOS has it); `fizz/plutovg-ft-raster-wasm.patch` FTL (a change to FreeType's rasterizer in FIZZ's plutovg) |
+| `web/site/fw/fizz-*.rfm1`: [FIZZ](https://github.com/Quixotic7/FIZZ) built to WebAssembly, served by the site | Michael P Jones (Quixotic7) and the parts' authors: `MPL-2.0 AND GPL-3.0-only AND MIT AND FTL AND OFL-1.1` (FIZZ; FM1VST's core glue; plutovg and Emscripten's runtime with musl; FreeType's rasterizer; Inter Tight). Its source: FIZZ at the commit in its manifest, FM1VST at its `glue_url`, and `tools/rfm1/`; its licence texts are in the file |
 
 ## Third-party material
 

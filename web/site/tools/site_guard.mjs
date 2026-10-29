@@ -7,6 +7,7 @@
 //         - a catalog entry's native engine has no .wasm in SITE, or the native engine.js is missing;
 //         - more than a third of FM1VST's un-gated cores (data/cores.json, or --cores) have no .wasm in SITE;
 //         - the .rfm1 engine is missing, or engines/common/shared.js (the native and .rfm1 engines import it);
+//         - an .rfm1 file the site hosts (a catalog entry's rfm1.file: FIZZ's, fw/) is missing or not its SHA-256;
 //         - the catalog has emulated entries and the emulated engine (engine.js, fm1_web.wasm, catalog.mjs) is missing,
 //           or a package the site itself hosts (RemoteFM1's) is missing;
 //         - the hosted managers' index.json names a manager whose page is missing, or the Web MIDI shim is missing;
@@ -18,6 +19,7 @@
 //       tail (an error when there is no result: the build stopped before any core).
 // In GitHub Actions the messages are ::warning / ::error annotations (readable through the public check-runs API).
 import { readFileSync, existsSync, appendFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -34,8 +36,9 @@ export function nativeAvailability(coreIds, has) {
 }
 
 // the guard. catalog: the site's catalog.json; has(path) -> bool, path relative to the site; expected: the un-gated
-// core ids; managers: the site's managers/index.json (null: none). -> { errors: [], warnings: [], missing: [] }
-export function guardSite({ catalog, has, expected, managers = null }) {
+// core ids; managers: the site's managers/index.json (null: none); sha(path) -> its SHA-256 (hex), where the caller can
+// read the files. -> { errors: [], warnings: [], missing: [] }
+export function guardSite({ catalog, has, expected, managers = null, sha = null }) {
   const errors = [], warnings = [], P = catalog.paths || {}, E = P.engines || {};
   const fws = catalog.firmwares || [];
   // native: every entry's .wasm, and the engine
@@ -51,6 +54,12 @@ export function guardSite({ catalog, has, expected, managers = null }) {
   // the .rfm1 engine (the visitor's own files: JavaScript only, always published), and the module the native and the
   // .rfm1 engines import (engines/common/shared.js, next to their folders)
   if (E.rfm1 && !has(E.rfm1.module)) errors.push(`the .rfm1 engine ${E.rfm1.module} is not in the site`);
+  // the .rfm1 files the site hosts itself (FIZZ: fw/), each the one the catalog names
+  for (const f of fws) if (f.rfm1 && f.rfm1.from === "site") {
+    if (!has(f.rfm1.file)) errors.push(`${f.id}: its .rfm1 ${f.rfm1.file} (hosted here) is not in the site`);
+    else if (sha && sha(f.rfm1.file) !== f.rfm1.sha256) errors.push(`${f.id}: its .rfm1 ${f.rfm1.file} is not the catalog's (its SHA-256 differs)`);
+  }
+  if (fws.some((f) => f.rfm1 && f.rfm1.from === "site") && !E.rfm1) errors.push("the catalog lists .rfm1 files of this site, but no .rfm1 engine");
   for (const k of ["native", "rfm1"]) {
     const mod = E[k] && E[k].module, shared = mod ? mod.replace(/[^/]+\/[^/]+$/, "common/shared.js") : null;
     if (mod && has(mod) && !has(shared)) errors.push(`the ${k} engine ${mod} is in the site without ${shared}, which it imports`);
@@ -110,7 +119,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const cores = JSON.parse(readFileSync(arg("--cores", join(HERE, "..", "data", "cores.json")), "utf8")).cores;
     const mbase = (catalog.paths && catalog.paths.managers) || "managers/";
     const managers = existsSync(join(site, mbase, "index.json")) ? read(join(mbase, "index.json")) : null;
-    const g = guardSite({ catalog, has: (p) => existsSync(join(site, p)), expected: ungatedCores(cores), managers });
+    const g = guardSite({ catalog, has: (p) => existsSync(join(site, p)), expected: ungatedCores(cores), managers,
+      sha: (p) => createHash("sha256").update(readFileSync(join(site, p))).digest("hex") });
     g.warnings.forEach((m) => annotate({ level: "warning", title: "site guard", message: m }));
     g.errors.forEach((m) => annotate({ level: "error", title: "not deployed (site guard)", message: m }));
     const nat = catalog.firmwares.filter((f) => f.native).length;

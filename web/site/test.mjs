@@ -23,7 +23,7 @@ const cat = JSON.parse(readFileSync(new URL("./catalog.json", import.meta.url), 
 const natives = cat.firmwares.filter((f) => f.native).map((f) => f.id).sort();
 ok(natives.join() === "amb,choralroot,coralflower,duell,felucca,fimba,fmini,fomni,frodhes,ghoulbox,grimm,jiant,loom,melodee,minitone,obervave,pigeon,purplemonkey,skiff,speak37,tonitor",
    "catalog: the 21 un-gated cores are native, no other");
-ok(cat.firmwares.filter((f) => !f.offHub).every((f) => f.engines.includes("emu") && /^[0-9a-f]{64}$/.test(f.emu.sha256)
+ok(cat.firmwares.filter((f) => !f.offHub && !f.rfm1).every((f) => f.engines.includes("emu") && /^[0-9a-f]{64}$/.test(f.emu.sha256)
    && (f.id === "remotefm1" ? f.emu.from === "site" : /^https:\/\/thefirmwarehub\.com\/fw\//.test(f.emu.pkg) && !f.emu.from)),
    "catalog: every Hub firmware runs emulated, its package from the Hub (RemoteFM1's from the site) with a SHA-256");
 {
@@ -85,8 +85,9 @@ ok(cat.firmwares.every((f) => cat.categories.includes(f.category)), "catalog: ev
   const pc = JSON.parse(readFileSync(tmp, "utf8")), prf = pc.firmwares.find((f) => f.id === "remotefm1");
   unlinkSync(tmp);
   ok(new URL(prf.emu.pkg, "https://quixotic7.github.io/RemoteFM1/").href === `https://quixotic7.github.io/RemoteFM1/installer/firmware/remote-${r0.version}.fwsc`
-     && pc.firmwares.filter((f) => f.id !== "remotefm1" && !f.offHub).every((f) => f.emu.pkg.startsWith("https://thefirmwarehub.com/fw/")),
-     "remotefm1: Pages layout -> <site>/installer/firmware/remote-X.fwsc; every other package still the Hub's");
+     && pc.firmwares.filter((f) => f.id !== "remotefm1" && !f.offHub && !f.rfm1).every((f) => f.emu.pkg.startsWith("https://thefirmwarehub.com/fw/"))
+     && pc.firmwares.find((f) => f.id === "fizz").rfm1.file === cat.firmwares.find((f) => f.id === "fizz").rfm1.file,
+     "remotefm1: Pages layout -> <site>/installer/firmware/remote-X.fwsc; every other package still the Hub's; FIZZ's .rfm1 at the same fw/ path");
   // the emu hook fetches a relative URL against the page and checks its SHA-256
   const { fetchPackage } = await import("../engines/emu/catalog.mjs");
   const asked = [];
@@ -96,6 +97,43 @@ ok(cat.firmwares.every((f) => cat.categories.includes(f.category)), "catalog: ev
   try { await fetchPackage({ id: rf.id, name: rf.name, package: { url: rf.emu.pkg, sha256: "0".repeat(64) } }, fakeFetch, "http://127.0.0.1:8731/site/"); } catch (e) { bad = e.message; }
   ok(asked[0] === `http://127.0.0.1:8731/installer/firmware/remote-${r0.version}.fwsc` && got.bytes.length === bytes.length && /SHA-256/.test(bad || ""),
      "remotefm1: the emu hook fetches it same-origin and refuses a wrong SHA-256");
+}
+
+// ---- FIZZ, this site's own .rfm1 (web/site/fw/, data/site-rfm1.json, tools/rfm1/build_fizz.sh): the entry, the file
+{
+  const L = await import("./js/live.js");
+  const { inspect } = await import("../engines/rfm1/engine.js");
+  const fz = cat.firmwares.find((f) => f.id === "fizz"), d = JSON.parse(readFileSync(new URL("./data/site-rfm1.json", import.meta.url), "utf8")).firmwares.find((x) => /\/fizz-/.test(x.file));
+  ok(fz && fz.name === "FIZZ" && fz.author === "Quixotic7" && fz.authorFull === "Michael P Jones (Quixotic7)" && fz.version === "0.12.0-beta.12" && fz.beta
+     && fz.category === "Groovebox" && fz.tag && fz.what && fz.source === "https://github.com/Quixotic7/FIZZ/tree/v0.12.0-beta.12" && fz.repo === "Quixotic7/FIZZ"
+     && fz.release === "https://github.com/Quixotic7/FIZZ/releases/tag/v0.12.0-beta.12", "fizz: in the catalog: FIZZ 0.12.0-beta.12 by Quixotic7, beta, Groovebox, its source and release at the tag");
+  ok(fz.engines.join() === "rfm1" && fz.defaultEngine === "rfm1" && !fz.native && !fz.emu && !fz.local && L.siteRfm1(fz) && !L.localRfm1(fz)
+     && fz.rfm1.file === "fw/fizz-0.12.0-beta.12.rfm1" && /^[0-9a-f]{64}$/.test(fz.rfm1.sha256) && fz.rfm1.size > 0,
+     "fizz: the rfm1 engine only, its file this site's (rfm1: file, sha256, size; not a visitor's)");
+  const bytes = readFileSync(new URL(fz.rfm1.file, import.meta.url)), sha = createHash("sha256").update(bytes).digest("hex");
+  const sums = readFileSync(new URL("./fw/SHA256SUMS", import.meta.url), "utf8");
+  ok(sha === fz.rfm1.sha256 && sha === d.sha256 && bytes.length === fz.rfm1.size && sums.includes(`${sha}  fizz-0.12.0-beta.12.rfm1`),
+     `fizz: the file is there; its SHA-256 is the catalog's, data/site-rfm1.json's and fw/SHA256SUMS's (${sha.slice(0, 12)}...)`);
+  const m = inspect(new Uint8Array(bytes)).manifest;
+  ok(m.id === "fizz" && m.version === fz.version && m.license === "MPL-2.0 AND GPL-3.0-only AND MIT AND FTL AND OFL-1.1" && fz.license === m.license
+     && /^https:\/\/github\.com\/Quixotic7\/FIZZ@[0-9a-f]{40}$/.test(m.source_url) && fz.rfm1.sourceUrl === m.source_url
+     && /^https:\/\/github\.com\/Quixotic7\/FM1VST\/tree\/[0-9a-f]{40}$/.test(m.glue_url) && fz.rfm1.glueUrl === m.glue_url && m.memory_mib <= 32,
+     `fizz: the manifest (inspected): ${m.license}, FIZZ at its commit, FM1VST's glue at its commit, ${m.memory_mib} MiB`);
+  // the browser, the source link, the merge with the Hub (which lists FIZZ's device package: it needs its data blob, so not emulated)
+  ok(L.browse(cat.firmwares, { engine: "native" }).some((f) => f.id === "fizz") && !L.browse(cat.firmwares, { engine: "emu" }).some((f) => f.id === "fizz")
+     && L.cardView(fz, "native").engine === "rfm1" && L.cardView(fz, "all").engine === null, "fizz: the Native filter lists it (started on rfm1), the Emulated one does not");
+  const s = L.sourceOf(fz, "rfm1", cat.credits);
+  ok(s.url === `https://github.com/Quixotic7/FIZZ/tree/${m.source_url.split("@")[1]}` && s.refKind === "commit" && s.glue && /^Quixotic7\/FM1VST @ [0-9a-f]{7}$/.test(s.glue.label)
+     && s.title.includes(` · ${m.license} · source at commit`), "fizz: the header's source link: FIZZ at its commit, FM1VST's glue at its commit");
+  const hubFizz = { id: "fizz", name: "FIZZ", kind: "groove", author: "Quixotic7", version: "0.12.0-beta.12", pkg: "fw/fizz-0.12.0-beta.12.fwsc", sha256: "d".repeat(64), size: 611496, what: "The Hub's text." };
+  const hub0 = JSON.parse(readFileSync(new URL("./data/hub-catalog.snapshot.json", import.meta.url), "utf8"));
+  const without = L.mergeLive(cat, hub0, {}), skip = L.mergeLive(cat, { ...hub0, firmwares: [...hub0.firmwares, hubFizz] }, { emuSkip: { fizz: "needs its data" } });
+  const withEmu = L.mergeLive(cat, { ...hub0, firmwares: [...hub0.firmwares, hubFizz] }, {});
+  const one = (c) => c.firmwares.filter((f) => f.id === "fizz");
+  const we = one(withEmu)[0];
+  ok(one(without).length === 1 && one(without)[0].engines.join() === "rfm1" && one(skip).length === 1 && one(skip)[0].engines.join() === "rfm1" && !one(skip)[0].emu
+     && one(withEmu).length === 1 && we.engines.join() === "rfm1,emu" && we.defaultEngine === "rfm1" && we.emu.pkg === "https://thefirmwarehub.com/fw/fizz-0.12.0-beta.12.fwsc" && L.siteRfm1(we),
+     "fizz: the live merge keeps it off the Hub; on the Hub, one entry: the .rfm1 alone where the package can't be emulated, else rfm1 + the Hub's package");
 }
 
 // ---- following the Hub's releases (js/live.js): the version comparator, newest wins, the live merge, gone packages
@@ -182,9 +220,10 @@ ok(cat.firmwares.every((f) => cat.categories.includes(f.category)), "catalog: ev
 
   // the browser's engine filter
   const all = L.browse(m.firmwares, {}), nativeOnly = L.browse(m.firmwares, { engine: "native" }), emuOnly = L.browse(m.firmwares, { engine: "emu" });
-  ok(all.length === m.firmwares.length && nativeOnly.every((f) => f.native) && nativeOnly.length === m.firmwares.filter((f) => f.native).length
+  ok(all.length === m.firmwares.length && nativeOnly.every((f) => f.native || f.engines.includes("rfm1")) && nativeOnly.length === m.firmwares.filter((f) => f.native || f.engines.includes("rfm1")).length
+     && nativeOnly.some((f) => f.id === "fizz")
      && emuOnly.every((f) => f.engines.includes("emu") && !f.emuNote) && !emuOnly.some((f) => f.id === "bubba" || f.id === "amb") && emuOnly.some((f) => f.id === "felucca"),
-     "filter: All everything; Native the cores; Emulated what fm1-emu runs (not bubba, not a native-only one)");
+     "filter: All everything; Native the cores and the site's .rfm1 (FIZZ); Emulated what fm1-emu runs (not bubba, not a native-only one)");
   ok(L.browse(m.firmwares, { engine: "native", cat: "Groovebox", q: "fel" }).map((f) => f.id).join() === "felucca,melodee,pigeon,skiff" && L.browse(m.firmwares, { engine: "emu", q: "zzzz" }).length === 0,
      "filter: combines with a category chip and the search (Melodee's, PIGEON's, Skiff's blurbs name Felucca)");
   const cvN = L.cardView(mf, "native"), cvE = L.cardView(mf, "emu"), cvA = L.cardView(mf, "all");
@@ -596,6 +635,7 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   const mgr = { managers: [{ id: "choralroot", path: "choralroot/" }, { id: "pigeon", path: "pigeon/webapp/pigeon/" }] };
   const siteOf = (c) => new Set([...c.firmwares.filter((f) => f.native).map((f) => f.native.wasm), "engines/native/engine.js", "engines/rfm1/engine.js", "engines/common/shared.js",
     "engines/emu/engine.js", "engines/emu/fm1_web.wasm", "engines/emu/catalog.mjs", ...c.firmwares.filter((f) => f.emu && f.emu.from === "site").map((f) => f.emu.pkg),
+    ...c.firmwares.filter((f) => f.rfm1 && f.rfm1.from === "site").map((f) => f.rfm1.file),
     "installer/index.html", "managers/fm1-shim.js", "managers/choralroot/index.html", "managers/pigeon/webapp/pigeon/index.html", "remote/remote.js", "build/remote/remotefm1.mjs"]);
   const guard = (c, files, managers = mgr) => G.guardSite({ catalog: c, has: (p) => files.has(p), expected: exp, managers });
   const g0 = guard(cf, siteOf(cf));
@@ -626,6 +666,12 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   ok(guard(cf, noShared).errors.length === 2 && guard(cf, noShared).errors.every((e) => /without engines\/common\/shared\.js/.test(e))
      && guard(cf, noRfm1).errors.length === 1 && /the \.rfm1 engine engines\/rfm1\/engine\.js/.test(guard(cf, noRfm1).errors[0]),
      "guard: the .rfm1 engine, or the module it and the native engine import, missing: not deployed");
+  const noFizz = siteOf(cf); noFizz.delete(byF.get("fizz").rfm1.file);
+  const shaOf = (bad) => (p) => (p === byF.get("fizz").rfm1.file && !bad ? byF.get("fizz").rfm1.sha256 : "0".repeat(64));
+  ok(guard(cf, noFizz).errors.length === 1 && /^fizz: its \.rfm1 fw\/fizz-[\w.-]+\.rfm1 \(hosted here\) is not in the site/.test(guard(cf, noFizz).errors[0])
+     && !G.guardSite({ catalog: cf, has: (p) => siteOf(cf).has(p), expected: exp, managers: mgr, sha: shaOf(false) }).errors.length
+     && /^fizz: .* SHA-256 differs/.test(G.guardSite({ catalog: cf, has: (p) => siteOf(cf).has(p), expected: exp, managers: mgr, sha: shaOf(true) }).errors.join()),
+     "guard: the site's own .rfm1 (FIZZ) missing, or not the catalog's SHA-256: not deployed");
   const ann = G.nativeAnnotations({ built: ["felucca"], failed: [{ id: "speak37", stage: "configure", log: "ModuleNotFoundError: No module named 'numpy'" }] });
   const none = G.nativeAnnotations(null);
   ok(ann.length === 1 && ann[0].level === "warning" && /speak37/.test(ann[0].title) && /numpy/.test(ann[0].message) && none.length === 1 && none[0].level === "error",
