@@ -37,7 +37,7 @@ const HUE = {
   btn: { [B.OCTDN]: [0, 255, 255], [B.OCTUP]: [0, 127, 255] },
 };
 [[255, 128, 0], [255, 255, 0], [255, 0, 255], [255, 0, 128], [0, 255, 128], [255, 0, 0]].forEach((c, i) => { HUE.btn[BTN6[i]] = c; HUE.btn[BTN6B[i]] = c; });
-export const DIM = 0.5;
+export const DIM = 0.5, DEAD = 0.16;   // DEAD: the dark red of a key past the FM-1's keyboard
 // K2: the hue of the keys that mirror the FM-1's (and Night: dimmer shortcuts, for a dark room)
 export const THEMES = [
   { name: "White", key: [255, 255, 255] },
@@ -210,6 +210,11 @@ export class OmxViews {
     return out;
   }
 
+  // a Base-view playing key past the end of the FM-1's keyboard (Range 2's top): lit dark red, so it reads as not there
+  deadKey(k, ov) {
+    return this.view === VIEW.BASE && ov !== "btn" && ((k >= 3 && k <= 10) || k >= 15) && this.baseKey(k) < 0;
+  }
+
   // ---- what the OMX shows
   // the 27 LEDs (7-bit [r, g, b]); keyLevel(k): the FM-1's LED of key k (0..255)
   leds(keyLevel = () => 0) {
@@ -217,7 +222,7 @@ export class OmxViews {
     for (let k = 0; k < 27; k++) {
       const r = this.roleOf(k), pressed = this.held.has(k);
       const sc = (hue, on) => c7(hue, on ? 1 : dim);
-      if (!r) out.push([0, 0, 0]);
+      if (!r) out.push(this.deadKey(k, ov) ? c7(HUE.aux, DEAD * dim / DIM) : [0, 0, 0]);
       else if (r.kind === "fm1") out.push(c7(th.key, ledAlpha(keyLevel(r.k))));
       else if (r.kind === "note") out.push(pressed ? c7(th.key, 1) : [0, 0, 0]);
       else if (r.kind === "aux") out.push(sc(HUE.aux, pressed));

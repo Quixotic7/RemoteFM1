@@ -1132,6 +1132,17 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
        "K2: six themes; the top one (Night), its name on the screen a moment");
     ok(new V.OmxViews(v.saved()).theme === 5 && new V.OmxViews({ theme: 99, knob: 42 }).theme === 0, "views: the theme (and selections) kept in prefs; bad values ignored");
   }
+  // Range 2: the playing keys past the FM-1's G5 (G#5 A#5 A5 B5 C6) lit dark red; Range 1 has none
+  {
+    const v = new V.OmxViews(), red = (l, k) => l[k][0] > 0 && l[k][1] === 0 && l[k][2] === 0;
+    const dead = (l) => [...Array(27).keys()].filter((k) => red(l, k) && k !== 0);
+    ok(dead(v.leds()).length === 0, "Range 1: no dead keys");
+    v.range = 1;
+    const l = v.leds();
+    ok(dead(l).join() === "9,10,24,25,26" && l[24][0] < 64, "Range 2: G#5 A#5 A5 B5 C6 dark red, dimmer than a shortcut");
+    v.key(14, 1, 0);
+    ok(!red(v.leds(), 24), "Range 2: the button quick keys cover the dead keys (no red under HOME..REC)");
+  }
   // the LEDs: shortcuts at 50% and full when pressed or selected; mirrored keys dark unless the FM-1 lights them
   {
     const v = new V.OmxViews(), lv = new Uint8Array(27);

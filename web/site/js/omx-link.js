@@ -238,7 +238,7 @@ export function mountOmx(slot, link) {
   show(link.view());
   slot.replaceChildren(
     h("p", { class: "row-sub", style: { margin: "0 0 10px" } }, "An OMX-27 becomes this FM-1's controller: its keys, encoder and pots play it, and the page lights its keys and draws its screen. K1 picks the view (Base, Seq, Keyboard, Quick Keys), K2 the colours, K5 is MASTER."),
-    h("div", { class: "pills" }, btn),
+    h("div", { class: "pills two" }, btn),
     line,
     h("p", { class: "note" }, `Chrome or Edge, and the OMX-27 firmware with REMOTE mode. Once connected, it connects by itself when the page opens or the OMX-27 is plugged in. ${THEMES.length} colour themes on K2. ${LEAVE}`));
 }
