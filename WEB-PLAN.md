@@ -37,9 +37,12 @@ screen, LEDs and flash go to the page by `postMessage` at up to 30 Hz.
 
 ## 2. The page
 
-- **The look:** FM1VST's new style. The FM-1 drawn edge to edge in the theme colours, Inter Tight, a corner "⋯"
-  that opens a Graphite sheet. The firmware browser has search, category chips and cards from the Hub catalog. A
-  screen-only view.
+- **The look:** RemoteFM1 for iOS's (2026-10-28; before, FM1VST's): the page is the faceplate, edge to edge in the
+  theme's body colour, laid out like the app for the window's shape (a phone upright with a scrolling keybed, a phone on
+  its side, a tablet or a desktop); raised caps with lit LEDs, knurled knobs, Chakra Petch / DM Sans / Unbounded; the
+  app's five themes and "My theme" from five colours; a grabber over the faceplate and the header open the sheet, in
+  the app's warm dark. The firmware browser has search, category chips and cards from the Hub catalog. A screen-only
+  view.
 - **Input:** computer-keyboard keys as in FM1VST, mouse and touch on the drawn panel, and Web MIDI keyboards.
 - **Saves:** per firmware and version in IndexedDB, with backup export and import (`.fm1save`-compatible if
   fm1-emu's format can be shared).

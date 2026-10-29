@@ -55,15 +55,16 @@ const release = (p, mods = 0) => mouse("mouseReleased", p, mods);
 const click = async (p, mods = 0) => { await press(p, mods); await sleep(60); await release(p, mods); await sleep(120); };
 const keyEv = (type, code, key, vk, modifiers = 0) => cdp("Input.dispatchKeyEvent", { type, code, key, windowsVirtualKeyCode: vk, modifiers });
 
-// the controls' centres in the page's CSS pixels: a DeviceView laid out as the page's (same box, same dpr), units -> CSS;
+// the controls' centres in the page's CSS pixels: a DeviceView laid out as the page's (same box, same dpr), where();
 // hit() confirms each point is the control meant
 const WHERE = `(async () => {
   const P = await import("/web/site/js/panel.js");
   const cv = document.getElementById("device"), r = cv.getBoundingClientRect();
   const dv = new P.DeviceView({ getContext: () => null, width: 0, height: 0 }, new P.Controls(() => {}), null);
   dv.layout(cv.clientWidth, cv.clientHeight, devicePixelRatio);
-  const at = (ux, uy, kind, idx) => { const c = dv.toCss(ux, uy), h = dv.hit(ux, uy); return { x: r.left + c.x, y: r.top + c.y, ok: !!h && h.kind === kind && h.idx === idx }; };
-  return { home: at(518, 249, P.KM.BTN, P.B.HOME), sel: at(572, 195, P.KM.BTN, P.B.SEL), key0: at(92, 460, P.KM.KEY, 0), empty: at(160, 300, -1, -1),
+  const at = (kind, idx) => { const c = dv.where(kind, idx), h = dv.hit(c.x, c.y); return { x: r.left + c.x, y: r.top + c.y, ok: !!h && h.kind === kind && h.idx === idx }; };
+  const empty = { x: r.left + 3, y: r.top + 3, ok: !dv.hit(3, 3) };
+  return { home: at(P.KM.BTN, P.B.HOME), sel: at(P.KM.BTN, P.B.SEL), key0: at(P.KM.KEY, 0), empty,
     homeBit: P.labelToMatrix(P.B.HOME), selBit: P.labelToMatrix(P.B.SEL) };
 })()`;
 // what the page posts to the engine: the worklet's last "panel" message (matrix order)

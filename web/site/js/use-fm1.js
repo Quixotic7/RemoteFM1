@@ -55,9 +55,9 @@ function waitingFrame() {
     g.fillStyle = grad; g.beginPath(); g.roundRect ? g.roundRect(100, 54, 40, 40, 10) : g.rect(100, 54, 40, 40); g.fill();
     g.fillStyle = "#1A0E06"; g.beginPath(); g.moveTo(113, 63); g.lineTo(113, 85); g.lineTo(131, 74); g.closePath(); g.fill();
     g.textAlign = "center"; g.fillStyle = "#E8EAED";
-    g.font = '700 21px "Inter Tight", system-ui, sans-serif'; g.fillText("Press Play", 120, 134);
-    g.font = '600 15px "Inter Tight", system-ui, sans-serif'; g.fillStyle = "#8A9099"; g.fillText("in the browser", 120, 156);
-    g.font = '600 12px "Inter Tight", system-ui, sans-serif'; g.fillStyle = "#3DDC84"; g.fillText("FM-1 PLAYER CONNECTED", 120, 196);
+    g.font = '700 21px "DM Sans", system-ui, sans-serif'; g.fillText("Press Play", 120, 134);
+    g.font = '600 15px "DM Sans", system-ui, sans-serif'; g.fillStyle = "#8A9099"; g.fillText("in the browser", 120, 156);
+    g.font = '600 12px "DM Sans", system-ui, sans-serif'; g.fillStyle = "#3DDC84"; g.fillText("FM-1 PLAYER CONNECTED", 120, 196);
     const d = g.getImageData(0, 0, 240, 240).data, px = new Uint16Array(240 * 240);
     for (let i = 0; i < px.length; i++) px[i] = ((d[4 * i] >> 3) << 11) | ((d[4 * i + 1] >> 2) << 5) | (d[4 * i + 2] >> 3);
     return px;

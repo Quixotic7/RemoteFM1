@@ -6,7 +6,7 @@
 //             (the visitor's .rfm1 files, kept in this browser: js/library.js) above them
 //   about     the loaded firmware (author, licence, its source at the version that runs), the engine, the credits
 // app (main.js) holds the state and the actions; the sheet re-renders its page on app.changed().
-import { PRESETS, accentOf, onAccent, css, hex } from "./theme.js";
+import { PRESETS, CUSTOM_NAME, CHOICE_ROLES, accentOf, onAccent, css, hex } from "./theme.js";
 import { AUTOSAVE } from "./saves.js";
 import { browse, cardView, ENGINE_FILTERS, nativeOrigin, nameOf } from "./live.js";
 import { RELEASES } from "./library.js";
@@ -172,12 +172,24 @@ export class Sheet {
     out.push(h("p", { class: "note" }, "The record button (or Shift+R) records the firmware's sound exactly as it renders, before this page's volume; the FM-1's MASTER knob counts. Takes stay in this page until you close it (up to 30 minutes each): save the ones to keep."));
 
     // LOOK
+    // the app's five presets, then My theme: its five colours (theme.js derives the rest so it stays legible)
     out.push(heading("Look", h("span", { class: "heading-val" }, st.theme.name)));
-    out.push(h("div", { class: "swatches" }, PRESETS.map((t) => {
-      const b = h("button", { class: "swatch" + (t.name === st.theme.name ? " on" : ""), title: t.name, "aria-label": t.name, onclick: () => a.set("theme", t.name) });
-      b.style.background = `linear-gradient(135deg, ${t.base} 0 50%, ${t.membrane} 50% 100%)`;
+    const custom = st.theme.name === CUSTOM_NAME;
+    const swatch = (t, label, on, pick) => {
+      const i = h("i"), d = h("span", { class: "dot" }, i), b = h("button", { class: "swatch" + (on ? " on" : ""), "aria-pressed": String(on), title: label, onclick: pick }, d, label);
+      d.style.background = t.body; i.style.background = t.bed; b.style.setProperty("--led-c", t.led);
       return b;
+    };
+    out.push(h("div", { class: "swatches", role: "group", "aria-label": "Themes" },
+      ...PRESETS.map((t) => swatch(t, t.name, t.name === st.theme.name, () => a.set("theme", t.name))),
+      swatch(custom ? st.theme : { body: "conic-gradient(#EE7A3C 0 25%, #A8DCC8 0 50%, #C9AEE6 0 75%, #1E2230 0)", bed: "#2A251F", led: "#FFE6A8" }, "Mine", custom,
+        () => a.set("customColor", ["body", st.theme.body]))));
+    out.push(h("div", { class: "custom", role: "group", "aria-label": "My theme's colours" }, ...CHOICE_ROLES.map(([k, label]) => {
+      const inp = h("input", { type: "color", value: st.theme[k].toLowerCase(), "aria-label": label });
+      inp.addEventListener("change", () => a.set("customColor", [k, inp.value.toUpperCase()]));
+      return h("label", {}, inp, h("span", {}, label), h("code", {}, st.theme[k]));
     })));
+    out.push(h("p", { class: "note" }, custom ? "Your theme: the labels, the keys' edges and shadows follow the colours you pick." : "Change any colour to make it your own theme."));
 
     // VIEW
     out.push(heading("View"));
@@ -436,10 +448,11 @@ export class Sheet {
     }
     out.push(heading("Credits and notices"));
     out.push(h("ul", { class: "credit-list" },
-      h("li", {}, "The panel and the sheet: ", link(cat.credits.fm1vst.source, "FM1VST"), "'s design (GPL-3.0), after ChoralRoot FM-1's emulator."),
+      h("li", {}, "The faceplate and the look: ", link("https://github.com/Quixotic7/RemoteFM1IOS", "RemoteFM1 for iOS"), "'s design; the panel's input after ", link(cat.credits.fm1vst.source, "FM1VST"), " (GPL-3.0) and ChoralRoot FM-1's emulator."),
       h("li", {}, "Firmware catalog: ", link(cat.hub, "the FM-1 Firmware Hub"), ". Every firmware belongs to its author; see each one's licence."),
       h("li", {}, link(cat.credits.fm1emu.source, "fm1-emu"), ` by ${cat.credits.fm1emu.author}, MIT: the emulated engine.`),
-      h("li", {}, "Inter Tight by the Inter Project Authors, SIL Open Font License 1.1 (", h("a", { href: "fonts/OFL.txt" }, "OFL.txt"), ")."),
+      h("li", {}, "Chakra Petch, DM Sans, Unbounded and DM Mono, SIL Open Font License 1.1 (", h("a", { href: "fonts/OFL-chakrapetch.txt" }, "Chakra Petch"), ", ",
+        h("a", { href: "fonts/OFL-dmsans.txt" }, "DM Sans"), ", ", h("a", { href: "fonts/OFL-unbounded.txt" }, "Unbounded"), ", ", h("a", { href: "fonts/OFL-dmmono.txt" }, "DM Mono"), ")."),
       h("li", {}, "This site: ", link("https://github.com/Quixotic7/RemoteFM1", "RemoteFM1"), ", GPL-3.0-only."),
       h("li", {}, "\"M-VAVE\" and \"FM-1\" belong to their owners. Not made or endorsed by M-VAVE.")));
     return out;

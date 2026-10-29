@@ -78,7 +78,7 @@ export class Keyboard {
 }
 
 // ----------------------------------------------------------------- pointer ---
-// view: the DeviceView of the canvas (toUnits, hit); multi-touch: each pointer holds what it went down on.
+// view: the DeviceView of the canvas (toUnits, hit, stripTo); multi-touch: each pointer holds what it went down on.
 // onShiftHint(): Shift held with the mouse over the panel (once per page; main.js shows "Shift-click to hold" once ever).
 // win: the window (the page's; a stand-in in the Node tests)
 export function attachPointer(canvas, view, controls, { onActivity, onScreenTap, onShiftHint, win = globalThis } = {}) {
@@ -93,6 +93,8 @@ export function attachPointer(canvas, view, controls, { onActivity, onScreenTap,
     if (h.kind === "screen") { if (onScreenTap) onScreenTap(e); return; }
     e.preventDefault();
     try { canvas.setPointerCapture(e.pointerId); } catch (_) { /* (a synthetic event) */ }
+    // the scrolling keybed's range strip (a phone upright): a tap centres the keys there, a drag scrolls them
+    if (h.kind === "strip") { ptrs.set(e.pointerId, { kind: "strip", x0: e.clientX, moved: false }); return; }
     if (h.kind === KM.SELECT) {
       controls.select(h.idx);
       ptrs.set(e.pointerId, { kind: KM.SELECT, idx: h.idx, y: e.clientY, acc: 0 });
@@ -110,6 +112,11 @@ export function attachPointer(canvas, view, controls, { onActivity, onScreenTap,
   canvas.addEventListener("pointermove", (e) => {
     if (e.pointerType === "mouse") { over = true; if (e.shiftKey) hint(); }
     const p = ptrs.get(e.pointerId);
+    if (p && p.kind === "strip") {
+      if (!p.moved && Math.abs(e.clientX - p.x0) > 4) p.moved = true;
+      if (p.moved && view.stripTo) { view.stripTo(pos(e).x, true); controls.dirty(); }
+      return;
+    }
     if (!p || p.kind !== KM.SELECT) return;
     p.acc += (p.y - e.clientY) / 8;   // 8 CSS pixels a detent, up = clockwise
     p.y = e.clientY;
@@ -120,6 +127,7 @@ export function attachPointer(canvas, view, controls, { onActivity, onScreenTap,
     const p = ptrs.get(e.pointerId);
     if (!p) return;
     ptrs.delete(e.pointerId);
+    if (p.kind === "strip") { if (!p.moved && view.stripTo && e.clientX !== undefined) { view.stripTo(pos(e).x, false); controls.dirty(); } return; }
     if (p.kind === KM.SELECT) return;
     const still = [...ptrs.values()].some((q) => q.kind === p.kind && q.idx === p.idx);
     if (still) return;

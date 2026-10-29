@@ -89,7 +89,7 @@ const SHOTS = [
   { name: "screen", w: 1000, h: 860, url: "site/?fw=felucca&view=screen", wait: 2500 },
   { name: "embed", w: 900, h: 560, url: "site/?fw=obervave&embed=1", wait: 2500 },
   { name: "theme-orange", w: 1400, h: 860, url: "site/?fw=coralflower", wait: 2000,
-    steps: [`document.getElementById("corner").click()`, `[...document.querySelectorAll(".swatch")].find((b) => b.title === "Orange").click()`,
+    steps: [`document.getElementById("corner").click()`, `[...document.querySelectorAll(".swatch")].find((b) => b.title === "Cream").click()`,
             `document.querySelector(".scrim").click()`], after: 600 },
   { name: "emulated", w: 1400, h: 860, url: "site/?fw=choralroot&engine=emu", wait: 3500 },
   { name: "mobile", w: 390, h: 844, mobile: true, url: "site/?fw=felucca", wait: 2500 },

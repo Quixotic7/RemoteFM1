@@ -8,32 +8,34 @@
 <title>Native builds by authors · RemoteFM1</title>
 <meta name="description" content="How FM-1 firmware authors publish a native (WebAssembly) build of their firmware on remotefm1.com: one job in the release workflow, signed on GitHub.">
 <style>
-@font-face { font-family: "Inter Tight"; src: url("../fonts/InterTight-VF-latin.woff") format("woff"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: "DM Sans"; src: url("../fonts/DMSans-VF-latin.woff") format("woff"); font-weight: 100 1000; font-display: swap; }
+@font-face { font-family: "Unbounded"; src: url("../fonts/Unbounded-Bold-latin.woff") format("woff"); font-weight: 700; font-display: swap; }
+@font-face { font-family: "DM Mono"; src: url("../fonts/DMMono-Medium-latin.woff") format("woff"); font-weight: 500; font-display: swap; }
 :root {
-  --backdrop: #0E0E10; --surface: #1D2024; --raised: #23272C; --well: #141619; --line: #2E333A;
-  --text: #E8EAED; --muted: #8A9099; --heading: #7D838C; --green: #3DDC84; --accent: #FF8A3D;
+  --backdrop: #17140F; --surface: #211E19; --raised: #2A251F; --well: #141210; --line: #2E2A23;
+  --text: #F3EBDC; --muted: #A69C8A; --heading: #A69C8A; --green: #3BD47A; --accent: #EE7A3C; --body: #EE7A3C; --label: #3A1606;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
-body { background: var(--backdrop); color: var(--text); font: 450 15px/1.55 "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif;
+body { background: var(--backdrop); color: var(--text); font: 450 15px/1.55 "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased; }
 a { color: var(--accent); }
-header { position: sticky; top: 0; display: flex; align-items: center; gap: 14px; padding: 10px 16px; background: rgba(14, 14, 16, .92);
-  border-bottom: 1px solid var(--line); backdrop-filter: blur(8px); z-index: 1; }
+header { position: sticky; top: 0; display: flex; align-items: center; gap: 14px; padding: 12px 16px; background: var(--body); color: var(--label); z-index: 1; }
+header a { color: var(--label); }
 header a { text-decoration: none; font-weight: 600; }
-header .back { color: var(--text); }
+header .back { color: var(--label); }
 header .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px var(--green); outline: 1px solid var(--green); outline-offset: 2px; }
 main { max-width: 760px; margin: 0 auto; padding: 24px 16px 64px; }
-h1 { font-size: 28px; line-height: 1.2; margin: 8px 0 6px; letter-spacing: -.01em; }
+h1 { font: 700 27px/1.2 "Unbounded", "DM Sans", sans-serif; margin: 8px 0 8px; letter-spacing: -.02em; }
 h2 { font-size: 19px; margin: 36px 0 8px; }
 .for { color: var(--heading); font-size: 13px; text-transform: uppercase; letter-spacing: .06em; margin: 0; }
 .lead { font-size: 17px; color: var(--text); }
-p, li { color: #D6D9DD; }
+p, li { color: #E2D8C7; }
 ol, ul { padding-left: 22px; }
 li { margin: 5px 0; }
 b { color: var(--text); font-weight: 650; }
-code { font: 13px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; background: var(--well); border: 1px solid var(--line);
+code { font: 500 13px/1.5 "DM Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace; background: var(--well); border: 1px solid var(--line);
   border-radius: 5px; padding: 1px 5px; }
 pre { background: var(--well); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; overflow-x: auto; }
 pre code { background: none; border: 0; padding: 0; font-size: 13px; }

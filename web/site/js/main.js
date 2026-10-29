@@ -5,8 +5,8 @@
 //   &engine=native|emu  pick the engine (where both can)
 //   &view=screen      the screen view
 //   &embed=1          only the device: no header, no settings
-import { Controls, DeviceView, ScreenView, Lcd, VIEW, SRC, PANEL_LABELS } from "./panel.js";
-import { PRESETS, DEFAULT_THEME, presetNamed, css, derive } from "./theme.js";
+import { Controls, DeviceView, ScreenView, Lcd, SRC, PANEL_LABELS } from "./panel.js";
+import { DEFAULT_THEME, CUSTOM_NAME, presetNamed, derived, css, resolve, accentOf, onAccent } from "./theme.js";
 import { Keyboard, attachPointer, MidiInput } from "./input.js";
 import { Player, sha256hex } from "./audio.js";
 import { SoundOut } from "./sound-out.js";
@@ -34,7 +34,7 @@ const savePrefs = () => { writePrefs(store, prefs); };
 // ------------------------------------------------------------------ state ---
 const state = {
   entry: null, engine: null, wantEngine: null, engineState: "idle", info: null, running: false,
-  theme: presetNamed(prefs.theme) || presetNamed(DEFAULT_THEME),
+  theme: presetNamed(prefs.theme, prefs.customTheme) || presetNamed(DEFAULT_THEME),
   view: params.get("view") === "screen" ? "screen" : params.get("view") === "device" ? "device" : prefs.view || "device",
   transpose: prefs.transpose | 0, notesPlayKeys: prefs.notesPlayKeys !== false, reachFirmware: !!prefs.reachFirmware,
   keyHints: keyHintsOn(prefs),                              // the computer-key letters on the panel: off by default
@@ -69,53 +69,28 @@ function draw() {
   if (!$("screen-wrap").hidden) screen.draw();
 }
 
-let stacked = false;
 function layout() {
   const stage = $("stage"), W = stage.clientWidth, H = stage.clientHeight, dpr = window.devicePixelRatio || 1;
-  stacked = !EMBED && W < 720 && H > W * 1.1;   // a phone upright: the screen, and the panel as a strip to scroll
-  document.body.classList.toggle("stacked", stacked);
-  const showDevice = stacked || state.view === "device", showScreen = stacked || state.view === "screen";
-  $("device-wrap").hidden = !showDevice;
+  const showScreen = state.view === "screen";
+  $("device-wrap").hidden = showScreen;
   $("screen-wrap").hidden = !showScreen;
-  if (stacked) {
-    const sh = Math.min(W, Math.max(160, H - 230));
-    $("screen-wrap").style.height = sh + "px";
-    const dh = H - sh, dw = Math.round(dh * VIEW.w / VIEW.h);
-    $("device").style.width = dw + "px"; $("device").style.height = dh + "px";
-    device.layout(dw, dh, dpr);
-    screen.layout(W, sh, dpr);
-  } else {
-    $("screen-wrap").style.height = "";
-    $("device").style.width = ""; $("device").style.height = "";
-    if (showDevice) device.layout(W, H, dpr);
-    if (showScreen) screen.layout(W, H, dpr);
-  }
+  if (showScreen) screen.layout(W, H, dpr); else device.layout(W, H, dpr);
   placeCorner();
   laidOut = true;
   invalidate();
 }
-// the corner button: on the body's empty top-right corner (units 860, 46), or the screen view's bezel corner
+// the grabber (the app's pull-down handle: it opens the sheet), top centre over the faceplate's empty first strip;
+// the start overlay over the LCD
 function placeCorner() {
-  const b = $("corner"), stage = $("stage").getBoundingClientRect();
-  let x, y, d;
-  if (!$("screen-wrap").hidden && (state.view === "screen" || stacked)) {
-    const r = $("screen").getBoundingClientRect(), w = Math.min(r.width, r.height);
-    d = Math.max(22, Math.min(28, Math.round(w * 0.045)));
-    const bz = screen.bezel();
-    const c = Math.max(d / 2 + 3, bz.x - (r.width - w) / 2);
-    x = r.left - stage.left + (r.width + w) / 2 - c; y = r.top - stage.top + (r.height - w) / 2 + c;
-  } else {
-    const r = $("device").getBoundingClientRect(), p = device.toCss(860, 46);
-    d = Math.max(22, Math.min(28, Math.round(17.5 * device.unitPx())));
-    x = r.left - stage.left + p.x; y = r.top - stage.top + p.y;
-  }
-  Object.assign(b.style, { left: x - d / 2 + "px", top: y - d / 2 + "px", width: d + "px", height: d + "px" });
-  // the start overlay: over the panel's LCD in the device view
-  const st = $("start").style;
-  if (!stacked && state.view === "device") {
-    const r = $("device").getBoundingClientRect(), p = device.toCss(347, 160);
-    const half = 240, sx = r.left - stage.left + p.x;
-    st.setProperty("--start-x", (stage.width > 2 * half + 32 ? Math.max(half + 16, Math.min(stage.width - half - 16, sx)) : stage.width / 2) + "px"); st.setProperty("--start-y", r.top - stage.top + p.y + "px");
+  const view = state.view === "screen" ? screen : device;
+  const g = view.anchor("grabber"), b = $("corner");
+  const h = Math.max(20, Math.min(44, g.room || 44));
+  Object.assign(b.style, { left: g.x - 44 + "px", top: Math.max(0, g.y - h / 2) + "px", width: "88px", height: h + "px" });
+  const st = $("start").style, stage = $("stage").getBoundingClientRect(), half = 240;
+  if (state.view === "device") {
+    const c = device.anchor("lcd");
+    st.setProperty("--start-x", (stage.width > 2 * half + 32 ? Math.max(half + 16, Math.min(stage.width - half - 16, c.x)) : stage.width / 2) + "px");
+    st.setProperty("--start-y", Math.max(90, Math.min(stage.height - 90, c.y)) + "px");
   } else { st.removeProperty("--start-x"); st.removeProperty("--start-y"); }
 }
 let chromeTimer = 0;
@@ -483,6 +458,7 @@ function start() {
     finally { starting = null; }
     state.running = true;
     document.body.classList.add("running");
+    device.setRunning(true); invalidate();
     $("start").hidden = true;
     player.applySink().catch(() => {}).then(() => soundOut.apply()).catch(() => {});
     if (state.entry) await boot();
@@ -561,7 +537,11 @@ const app = {
   versionOf, metaLine, engineNote, carryText, answerCarry, sourceNow,
   sheetChanged(open) { document.body.classList.toggle("sheet-open", open); if (open) document.body.classList.remove("chrome"); else $("stage").focus({ preventScroll: true }); },
   set(k, v) {
-    if (k === "theme") { state.theme = presetNamed(v) || state.theme; prefs.theme = state.theme.name; applyTheme(); }
+    if (k === "theme") { state.theme = presetNamed(v, prefs.customTheme) || state.theme; prefs.theme = state.theme.name; applyTheme(); }
+    else if (k === "customColor") {   // [role, "#RRGGBB"]: My theme, from the five colours (theme.js derived)
+      prefs.customTheme = { ...(prefs.customTheme || {}), ...(state.theme.name === CUSTOM_NAME ? {} : choiceFrom(state.theme)), [v[0]]: v[1] };
+      state.theme = derived(prefs.customTheme); prefs.theme = CUSTOM_NAME; applyTheme();
+    }
     else if (k === "view") { state.view = v; prefs.view = v; layout(); }
     else if (k === "keyHints") { state.keyHints = !!v; prefs.keyHints = !!v; device.setHints(state.keyHints); invalidate(); }
     else { state[k] = v; prefs[k] = v; }
@@ -683,21 +663,30 @@ async function importRfm1(fileName, bytes) {
   await openFirmware(e);
 }
 
+// My theme starts from the theme in use: its five colours
+const choiceFrom = (t) => ({ body: t.body, key: t.key, knob: t.knob, led: t.led, bezel: t.bezel });
+// the faceplate's colours, for the canvases and the page around them (css/site.css: the header sits on the faceplate)
 function applyTheme() {
   device.setTheme(state.theme); screen.setTheme(state.theme);
-  const p = derive(state.theme);
-  document.documentElement.style.setProperty("--plate", css(p.plate));
-  document.documentElement.style.setProperty("--backdrop", css(p.backdrop));
-  invalidate();
+  const p = resolve(state.theme), a = accentOf(state.theme), root = document.documentElement.style;
+  for (const [v, c] of [["--body", p.body], ["--label", p.label], ["--bed", p.bed], ["--key", p.key], ["--hi", p.hi], ["--lo", p.lo],
+    ["--key-text", p.keyText], ["--led", p.led], ["--bezel", p.bezel], ["--accent", a], ["--on-accent", onAccent(a)]]) root.setProperty(v, css(c));
+  root.setProperty("--accent-soft", css(a, 0.14));
+  root.setProperty("--label-soft", css(p.label, 0.14));
+  document.body.classList.toggle("light-plate", p.label[0] < 128);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.content = state.theme.body;
+  layout();
 }
 
 // ------------------------------------------------------------------- boot ---
 async function main() {
-  $("corner").innerHTML = icon("dots");
+  $("corner").innerHTML = '<span class="grab-bar"></span>';
   if (EMBED) document.body.classList.add("embed");
   applyTheme();
   // the FM-1 at its size from the first frame on (before any await: the catalog can take seconds on a slow connection)
   layout();
+  if (document.fonts) document.fonts.ready.then(layout);   // (the canvas's legends: Chakra Petch, once it has loaded)
   addEventListener("resize", layout);
   new ResizeObserver(layout).observe($("stage"));
   matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`).addEventListener?.("change", layout);

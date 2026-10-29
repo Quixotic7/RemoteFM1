@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import { Controls, labelToMatrix, roleToMatrix, B, E, SRC, KEYMAP, KM, hintText, ledIndexOf, DEFAULT_KEYMAP } from "./js/panel.js";
 import { PanelMerge } from "./worklet/host.js";
 import { createEngine, ENGINE } from "./mock/engine.js";
-import { derive, PRESETS, contrast } from "./js/theme.js";
+import { PRESETS, contrast, hex, derived, presetNamed, CUSTOM_NAME, accentOf } from "./js/theme.js";
 import { Fm1Link, viewOf, errorText, MIDI_PROMPT_TEXT, MIDI_LATE_TEXT, MIDI_DENIED_TEXT } from "./js/fm1-link.js";
 
 let fails = 0, checks = 0;
@@ -311,7 +311,16 @@ ok(hintText(KM.KEY, 8) === "F4/W" && hintText(KM.BTN, B.FX) === "F5/C" && hintTe
 ok(new Set(KEYMAP.map((e) => e.code)).size === KEYMAP.length, "keymap: one action per physical key");
 
 // ---- themes stay legible
-ok(PRESETS.every((t) => { const p = derive(t); return contrast(p.capText, p.cap) >= 2.9 && contrast(p.hint, p.cap) >= 1.9; }), "themes: cap text and hints readable on every preset");
+ok(PRESETS.every((t) => contrast(hex(t.keyText), hex(t.key)) >= 4.5 && contrast(hex(t.label), hex(t.body)) >= 4.5), "themes: legends and labels readable (4.5:1) on every preset");
+{ // My theme: the app's derivation keeps it legible whatever the five colours
+  const picks = [{ body: "#FFFFFF", key: "#FFFF00", knob: "#FFFFFF", led: "#00FF00", bezel: "#000000" }, { body: "#000000", key: "#101010", knob: "#000000", led: "#FF0000", bezel: "#333333" },
+    { body: "#7F7F7F", key: "#808080", knob: "#777777", led: "#FFFFFF", bezel: "#111111" }];
+  ok(picks.every((c) => { const t = derived(c); return contrast(hex(t.keyText), hex(t.key)) >= 4.5 && contrast(hex(t.label), hex(t.body)) >= 4.4 && t.name === CUSTOM_NAME; }),
+     "themes: My theme's legends and labels stay readable, from any five colours");
+  ok(presetNamed("Emulator") === null && presetNamed("tangerine").name === "Tangerine" && presetNamed(CUSTOM_NAME, picks[0]).body === "#FFFFFF",
+     "themes: presets by name (an old FM1VST name is unknown: the default applies); My theme from the stored colours");
+  ok(PRESETS.every((t) => contrast(accentOf(t), hex("#211E19")) >= 3), "themes: the sheet's accent reads on the sheet for every preset");
+}
 
 // ---- the mock engine, as API.md says
 const eng = await createEngine({ sampleRate: 48000, files: {}, flash: null, options: { name: "Test" } });
@@ -750,14 +759,25 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   ok(P.keyHintsOn(back) === true && P.savePrefs(throwing, back) === false && P.keyHintsOn(P.loadPrefs(throwing)) === false, "hints: turned on, remembered; a blocked storage gives the default and throws nothing");
   back.keyHints = false; P.savePrefs(st, back);
   ok(P.keyHintsOn(P.loadPrefs(st)) === false, "hints: turned off again, remembered");
-  // the drawing: count the 5x7 font's cells (rect calls) and where the note name sits
-  const { DeviceView } = await import("./js/panel.js");
-  let rects = [];
-  const g = new Proxy({}, { get: (_, k) => (k === "rect" ? (x, y) => rects.push(y) : () => {}), set: () => true });
-  const dv = new DeviceView({ getContext: () => g }, new Controls(() => {}), null);
-  const draw = (on) => { dv.setHints(on); rects = []; dv.drawKey(g, dv.pal, 7, false, 0, 1); dv.drawButton(g, dv.pal, B.FX, false, 0, 0, 1); return rects.slice(); };
+  // the drawing: the hint letters are drawn only when on (fillText calls on a stand-in canvas)
+  const { DeviceView, pickLayout, keybedGeometry } = await import("./js/panel.js");
+  let texts = [];
+  const g = new Proxy({}, { get: (_, k) => (k === "fillText" ? (t) => texts.push(t) : k === "measureText" ? () => ({ width: 10 }) : () => {}), set: () => true });
+  const dv = new DeviceView({ getContext: () => g, width: 0, height: 0 }, new Controls(() => {}), null);
+  dv.layout(1194, 768, 1);
+  const draw = (on) => { dv.setHints(on); texts = []; dv.drawKeybed(g, dv.pal); for (const b of dv.L.btns) dv.drawButton(g, dv.pal, b, false, 0, 0); return texts.slice(); };
   const off = draw(false), on = draw(true);
-  ok(dv.hints === true && on.length > off.length && Math.min(...off) > Math.min(...on), "hints: drawn only when on; off, the key's name and the button's name move to the middle (no gap)");
+  ok(dv.hints === true && off.length === 14 && on.includes("S") && on.includes("Z") && on.length > off.length, "hints: the computer-key letters drawn only when on");
+  ok(pickLayout(390, 760) === "phonePortrait" && pickLayout(844, 390) === "phoneLandscape" && pickLayout(1440, 848) === "padLandscape" && pickLayout(834, 1100) === "padPortrait",
+     "faceplate: the layout follows the stage's shape (phone upright / on its side, tablet or desktop)");
+  const kg = keybedGeometry(358, 272, 40), row = keybedGeometry(1098, 362);
+  ok(kg.scroll && kg.keys.length === 27 && kg.maxOffset > 0 && row.keys.filter((k) => k.natural).length === 16 && row.maxOffset === 0,
+     "faceplate: 27 keys, 16 naturals; a phone's keybed scrolls, a wide one shows them all");
+  dv.layout(390, 760, 1);
+  const kb = dv.L.keybed, hitKey = (k) => { const c = dv.L.kg, key = c.keys.find((x) => x.k === k); return dv.hit(kb.x + c.stage.x + c.shift(dv.keyOff()) + key.x + key.w / 2, kb.y + c.stage.y + key.y + key.h / 2); };
+  ok(hitKey(9) && hitKey(9).kind === KM.KEY && hitKey(9).idx === 9 && dv.hit(kb.x + 30, kb.y + 20).kind === "strip", "faceplate: a phone's keybed: a key hits its note; the range strip above is the strip");
+  dv.stripTo(kb.x + kb.w - 20, false);
+  ok(dv.keyOff() === dv.L.kg.maxOffset, "faceplate: a tap at the strip's right end scrolls the keys to the end");
 }
 
 // ---- Shift-click latches on the drawn panel (input.js attachPointer, Keyboard): the engine sees held keys and buttons

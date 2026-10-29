@@ -8,41 +8,48 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Install RemoteFM1</title>
 <meta name="description" content="RemoteFM1: the M-VAVE FM-1 as a USB or Bluetooth panel for a firmware running in your browser or on your computer. Install it from the browser.">
-<meta name="theme-color" content="#0F1113">
+<meta name="theme-color" content="#EE7A3C">
 <style>
-  @font-face {
-    font-family: "Inter Tight"; font-weight: 100 900; font-display: swap;
-    src: url("../fonts/InterTight-VF-latin.woff") format("woff"), url("../site/fonts/InterTight-VF-latin.woff") format("woff");
-  }
+  /* RemoteFM1 for iOS's look, as the player's (web/site/css/site.css): the faceplate (Tangerine) for the header, the
+     app's warm dark sheet for the page; Chakra Petch, DM Sans and Unbounded (SIL OFL 1.1, the player's fonts/) */
+  @font-face { font-family: "Chakra Petch"; font-weight: 700; font-display: swap;
+    src: url("../fonts/ChakraPetch-Bold-latin.woff") format("woff"), url("../site/fonts/ChakraPetch-Bold-latin.woff") format("woff"); }
+  @font-face { font-family: "DM Sans"; font-weight: 100 1000; font-display: swap;
+    src: url("../fonts/DMSans-VF-latin.woff") format("woff"), url("../site/fonts/DMSans-VF-latin.woff") format("woff"); }
+  @font-face { font-family: "Unbounded"; font-weight: 700; font-display: swap;
+    src: url("../fonts/Unbounded-Bold-latin.woff") format("woff"), url("../site/fonts/Unbounded-Bold-latin.woff") format("woff"); }
   :root {
-    --window: #0F1113; --surface: #1D2024; --raised: #23272C; --raised-hover: #2A2F35; --well: #141619; --border: #33383F;
-    --line: #2E333A; --divider: #2B2F35; --text: #E8EAED; --row-text: #D6D9DD; --muted: #8A9099; --heading: #7D838C;
-    --accent: #FF8A3D; --on-accent: #1A0E06; --ok: #3DDC84; --bad: #FF6464; --amber: #F5A524;
+    --window: #17140F; --surface: #211E19; --raised: #2A251F; --raised-hover: #332D26; --well: #141210; --border: #3A352D;
+    --line: #2E2A23; --divider: #2E2A23; --text: #F3EBDC; --row-text: #E2D8C7; --muted: #A69C8A; --heading: #A69C8A;
+    --accent: #EE7A3C; --on-accent: #17140F; --ok: #3BD47A; --bad: #FF5F57; --amber: #F5A524;
+    --body: #EE7A3C; --label: #3A1606; --key: #924E3A; --hi: #A9614B; --lo: #64301F; --key-text: #FBEDE3; --led: #FFE6A8;
     color-scheme: dark;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--window); color: var(--text); font: 500 15px/1.55 "Inter Tight", system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
-  header { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 14px; border-bottom: 1px solid #1A1D21; }
-  header a { color: var(--row-text); text-decoration: none; font-weight: 600; font-size: 13px; padding: 6px 10px; border-radius: 8px; }
-  header a:hover { background: var(--raised); }
-  header .brand { display: flex; align-items: center; gap: 9px; color: var(--text); font-size: 15px; font-weight: 700; padding-left: 0; }
-  .mark { width: 18px; height: 18px; border-radius: 5px; background: linear-gradient(135deg, #FFA45E, #E07A3C); box-shadow: inset 0 0 0 1px rgba(0,0,0,.4); }
+  body { margin: 0; background: var(--window); color: var(--text); font: 500 15px/1.55 "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
+  header { display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 14px; background: var(--body); color: var(--label); }
+  header a { color: var(--label); text-decoration: none; font-weight: 600; font-size: 13px; padding: 6px 10px; border-radius: 10px; }
+  header a:hover { background: rgba(0,0,0,.14); }
+  header .brand { display: flex; align-items: center; gap: 10px; font: 700 13px/1 "Chakra Petch", "DM Sans", sans-serif; letter-spacing: .14em; text-transform: uppercase; padding-left: 4px; }
+  .mark { width: 22px; height: 22px; border-radius: 6px; background: #141210; position: relative; box-shadow: 0 2px 0 rgba(0,0,0,.25); flex: none; }
+  .mark::after { content: ""; position: absolute; inset: 4px; border-radius: 2px; background: #C9D6EA; background-image: linear-gradient(transparent 45%, #13203A 45% 60%, transparent 60%); }
   header nav { margin-left: auto; display: flex; gap: 4px; }
   main { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
-  h1 { font-size: 2.2rem; line-height: 1.15; margin: 0 0 8px; letter-spacing: -0.01em; font-weight: 800; }
+  h1 { font: 700 2.1rem/1.15 "Unbounded", "DM Sans", sans-serif; margin: 0 0 12px; letter-spacing: -0.02em; }
   h1 span { color: var(--accent); }
-  h2 { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--heading); margin: 0 0 12px; font-weight: 700; }
+  h2 { font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--heading); margin: 0 0 12px; font-weight: 600; }
   .lede { font-size: 1.08rem; color: var(--row-text); margin: 0 0 24px; }
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px; margin: 0 0 14px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 22px; padding: 22px; margin: 0 0 14px; }
   .warn { border-color: rgba(245, 165, 36, .45); }
   .warn h2 { color: var(--amber); }
   .card p { margin: 0 0 10px; }
   .card p:last-child { margin-bottom: 0; }
   ul { padding-left: 1.2em; margin: 8px 0 0; }
   li { margin: 4px 0; }
-  button { font: inherit; font-weight: 600; border-radius: 8px; border: 1px solid var(--line); background: var(--raised); color: var(--row-text); padding: 9px 16px; cursor: pointer; }
-  button:hover:not(:disabled) { background: var(--raised-hover); }
-  button.primary { background: linear-gradient(135deg, #FFA45E, #E07A3C); color: var(--on-accent); border-color: transparent; font-size: 1.05rem; padding: 12px 20px; }
+  button { font: inherit; font-weight: 600; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--text); padding: 9px 18px; cursor: pointer; }
+  button:hover:not(:disabled) { background: var(--raised); }
+  button.primary { background: var(--accent); color: var(--on-accent); border-color: transparent; font-size: 1.05rem; font-weight: 700; padding: 13px 24px; box-shadow: 0 3px 0 rgba(0,0,0,.35); }
+  button.primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
   button:disabled { opacity: 0.45; cursor: default; }
   body.busy button { pointer-events: none; opacity: 0.6; }
   .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
@@ -51,11 +58,11 @@
   .status { margin: 14px 0 0; min-height: 1.5em; }
   .status.ok { color: var(--ok); font-weight: 600; }
   .status.bad { color: var(--bad); font-weight: 600; }
-  .status.wait { color: #E07A3C; font-weight: 600; }
+  .status.wait { color: var(--accent); font-weight: 600; }
   body.busy button#midi-retry { pointer-events: auto; opacity: 1; }
   details { margin-top: 12px; }
   summary { cursor: pointer; color: var(--muted); }
-  pre { white-space: pre-wrap; font-size: 0.8rem; color: var(--muted); max-height: 240px; overflow: auto; background: var(--well); border-radius: 8px; padding: 10px; }
+  pre { white-space: pre-wrap; font-size: 0.8rem; color: var(--muted); max-height: 240px; overflow: auto; background: var(--well); border-radius: 12px; padding: 12px; }
   input[type=file] { max-width: 100%; color: var(--muted); }
   label.check { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; color: var(--row-text); }
   label.check input { margin-top: 4px; accent-color: var(--accent); width: 16px; height: 16px; flex: none; }
@@ -67,9 +74,9 @@
   .sha { word-break: break-all; font-size: .8rem; }
   footer { color: var(--muted); font-size: 0.88rem; margin-top: 32px; }
   #browser-warn { color: var(--amber); font-weight: 600; }
-  a.button { display: inline-block; text-decoration: none; font-weight: 600; border-radius: 8px; }
-  a.button.primary { background: linear-gradient(135deg, #FFA45E, #E07A3C); color: var(--on-accent); font-size: 1.05rem; padding: 12px 20px; }
-  .next { margin-top: 16px; padding: 16px 18px; border-radius: 12px; background: var(--well); border: 1px solid rgba(61, 220, 132, .35); }
+  a.button { display: inline-block; text-decoration: none; font-weight: 700; border-radius: 999px; }
+  a.button.primary { background: var(--accent); color: var(--on-accent); font-size: 1.05rem; padding: 13px 24px; box-shadow: 0 3px 0 rgba(0,0,0,.35); }
+  .next { margin-top: 16px; padding: 16px 18px; border-radius: 18px; background: var(--well); border: 1px solid rgba(61, 220, 132, .35); }
   .next[hidden] { display: none; }
   .next p { margin: 0 0 12px; color: var(--row-text); }
   .next .meta { margin: 12px 0 0; color: var(--muted); }

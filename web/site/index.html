@@ -7,8 +7,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>FM-1 Player</title>
 <meta name="description" content="Play FM-1 firmwares in the browser: the M-VAVE FM-1 drawn on screen, played with the computer keyboard, mouse, touch or a MIDI keyboard. Install RemoteFM1 to use your own FM-1 as the panel.">
-<meta name="theme-color" content="#0F1113">
-<link rel="preload" href="fonts/InterTight-VF-latin.woff" as="font" type="font/woff" crossorigin>
+<meta name="theme-color" content="#EE7A3C">
+<link rel="preload" href="fonts/ChakraPetch-Bold-latin.woff" as="font" type="font/woff" crossorigin>
+<link rel="preload" href="fonts/DMSans-VF-latin.woff" as="font" type="font/woff" crossorigin>
 <link rel="stylesheet" href="css/site.css">
 </head>
 <body>
@@ -35,7 +36,7 @@
 <main id="stage" tabindex="-1">
   <div id="screen-wrap" hidden><canvas id="screen" aria-label="The FM-1's screen"></canvas></div>
   <div id="device-wrap"><canvas id="device" aria-label="The FM-1: click or touch its keys, buttons and knobs"></canvas></div>
-  <button id="corner" aria-label="Settings" title="Settings"></button>
+  <button id="corner" aria-label="Open settings" title="Settings"></button>
   <div id="start" hidden>
     <div class="start-row">
       <button id="start-btn"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.2v9.6L12.6 8z"/></svg><span>Play <b id="start-name"></b></span></button>

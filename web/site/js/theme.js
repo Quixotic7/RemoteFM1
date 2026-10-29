@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// Panel colour themes: FM1VST plugin/Theme.cpp ported. A theme is three colours (the body plate, the silicone
-// membrane of the keys and buttons, the knob caps) plus two optional overrides (the bed, the printed labels);
-// derive() computes every colour the panel draws from them, so a theme always stays legible. The presets are
-// FM1VST themes/presets.json (copied to data/themes.json). Colours here are [r, g, b] arrays (0..255).
+// Faceplate colour themes: RemoteFM1 for iOS's (RemoteFM1IOS design/tokens.json, RFMKit Faceplate/Theme.swift). A
+// theme names fourteen roles: the faceplate (body) and its printed labels, the recessed wells (bed), the key and button
+// caps (key, with their lit top edge hi and hard shadow lo, and their legends keyText), the knobs and their pointer
+// (mark), the display's bezel, the key LEDs (led, ledOff), and lcd / ink (the design's mock LCD: unused here, the LCD
+// is the firmware's own pixels). The five presets are the app's; "My theme" is derived from five colours the visitor
+// picks, by the app's rules, so a custom theme always stays legible. Colours here are [r, g, b] arrays (0..255).
 
 export const hex = (s) => {
   const h = String(s || "").trim().replace(/^#/, "");
@@ -11,92 +13,95 @@ export const hex = (s) => {
   return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
 };
 export const css = (c, a = 1) => (a >= 1 ? `rgb(${c[0]},${c[1]},${c[2]})` : `rgba(${c[0]},${c[1]},${c[2]},${a})`);
-export const toHex = (c) => "#" + c.map((v) => v.toString(16).padStart(2, "0")).join("").toUpperCase();
+export const toHex = (c) => "#" + c.map((v) => Math.round(v).toString(16).padStart(2, "0")).join("").toUpperCase();
 
 const lin = (c8) => { const c = c8 / 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+const gam = (c) => 255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055);
 export const luminance = (c) => 0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2]);
 export const contrast = (a, b) => { const la = luminance(a), lb = luminance(b); return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05); };
-// juce::Colour::interpolatedWith
-export const mix = (a, b, t) => a.map((v, i) => v + Math.round(t * (b[i] - v)));
-const WHITE = [255, 255, 255], BLACK = [0, 0, 0];
-const isDark = (c) => luminance(c) < 0.179;
+export const mix = (a, b, t) => a.map((v, i) => Math.round(v + t * (b[i] - v)));
 
-function ensureContrast(c, against, floor, lighterFirst) {
-  if (contrast(c, against) >= floor) return c;
-  for (let pass = 0; pass < 2; pass++) {
-    const lighter = pass === 0 ? lighterFirst : !lighterFirst;
-    for (let i = 1; i <= 64; i++) {
-      const cand = mix(c, lighter ? WHITE : BLACK, i / 64);
-      if (contrast(cand, against) >= floor) return cand;
-    }
-  }
-  return contrast(WHITE, against) >= contrast(BLACK, against) ? WHITE : BLACK;
+// CIE L*a*b* (D65), as Theme.swift's RGB.lab / init(l:a:b:)
+const WP = [0.95047, 1, 1.08883];
+export function lab(c) {
+  const R = lin(c[0]), G = lin(c[1]), B = lin(c[2]);
+  const x = (0.4124 * R + 0.3576 * G + 0.1805 * B) / WP[0], y = (0.2126 * R + 0.7152 * G + 0.0722 * B) / WP[1], z = (0.0193 * R + 0.1192 * G + 0.9505 * B) / WP[2];
+  const f = (t) => (t > 216 / 24389 ? Math.cbrt(t) : (24389 / 27 * t + 16) / 116);
+  const fx = f(x), fy = f(y), fz = f(z);
+  return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
 }
-const autoText = (bg, light, dark) => (contrast(light, bg) >= contrast(dark, bg) ? light : dark);
+export function fromLab(l, a, b) {
+  const fy = (l + 16) / 116, fx = fy + a / 500, fz = fy - b / 200;
+  const fi = (t) => (t * t * t > 216 / 24389 ? t * t * t : (116 * t - 16) / (24389 / 27));
+  const x = fi(fx) * WP[0], y = fi(fy) * WP[1], z = fi(fz) * WP[2];
+  const R = 3.2406 * x - 1.5372 * y - 0.4986 * z, G = -0.9689 * x + 1.8758 * y + 0.0415 * z, B = 0.0557 * x - 0.2040 * y + 1.0570 * z;
+  return [R, G, B].map((v) => Math.max(0, Math.min(255, Math.round(gam(Math.max(0, v))))));
+}
+// the same colour with its L* moved by dl (+ lighter)
+export const lightness = (c, dl) => { const [l, a, b] = lab(c); return fromLab(Math.max(0, Math.min(100, l + dl)), a, b); };
 
-// theme: { name, base, membrane, knob, bed?, label? } with "#RRGGBB" strings
-export function derive(t) {
+export const ROLES = ["body", "label", "bed", "key", "hi", "lo", "keyText", "knob", "mark", "bezel", "lcd", "ink", "led", "ledOff"];
+const NEAR_WHITE = "#F6F0E8", NEAR_BLACK = "#1B1714";
+
+// the app's presets, in its order; Tangerine (the orange FM-1) is the default
+export const PRESETS = [
+  { name: "Tangerine", body: "#EE7A3C", label: "#3A1606", bed: "#874332", key: "#924E3A", hi: "#A9614B", lo: "#64301F", keyText: "#FBEDE3", knob: "#1B1715", mark: "#F4EDE6", bezel: "#141210", lcd: "#C9D6EA", ink: "#13203A", led: "#FFE6A8", ledOff: "#6F6668" },
+  { name: "Midnight", body: "#1E2230", label: "#C9D2E6", bed: "#12151D", key: "#2B3244", hi: "#3B4359", lo: "#0A0C12", keyText: "#E6ECF8", knob: "#0A0B0F", mark: "#6CF0C2", bezel: "#05060A", lcd: "#0D1F1A", ink: "#7CF5C8", led: "#6CF0C2", ledOff: "#454B5C" },
+  { name: "Mint", body: "#A8DCC8", label: "#143329", bed: "#2F5B52", key: "#376A60", hi: "#4A7F74", lo: "#1E3F38", keyText: "#EAF7F1", knob: "#1A2421", mark: "#F2FFF9", bezel: "#121816", lcd: "#E9F0D8", ink: "#1E2A17", led: "#FFF3B0", ledOff: "#6E8580" },
+  { name: "Lilac", body: "#C9AEE6", label: "#2A1642", bed: "#573B77", key: "#634486", hi: "#77589B", lo: "#3B2655", keyText: "#F6EFFC", knob: "#1C1624", mark: "#F7F0FF", bezel: "#120E18", lcd: "#D7E3F2", ink: "#1A2236", led: "#FFD6F0", ledOff: "#8A7A9A" },
+  { name: "Cream", body: "#EFE6D2", label: "#2A231C", bed: "#2A2520", key: "#3A332C", hi: "#4B433A", lo: "#141110", keyText: "#F3EBDC", knob: "#E8622A", mark: "#FFF4E8", bezel: "#15120F", lcd: "#F6C34A", ink: "#2A1A05", led: "#FF7A3D", ledOff: "#6A6158" },
+];
+export const DEFAULT_THEME = "Tangerine";
+export const CUSTOM_NAME = "My theme";
+
+// the five colours a visitor picks (the app's theme editor): Faceplate, Keys and buttons, Knobs, LEDs, Display (bezel)
+export const CHOICE_ROLES = [["body", "Faceplate"], ["key", "Keys and buttons"], ["knob", "Knobs"], ["led", "LEDs"], ["bezel", "Display"]];
+export const choiceOf = (t) => Object.fromEntries(CHOICE_ROLES.map(([k]) => [k, t[k]]));
+
+// the text colour, near-white or near-black, with the better contrast on bg
+const textOn = (bg) => (contrast(bg, hex(NEAR_WHITE)) >= contrast(bg, hex(NEAR_BLACK)) ? NEAR_WHITE : NEAR_BLACK);
+
+// a custom theme from its five colours (Theme.swift derived): hi = key + 8 L*, lo = key - 18 L*, bed = key - 6 L*,
+// keyText / label = near-white or near-black for contrast on key / body, mark = near-white on a dark knob and
+// near-black on a light one, ledOff = a grey 20 L* lighter than bed. Missing or bad colours come from Tangerine.
+export function derived(choice, name = CUSTOM_NAME) {
+  const base = PRESETS[0], c = {};
+  for (const [k] of CHOICE_ROLES) c[k] = hex(choice && choice[k]) || hex(base[k]);
+  const bed = lightness(c.key, -6);
+  return {
+    name, body: toHex(c.body), label: textOn(c.body), bed: toHex(bed), key: toHex(c.key), hi: toHex(lightness(c.key, 8)),
+    lo: toHex(lightness(c.key, -18)), keyText: textOn(c.key), knob: toHex(c.knob), mark: lab(c.knob)[0] < 55 ? NEAR_WHITE : NEAR_BLACK,
+    bezel: toHex(c.bezel), lcd: base.lcd, ink: base.ink, led: toHex(c.led), ledOff: toHex(fromLab(Math.min(lab(bed)[0] + 20, 100), 0, 0)),
+  };
+}
+
+// a preset by name ("My theme": the custom one, from the stored choice); null when unknown
+export function presetNamed(n, custom) {
+  const s = String(n || "").toLowerCase();
+  if (s === CUSTOM_NAME.toLowerCase()) return derived(custom);
+  return PRESETS.find((p) => p.name.toLowerCase() === s) || null;
+}
+
+// every role as [r, g, b], plus the fixed colours (design/tokens.json fixedColors)
+export function resolve(t) {
   const p = {};
-  p.backdrop = hex("#0E0E10");
-  p.plate = hex(t.base);
-  p.outline = BLACK;
-  p.edge = isDark(p.plate) ? mix(p.plate, WHITE, 0.06) : mix(p.plate, BLACK, 0.08);
-  const m = hex(t.membrane), bed = hex(t.bed), label = hex(t.label);
-  p.bed = bed || mix(m, BLACK, 0.15);
-  p.bedEdge = isDark(p.bed) ? mix(p.bed, WHITE, 0.09) : mix(p.bed, BLACK, 0.12);
-  p.cap = m;
-  p.pressed = ensureContrast(luminance(m) < 0.6 ? mix(m, WHITE, 0.12) : mix(m, BLACK, 0.12), m, 1.3, luminance(m) < 0.6);
-  p.ledOff = ensureContrast(mix(m, BLACK, 0.4), m, 1.3, false);
-  p.capOutline = isDark(m) ? mix(m, BLACK, 0.78) : mix(m, BLACK, 0.55);
-  p.capText = ensureContrast(autoText(m, hex("#C8C8D0"), hex("#1A1A1E")), m, 3.0, isDark(m));
-  p.noteText = mix(p.capText, m, 0.4);
-  p.litText = hex("#111114");
-  const light = hex("#E8E8EC"), dark = hex("#202024");
-  p.label = label || autoText(p.plate, light, dark);
-  p.bedLabel = label && contrast(label, p.bed) >= 3.0 ? label : autoText(p.bed, light, dark);
-  p.hint = ensureContrast(hex("#54D678"), m, 2.0, isDark(m));
-  p.hintLit = hex("#1E3A26");
-  p.capDim = mix(m, hex("#F4F4FF"), 0.38);
-  p.capTextDim = ensureContrast(autoText(p.capDim, hex("#C8C8D0"), hex("#1A1A1E")), p.capDim, 3.0, isDark(p.capDim));
-  p.hintDim = ensureContrast(hex("#54D678"), p.capDim, 2.0, isDark(p.capDim));
-  p.hintBed = ensureContrast(hex("#54D678"), p.bed, 2.0, isDark(p.bed));
-  const k = hex(t.knob);
-  p.knobCap = k;
-  p.knobBody = isDark(k) ? mix(k, BLACK, 0.28) : mix(k, BLACK, 0.2);
-  p.knobRing = ensureContrast(mix(k, WHITE, 0.03), p.knobBody, 1.25, true);
-  p.pointer = ensureContrast(isDark(k) ? hex("#C8C8D0") : hex("#1A1A1E"), k, 2.0, isDark(k));
-  p.masterPointer = isDark(k) ? WHITE : BLACK;
-  p.screenBezel = hex("#0B0B0E");
-  p.white = hex("#F4F4FF");
-  p.red = hex("#FF4242");
-  p.orange = hex("#FFA52A");
-  p.green = hex("#3DDC5A");
+  for (const r of ROLES) p[r] = hex(t[r]) || hex(PRESETS[0][r]);
+  p.indicator = hex("#FF3B2F"); p.play = hex("#4FE08A"); p.rec = hex("#FF4436"); p.linked = hex("#3BD47A");
+  p.black = [0, 0, 0]; p.white = [255, 255, 255];
   return p;
 }
+// (the old name, for callers that still say derive)
+export const derive = resolve;
 
-// FM1VST Look::setAccentFrom: the membrane, lifted to read on the Graphite sheet (a grey one: the fallback orange)
-const SURFACE = hex("#1D2024");
-function saturation(c) {   // juce::Colour::getSaturation (HSB)
-  const hi = Math.max(...c), lo = Math.min(...c);
-  return hi > 0 ? (hi - lo) / hi : 0;
-}
+// the sheet's accent: the theme's own colour where it reads on the sheet (the faceplate, else the LEDs), else the
+// app's sheet accent
+const SHEET_SURFACE = hex("#211E19");
+const saturation = (c) => { const hi = Math.max(...c), lo = Math.min(...c); return hi > 0 ? (hi - lo) / hi : 0; };
 export function accentOf(t) {
-  let a = hex(t.membrane);
-  if (saturation(a) < 0.18) a = hex("#FF8A3D");
-  for (let i = 0; i < 40 && contrast(a, SURFACE) < 3.0; i++) a = mix(a, WHITE, 0.06);
-  return a;
+  for (const k of ["body", "led", "hi"]) {
+    const c = hex(t[k]);
+    if (c && saturation(c) >= 0.25 && contrast(c, SHEET_SURFACE) >= 3) return c;
+  }
+  return hex("#FF8A4C");
 }
-export const onAccent = (a) => (contrast(a, hex("#1A0E06")) >= contrast(a, WHITE) ? hex("#1A0E06") : WHITE);
-
-// the presets (FM1VST themes/presets.json), in its order; "Emulator" is the default
-export const PRESETS = [
-  { name: "Black", base: "#3A3A3C", membrane: "#2E2E30", bed: "#2C2C2C", knob: "#2A2A2A" },
-  { name: "Black/Green", base: "#4C4B4E", membrane: "#6FCCBD", bed: "#65CDBC", knob: "#424344" },
-  { name: "Cool Gray", base: "#E3D9CF", membrane: "#3A3C3D", bed: "#1A1E1F", knob: "#1C1C1C" },
-  { name: "Orange", base: "#C4734F", membrane: "#92594D", bed: "#834C41", knob: "#171717", label: "#FFF8F2" },
-  { name: "Purple", base: "#C19AD5", membrane: "#7D72B5", bed: "#6B61AD", knob: "#1C1C1E" },
-  { name: "White/Blue", base: "#F2ECE7", membrane: "#587592", bed: "#466484", knob: "#181918" },
-  { name: "Emulator", base: "#1C1C20", membrane: "#2B2B31", bed: "#141417", knob: "#35353C", label: "#8A8A92" },
-];
-export const DEFAULT_THEME = "Emulator";
-export const presetNamed = (n) => PRESETS.find((p) => p.name.toLowerCase() === String(n || "").toLowerCase()) || null;
+export const onAccent = (a) => (contrast(a, hex("#17140F")) >= contrast(a, [255, 255, 255]) ? hex("#17140F") : [255, 255, 255]);
