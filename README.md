@@ -109,6 +109,16 @@ native and emulated ones. The About page shows its licence, its authors and its 
 from. The site checks the file before it runs: its manifest, imports, exports and memory (web/engine/API.md
 section 6).
 
+**An OMX-27 as the controller.** With the OMX-27 firmware that has REMOTE mode (the `q7-2026-3` branch), the site's
+player takes it over: Settings > Use my OMX-27 > Connect (Chrome or Edge, Web MIDI with SysEx; the port whose name
+holds "OMX"). The page puts it in REMOTE mode; its keys, encoder and five pots then play the firmware, and the page
+lights its 27 keys and draws its screen. K1 picks the view: Base (shortcuts on the left, the FM-1's keys on the right,
+two ranges to reach all 27), Seq (the FM-1's keys 1:1, each OMX key lit as its FM-1 key is), Keyboard (notes into the
+firmware's MIDI in, K3 the channel, K4 the octave) or Quick Keys (every key a knob or button shortcut). K2 picks one of
+six colour themes, K5 is MASTER (with pickup), the encoder turns the selected knob. Disconnect clears its keys and
+screen; to leave REMOTE mode on the OMX-27, hold AUX and the encoder. The owner's design is
+`design/RemoteFM1---OMX-27-Remote.json`.
+
 ## Safety
 
 From 0.2, RemoteFM1 is an fm1-base firmware, with fm1-base's and felucca-bsp's safeguards: the boot guard (two failed

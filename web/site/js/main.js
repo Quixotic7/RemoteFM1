@@ -21,6 +21,7 @@ import { mhzFor, pickMhz, stepDown, Governor, DEVICE_MHZ } from "./cpu.js";
 import { EditorPanel } from "./editor-panel.js";
 import { RecUI } from "./rec-ui.js";
 import { MidiMap, Learn, MODES, srcLabel, speedOf, targetOf, knobTarget, buttonTarget } from "./midi-map.js";
+import { OmxLink, mountOmx } from "./omx-link.js";
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -52,9 +53,10 @@ let catalog = null, snapshot = null, emuHook = null, player = null, sheet = null
 let soundOut = null;   // the output device: the system's or the FM-1's USB audio (sound-out.js)
 let editor = null;   // the Editor button and panel: the firmware's own manager, hosted (editor-panel.js)
 let rec = null;      // the recorder: the header's record button and Takes (rec-ui.js)
+let omx = null;      // an OMX-27 in REMOTE mode as the controller (omx-link.js)
 const editorChanged = () => { if (editor) editor.update(); };
 const lcd = new Lcd();
-const controls = new Controls((p) => { if (player) player.panel(p); });
+const controls = new Controls((p) => { if (player) player.panel(p); if (omx) omx.panelTurned(p.enc); });
 const device = new DeviceView($("device"), controls, lcd);
 const screen = new ScreenView($("screen"), lcd);
 device.setHints(state.keyHints);
@@ -824,6 +826,14 @@ async function main() {
       fm1.auto();                                          // connects now if MIDI was allowed before (no prompt)
     } else if (m && typeof m.mount === "function") { app.remoteMounted = true; sheet.remoteSlot.replaceChildren(); m.mount(sheet.remoteSlot, site); sheet.render(); }
   }).catch(() => { /* (web/remote is W4's: the stub stays) */ });
+
+  // USE MY OMX-27: its port is the page's while it is in REMOTE mode (not a MIDI keyboard, nothing learned from it)
+  omx = new OmxLink({ controls, site, prefs, save: savePrefs, toast, mapAct,
+    onActive: () => { midi.bind(); if (sheet) sheet.render(); } });
+  midi.skipPort = (i) => omx.owns(i);
+  mountOmx(sheet.omxSlot, omx);
+  window.FM1Omx = omx;
+  omx.auto();                                              // connects by itself where it was before and MIDI is allowed
 
   // the recorder
   if (!EMBED) {

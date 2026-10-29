@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // The site's logic in Node: the catalog, following the Hub's releases (live merge, versions, newest wins, saves
 // carried to a new version), the emulated CPU clock, the browser's engine filter, the panel's orders (label / role -> matrix), the worklet host's panel merge
-// (taps), the computer-key map, and the mock engine against web/engine/API.md.
+// (taps), the computer-key map, the mock engine against web/engine/API.md, and the OMX-27's REMOTE mode.
 //   node web/site/test.mjs
 import { readFileSync, existsSync, unlinkSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -969,6 +969,214 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
     const back = new MM.MidiMap(JSON.parse(JSON.stringify(m.list())));
     ok(back.list().length === 2 && back.get("cc:1:30").mode === "rel64" && new MM.MidiMap([{ src: "cc:0:1", target: "KN1" }, { src: "cc:1:1", target: "NOPE" }, null]).list().length === 0,
        "learn: the list round-trips through JSON (prefs); bad records are left out");
+  }
+}
+
+// ---- the OMX-27 in REMOTE mode: the wire (js/omx27.js), its views (js/omx27-views.js), K5's pickup (midi-map.js)
+{
+  const X = await import("./js/omx27.js"), V = await import("./js/omx27-views.js"), MM = await import("./js/midi-map.js");
+  const hexOf = (b) => Buffer.from(b).toString("hex");
+  ok(X.MODE_REMOTE === 9 && hexOf(X.enterRemote()) === "f07d00005105" + "09f7" && hexOf(X.sysex(0x5B)) === "f07d00005bf7",
+     "omx: MODE_REMOTE is 9 (config.h OMXMode); the MODE command F0 7D 00 00 51 05 09 F7; the LED latch 5B");
+  const pk = X.parse(X.keyMsg(13, 3)), pe = X.parse(Uint8Array.of(0xF0, 0x7D, 0, 0, 0x51, 1, 0, 4, 0xF7)), pp = X.parse(X.potMsg(4, 100, 12345));
+  ok(pk.type === "key" && pk.key === 13 && pk.ev === 3 && pe.type === "enc" && pe.delta === -4 && X.parse(X.encMsg(3)).delta === 3
+     && pp.type === "pot" && pp.pot === 4 && pp.v === 100 && pp.hires === 12345 && X.parse(Uint8Array.of(0xF0, 0x7D, 0, 0, 0x51, 2, 1, 0xF7)).z === 1
+     && X.parse(X.statusMsg(4)).s === 4 && X.parse([0xF0, 0x7E, 0, 0, 0x51, 0, 1, 1, 0xF7]) === null && X.parse([0x90, 60, 100]) === null,
+     "omx: key, encoder (dir 0 CCW, 2 CW, amt), button, pot (v7 + 14-bit) and status decode; others are none");
+  ok(hexOf(X.enc7([0x80, 0x7F, 0xFF, 0, 0, 0, 0, 0x81])) === "05007f7f00000000" + "0101" && X.enc7(new Uint8Array(32)).length === 37,
+     "omx: enc7 (a high-bits byte, then 7 low parts): 32 bytes are 37");
+  // remote_test.py's _pack and _enc7 (PIL, rotate 180) on this image gave these bytes
+  const bits = new Uint8Array(128 * 32);
+  for (let y = 0; y < 32; y++) for (let x = 0; x < 128; x++) if ((x * 7 + y * 13) % 11 < 3 || x === y || (x < 9 && y < 4)) bits[y * 128 + x] = 1;
+  const fb = X.pack(bits);
+  ok(createHash("sha256").update(fb).digest("hex") === "dab809b51637adc3ea0bdc5dfe376069213bb6c3a8f3349e3141860eb666a25f"
+     && hexOf(fb.subarray(0, 16)) === "8410430c30c208218618618410430c30" && hexOf(fb.subarray(496)) === "10430c30c20821f6f9f3f4f8f3fcf0f2"
+     && hexOf(X.enc7(fb.subarray(160, 192))) === "240821061861041048430c30420821060418610410430c3049420821061861040010430c30",
+     "omx: the screen packs as remote_test.py does (SSD1306 pages, 180 deg; chunk 5 enc7'd the same)");
+  ok(X.unpack(fb).every((b, i) => b === bits[i]) && X.dec7(X.enc7(fb.subarray(0, 32)), 32).every((b, i) => b === fb[i]), "omx: unpack and dec7 undo them");
+  ok(X.isOmxPortName("OMX-27") && X.isOmxPortName("omx-27-v3 MIDI 1") && !X.isOmxPortName("FM-1"), "omx: its port is any name with OMX in it");
+  // the session: changed LEDs only, a batch past 8, one frame in flight (ACK or 250 ms), 15 fps, only changed chunks
+  {
+    let t = 0;
+    const sent = [], S = new X.OmxSession({ send: (b) => sent.push(b), now: () => t });
+    S.enter();
+    ok(sent.length === 1 && hexOf(sent[0]) === hexOf(X.enterRemote()) && !S.tick(), "session: Connect sends the MODE command; nothing more before 52 02");
+    S.feed(X.statusMsg(2)); sent.length = 0;
+    S.tick();
+    const cmds = () => sent.map((b) => b[4]);
+    ok(S.active && cmds().filter((c) => c === 0x5A).length === 1 && cmds().filter((c) => c === 0x5C).length === 16 && cmds().filter((c) => c === 0x5D).length === 1,
+       "session: in REMOTE mode, every LED (one batch) and the whole screen (16 chunks, latched) go out");
+    sent.length = 0;
+    const leds = Array.from({ length: 27 }, () => [0, 0, 0]); leds[5] = [127, 0, 0]; S.setLeds(leds);
+    const f2 = new Uint8Array(512); f2[100] = 1; S.setFrame(f2);
+    t = 10; S.tick();
+    ok(sent.length === 0, "session: within 30 ms nothing more goes; the frame waits for its ACK");
+    t = 40; S.tick();
+    ok(cmds().join() === "89,91", "session: one changed LED: 59 5 r g b, then 5B");
+    S.feed(X.statusMsg(4)); t = 80; sent.length = 0; S.tick();
+    ok(cmds().join() === "92,93" && sent[0][5] === 3, "session: after the ACK, only the changed chunk (3) and 5D");
+    sent.length = 0; f2[0] = 9; t = 100; S.tick();
+    ok(sent.length === 0, "session: no ACK yet: no frame");
+    t = 340; S.tick();
+    ok(cmds().join() === "92,93", "session: a lost ACK: the next frame after 250 ms");
+    S.feed(X.statusMsg(4)); sent.length = 0; t = 360; S.tick();
+    ok(sent.length === 0, "session: the same frame and LEDs: nothing");
+    S.clear();
+    ok(cmds().filter((c) => c === 0x5A).length === 1 && cmds().filter((c) => c === 0x5C).length === 16 && sent.filter((b) => b[4] === 0x5A)[0].slice(7, -1).every((v) => v === 0),
+       "session: clear() turns every LED off and blanks the screen");
+    S.feed(X.statusMsg(3)); sent.length = 0; t = 1000; S.setFrame(f2); S.tick();
+    ok(!S.active && sent.length === 0, "session: after 52 03 (REMOTE left) nothing goes");
+    S.feed(X.statusMsg(2)); t = 1100; S.tick();
+    ok(S.active && sent.filter((b) => b[4] === 0x5C).length === 16, "session: 52 02 again (MODE while in REMOTE mode answers 52 03, 52 02): everything sent again");
+  }
+  // ---- the views
+  const acts = (a, kind) => a.filter((x) => x.kind === kind);
+  const D = 1, U = 0, Q = 3;
+  const down = (v, k, t = 0) => v.key(k, D, t), up = (v, k, t = 0) => v.key(k, U, t);
+  const click = (v, k, t) => [...v.key(k, D, t), ...v.key(k, U, t + 40), ...v.key(k, Q, t + 40)];
+  {
+    const v = new V.OmxViews();
+    ok(V.FM1_WHITES.length === 16 && V.FM1_SHARPS.length === 11 && V.FM1_SHARPS.map((k) => 53 + k).join() === "54,56,58,61,63,66,68,70,73,75,78",
+       "views: the FM-1's 27 keys are 16 whites (F3..G5) and 11 sharps (F#3 .. F#5)");
+    ok(v.view === V.VIEW.BASE && v.knob === E.SELECT && v.range === 0, "views: Base, SELECT selected, Range 1 at first");
+    let a = down(v, 15);
+    ok(a.length === 1 && a[0].kind === "key" && a[0].k === 0 && a[0].down, "Base R1: key 15 (F4) plays the FM-1's first F (key 0, F3)");
+    a = up(v, 15);
+    ok(a.length === 1 && a[0].k === 0 && !a[0].down, "Base: its release lets it go");
+    ok(down(v, 3)[0].k === 1 && up(v, 3)[0].k === 1 && down(v, 26)[0].k === 19, "Base R1: black key 3 (F#4) plays F#3; key 26 (C6) plays C5");
+    up(v, 26);
+    down(v, 12); up(v, 12);
+    ok(v.range === 1 && down(v, 15)[0].k === 12 && down(v, 23)[0].k === 26, "Base R2: key 15 plays the second F (key 12), key 23 (G5) the FM-1's top G5");
+    up(v, 15); up(v, 23);
+    ok(down(v, 24).length === 0 && down(v, 9).length === 0 && v.roleOf(26) === null, "Base R2: keys past the FM-1's (24, 9, 26) do nothing");
+    up(v, 24); up(v, 9);
+    a = down(v, 1);
+    ok(a.length === 1 && a[0].kind === "btn" && a[0].b === B.OCTDN && a[0].down && up(v, 1)[0].down === false && down(v, 2)[0].b === B.OCTUP,
+       "Base: keys 1 and 2 hold OCT- and OCT+");
+    up(v, 2);
+    ok(v.button === B.PLAY, "Base: OCT- and OCT+ pressed are not selected (AUX's button stays PLAY)");
+    // the knob quick keys: held, KN2 with key 7, the whites still play
+    down(v, 13);
+    ok(v.overlay() === "knob" && v.screen().title === "KNOBS", "knob quick keys: key 13 held shows them (KNOBS)");
+    a = down(v, 7);
+    ok(a.length === 1 && a[0].kind === "select" && a[0].role === E.K2 && v.knob === E.K2, "knob quick keys: key 7 selects KN2");
+    up(v, 7);
+    ok(acts(v.enc(3), "turn")[0].role === E.K2 && v.enc(-2)[0].steps === -2, "the encoder turns the selected knob (KN2), its amt as detents");
+    ok(down(v, 20)[0].kind === "key" && down(v, 10).length === 0, "knob quick keys: the whites still play; key 10 does nothing");
+    up(v, 20); up(v, 10); up(v, 13);
+    ok(v.overlay() === null, "knob quick keys: let go, they close");
+    // double click latches, a click closes
+    click(v, 13, 1000);
+    ok(v.overlay() === null, "a single click on 13 does not latch");
+    click(v, 13, 3000); click(v, 13, 3200);
+    ok(v.overlay() === "knob" && v.qk.knob.latched, "a double click on 13 latches the knob quick keys");
+    ok(down(v, 3)[0].role === E.SELECT, "latched: key 3 selects SEL");
+    up(v, 3);
+    click(v, 13, 5000);
+    ok(v.overlay() === null, "latched: a single click closes them");
+    // the button quick keys: PLAY pressed and selected, the whites mute, OCT selectable, AUX presses the selected
+    down(v, 14);
+    ok(v.overlay() === "btn" && v.screen().title === "BUTTONS", "button quick keys: key 14 held shows them (BUTTONS)");
+    a = down(v, 25);
+    ok(a.length === 1 && a[0].kind === "btn" && a[0].b === B.PLAY && a[0].down, "button quick keys: key 25 presses PLAY");
+    a = up(v, 25);
+    ok(a[0].b === B.PLAY && !a[0].down, "button quick keys: and lets it go");
+    ok(down(v, 21)[0].b === B.HOME && v.button === B.HOME && down(v, 5)[0].b === B.FX && v.button === B.FX, "button quick keys: HOME (21), FX (5): pressed and selected");
+    up(v, 21); up(v, 5);
+    ok(down(v, 16).length === 0 && down(v, 3).length === 0, "button quick keys: the white keys (16) and keys 3, 4 do not play");
+    up(v, 16); up(v, 3);
+    down(v, 1); up(v, 1);
+    ok(v.button === B.OCTDN, "button quick keys: OCT- is selectable here");
+    up(v, 14);
+    ok(down(v, 0)[0].b === B.OCTDN && up(v, 0)[0].down === false, "AUX presses the selected button (OCT-) while held");
+    // ranges and knob selects in Seq: the 1:1 map, AUX toggled by K4
+    v.pot(0, 40);
+    ok(v.view === V.VIEW.SEQ && v.screen().title === "SEQ", "K1 at 40 (second zone): the Seq view");
+    const seqKeys = [];
+    for (let k = 1; k <= 26; k++) { const r = down(v, k); seqKeys.push(r[0].k); up(v, k); }
+    ok(seqKeys.slice(0, 10).join() === V.FM1_SHARPS.slice(0, 10).join() && seqKeys.slice(10).join() === V.FM1_WHITES.join(),
+       "Seq: blacks 1..10 are the first 10 FM-1 sharps, whites 11..26 its 16 whites, in order");
+    ok(down(v, 0)[0].kind === "btn" && (up(v, 0), true), "Seq: AUX is the button quick key at first");
+    v.pot(3, 100);
+    ok(v.auxBlack && down(v, 0)[0].k === V.FM1_SHARPS[10] && /AUX F#5/.test(v.screen().line), "Seq: K4 up, AUX is the 11th sharp (F#5)");
+    up(v, 0); v.pot(3, 10);
+    ok(!v.auxBlack, "Seq: K4 down, the button quick key again");
+    // Keyboard: notes, channel K3, octave K4
+    v.pot(0, 70);
+    ok(v.view === V.VIEW.KEYS, "K1 at 70: the Keyboard view");
+    v.pot(2, 20); v.pot(3, 95);
+    a = down(v, 12);
+    ok(a[0].kind === "midi" && a[0].bytes.join() === [0x92, 60 + 24, 100].join() && v.screen().line.startsWith("CH 3  OCT +2"),
+       "Keyboard: K3 at 20 is channel 3, K4 at 95 octave +2: key 12 (C4) sends note-on C6 at 100 on channel 3");
+    v.pot(3, 64);
+    ok(up(v, 12)[0].bytes.join() === [0x82, 84, 0].join(), "Keyboard: the note-off is the note that went down, after an octave change");
+    ok(down(v, 0)[0].kind === "btn", "Keyboard: AUX is the button quick key"); up(v, 0);
+    // Quick Keys: knob shortcuts select, button shortcuts select and press
+    v.pot(0, 120);
+    ok(v.view === V.VIEW.QUICK && v.screen().title === "QUICK KEYS", "K1 at 120: the Quick Keys view");
+    ok(down(v, 9)[0].role === E.K4 && v.knob === E.K4 && (up(v, 9), true), "Quick Keys: key 9 selects KN4");
+    a = down(v, 23);
+    ok(a[0].kind === "btn" && a[0].b === B.PLAY && a[0].down && v.button === B.PLAY && !up(v, 23)[0].down, "Quick Keys: key 23 selects PLAY and presses it");
+    ok(down(v, 11)[0].b === B.FX && down(v, 19)[0].b === B.HOME && down(v, 17).length === 0, "Quick Keys: 11 FX, 19 HOME, 17 nothing");
+    const rel = v.releaseAll();
+    ok(rel.length === 2 && rel.every((x) => !x.down) && v.held.size === 0, "views: releaseAll lets every held key and button go");
+  }
+  // K1 / K2 zones, with hysteresis
+  {
+    ok(V.zoneOf(0, 4, null) === 0 && V.zoneOf(31, 4, null) === 0 && V.zoneOf(32, 4, null) === 1 && V.zoneOf(127, 4, null) === 3, "zones: K1's four (0..31, 32..63, 64..95, 96..127)");
+    ok(V.zoneOf(33, 4, 0) === 0 && V.zoneOf(35, 4, 0) === 1 && V.zoneOf(30, 4, 1) === 1 && V.zoneOf(28, 4, 1) === 0, "zones: a zone changes only 3 past its edge (hysteresis)");
+    const v = new V.OmxViews();
+    ok(v.pot(0, 33).length === 0 && v.pot(0, 36)[0].view === 1 && v.pot(0, 30).length === 0, "K1: no view flicker around an edge");
+    const t = v.pot(1, 127, 0, 1000);
+    ok(t[0].kind === "theme" && t[0].theme === 5 && v.screen(1500).line === "THEME NIGHT" && v.screen(3000).line !== "THEME NIGHT" && V.THEMES.length === 6,
+       "K2: six themes; the top one (Night), its name on the screen a moment");
+    ok(new V.OmxViews(v.saved()).theme === 5 && new V.OmxViews({ theme: 99, knob: 42 }).theme === 0, "views: the theme (and selections) kept in prefs; bad values ignored");
+  }
+  // the LEDs: shortcuts at 50% and full when pressed or selected; mirrored keys dark unless the FM-1 lights them
+  {
+    const v = new V.OmxViews(), lv = new Uint8Array(27);
+    const L = () => v.leds((k) => lv[k]);
+    let l = L();
+    ok(l[0].join() === "64,0,0" && l[1].join() === "0,64,64" && l[11].join() === "64,127,0" && l[12].join() === "64,32,0",
+       "LEDs: AUX, OCT- at 50%; Range 1 selected (full lime), Range 2 at 50%");
+    ok(l[15].join() === "0,0,0" && l[3].join() === "0,0,0", "LEDs: keys mirroring the FM-1's are dark while its LEDs are");
+    lv[0] = 255; lv[1] = 40;
+    l = L();
+    ok(l[15].join() === "127,127,127" && l[3].every((c) => c > 0 && c < 60) && l[3][0] === l[3][2], "LEDs: lit on the FM-1, the mirror lights in the theme's hue (White), its level setting the brightness");
+    v.theme = 1; l = L();
+    ok(l[15].join() === V.THEMES[1].key.map((c) => Math.min(127, Math.round(c / 2))).join(), "LEDs: another theme, another hue (Ember)");
+    v.theme = 0;
+    v.key(0, 1); l = L();
+    ok(l[0].join() === "127,0,0", "LEDs: AUX full while pressed"); v.key(0, 0);
+    v.key(13, 1); l = L();
+    ok(l[13].join() === "127,0,64" && l[3].join() === "0,0,127" && l[4].join() === "0,0,64" && l[6].join() === "64,0,0" && l[15].join() === "127,127,127",
+       "LEDs: knob quick keys: the toggle full, the selected knob (SEL) full, the others at 50%; F still mirrors");
+    v.key(13, 0); v.key(14, 1); l = L();
+    ok(l[25].join() === "0,127,64" && l[21].join() === "64,32,0" && l[15].join() === "0,0,0" && l[3].join() === "0,0,0",
+       "LEDs: button quick keys: PLAY (selected) full, HOME at 50%; the muted whites dark");
+    v.key(14, 0);
+    v.pot(0, 70); v.key(12, 1); l = L();
+    ok(l[12].join() === "127,127,127" && l[13].join() === "0,0,0", "LEDs: Keyboard: a held key lights in the theme's hue, the rest dark");
+    v.key(12, 0);
+    v.pot(0, 40); lv.fill(0); lv[V.FM1_WHITES[3]] = 255; lv[V.FM1_SHARPS[0]] = 96; l = L();
+    ok(l[14].join() === "127,127,127" && l[1].join() === "79,79,79" && l.filter((c) => c.some((x) => x)).length === 3,
+       "LEDs: Seq mirrors each FM-1 key's LED (and AUX the button quick key)");
+  }
+  // K5: MASTER with pickup (midi-map.js MasterPot, as a learned MASTER pot)
+  {
+    const v = new V.OmxViews();
+    let a = v.pot(4, 10, 10 << 7, 0, 768);
+    ok(a.length === 1 && a[0].kind === "pickup" && a[0].first && a[0].at === 768 && /^K5 \d+% TO 75%$/.test(v.screen(10).line), "K5 far from MASTER: a pickup, not a change (the screen says where)");
+    a = v.pot(4, 50, 50 << 7, 0, 768);
+    ok(a[0].kind === "pickup" && !a[0].first, "K5: still away, still waiting");
+    a = v.pot(4, 100, 100 << 7, 0, 768);
+    ok(a[0].kind === "master" && a[0].value === Math.round(12800 * 1023 / 16383), "K5 crossing MASTER picks it up");
+    a = v.pot(4, 64, 64 << 7, 0, a[0].value);
+    ok(a[0].kind === "master" && Math.abs(a[0].value - 512) <= 1 && v.screen(10).line === "MASTER 50%", "K5 then follows (MASTER 50%)");
+    a = v.pot(4, 66, 66 << 7, 0, 300);
+    ok(a[0].kind === "pickup", "K5: MASTER moved by something else: pickup again");
+    const mp = new MM.MasterPot();
+    ok(mp.feed(767, 1023, 768)[0].kind === "master", "MasterPot: a pot already at MASTER takes it at once");
   }
 }
 

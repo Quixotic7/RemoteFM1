@@ -1,0 +1,707 @@
+{
+  "format": "omx27-led-design",
+  "version": 1,
+  "device": "OMX-27",
+  "name": "RemoteFM1 - OMX-27 Remote",
+  "ledCount": 27,
+  "convention": "OMX-27: 27 RGB LED keys addressed by key index 0-26, exactly matching the firmware strip.setPixelColor(index, 0xRRGGBB). key 0 = AUX (top-left). keys 1-10 = the 10 black keys (top row). keys 11-26 = the 16 white keys (bottom row). Each led is a colour \"#RRGGBB\"; \"#000000\" means the LED is off. keyMap lists each key's musical note. Controls (5 pots, the encoder turn/press, and the 128x32 OLED screen) carry text notes per state. Multiple states are alternative pages/modes of the same hardware.",
+  "keyMap": [
+    {
+      "key": 0,
+      "role": "aux",
+      "note": null,
+      "name": "AUX"
+    },
+    {
+      "key": 1,
+      "role": "black",
+      "note": 61,
+      "name": "C#4"
+    },
+    {
+      "key": 2,
+      "role": "black",
+      "note": 63,
+      "name": "D#4"
+    },
+    {
+      "key": 3,
+      "role": "black",
+      "note": 66,
+      "name": "F#4"
+    },
+    {
+      "key": 4,
+      "role": "black",
+      "note": 68,
+      "name": "G#4"
+    },
+    {
+      "key": 5,
+      "role": "black",
+      "note": 70,
+      "name": "A#4"
+    },
+    {
+      "key": 6,
+      "role": "black",
+      "note": 73,
+      "name": "C#5"
+    },
+    {
+      "key": 7,
+      "role": "black",
+      "note": 75,
+      "name": "D#5"
+    },
+    {
+      "key": 8,
+      "role": "black",
+      "note": 78,
+      "name": "F#5"
+    },
+    {
+      "key": 9,
+      "role": "black",
+      "note": 80,
+      "name": "G#5"
+    },
+    {
+      "key": 10,
+      "role": "black",
+      "note": 82,
+      "name": "A#5"
+    },
+    {
+      "key": 11,
+      "role": "white",
+      "note": 59,
+      "name": "B3"
+    },
+    {
+      "key": 12,
+      "role": "white",
+      "note": 60,
+      "name": "C4"
+    },
+    {
+      "key": 13,
+      "role": "white",
+      "note": 62,
+      "name": "D4"
+    },
+    {
+      "key": 14,
+      "role": "white",
+      "note": 64,
+      "name": "E4"
+    },
+    {
+      "key": 15,
+      "role": "white",
+      "note": 65,
+      "name": "F4"
+    },
+    {
+      "key": 16,
+      "role": "white",
+      "note": 67,
+      "name": "G4"
+    },
+    {
+      "key": 17,
+      "role": "white",
+      "note": 69,
+      "name": "A4"
+    },
+    {
+      "key": 18,
+      "role": "white",
+      "note": 71,
+      "name": "B4"
+    },
+    {
+      "key": 19,
+      "role": "white",
+      "note": 72,
+      "name": "C5"
+    },
+    {
+      "key": 20,
+      "role": "white",
+      "note": 74,
+      "name": "D5"
+    },
+    {
+      "key": 21,
+      "role": "white",
+      "note": 76,
+      "name": "E5"
+    },
+    {
+      "key": 22,
+      "role": "white",
+      "note": 77,
+      "name": "F5"
+    },
+    {
+      "key": 23,
+      "role": "white",
+      "note": 79,
+      "name": "G5"
+    },
+    {
+      "key": 24,
+      "role": "white",
+      "note": 81,
+      "name": "A5"
+    },
+    {
+      "key": 25,
+      "role": "white",
+      "note": 83,
+      "name": "B5"
+    },
+    {
+      "key": 26,
+      "role": "white",
+      "note": 84,
+      "name": "C6"
+    }
+  ],
+  "notes": "",
+  "states": [
+    {
+      "state": 1,
+      "name": "Base View",
+      "export": true,
+      "notes": "Shortcuts on the left and playable FM-1 Keys on the right. Keys 11 and 12 change the range. Range 1 maps key 15 to the FM-1's first F key, Range 2 Maps the range to the FM-1's second F key to cover the entire keyboard of the FM-1.  Button 0 changes function based on the quick key function that was selected. The encoder drives whichever knob is selected",
+      "leds": [
+        "#ff0000",
+        "#00ffff",
+        "#007fff",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#80ff00",
+        "#ff8000",
+        "#ff0080",
+        "#ff8080",
+        "#ffffff",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000"
+      ],
+      "keyNotes": {
+        "0": "Button Quick Key",
+        "1": "OCT-",
+        "2": "OCT+",
+        "11": "Key Range 1",
+        "12": "Key Range 2",
+        "13": "Knob Quick Keys",
+        "14": "Button Quick Keys",
+        "15": "FM-1 F key"
+      },
+      "pots": [
+        {
+          "pot": 1,
+          "label": "K1",
+          "note": "Change view",
+          "value": null
+        },
+        {
+          "pot": 2,
+          "label": "K2",
+          "note": "Color Theme",
+          "value": null
+        },
+        {
+          "pot": 3,
+          "label": "K3",
+          "note": "",
+          "value": null
+        },
+        {
+          "pot": 4,
+          "label": "K4",
+          "note": "",
+          "value": null
+        },
+        {
+          "pot": 5,
+          "label": "K5",
+          "note": "Master Volume",
+          "value": null
+        }
+      ],
+      "encoder": {
+        "note": "Adjusts Last knob used",
+        "press": ""
+      },
+      "screen": {
+        "note": "",
+        "text": "FM-1"
+      }
+    },
+    {
+      "state": 2,
+      "name": "Base View - Knob quick keys",
+      "export": true,
+      "notes": "Key 13 brings this up while key 13 is held, double click 13 to latch it on, if latched, single click 13 to close it. Keys 3-9 then select a knob. The encoder drives whichever knob is selected. 15 - 26 white keys still playable with this mode on. ",
+      "leds": [
+        "#ff0000",
+        "#00ffff",
+        "#007fff",
+        "#000069",
+        "#000069",
+        "#000069",
+        "#630000",
+        "#630000",
+        "#630000",
+        "#630000",
+        "#000000",
+        "#80ff00",
+        "#ff8000",
+        "#ff0080",
+        "#ff8080",
+        "#ffffff",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000"
+      ],
+      "keyNotes": {
+        "0": "Button Quick Key",
+        "1": "OCT-",
+        "2": "OCT+",
+        "3": "SEL Knob",
+        "4": "PRESETS Knob",
+        "5": "ALGO Knob",
+        "6": "Knob 1",
+        "7": "Knob 2",
+        "8": "Knob 3",
+        "9": "Knob 4",
+        "11": "Key Range 1",
+        "12": "Key Range 2",
+        "13": "Knob Quick Keys",
+        "14": "Button Quick Keys",
+        "15": "FM-1 F key"
+      },
+      "pots": [
+        {
+          "pot": 1,
+          "label": "K1",
+          "note": "Change view",
+          "value": null
+        },
+        {
+          "pot": 2,
+          "label": "K2",
+          "note": "Color Theme",
+          "value": null
+        },
+        {
+          "pot": 3,
+          "label": "K3",
+          "note": "",
+          "value": null
+        },
+        {
+          "pot": 4,
+          "label": "K4",
+          "note": "",
+          "value": null
+        },
+        {
+          "pot": 5,
+          "label": "K5",
+          "note": "Master Volume",
+          "value": null
+        }
+      ],
+      "encoder": {
+        "note": "Adjusts selected knob",
+        "press": ""
+      },
+      "screen": {
+        "note": "",
+        "text": "KNOBS"
+      }
+    },
+    {
+      "state": 3,
+      "name": "Base View - Button quick keys",
+      "export": true,
+      "notes": "Key 14 brings this up while key 14 is held, double click 14 to latch it on, if latched, single click 14 to close it.  The keys then select a button and also use said button while pressed. Button 0 will then drive whichever button was selected in other views. The white keys are not playable while this view is active. Normally OCT- and OCT+ are not selectable, but if 14 is held or locked on then OCT- and OCT+ are selectable",
+      "leds": [
+        "#ff0000",
+        "#00ffff",
+        "#007fff",
+        "#000000",
+        "#000000",
+        "#542a00",
+        "#545400",
+        "#540054",
+        "#54002a",
+        "#00542a",
+        "#540000",
+        "#80ff00",
+        "#ff8000",
+        "#ff0080",
+        "#ff8080",
+        "#ffffff",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#542a00",
+        "#545400",
+        "#540054",
+        "#54002a",
+        "#00542a",
+        "#540000"
+      ],
+      "keyNotes": {
+        "0": "Button Quick Key",
+        "1": "OCT-",
+        "2": "OCT+",
+        "5": "FX",
+        "6": "SEL",
+        "7": "ENV",
+        "8": "LFO",
+        "9": "EDIT",
+        "10": "GLo",
+        "11": "Key Range 1",
+        "12": "Key Range 2",
+        "13": "Knob Quick Keys",
+        "14": "Button Quick Keys",
+        "15": "FM-1 F key",
+        "21": "HOME",
+        "22": "SAVE",
+        "23": "ARP",
+        "24": "SEQ",
+        "25": "PLAY",
+        "26": "REC"
+      },
+      "pots": [
+        {
+          "pot": 1,
+          "label": "K1",
+          "note": "Change view",
+          "value": null
+        },
+        {
+          "pot": 2,
+          "label": "K2",
+          "note": "Color Theme",
+          "value": null
+        },
+        {
+          "pot": 3,
+          "label": "K3",
+          "note": "",
+          "value": null
+        },
+        {
+          "pot": 4,
+          "label": "K4",
+          "note": "",
+          "value": null
+        },
+        {
+          "pot": 5,
+          "label": "K5",
+          "note": "Master Volume",
+          "value": null
+        }
+      ],
+      "encoder": {
+        "note": "Adjusts selected knob",
+        "press": ""
+      },
+      "screen": {
+        "note": "",
+        "text": "BUTTONS"
+      }
+    },
+    {
+      "state": 4,
+      "name": "View 2 - Seq",
+      "export": true,
+      "notes": "",
+      "leds": [
+        "#ff0000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000"
+      ],
+      "keyNotes": {
+        "0": "Button Quick Key or Black key 11",
+        "1": "FM-1 Black Keys starting on F#",
+        "11": "FM-1 Black keys starting on F key"
+      },
+      "pots": [
+        {
+          "pot": 1,
+          "label": "K1",
+          "note": "Change View",
+          "value": null
+        },
+        {
+          "pot": 2,
+          "label": "K2",
+          "note": "Color Theme",
+          "value": null
+        },
+        {
+          "pot": 3,
+          "label": "K3",
+          "note": "",
+          "value": null
+        },
+        {
+          "pot": 4,
+          "label": "K4",
+          "note": "Toggle Between Quick Key and Black Key",
+          "value": null
+        },
+        {
+          "pot": 5,
+          "label": "K5",
+          "note": "Master Volume",
+          "value": null
+        }
+      ],
+      "encoder": {
+        "note": "SELECTED knob",
+        "press": ""
+      },
+      "screen": {
+        "note": "Shows the view",
+        "text": "SEQ"
+      }
+    },
+    {
+      "state": 5,
+      "name": "View 3 - Full Keyboard",
+      "export": true,
+      "notes": "The keyboard in this mode now just acts like a normal midi keyboard. You can change the midi channel and you can also change the octave. ",
+      "leds": [
+        "#ff0000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000"
+      ],
+      "keyNotes": {
+        "0": "Button Quick Key",
+        "1": "C#",
+        "11": "B"
+      },
+      "pots": [
+        {
+          "pot": 1,
+          "label": "K1",
+          "note": "Change View",
+          "value": null
+        },
+        {
+          "pot": 2,
+          "label": "K2",
+          "note": "Color Theme",
+          "value": null
+        },
+        {
+          "pot": 3,
+          "label": "K3",
+          "note": "Midi Channel",
+          "value": null
+        },
+        {
+          "pot": 4,
+          "label": "K4",
+          "note": "Change the octave",
+          "value": null
+        },
+        {
+          "pot": 5,
+          "label": "K5",
+          "note": "Master Volume",
+          "value": null
+        }
+      ],
+      "encoder": {
+        "note": "Selected Knob",
+        "press": ""
+      },
+      "screen": {
+        "note": "",
+        "text": "KEYBOARD"
+      }
+    },
+    {
+      "state": 6,
+      "name": "View 4 - Quick Keys",
+      "export": true,
+      "notes": "In this view the keys all become shortcut keys. Click a knob shortcut it is selected, turn encoder to change. Click a button shortcut the button is selected and also used. ",
+      "leds": [
+        "#ff0000",
+        "#00ffff",
+        "#007fff",
+        "#000069",
+        "#000069",
+        "#000069",
+        "#630000",
+        "#630000",
+        "#630000",
+        "#630000",
+        "#000000",
+        "#542a00",
+        "#545400",
+        "#540054",
+        "#54002a",
+        "#00542a",
+        "#540000",
+        "#000000",
+        "#000000",
+        "#542a00",
+        "#545400",
+        "#540054",
+        "#54002a",
+        "#00542a",
+        "#540000",
+        "#000000",
+        "#000000"
+      ],
+      "keyNotes": {
+        "1": "OCT-",
+        "2": "OCT+",
+        "3": "SEL Knob",
+        "4": "PRESETS Knob",
+        "5": "ALGO Knob",
+        "6": "Knob 1",
+        "7": "Knob 2",
+        "8": "Knob 3",
+        "9": "Knob 4",
+        "11": "FX",
+        "12": "SEL",
+        "13": "ENV",
+        "14": "LFO",
+        "15": "EDIT",
+        "16": "GLO",
+        "19": "HOME",
+        "20": "SAVE",
+        "21": "ARP",
+        "22": "SEQ",
+        "23": "PLAY",
+        "24": "REC"
+      },
+      "pots": [
+        {
+          "pot": 1,
+          "label": "K1",
+          "note": "Change View",
+          "value": null
+        },
+        {
+          "pot": 2,
+          "label": "K2",
+          "note": "Color Theme",
+          "value": null
+        },
+        {
+          "pot": 3,
+          "label": "K3",
+          "note": "",
+          "value": null
+        },
+        {
+          "pot": 4,
+          "label": "K4",
+          "note": "",
+          "value": null
+        },
+        {
+          "pot": 5,
+          "label": "K5",
+          "note": "Master Volume",
+          "value": null
+        }
+      ],
+      "encoder": {
+        "note": "Selected Knob",
+        "press": ""
+      },
+      "screen": {
+        "note": "",
+        "text": "QUICK KEYS"
+      }
+    }
+  ]
+}

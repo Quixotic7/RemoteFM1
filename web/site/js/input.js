@@ -166,9 +166,10 @@ export class MidiInput {
     // the user's FM-1 running RemoteFM1 is never a MIDI keyboard here (its panel notes would play twice): W4's rule
     this.isUnitPort = (name) => /fm-1|remotefm1/i.test(name || "") && !/update/i.test(name || "");
     this.unitPorts = null;
+    this.skipPort = null;   // (an OMX-27 in REMOTE mode: js/omx-link.js owns its port)
     this.supported = typeof navigator !== "undefined" && !!navigator.requestMIDIAccess;
   }
-  skip(i) { return this.isUnitPort(i.name) || (this.unitPorts && this.unitPorts.inputId === i.id); }
+  skip(i) { return this.isUnitPort(i.name) || (this.unitPorts && this.unitPorts.inputId === i.id) || (!!this.skipPort && this.skipPort(i)); }
   inputs() { return this.access ? [...this.access.inputs.values()].filter((i) => !this.skip(i)).map((i) => ({ id: i.id, name: i.name, state: i.state })) : []; }
   async enable() {
     if (!this.supported) { this.error = "This browser has no Web MIDI (Chrome, Edge, Firefox and Opera have it)."; this.onChange(); return false; }

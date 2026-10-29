@@ -53,6 +53,21 @@ screen, LEDs and flash go to the page by `postMessage` at up to 30 Hz.
   doesn't reach the firmware's MIDI in. The mappings are global (not per firmware), in the page's prefs; MIDI comes
   back on by itself on the next visit when the browser already allows it. Tests: `web/site/test.mjs` and
   `web/site/tools/midi-learn-e2e.mjs` (a mocked "OMX-27" input).
+- **An OMX-27 as the controller** (Settings > Use my OMX-27; `js/omx27.js` the wire, `js/omx27-views.js` the views,
+  both without DOM, `js/omx-link.js` Web MIDI and the sheet): the OMX-27's REMOTE mode (its firmware's
+  `SYSEX_SPEC.md`, branch `q7-2026-3`). Web MIDI with SysEx, the port named "OMX"; the MODE command `51 05 09` enters
+  REMOTE mode (`52 02`; a MODE while already in it answers `52 03` then `52 02`, still connected). Its keys, encoder and
+  pots drive the panel (source `SRC.OMX`); the page owns its 27 LEDs (`59` / `5A`, latched by `5B`, at most every
+  30 ms, only changes) and its 128 x 32 screen (canvas text, 1-bit, SSD1306 pages rotated 180°, 7-bit chunks `5C`,
+  latched by `5D`; one frame in flight on its `52 04` ACK, ≤ 15 fps, changed chunks only). Pots stream every 2-3 ms:
+  the latest of each is taken every 10 ms. The views follow the owner's design (`design/RemoteFM1---OMX-27-Remote.json`,
+  format in `design/OMX-27-Designer-FORMAT.md`): K1 Base / Seq / Keyboard / Quick Keys, K2 six themes (the mirrored keys'
+  hue), K5 MASTER with midi-map.js's pickup, the encoder the selected knob. Shortcuts at half brightness, full when
+  pressed or selected; keys that mirror the FM-1's are dark unless its LED is lit, at its level. While in REMOTE mode
+  the port is skipped by the MIDI keyboard input and MIDI learn. Connected once, it connects by itself (MIDI allowed,
+  the port there). Disconnect or closing the page clears the OMX; leaving REMOTE mode is AUX + encoder hold on it.
+  Tests: `web/site/test.mjs` and `web/site/tools/omx-e2e.mjs` (a fake OMX-27, `tools/omx-fake.js`; pictures of its
+  LEDs and screen per view in `web/build/test/omx-*.png`).
 - **Saves:** per firmware and version in IndexedDB, with backup export and import (`.fm1save`-compatible if
   fm1-emu's format can be shared).
 - **Use my FM-1:** connects to a unit running RemoteFM1, through Web MIDI everywhere it exists and WebUSB bulk in

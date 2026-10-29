@@ -142,18 +142,13 @@ export class MidiMap {
     }
     if (m.type !== "cc") return out;
     if (t.kind === "master") {
-      const want = Math.round(m.value * 1023 / 127), cur = ctx.master, last = s.last;
-      s.last = m.value;
-      if (typeof cur !== "number") { out.push({ kind: "master", value: want }); return out; }
+      const want = Math.round(m.value * 1023 / 127), cur = ctx.master;
+      if (typeof cur !== "number") { s.last = m.value; out.push({ kind: "master", value: want }); return out; }
       if (cur !== this.masterSet) {   // moved by something else (or never set by a pot): every MASTER pot picks up again
         this.masterSet = cur;
         for (const x of this.byKey.values()) if (x.target === "MASTER" && this.state.has(x.src)) Object.assign(this.state.get(x.src), { picked: false, hinted: false });
       }
-      if (!s.picked) {
-        const at = cur * 127 / 1023;
-        s.picked = Math.abs(m.value - at) <= 2 || (last !== undefined && (last - at) * (m.value - at) <= 0);
-        if (!s.picked) { out.push({ kind: "pickup", pot: want, at: cur, first: !s.hinted }); s.hinted = true; return out; }
-      }
+      if (!pickedUp(s, m.value, cur * 127 / 1023, 2)) { out.push({ kind: "pickup", pot: want, at: cur, first: !s.hinted }); s.hinted = true; return out; }
       this.masterSet = want;
       out.push({ kind: "master", value: want });
       return out;
@@ -166,6 +161,27 @@ export class MidiMap {
     s.acc -= steps;
     if (steps) out.push({ kind: "turn", role: t.role, steps });
     return out;
+  }
+}
+
+// MASTER's pickup for one pot. s { last, picked }: the pot's state; v its value; at MASTER's position in the pot's units;
+// tol how near is there. True once it is picked up: near MASTER, or it crossed MASTER since its last value
+export function pickedUp(s, v, at, tol) {
+  const last = s.last;
+  s.last = v;
+  if (!s.picked) s.picked = Math.abs(v - at) <= tol || (last !== undefined && (last - at) * (v - at) <= 0);
+  return s.picked;
+}
+// one pot on MASTER with that pickup (the OMX-27's K5: js/omx27-views.js): v 0..max, cur MASTER now (0..1023) -> the
+// actions as MidiMap.feed's (master, pickup). MASTER moved by anything else: it waits again
+export class MasterPot {
+  constructor() { this.s = { last: undefined, picked: false }; this.set = null; this.hinted = false; }
+  feed(v, max, cur) {
+    const want = Math.round(v * 1023 / max);
+    if (cur !== this.set) { this.set = cur; this.s.picked = false; this.hinted = false; }
+    if (!pickedUp(this.s, v, cur * max / 1023, 2 * max / 127)) { const first = !this.hinted; this.hinted = true; return [{ kind: "pickup", pot: want, at: cur, first }]; }
+    this.set = want;
+    return [{ kind: "master", value: want }];
   }
 }
 
