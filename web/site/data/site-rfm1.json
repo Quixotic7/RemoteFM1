@@ -1,5 +1,5 @@
 {
- "about": "The firmwares this site hosts as .rfm1 files (web/site/fw/, built by tools/rfm1/; fw/SHA256SUMS has their hashes). web/site/tools/build_catalog.mjs lists each on the rfm1 engine, its id, name, version, licence, authors, source and glue from the file's own manifest; the rest is here. The SHA-256 must be the file's.",
+ "about": "The firmwares this site hosts as .rfm1 files (web/site/fw/: FIZZ built by tools/rfm1/, the others by FM1VST's fm1_add_rfm1; fw/SHA256SUMS has their hashes). web/site/tools/build_catalog.mjs lists each on the rfm1 engine, its id, name, version, licence, authors, source and glue from the file's own manifest; the rest is here. The SHA-256 must be the file's.",
  "firmwares": [
   {
    "file": "fw/fizz-0.12.0-beta.12.rfm1",
@@ -12,6 +12,18 @@
    "release": "https://github.com/Quixotic7/FIZZ/releases/tag/v0.12.0-beta.12",
    "site": "https://quixotic7.github.io/FIZZ/",
    "beta": true
+  },
+  {
+   "file": "fw/s1vave-1.0.rfm1",
+   "sha256": "865417eb4df5616c4e24117788dfb7c395ce469fe3ad1f38544090d474d32887",
+   "author": "Andrew GG",
+   "category": "Synth",
+   "tag": "8-voice tweak synth",
+   "what": "An 8-voice virtual analog synth after the SH-101 and the S-1, a fork of zvenson's OberVave: saw, pulse with PWM, three sub-oscillators and noise, OSC DRAW and OSC CHOP, a 4-pole filter that self-oscillates, mono, unison, poly and chord modes, chorus, delay and a plate reverb, a two-track 64-step sequencer and 64 factory programs. Built by FM1VST from its source to WebAssembly (.rfm1) and run natively here.",
+   "source": "https://github.com/AndrewGG88/S1Vave/tree/97303378678c247ca1d005ae641114f4544acf65",
+   "release": null,
+   "site": "https://andrewgg.one/s1vave/sim/",
+   "beta": false
   }
  ]
 }

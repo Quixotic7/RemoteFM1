@@ -1755,6 +1755,47 @@
    "blurb": "Plays nothing. Waits for a host."
   },
   {
+   "id": "s1vave",
+   "name": "S1Vave",
+   "version": "1.0",
+   "author": "Andrew GG",
+   "authorFull": "Andrew GG",
+   "category": "Synth",
+   "categories": [
+    "Synth"
+   ],
+   "tag": "8-voice tweak synth",
+   "what": "An 8-voice virtual analog synth after the SH-101 and the S-1, a fork of zvenson's OberVave: saw, pulse with PWM, three sub-oscillators and noise, OSC DRAW and OSC CHOP, a 4-pole filter that self-oscillates, mono, unison, poly and chord modes, chorus, delay and a plate reverb, a two-track 64-step sequencer and 64 factory programs. Built by FM1VST from its source to WebAssembly (.rfm1) and run natively here.",
+   "license": "GPL-3.0-only",
+   "source": "https://github.com/AndrewGG88/S1Vave/tree/97303378678c247ca1d005ae641114f4544acf65",
+   "repo": "AndrewGG88/S1Vave",
+   "release": null,
+   "site": "https://andrewgg.one/s1vave/sim/",
+   "play": null,
+   "editor": null,
+   "beta": false,
+   "engines": [
+    "rfm1"
+   ],
+   "defaultEngine": "rfm1",
+   "native": null,
+   "emu": null,
+   "rfm1": {
+    "from": "site",
+    "file": "fw/s1vave-1.0.rfm1",
+    "sha256": "865417eb4df5616c4e24117788dfb7c395ce469fe3ad1f38544090d474d32887",
+    "size": 289265,
+    "fileName": "s1vave-1.0.rfm1",
+    "version": "1.0",
+    "sourceUrl": "https://github.com/AndrewGG88/S1Vave@97303378678c247ca1d005ae641114f4544acf65",
+    "glueUrl": null,
+    "builtBy": "FM1VST 0.6.2 (13a66e2e0a06) fm1_add_rfm1, emcc 6.0.13",
+    "authors": [
+     "Andrew GG"
+    ]
+   }
+  },
+  {
    "id": "shineon",
    "name": "Shine On",
    "version": "1.2.1",
