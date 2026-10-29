@@ -1679,7 +1679,7 @@
   {
    "id": "remotefm1",
    "name": "RemoteFM1",
-   "version": "0.2.2",
+   "version": "0.2.3",
    "author": "Quixotic7",
    "authorFull": "Quixotic7",
    "category": "Other",
@@ -1691,7 +1691,7 @@
    "license": "MPL-2.0",
    "source": "https://github.com/Quixotic7/RemoteFM1",
    "repo": "Quixotic7/RemoteFM1",
-   "release": "https://github.com/Quixotic7/RemoteFM1/releases/tag/v0.2.2",
+   "release": "https://github.com/Quixotic7/RemoteFM1/releases/tag/v0.2.3",
    "site": null,
    "play": null,
    "beta": false,
@@ -1701,8 +1701,8 @@
    "defaultEngine": "emu",
    "native": null,
    "emu": {
-    "pkg": "../installer/firmware/remote-0.2.2.fwsc",
-    "sha256": "489857fcc91104cd4edf19c7c975c0e6258d311931830838e9d9e6913bb3cb89",
+    "pkg": "../installer/firmware/remote-0.2.3.fwsc",
+    "sha256": "211f06f63e8ca09de2812c017db9bb229713ce8e5a102eba887031551b2b403c",
     "size": 611496,
     "product": null,
     "from": "site"

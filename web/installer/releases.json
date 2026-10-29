@@ -3,6 +3,23 @@
   "repo": "https://github.com/Quixotic7/RemoteFM1",
   "releases": [
     {
+      "version": "0.2.3",
+      "date": "2026-10-28",
+      "tag": "v0.2.3",
+      "identity": "FM-1_52000203",
+      "license": "MPL-2.0",
+      "sha256": "211f06f63e8ca09de2812c017db9bb229713ce8e5a102eba887031551b2b403c",
+      "usbOnly": {
+        "file": "remote-usb-0.2.3.fwsc",
+        "sha256": "e94574ee081dac596479a3de4ec0fd2aa0cea109a2692551b07037ad8eb17e4e"
+      },
+      "notes": [
+        "Recording from the FM-1 over USB works: 0.2.1 and 0.2.2 sent mostly silence to a computer recording the FM-1's USB audio input.",
+        "Playing to the FM-1 over USB, Bluetooth and the screen are unchanged from 0.2.2.",
+        "Tested on an FM-1 on 2026-10-28: a test tone played to the FM-1 and recorded back, continuous and clean."
+      ]
+    },
+    {
       "version": "0.2.2",
       "date": "2026-10-27",
       "tag": "v0.2.2",

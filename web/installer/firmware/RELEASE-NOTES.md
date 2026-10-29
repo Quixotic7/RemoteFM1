@@ -1,3 +1,28 @@
+# RemoteFM1 0.2.3
+
+Released 2026-10-28, built with `./build.sh --release 0.2.3` (and `--no-ble` for the USB-only package). It replaces
+0.2.2. Both packages install as `FM-1_52000203`.
+
+| Package | sha256 |
+| --- | --- |
+| `remote-0.2.3.fwsc`, USB + Bluetooth MIDI (the default) | `211f06f63e8ca09de2812c017db9bb229713ce8e5a102eba887031551b2b403c` |
+| `remote-usb-0.2.3.fwsc`, USB only | `e94574ee081dac596479a3de4ec0fd2aa0cea109a2692551b07037ad8eb17e4e` |
+
+## What changed from 0.2.2
+
+- **Recording from the FM-1 over USB works.** In 0.2.1 and 0.2.2 a computer recording the FM-1's USB audio input got
+  mostly silence (82-85 % zeros, 2-15 ms of sound every ~29 ms). felucca-bsp's stall check (the host stopped
+  reading for over 20 ms) counted USB polls as if only its 2 kHz timer polled; RemoteFM1 also polls from its main
+  loop, 100,000-225,000 times a second, so the stream was dropped every millisecond. It now counts milliseconds
+  (felucca-bsp patch 0003, hook `FELUCCA_USB_MS`).
+- Playing to the FM-1 over USB, Bluetooth, the screen and the protocol are unchanged.
+
+## Testing
+
+On an FM-1 on 2026-10-28, with a Mac: a 1503 Hz tone played to the FM-1's USB audio output and recorded back from its
+input. 0.2.2: 15 % of the samples sound, 234 gaps over 1 ms in 7 s. 0.2.3: continuous, no gap over 1 ms, every 20 ms
+window a clean sine. A RemoteFM1 session (HELLO) over USB-MIDI answered as before.
+
 # RemoteFM1 0.2.2
 
 Released 2026-10-27, built with `./build.sh --release 0.2.2` (and `--no-ble` for the USB-only package). It replaces

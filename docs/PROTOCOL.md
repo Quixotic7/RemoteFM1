@@ -290,3 +290,4 @@ RemoteFM1 message starts `F0 7D 52 46`.
   change whole (section 1). The Bluetooth radio at 2M, long link packets, MTU 247, 16 receive buffers, 7.5 ms asked
   first; `caps` bit8 (`RFM_CAP_BLE_FAST`; 0x1AF in all): libremotefm1 then paces Bluetooth at 30000 B/s with 8 KB
   in flight and budgets up to 3000 B (measured with a Mac: ~35 KB/s of 1 KB frames, nothing lost at 14 KB in flight).
+- 0.2.3: no protocol change (the USB audio input fixed; `caps` still 0x1AF).
