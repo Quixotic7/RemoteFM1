@@ -667,7 +667,9 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
      && guard(cf, noRfm1).errors.length === 1 && /the \.rfm1 engine engines\/rfm1\/engine\.js/.test(guard(cf, noRfm1).errors[0]),
      "guard: the .rfm1 engine, or the module it and the native engine import, missing: not deployed");
   const noFizz = siteOf(cf); noFizz.delete(byF.get("fizz").rfm1.file);
-  const shaOf = (bad) => (p) => (p === byF.get("fizz").rfm1.file && !bad ? byF.get("fizz").rfm1.sha256 : "0".repeat(64));
+  // (every .rfm1 the site hosts at its own SHA-256; bad: FIZZ's differs)
+  const hosted = new Map(cf.firmwares.filter((f) => f.rfm1 && f.rfm1.from === "site").map((f) => [f.rfm1.file, f.rfm1.sha256]));
+  const shaOf = (bad) => (p) => (bad && p === byF.get("fizz").rfm1.file ? "0".repeat(64) : hosted.get(p) || "0".repeat(64));
   ok(guard(cf, noFizz).errors.length === 1 && /^fizz: its \.rfm1 fw\/fizz-[\w.-]+\.rfm1 \(hosted here\) is not in the site/.test(guard(cf, noFizz).errors[0])
      && !G.guardSite({ catalog: cf, has: (p) => siteOf(cf).has(p), expected: exp, managers: mgr, sha: shaOf(false) }).errors.length
      && /^fizz: .* SHA-256 differs/.test(G.guardSite({ catalog: cf, has: (p) => siteOf(cf).has(p), expected: exp, managers: mgr, sha: shaOf(true) }).errors.join()),
