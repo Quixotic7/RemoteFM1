@@ -86,9 +86,9 @@ const KEY_HINT = Array.from({ length: NKEY }, (_, k) => hintText(KM.KEY, k));
 const BTN_HINT = Array.from({ length: NB }, (_, b) => hintText(KM.BTN, b));
 // ================================================================ controls ===
 // The panel's input state, from every source (bits): the computer keys, the pointer, a latch, Web MIDI, the user's
-// own FM-1 (web/remote). Every change calls onChange(msg) with the engine's panel in matrix order; enc holds the
-// detents since the previous message.
-export const SRC = { KEY: 1, ESC: 2, POINTER: 4, LATCH: 8, MIDI: 16, REMOTE: 32 };
+// own FM-1 (web/remote), a learned MIDI control (js/midi-map.js). Every change calls onChange(msg) with the engine's
+// panel in matrix order; enc holds the detents since the previous message.
+export const SRC = { KEY: 1, ESC: 2, POINTER: 4, LATCH: 8, MIDI: 16, REMOTE: 32, MAP: 64 };
 export class Controls {
   constructor(onChange) {
     this.onChange = onChange;
@@ -390,6 +390,8 @@ export class DeviceView {
     this.running = false;
     this.keyOffset = -1;      // the scrolling keybed's offset in naturals (-1: its default)
     this.L = null;
+    this.learn = null;        // MIDI learn (main.js): { knobs: Set of roles bound, btns: Set bound, sel: { kind, idx } | null }
+    this.potAt = null;        // a learned MASTER pot waiting for pickup: its position 0..1023 (a faint mark)
   }
   setTheme(t) { this.theme = t; this.pal = resolve(t); this.accent = accentOf(t); this.base = null; }
   // the computer-key hints (the sheet's "Show computer-key hints", off by default): the letter under a key's LED, or
@@ -399,6 +401,8 @@ export class DeviceView {
   setButtonNames(n) { this.names = (n && n.length === NB ? n : PANEL_LABELS).map((s) => String(s || "")); this.base = null; }
   setKeymap(km) { this.ledIdx = ledIndexOf(km); }
   setLeds(levels, playGreen) { this.levels = levels; this.playGreen = playGreen | 0; }
+  setLearn(l) { this.learn = l || null; }
+  setPotAt(v) { this.potAt = typeof v === "number" ? v : null; }
   keyLevel(k) { const i = this.ledIdx[14 + k]; return i >= 0 ? this.levels[i] : 0; }
   btnLevel(b) { const i = this.ledIdx[labelToMatrix(b)]; return i >= 0 ? this.levels[i] : 0; }
 
@@ -551,6 +555,40 @@ export class DeviceView {
     this.drawKeybed(g, p);
     for (const b of L.btns) if (ctl.btnLatched(b.b)) this.drawLatch(g, b);
     drawDisplay(g, p, this.lcd, L.display.x, L.display.y, L.display.size, this.dpr, false);
+    if (this.potAt !== null) this.drawPotAt(g, p);
+    if (this.learn) this.drawLearn(g, p);
+  }
+
+  // MIDI learn: every learnable control outlined (dashed; solid when it has a binding), the picked one pulsing.
+  // Knobs sit on the faceplate (the label's colour), buttons in their well (the LED's)
+  drawLearn(g, p) {
+    const l = this.learn, t = (typeof performance !== "undefined" ? performance.now() : 0) / 1000, pulse = 0.5 + 0.5 * Math.sin(t * 2 * Math.PI * 1.2);
+    const mark = (sel, bound, col, path) => {
+      path();
+      g.setLineDash(sel || bound ? [] : [4, 4]);
+      g.lineWidth = sel ? 2.5 + 1.5 * pulse : bound ? 2 : 1.5;
+      g.strokeStyle = css(col, sel ? 0.55 + 0.45 * pulse : bound ? 0.95 : 0.6);
+      if (sel) { g.shadowColor = css(col); g.shadowBlur = 6 + 6 * pulse; }
+      g.stroke();
+      g.shadowBlur = 0; g.shadowColor = "transparent"; g.setLineDash([]);
+    };
+    for (const k of this.L.knobs) {
+      const sel = !!l.sel && l.sel.kind === KM.SELECT && l.sel.idx === k.role, bound = l.knobs.has(k.role), r = k.size / 2 + 6;
+      mark(sel, bound, p.label, () => { g.beginPath(); g.arc(k.cx, k.cy, r, 0, 2 * Math.PI); });
+      if (bound) { circle(g, k.cx + r * 0.71, k.cy - r * 0.71, 4.5, css(p.body)); circle(g, k.cx + r * 0.71, k.cy - r * 0.71, 3, css(p.label)); }
+    }
+    for (const b of this.L.btns) {
+      const sel = !!l.sel && l.sel.kind === KM.BTN && l.sel.idx === b.b, bound = l.btns.has(b.b), o = 3;
+      mark(sel, bound, p.led, () => rr(g, b.x - o, b.y - o, b.w + 2 * o, b.h + b.drop + 2 * o, (b.r || 6) + o));
+    }
+  }
+  // the pot's position on MASTER while it waits to pick MASTER up: a small hollow dot outside the ring
+  drawPotAt(g, p) {
+    const k = this.L.knobs.find((x) => x.role === E.MASTER);
+    if (!k) return;
+    const a = masterAngle(this.potAt), r = k.size / 2 + 5;
+    g.beginPath(); g.arc(k.cx + r * Math.sin(a), k.cy - r * Math.cos(a), 2.6, 0, 2 * Math.PI);
+    g.lineWidth = 1.5; g.strokeStyle = css(p.label, 0.75); g.stroke();
   }
 
   // Parts.swift KnobBody: the knurled ring, the cap, the pointer; MASTER's angle is its value, the others turn

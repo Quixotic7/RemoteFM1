@@ -866,5 +866,111 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   ok(due0 && !P.shiftHintDue(P.loadPrefs(st)) && P.shiftHintDue(P.loadPrefs(null)), "latch: \"Shift-click to hold\" is due once, then remembered");
 }
 
+// ---- MIDI learn (js/midi-map.js): sources, modes, speed, pickup, buttons, consumption, rebinding
+{
+  const MM = await import("./js/midi-map.js");
+  const cc = (n, v, ch = 1) => [0xB0 | (ch - 1), n, v], on = (n, v = 100, ch = 1) => [0x90 | (ch - 1), n, v], off = (n, ch = 1) => [0x80 | (ch - 1), n, 0];
+  const steps = (acts) => (acts || []).filter((a) => a.kind === "turn").reduce((s, a) => s + a.steps, 0);
+  ok(MM.TARGETS.length === 22 && MM.TARGETS.filter((t) => t.kind === "enc").map((t) => t.id).join() === "SELECT,ALGORITHM,PRESETS,KN1,KN2,KN3,KN4"
+     && MM.targetOf("KN1").role === E.K1 && MM.targetOf("HOME").b === B.HOME && MM.targetOf("OCT+").b === B.OCTUP && MM.knobTarget(E.MASTER) === "MASTER",
+     "midi map: 7 encoders, MASTER and the 14 buttons");
+  const p = MM.parseMsg(on(60, 0, 3));
+  ok(MM.srcKey(MM.parseMsg(cc(21, 5))) === "cc:1:21" && p.type === "note" && !p.on && p.ch === 3 && MM.srcKey(p) === "note:3:60" && MM.parseMsg([0xE0, 0, 64]) === null,
+     "midi map: a CC and a note keyed by channel and number; note-on at 0 is a note-off; pitch bend is none");
+  // absolute, at each speed
+  for (const [sp, want] of [[1, [0, 1, 3, 2]], [2, [0, 2, 6, 4]], [0.5, [0, 0, 1, 1]]]) {
+    const m = new MM.MidiMap([{ src: "cc:1:21", target: "KN1", mode: "abs" }], { speed: sp });
+    const got = [cc(21, 40), cc(21, 41), cc(21, 43), cc(21, 42)].map((d) => steps(m.feed(d)));
+    const acc = got.reduce((a, x, i) => (a.push((a[i - 1] || 0) + x), a), []);
+    ok(acc.join() === want.join(), `midi map: absolute at ${sp}x: 40 41 43 42 -> ${acc.join(" ")} detents (the first value only sets the start)`);
+  }
+  {
+    const m = new MM.MidiMap([{ src: "cc:1:21", target: "KN1", mode: "abs" }], { speed: 0.5 });
+    m.seed("cc:1:21", 10);
+    const s1 = steps(m.feed(cc(21, 11))), s2 = steps(m.feed(cc(21, 12))), s3 = steps(m.feed(cc(21, 13))), s4 = steps(m.feed(cc(21, 10)));
+    ok(s1 === 0 && s2 === 1 && s3 === 0 && s4 === -1, "midi map: absolute at 1/2x carries the half step over (11 12 13: 0 1 0; back to 10: -1)");
+  }
+  // relative
+  const rel = (mode, vals) => { const m = new MM.MidiMap([{ src: "cc:1:30", target: "SELECT", mode }]); return vals.map((v) => steps(m.feed(cc(30, v)))); };
+  ok(rel("rel64", [65, 66, 63, 60, 64]).join() === "1,2,-1,-4,0", "midi map: relative binary offset: 65 +1, 66 +2, 63 -1, 60 -4");
+  ok(rel("rel2c", [1, 3, 127, 125, 64]).join() === "1,3,-1,-3,-64", "midi map: relative two's complement: 1 +1, 3 +3, 127 -1, 125 -3");
+  ok(rel("relsign", [1, 3, 65, 67]).join() === "1,3,-1,-3", "midi map: relative sign bit: 1 +1, 3 +3, 65 -1, 67 -3");
+  { const m = new MM.MidiMap([{ src: "cc:1:30", target: "SELECT", mode: "rel64" }], { speed: 2 }); ok(steps(m.feed(cc(30, 65))) === 2, "midi map: the speed scales a relative encoder too (2x: 65 -> +2)"); }
+  // the guess
+  const G = MM.guessMode;
+  ok(G([65, 65, 66]) === "rel64" && G([63, 62, 63]) === "rel64" && G([65]) === "rel64", "midi map guess: values hugging 64 -> binary offset");
+  ok(G([1, 1, 2]) === "rel2c" && G([127, 126, 127]) === "rel2c" && G([1, 127, 1]) === "rel2c", "midi map guess: values in 1..15 / 113..127 -> two's complement");
+  ok(G([40, 42, 45]) === "abs" && G([10, 11, 12, 13]) === "abs" && G([60, 61, 62, 63, 64, 65]) === "abs" && G([0, 127]) === "abs" && G([]) === "abs",
+     "midi map guess: a pot sweeping (even at the bottom, or through 64) -> absolute");
+  // buttons: notes and CCs, several sources on one button (SRC.MAP holds)
+  {
+    const m = new MM.MidiMap([{ src: "note:1:60", target: "HOME" }, { src: "cc:1:64", target: "HOME" }]);
+    const a1 = m.feed(on(60)), a2 = m.feed(cc(64, 127)), a3 = m.feed(off(60)), a4 = m.feed(cc(64, 0)), a5 = m.feed(cc(64, 63));
+    ok(a1.length === 1 && a1[0].kind === "btn" && a1[0].b === B.HOME && a1[0].down && !a2.length && !a3.length && a4.length === 1 && !a4[0].down && !a5.length,
+       "midi map: a note presses and releases a button, a CC >= 64 / < 64 too; two sources hold it until both let go");
+    const c = new Controls(() => {});
+    c.holdBtn(B.HOME, SRC.POINTER, true); c.holdBtn(B.HOME, SRC.MAP, true); c.holdBtn(B.HOME, SRC.MAP, false);
+    ok(SRC.MAP === 64 && c.btnHeld(B.HOME) && Object.values(SRC).filter((v) => v === 64).length === 1, "midi map: SRC.MAP is its own bit, composing with the pointer's hold");
+  }
+  // consumption: learned messages give actions (maybe none), unlearned ones null; notes can't go on knobs
+  {
+    const m = new MM.MidiMap([{ src: "note:1:60", target: "HOME" }, { src: "cc:1:21", target: "KN1" }, { src: "note:1:61", target: "KN1" }]);
+    ok(Array.isArray(m.feed(on(60))) && Array.isArray(m.feed(cc(21, 3))) && m.feed(on(62)) === null && m.feed(cc(21, 3, 2)) === null && m.feed(on(61)) === null,
+       "midi map: a learned CC or note is consumed, another number or channel flows on; a stored note on a knob is dropped");
+    ok(m.list()[1].mode === "abs" && MM.describe(m.list()[1]) === "KN1 ← CC 21 ch 1 · absolute" && MM.describe(m.list()[0]) === "HOME ← note 60 ch 1", "midi map: the list's lines");
+  }
+  // MASTER and its pickup
+  {
+    const m = new MM.MidiMap([{ src: "cc:1:22", target: "MASTER" }]);
+    let master = 768;   // (96.0 in CC steps)
+    const feed = (v) => { const a = m.feed(cc(22, v), { master }); for (const x of a) if (x.kind === "master") master = x.value; return a; };
+    const a1 = feed(20), a2 = feed(40), a3 = feed(60);
+    ok(a1.length === 1 && a1[0].kind === "pickup" && a1[0].first && a2[0].kind === "pickup" && !a2[0].first && a3[0].kind === "pickup" && master === 768,
+       "midi map pickup: a pot below MASTER is ignored (MASTER stays 768; the first ignore says so once)");
+    const a4 = feed(100);
+    ok(a4.length === 1 && a4[0].kind === "master" && master === Math.round(100 * 1023 / 127), `midi map pickup: crossing MASTER's position (60 -> 100) picks it up: MASTER ${master}`);
+    feed(127); feed(0);
+    ok(master === 0, "midi map pickup: then it follows directly, 0..127 -> 0..1023 (127 -> 1023, 0 -> 0)");
+    master = 512;   // the mouse moved MASTER
+    const a5 = feed(10);
+    ok(a5[0].kind === "pickup" && a5[0].first && master === 512, "midi map pickup: after MASTER moves by the mouse, the pot waits again");
+    const a6 = feed(63);
+    ok(a6[0].kind === "master" && master === Math.round(63 * 1023 / 127), "midi map pickup: within 2 steps of MASTER (63 ~ 512) picks it up");
+    const n = new MM.MidiMap([{ src: "cc:1:22", target: "MASTER" }]);
+    ok(n.feed(cc(22, 95), { master: 768 })[0].kind === "master", "midi map pickup: a fresh map (a reload) picks up at once when the pot is within 2 steps");
+  }
+  // rebinding and forgetting; learn
+  {
+    const m = new MM.MidiMap([]), L = new MM.Learn(m);
+    ok(L.take(cc(21, 5)) === null, "learn: off, nothing taken");
+    L.start(); L.select("KN1");
+    const r1 = L.take(cc(21, 40));
+    ok(r1.fresh && r1.bound.target === "KN1" && r1.bound.mode === "abs" && m.list().length === 1, "learn: KN1 picked, CC 21 binds to it (absolute)");
+    L.take(cc(21, 41)); L.take(cc(21, 42)); L.take(cc(21, 43));
+    ok(m.get("cc:1:21").mode === "abs", "learn: a pot sweeping stays absolute");
+    L.stop(); const t44 = steps(m.feed(cc(21, 44))); L.start(); L.select("KN1"); L.take(cc(21, 44));
+    ok(t44 === 1, "learn: after learn, the pot turns from its last learned value (43 -> 44: 1 detent)");
+    L.select("KN2");
+    const r2 = L.take(cc(30, 65)); L.take(cc(30, 65)); L.take(cc(30, 66));
+    ok(r2.fresh && m.get("cc:1:30").mode === "rel64", "learn: an encoder sending 65s is binary offset");
+    L.select("KN3");
+    L.take(cc(21, 44));
+    ok(m.get("cc:1:21").target === "KN3" && m.list().length === 2, "learn: binding a source already bound moves it (CC 21: KN1 -> KN3)");
+    L.take(cc(22, 50));
+    ok(m.sourcesOf("KN3").length === 2, "learn: one target takes several sources");
+    L.select("KN4");
+    const rj = L.take(on(60));
+    ok(rj.reject && /CC/.test(rj.reject) && !m.has("note:1:60"), "learn: a note on a knob is refused");
+    L.select("HOME");
+    const rb = L.take(on(60)), ro = L.take(off(60)), rx = L.take(off(61));
+    ok(rb.fresh && rb.bound.target === "HOME" && !rb.bound.mode && ro && !ro.bound && rx === null, "learn: a note binds to a button; its note-off is consumed, another note-off flows on");
+    L.select("KN3");
+    ok(L.forgetSelected() === 2 && !m.has("cc:1:21") && !m.has("cc:1:22") && m.has("cc:1:30"), "learn: Forget removes the picked control's bindings");
+    const back = new MM.MidiMap(JSON.parse(JSON.stringify(m.list())));
+    ok(back.list().length === 2 && back.get("cc:1:30").mode === "rel64" && new MM.MidiMap([{ src: "cc:0:1", target: "KN1" }, { src: "cc:1:1", target: "NOPE" }, null]).list().length === 0,
+       "learn: the list round-trips through JSON (prefs); bad records are left out");
+  }
+}
+
 console.log(fails ? `site: ${fails} of ${checks} FAILED` : `site tests passed (${checks})`);
 process.exit(fails ? 1 : 0);

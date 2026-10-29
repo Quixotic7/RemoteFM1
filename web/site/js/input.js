@@ -81,7 +81,8 @@ export class Keyboard {
 // view: the DeviceView of the canvas (toUnits, hit, stripTo); multi-touch: each pointer holds what it went down on.
 // onShiftHint(): Shift held with the mouse over the panel (once per page; main.js shows "Shift-click to hold" once ever).
 // win: the window (the page's; a stand-in in the Node tests)
-export function attachPointer(canvas, view, controls, { onActivity, onScreenTap, onShiftHint, win = globalThis } = {}) {
+// learn: MIDI learn (main.js) { active() -> bool, pick(hit) }: while active a click picks a control and operates nothing
+export function attachPointer(canvas, view, controls, { onActivity, onScreenTap, onShiftHint, learn, win = globalThis } = {}) {
   const ptrs = new Map();   // pointerId -> { kind, idx, y, acc }
   const pos = (e) => { const r = canvas.getBoundingClientRect(); return view.toUnits(e.clientX - r.left, e.clientY - r.top); };
   let over = false, hinted = !onShiftHint;   // (over: a mouse is over the panel)
@@ -89,6 +90,7 @@ export function attachPointer(canvas, view, controls, { onActivity, onScreenTap,
   canvas.addEventListener("pointerdown", (e) => {
     if (onActivity) onActivity(e);
     const u = pos(e), h = view.hit(u.x, u.y);
+    if (learn && learn.active()) { if (h && h.kind !== "screen") e.preventDefault(); learn.pick(h); return; }
     if (!h) { if (e.shiftKey && controls.anyLatched()) controls.releaseLatches(); return; }
     if (h.kind === "screen") { if (onScreenTap) onScreenTap(e); return; }
     e.preventDefault();
@@ -146,7 +148,7 @@ export function attachPointer(canvas, view, controls, { onActivity, onScreenTap,
   let wheelAcc = 0;
   canvas.addEventListener("wheel", (e) => {
     const u = pos(e), h = view.hit(u.x, u.y);
-    if (!h || h.kind !== KM.SELECT) return;
+    if (!h || h.kind !== KM.SELECT || (learn && learn.active())) return;
     e.preventDefault();
     const px = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
     wheelAcc += -px / 40;
@@ -182,6 +184,10 @@ export class MidiInput {
     return !!this.access;
   }
   select(id) { this.selected = id; this.bind(); this.onChange(); }
+  // MIDI already allowed on this site (no prompt if enable() runs now)
+  async granted() {
+    try { return (await navigator.permissions.query({ name: "midi", sysex: false })).state === "granted"; } catch (_) { return false; }
+  }
   bind() {
     if (!this.access) return;
     for (const i of this.access.inputs.values()) {

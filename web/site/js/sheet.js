@@ -11,6 +11,7 @@ import { AUTOSAVE } from "./saves.js";
 import { browse, cardView, ENGINE_FILTERS, nativeOrigin, nameOf } from "./live.js";
 import { RELEASES } from "./library.js";
 import { MHZ_CHOICES, DEVICE_MHZ, DEVICE_RANGE, OVERCLOCK, DUAL_CORE, isOverclock, inDeviceRange } from "./cpu.js";
+import { SPEEDS, srcLabel } from "./midi-map.js";
 
 // ---- icons: FM1VST Look::icon, 16 x 16 boxes
 const ICON = {
@@ -55,6 +56,8 @@ function stepper(value, onStep) {
 }
 const pill = (text, onclick, kind = "", extra = {}) => h("button", { class: "pill " + kind, onclick, ...extra }, text);
 const link = (href, text) => h("a", { href, target: "_blank", rel: "noopener" }, text);
+// a learned encoder's modes, short (midi-map.js MODES)
+const MODE_SHORT = [["abs", "absolute"], ["rel64", "rel. 64 ± n"], ["rel2c", "rel. 2's comp."], ["relsign", "rel. sign bit"]];
 
 export class Sheet {
   constructor(app) {
@@ -162,6 +165,7 @@ export class Sheet {
     out.push(row("MIDI input", m.error || (m.access ? `${m.inputs().length} found` : "a MIDI keyboard plays the keys"), midiCtl));
     out.push(row("MIDI notes play keys", null, toggle(st.notesPlayKeys, (v) => a.set("notesPlayKeys", v))));
     out.push(row("...and reach the firmware's MIDI in", null, toggle(st.reachFirmware, (v) => a.set("reachFirmware", v))));
+    out.push(...this.midiMapRows());
     out.push(row("Show computer-key hints", "the keyboard letters on the panel's keys and buttons", toggle(st.keyHints, (v) => a.set("keyHints", v))));
     out.push(h("p", { class: "note" }, "Keys: A S D F G H J K L ; ' ] white, W E T Y U O P black, 2 3 4 5 Tab F1-F4 the left block. Buttons: F5-F10 or C V B N M , and 7 8 9 0 - =. Z X octave. Page Up/Down pick a knob, arrows turn it. ` the screen view."));
 
@@ -241,6 +245,28 @@ export class Sheet {
     out.push(h("div", { class: "links" }, h("a", { href: a.installerUrl }, "Install RemoteFM1 on your FM-1"), " · ",
       h("a", { href: "native/" }, "Firmware authors: publish a native build"), " · ",
       link("https://github.com/Quixotic7/RemoteFM1", "RemoteFM1 (this site) on GitHub")));
+    return out;
+  }
+  // MIDI learn: the Learn pill, the mappings (one line each: the mode for an encoder's CC, a remove), the knob speed
+  midiMapRows() {
+    const a = this.app, maps = a.midiMap.list(), out = [];
+    out.push(row("Knobs from MIDI", maps.length ? `${maps.length} learned` : "your controller's knobs, pots and buttons on the panel",
+      pill("Learn", () => a.learnStart(), "primary learn-pill", { disabled: !a.midi.supported, title: "Pick a knob or button, then move a control on your MIDI device" })));
+    if (!maps.length) return out;
+    out.push(h("ul", { class: "map-list", "aria-label": "MIDI mappings" }, maps.map((mp) => {
+      let mode = null;
+      if (mp.mode) {
+        mode = h("select", { class: "select", "aria-label": `${mp.target}: how CC values turn it`, onchange: (ev) => a.setMapMode(mp.src, ev.target.value) },
+          MODE_SHORT.map(([k, label]) => h("option", { value: k }, label)));
+        mode.value = mp.mode;
+      }
+      return h("li", { class: "map-row", "data-src": mp.src },
+        h("span", { class: "map-what" }, h("b", {}, mp.target), " ← ", h("span", { class: "map-src" }, srcLabel(mp.src))), mode,
+        h("button", { class: "map-x", "aria-label": `Remove ${mp.target} ← ${srcLabel(mp.src)}`, title: "Remove", html: icon("close"), onclick: () => a.removeMap(mp.src) }));
+    })));
+    out.push(h("div", { class: "map-foot" }, pill("Clear all", () => a.clearMap(), "ghost")));
+    const sp = a.state.knobSpeed;
+    out.push(row("Knob speed", "detents per CC step, for learned knobs", segmented(["½×", "1×", "2×"], SPEEDS.indexOf(sp), (i) => a.set("knobSpeed", SPEEDS[i]))));
     return out;
   }
   // which native build a firmware has: "native · built by the author" with its commit and build log, or FM1VST's core;

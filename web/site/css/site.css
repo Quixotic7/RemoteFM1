@@ -272,6 +272,39 @@ kbd { font: 700 10.5px/1 var(--hw); letter-spacing: .04em; border: 0; border-rad
 .sheet .carry { border: 1px solid var(--accent); border-radius: 10px; padding: 10px 12px; margin: 0 0 10px; font-size: 13px; color: var(--row-text); }
 .sheet .carry .pills { margin-top: 8px; }
 
+/* MIDI learn (main.js): a bar over the keybed (no key is learnable), the toast above it; the canvas outlines the
+   learnable controls */
+.learn-bar {
+  position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 5; width: max-content; max-width: calc(100% - 32px);
+  display: flex; align-items: center; gap: 10px 12px; flex-wrap: wrap; justify-content: center;
+  background: var(--window); border: 1px solid var(--accent); color: var(--text); border-radius: 18px; padding: 8px 8px 8px 16px;
+  font-size: 13.5px; box-shadow: 0 6px 0 rgba(0,0,0,.18), 0 14px 36px rgba(0,0,0,.45);
+}
+.learn-bar[hidden] { display: none; }
+.learn-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft), 0 0 10px var(--accent); flex: none; animation: learn-pulse 1.2s ease-in-out infinite; }
+@keyframes learn-pulse { 50% { opacity: .35; } }
+.learn-title { font: 700 11px/1 var(--hw); letter-spacing: .14em; text-transform: uppercase; color: var(--accent); flex: none; }
+.learn-text { color: var(--row-text); min-width: 0; }
+.learn-btns { display: flex; gap: 6px; flex: none; }
+.learn-btns .pill { height: 32px; padding: 0 14px; }
+.learn-btns .pill.ghost:hover { color: var(--text); }
+body.learning #corner { pointer-events: none; opacity: 0; }
+body.learning .toast { bottom: calc(var(--learn-h, 50px) + 28px); }
+body.learning #device { cursor: crosshair; }
+/* the sheet's list of mappings */
+.map-list { list-style: none; margin: 4px 0 0; padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.map-row { display: flex; align-items: center; gap: 8px; min-height: 42px; padding: 4px 6px 4px 12px; }
+.map-row + .map-row { border-top: 1px solid var(--line); }
+.map-what { flex: 1; min-width: 0; color: var(--row-text); font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.map-what b { font: 700 12px/1 var(--hw); letter-spacing: .08em; color: var(--text); }
+.map-src { font: 500 12.5px "DM Mono", monospace; color: var(--row-text); }
+.map-row .select { height: 30px; font-size: 12.5px; padding: 0 8px; border-radius: 9px; max-width: 132px; }
+.map-x { width: 28px; height: 28px; flex: none; display: grid; place-items: center; border: 0; border-radius: 999px; background: none; color: var(--muted); cursor: pointer; padding: 0; }
+.map-x:hover { background: var(--raised); color: var(--text); }
+.map-x .ic { width: 14px; height: 14px; }
+.map-foot { display: flex; justify-content: flex-end; margin-top: 4px; }
+.map-foot .pill { height: 30px; font-size: 12.5px; }
+
 /* ---- the sheet (FM1VST Sheet.cpp: 360 wide, the browser 620, About 400; slides in over a scrim) */
 .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.45); opacity: 0; pointer-events: none; transition: opacity .18s ease-out; z-index: 10; }
 .scrim.open { opacity: 1; pointer-events: auto; }
@@ -529,4 +562,4 @@ kbd { font: 700 10.5px/1 var(--hw); letter-spacing: .04em; border: 0; border-rad
   #top { padding-left: 8px; }
   .fw-pill, .src-link, .rec-btn, .takes-btn, #top nav #install-link { height: 30px; }
 }
-@media (prefers-reduced-motion: reduce) { .sheet, .scrim, #corner, .toast { transition: none; } .fm1-dot.busy.live, .rec-btn .rec-dot { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { .sheet, .scrim, #corner, .toast { transition: none; } .fm1-dot.busy.live, .rec-btn .rec-dot, .learn-dot { animation: none !important; } }

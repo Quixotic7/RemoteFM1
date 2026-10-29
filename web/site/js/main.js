@@ -5,7 +5,7 @@
 //   &engine=native|emu  pick the engine (where both can)
 //   &view=screen      the screen view
 //   &embed=1          only the device: no header, no settings
-import { Controls, DeviceView, ScreenView, Lcd, SRC, PANEL_LABELS } from "./panel.js";
+import { Controls, DeviceView, ScreenView, Lcd, SRC, PANEL_LABELS, KM } from "./panel.js";
 import { DEFAULT_THEME, CUSTOM_NAME, presetNamed, derived, css, resolve, accentOf, onAccent } from "./theme.js";
 import { Keyboard, attachPointer, MidiInput } from "./input.js";
 import { Player, sha256hex } from "./audio.js";
@@ -20,6 +20,7 @@ import { loadPrefs, savePrefs as writePrefs, keyHintsOn, shiftHintDue } from "./
 import { mhzFor, pickMhz, stepDown, Governor, DEVICE_MHZ } from "./cpu.js";
 import { EditorPanel } from "./editor-panel.js";
 import { RecUI } from "./rec-ui.js";
+import { MidiMap, Learn, MODES, srcLabel, speedOf, targetOf, knobTarget, buttonTarget } from "./midi-map.js";
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -45,6 +46,7 @@ const state = {
   volume: typeof prefs.volume === "number" ? Math.max(0, Math.min(1, prefs.volume)) : 1,   // the page's volume (not the recording's)
   recBits: prefs.recBits === 16 ? 16 : 24, recCountIn: prefs.recCountIn === true,          // the recorder (js/rec-ui.js)
   library: [],                                              // the visitor's .rfm1 files (library.js records, no bytes)
+  knobSpeed: speedOf(prefs.knobSpeed),                      // MIDI learn: a learned knob's speed (midi-map.js)
 };
 let catalog = null, snapshot = null, emuHook = null, player = null, sheet = null, site = null, siteEmit = () => {}, fm1 = null;
 let soundOut = null;   // the output device: the system's or the FM-1's USB audio (sound-out.js)
@@ -67,6 +69,7 @@ function draw() {
   if (!laidOut) return;
   if (!$("device-wrap").hidden) device.draw();
   if (!$("screen-wrap").hidden) screen.draw();
+  if (learn.active && learn.selected) invalidate();   // (the picked control pulses)
 }
 
 function layout() {
@@ -517,6 +520,10 @@ function playOnFm1() {
 const midi = new MidiInput(onMidi, () => { if (sheet) sheet.render(); });
 function onMidi(d) {
   if (!d || !d.length) return;
+  // MIDI learn first: a message it binds, or a learned control's, goes no further (midi-map.js)
+  if (learn.active) { const r = learn.take(d); if (r) return learnTook(r); }
+  const acts = midiMap.feed(d, { master: controls.master });
+  if (acts) { for (const a of acts) mapAct(a); return; }
   const s = d[0] & 0xF0;
   if (state.notesPlayKeys && (s === 0x90 || s === 0x80) && d.length >= 3) {
     const k = d[1] - 53 - 12 * state.transpose, on = s === 0x90 && d[2] > 0;
@@ -526,16 +533,97 @@ function onMidi(d) {
   if (state.reachFirmware || !state.notesPlayKeys) { if (player) player.midi(d); }
 }
 
+// -------------------------------------------------------------- MIDI learn ---
+// The controller's knobs, pots and buttons on the panel's (js/midi-map.js): global, not per firmware (prefs.midiMap).
+// Learn mode: the sheet closes, a bar over the keybed, the learnable controls outlined; a click picks one, the next
+// CC or note binds to it. Esc or Done ends it; Delete / Backspace (or Forget) drops the picked control's bindings.
+const midiMap = new MidiMap(prefs.midiMap || [], { speed: state.knobSpeed });
+const learn = new Learn(midiMap);
+let potTimer = 0;
+function mapAct(a) {
+  if (a.kind === "turn") controls.turn(a.role, a.steps);
+  else if (a.kind === "btn") controls.holdBtn(a.b, SRC.MAP, a.down);
+  else if (a.kind === "master") { controls.setMaster(a.value); potAt(null); }
+  else if (a.kind === "pickup") {   // a MASTER pot away from MASTER: ignored until it gets there (a faint mark shows where it is)
+    potAt(a.pot);
+    if (a.first) toast(`MASTER: turn the pot to ${Math.round(a.at / 1023 * 100)}% to pick it up`, "", 3000);
+  }
+}
+function potAt(v) {
+  device.setPotAt(v); invalidate();
+  clearTimeout(potTimer);
+  if (v !== null) potTimer = setTimeout(() => potAt(null), 4000);
+}
+function mapChanged() {
+  prefs.midiMap = midiMap.list(); savePrefs();
+  midiMap.releaseAll(); controls.releaseSrc(SRC.MAP);
+  learnView();
+  if (sheet) sheet.render();
+}
+function learnTook(r) {
+  if (r.reject) { toast(r.reject, "bad", 2500); return; }
+  if (!r.bound) return;
+  const b = r.bound;
+  toast(`${b.target} ← ${srcLabel(b.src, true)}${b.mode ? ` (${MODES[b.mode]})` : ""}`, "ok", 3000);
+  mapChanged();
+}
+async function learnStart() {
+  if (!midi.access) await app.enableMidi();
+  if (!midi.access) { toast(midi.error || "MIDI is not on.", "bad"); return; }
+  if (!midi.selected) app.selectMidi("*");
+  if (sheet && sheet.isOpen) sheet.close();
+  if (state.view === "screen") app.set("view", "device");   // (the controls to click are on the device view)
+  learn.start();
+  learnView();
+}
+function learnStop() { if (!learn.active) return; learn.stop(); learnView(); }
+function learnForget() {
+  const t = learn.selected;
+  if (!t) return;
+  const n = learn.forgetSelected();
+  toast(n ? `${t}: ${n === 1 ? "its binding" : `its ${n} bindings`} forgotten` : `${t} has no binding`, "", 2500);
+  mapChanged();
+}
+// the bar's text and the panel's outlines
+function learnView() {
+  const on = learn.active, bar = $("learn");
+  bar.hidden = !on;
+  document.body.classList.toggle("learning", on);
+  if (!on) { device.setLearn(null); invalidate(); return; }
+  const bound = midiMap.boundTargets(), sel = learn.selected, t = sel ? targetOf(sel) : null;
+  device.setLearn({
+    knobs: new Set([0, 1, 2, 3, 4, 5, 6, 7].filter((r) => bound.has(knobTarget(r)))),
+    btns: new Set(PANEL_LABELS.map((_, b) => b).filter((b) => bound.has(buttonTarget(b)))),
+    sel: !t ? null : t.kind === "btn" ? { kind: KM.BTN, idx: t.b } : { kind: KM.SELECT, idx: t.role },
+  });
+  const srcs = sel ? midiMap.sourcesOf(sel) : [];
+  $("learn-text").textContent = !sel ? "Click a knob or button, then move a control on your MIDI device"
+    : srcs.length ? `${sel} ← ${srcs.map((x) => srcLabel(x.src)).join(", ")}`
+    : `${sel}: now ${t.kind === "btn" ? "press a button or a key" : "turn a knob or a pot"} on your MIDI device`;
+  $("learn-forget").hidden = !srcs.length;
+  invalidate();
+}
+const learnPick = (h) => {
+  const id = !h ? null : h.kind === KM.SELECT ? knobTarget(h.idx) : h.kind === KM.BTN ? buttonTarget(h.idx) : null;
+  learn.select(id);
+  learnView();
+};
+
 // -------------------------------------------------------------------- app ---
 const app = {
   get state() { return state; },
   get catalog() { return catalog; },
   midi,
+  get midiMap() { return midiMap; },
+  learnStart,
+  setMapMode(src, mode) { midiMap.setMode(src, mode); mapChanged(); },
+  removeMap(src) { midiMap.remove(src); mapChanged(); },
+  clearMap() { midiMap.clear(); mapChanged(); toast("Every MIDI mapping cleared."); },
   installerUrl: "",
   remoteMounted: false,
   remoteStatus: "",
   versionOf, metaLine, engineNote, carryText, answerCarry, sourceNow,
-  sheetChanged(open) { document.body.classList.toggle("sheet-open", open); if (open) document.body.classList.remove("chrome"); else $("stage").focus({ preventScroll: true }); },
+  sheetChanged(open) { if (open) learnStop(); document.body.classList.toggle("sheet-open", open); if (open) document.body.classList.remove("chrome"); else $("stage").focus({ preventScroll: true }); },
   set(k, v) {
     if (k === "theme") { state.theme = presetNamed(v, prefs.customTheme) || state.theme; prefs.theme = state.theme.name; applyTheme(); }
     else if (k === "customColor") {   // [role, "#RRGGBB"]: My theme, from the five colours (theme.js derived)
@@ -544,6 +632,7 @@ const app = {
     }
     else if (k === "view") { state.view = v; prefs.view = v; layout(); }
     else if (k === "keyHints") { state.keyHints = !!v; prefs.keyHints = !!v; device.setHints(state.keyHints); invalidate(); }
+    else if (k === "knobSpeed") { state.knobSpeed = prefs.knobSpeed = speedOf(v); midiMap.setSpeed(state.knobSpeed); }
     else { state[k] = v; prefs[k] = v; }
     savePrefs();
     if (sheet) sheet.render();
@@ -587,7 +676,8 @@ const app = {
     catch (e) { toast(e.message || String(e), "bad"); }
   },
   async useSystemOut() { await this.soundOut.useSystem(); },
-  async enableMidi() { if (await midi.enable()) { if (!midi.selected) midi.select(prefs.midi || "*"); } },
+  // (the choice is kept: the next visit turns MIDI on by itself where the browser already allows it)
+  async enableMidi() { if (await midi.enable()) { if (!midi.selected) app.selectMidi(prefs.midi || "*"); } },
   selectMidi(id) { midi.select(id); prefs.midi = id; savePrefs(); },
   async loadSave(rec) { state.selectedSave = rec.name; if (sheet) sheet.render(); if (state.running) await boot(rec); toast(`Started from "${rec.name}".`); },
   async saveAs(name) {
@@ -756,6 +846,7 @@ async function main() {
     onActivity: activity,
   });
   attachPointer($("device"), device, controls, { onActivity: (e) => { activity(); if (!state.running) start(); }, onScreenTap: () => {},
+    learn: { active: () => learn.active, pick: learnPick },
     onShiftHint: () => { if (!shiftHintDue(prefs)) return; prefs.shiftHintShown = true; savePrefs(); toast("Shift-click to hold", "", 2500); } });
   $("screen").addEventListener("pointerdown", () => { activity(); if (!state.running) start(); });
   $("stage").addEventListener("pointermove", activity);
@@ -767,6 +858,19 @@ async function main() {
   $("fw-btn").addEventListener("click", () => sheet.open("firmware"));
   $("offer-yes").addEventListener("click", () => answerCarry(true));
   $("offer-no").addEventListener("click", () => answerCarry(false));
+  // MIDI learn: Esc ends it, Delete / Backspace forgets the picked control's bindings
+  $("learn-done").addEventListener("click", learnStop);
+  new ResizeObserver(() => { if (!$("learn").hidden) document.body.style.setProperty("--learn-h", $("learn").offsetHeight + "px"); }).observe($("learn"));
+  $("learn-forget").addEventListener("click", learnForget);
+  addEventListener("keydown", (e) => {
+    if (!learn.active || sheet.isOpen || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === "Escape") learnStop();
+    else if ((e.key === "Delete" || e.key === "Backspace") && learn.selected) learnForget();
+    else return;
+    e.stopImmediatePropagation(); e.preventDefault();
+  }, true);
+  // MIDI on by itself where it was on before and the browser already allows it (no prompt)
+  if (prefs.midi && midi.supported) midi.granted().then((yes) => { if (yes && !midi.access) app.enableMidi(); });
   addEventListener("keydown", (e) => {
     if (e.key !== "Escape" || !sheet.isOpen) return;
     e.stopImmediatePropagation(); e.preventDefault();

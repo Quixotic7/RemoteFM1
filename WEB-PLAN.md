@@ -44,6 +44,15 @@ screen, LEDs and flash go to the page by `postMessage` at up to 30 Hz.
   the app's warm dark. The firmware browser has search, category chips and cards from the Hub catalog. A screen-only
   view.
 - **Input:** computer-keyboard keys as in FM1VST, mouse and touch on the drawn panel, and Web MIDI keyboards.
+  **MIDI learn** (`web/site/js/midi-map.js`, Settings > Playing > Knobs from MIDI > Learn): click a knob, MASTER or a
+  button on the panel, then move a control on the MIDI device. A CC drives an encoder as a pot (absolute: the change
+  since its last value, 1 step = 1 detent at Knob speed 1x) or as an endless encoder (relative: 64 ± n, two's
+  complement, or sign bit with 1..63 up and 65..127 down); learn guesses the mode, and the sheet's list can change it.
+  A CC on MASTER sets it 0..127 → 0..1023 with pickup: after a learn, a reload or a move by any other input, the pot
+  waits until it reaches MASTER. A note or a CC (≥ 64 down) holds a button. A learned CC or note plays no key and
+  doesn't reach the firmware's MIDI in. The mappings are global (not per firmware), in the page's prefs; MIDI comes
+  back on by itself on the next visit when the browser already allows it. Tests: `web/site/test.mjs` and
+  `web/site/tools/midi-learn-e2e.mjs` (a mocked "OMX-27" input).
 - **Saves:** per firmware and version in IndexedDB, with backup export and import (`.fm1save`-compatible if
   fm1-emu's format can be shared).
 - **Use my FM-1:** connects to a unit running RemoteFM1, through Web MIDI everywhere it exists and WebUSB bulk in
