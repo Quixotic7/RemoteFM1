@@ -890,6 +890,11 @@ static void rfa_diag(uint32_t t, uint32_t cmd, const uint8_t *body, uint32_t len
         rf_send(t, RF_SA_BENCH_R, b, sa_bench_cmd(body, len, b));
         break;
     }
+    case RF_SA_LOOP: {                              /* the standalone's loops (sa/sa_loop.c) */
+        static uint8_t b[SA_LOOP_REPLY] PLAT_POOL;
+        rf_send(t, RF_SA_LOOP_R, b, sa_loop_cmd(body, len, b));
+        break;
+    }
     case RF_TILE:
         if (!rfm_app_tile_m0(body, len)) {
             rf_st[t].bad++;

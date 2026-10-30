@@ -66,6 +66,8 @@ enum { SA_SCR_HOME, SA_SCR_PRESET, SA_SCR_CHANNEL, SA_SCR_OCTAVE, SA_SCR_HOST, S
 #define SA_HOLD_MS 500u                      /* SAVE, ARP, PLAY, REC: held this long is a hold, else a tap */
 #define SA_MENU_MS 6000u                     /* a menu (Loops, Rec options, Arp settings, Theme) closes untouched */
 enum { SA_LE_ON, SA_LE_OFF, SA_LE_CC };      /* a loop's events (sa_loop.c) */
+static void sa_rec_ev(uint32_t type, uint32_t d1, uint32_t d2);   /* (sa_loop.c: what is played, recorded) */
+static void sl_all_off(void);
 
 static struct {
     uint8_t panel;                           /* panel mode: a host has the FM-1 */
@@ -83,6 +85,7 @@ static struct {
     uint32_t hold_done;                      /* buttons whose hold has fired (bit B_*) */
     uint8_t menu;                            /* the overlay is a menu (sa_overlay_menu) */
     uint8_t view;                            /* HOME's view: 0 Notes, 1 Scope, 2 Keys */
+    uint8_t mfocus;                          /* a settings menu's option (Rec options, Arp settings: 0..3) */
     uint8_t arp_mode, arp_rate, arp_oct, arp_gate;   /* sa_arp.c's settings */
     uint16_t bpm;                            /* the tempo (SELECT), 40..240 */
     uint8_t rec_len, rec_quant, rec_count, rec_layer;   /* sa_loop.c's recording options */
@@ -231,10 +234,12 @@ static void sa_key(uint32_t k, uint32_t vel)       /* a key down (vel) or up (0)
         sa.key_ch[k] = (uint8_t)(sa.ch - 1u);
         sa_note((uint32_t)n, vel);
         sa_midi3(0x90u | sa.key_ch[k], (uint32_t)n, vel);
+        sa_rec_ev(SA_LE_ON, (uint32_t)n, vel);
         sa.notes_out++;
     } else if (sa.key_note[k] != 0xFFu) {
         sa_note(sa.key_note[k], 0);
         sa_midi3(0x80u | sa.key_ch[k], sa.key_note[k], 0x40u);
+        sa_rec_ev(SA_LE_OFF, sa.key_note[k], 0x40u);
         sa.key_note[k] = 0xFFu;
     }
 }
@@ -264,6 +269,7 @@ static void sa_all_off(int now)
 
 static void sa_panic(void)
 {
+    sl_all_off();
     sa_all_off(1);
     sa_midi3(0xB0u | (sa.ch - 1u), 64, 0);  /* the pedal up, every note off: the DAW too */
     sa_midi3(0xB0u | (sa.ch - 1u), 123, 0);
@@ -370,10 +376,9 @@ static void sa_close(void)                   /* back to the HOME view */
     sa.poke = 1;
 }
 
-static void sa_rec_ev(uint32_t type, uint32_t d1, uint32_t d2)   /* (S3's looper: what is played, recorded) */
-{
-    (void)type, (void)d1, (void)d2;
-}
+#include "sa_loop.c"
+static int sl_clock_on(void) { return 0; }
+static uint32_t sl_bpm_now(void) { return sa.bpm; }
 #include "sa_cc.c"
 
 static void sa_settings_fill(sa_store_t *s)
@@ -435,6 +440,7 @@ static void sa_settings_defaults(void)
     sa.arp_oct = 1;
     sa.arp_gate = 6;
     sa.bpm = 120;
+    sa.rec_layer = 1;                        /* DUB: REC on a loop adds to it */
 }
 
 /* ------------------------------------------------------------------ the modes --- */
@@ -443,6 +449,7 @@ static void sa_enter_panel(uint32_t t)
     sa.host_t = (uint8_t)t;
     if (sa.panel)
         return;
+    sl_halt();
     sa_all_off(1);
     sa.keys = 0;
     touch_on(0);                             /* (the panel's keys are plat_keys again, as RemoteFM1 0.2 has them) */
@@ -538,6 +545,10 @@ static void sa_leds(void)
     if (sa.btns >> B_GLO & 1u)
         b |= 1u << B_GLO;
     b |= 1u << (B_FX + sa.ccbank);           /* the CC bank's button */
+    if (sl.state == SL_PLAY || sl.state == SL_DUB || (sl.state == SL_COUNT && sl.count_play))
+        b |= 1u << B_PLAY;                   /* a loop plays */
+    if (sl.state == SL_REC || sl.state == SL_DUB || (sl.state == SL_COUNT && plat_ms() % 500u < 250u))
+        b |= 1u << B_REC;                    /* recording (blinking: the count) */
     if (sa.oct < 0)
         b |= 1u << B_OCTDN;
     if (sa.oct > 0)
@@ -557,24 +568,79 @@ static void sa_leds(void)
 
 static void sa_press_early(uint32_t b)       /* SAVE, ARP, PLAY, REC down (most act when let go: sa_tap) */
 {
-    (void)b;
+    if ((b == B_PLAY || b == B_REC) && (sl.state == SL_REC || sl.state == SL_DUB)) {
+        sl_rec_stop(1);                      /* a recording ends on the press, in time; the loop plays */
+        sa.hold_done |= 1u << b;             /* (its release does nothing more) */
+        sa_close();
+    }
+}
+
+static void sa_menu_touch(void) { sa.ov_until = plat_ms() + SA_MENU_MS; sa.poke = 1; }
+
+static void sa_recopt(uint32_t o, int32_t d) /* the recording options: LEN, QUANT, COUNT, LAYER */
+{
+    static const uint8_t N[4] = {SA_REC_NLENS, 3, 2, 2};
+    uint8_t *v[4] = {&sa.rec_len, &sa.rec_quant, &sa.rec_count, &sa.rec_layer};
+    int32_t x = clamp((int32_t)*v[o & 3u] + d, 0, N[o & 3u] - 1);
+    sa.mfocus = (uint8_t)(o & 3u);
+    if (x != *v[o & 3u]) {
+        *v[o & 3u] = (uint8_t)x;
+        sa_changed();
+    }
 }
 
 static int sa_menu_knob(uint32_t k, int32_t d)   /* a menu takes KN1..KN4 (k 0..3) or PRESETS (4): 1 taken */
 {
-    (void)k;
-    (void)d;
-    return 0;
+    if (!sa.menu)
+        return 0;
+    switch (sa.ov) {
+    case SA_SCR_RECOPT:
+        if (k < 4u)
+            sa_recopt(k, d);
+        else
+            sa.mfocus = (uint8_t)clamp((int32_t)sa.mfocus + d, 0, 3);
+        break;
+    case SA_SCR_LOOPS:
+        sl.cursor = (uint8_t)clamp((int32_t)sl.cursor + d, 0, (int32_t)SA_LOOPS - 1);
+        break;
+    default:
+        return 0;
+    }
+    sa_menu_touch();
+    return 1;
 }
 
 static void sa_select(int32_t d)             /* SELECT: the tempo; in a menu, its choice */
 {
-    (void)d;
+    if (sa.menu && sa.ov == SA_SCR_RECOPT) {
+        sa_recopt(sa.mfocus, d);
+        sa_menu_touch();
+    } else if (sa.menu && sa.ov == SA_SCR_LOOPS) {
+        sa_menu_knob(4u, d);
+    }
 }
 
 static void sa_tap(uint32_t b)               /* SAVE, ARP, PLAY, REC let go before SA_HOLD_MS */
 {
-    (void)b;
+    if (b == B_PLAY) {
+        if (sa.menu && sa.ov == SA_SCR_LOOPS) {   /* the loop under the cursor: next, or now */
+            sl_pick(sl.cursor);
+            sa_overlay(SA_SCR_LOOP);
+        } else {
+            sl_play_tap();
+            if (sl.state != SL_PLAY && sa.ov == SA_SCR_LOOP)
+                sa_close();
+        }
+    } else if (b == B_REC) {
+        if (sa.menu && sa.ov == SA_SCR_RECOPT)
+            sa_close();
+        else if (sl.state == SL_COUNT)
+            sl_rec_stop(1);                  /* (the count called off) */
+        else {
+            sl_rec_start();
+            sa_close();
+        }
+    }
 }
 
 static void sa_hold(uint32_t b)              /* ... held SA_HOLD_MS */
@@ -583,6 +649,11 @@ static void sa_hold(uint32_t b)              /* ... held SA_HOLD_MS */
         sa.save_holds++;
         sa_save_now();
         sa_overlay(SA_SCR_SAVED);
+    } else if (b == B_PLAY) {                /* the 16 loops */
+        sl.cursor = sl.next != 0xFFu ? sl.next : sl.cur;
+        sa_overlay_menu(SA_SCR_LOOPS);
+    } else if (b == B_REC && !sl_recording()) {   /* the recording options */
+        sa_overlay_menu(SA_SCR_RECOPT);
     }
 }
 
@@ -695,6 +766,7 @@ static void sa_ms(uint32_t btns, const int32_t *steps)
     sa.keys = keys;
     sa_buttons(btns & ((1u << NB) - 1u));
     sa_encoders(steps);
+    sl_step(now);
     if (sa.ov != SA_SCR_HOME && (int32_t)(now - sa.ov_until) >= 0) {
         sa.ov = SA_SCR_HOME;
         sa.poke = 1;
@@ -709,6 +781,7 @@ static void sa_init(void)
     uint32_t k;
     memset(&sa, 0, sizeof sa);               /* (the simulator's reboot runs this again) */
     sa_settings_defaults();
+    sl_init();
     for (k = 0; k < NKEYS; k++)
         sa.key_note[k] = 0xFFu;
     sa.led_b = sa.led_k = 0xFFFFFFFFu;

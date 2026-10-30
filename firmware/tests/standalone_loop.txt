@@ -1,0 +1,182 @@
+# SPDX-License-Identifier: MPL-2.0
+# RemoteFM1 standalone, S3 (STANDALONE-PLAN.md): the looper. A free take recorded as played (REC, notes, REC: it plays
+# from its start, its notes at their times); an overdub (LAYER DUB); the recording options (REC held: LENGTH, QUANTIZE,
+# COUNT-IN, LAYER on KN1..KN4); a take of one bar at 120 BPM, quantized to 1/16, that ends by itself; the 16 loops
+# (PLAY held), a loop queued at the end of the one playing; a count-in; the loops over SysEx (SA_LOOP: INFO, GET,
+# BEGIN / EVENTS / END, CLEAR); a host's HELLO stops them. tests/run_tests.sh runs it (both builds).
+wait 400
+expect sa_lstate 0
+expect sa_rec_opts 1
+# a free take: REC (on its release), F3 for 200 ms, A3 for 100 ms, REC (on its press): ~860 ms, playing
+tap REC
+expect sa_lstate 3
+wait 100
+key 0 down 100
+wait 200
+key 0 up
+wait 100
+key 4 down 90
+wait 100
+key 4 up
+wait 300
+shot sa_rec.png
+press REC
+expect sa_lstate 1
+release REC
+expect sa_lstate 1
+expect sa_ln 4
+expect sa_llen >820
+expect sa_llen <900
+expect sa_lev_ty0 0
+expect sa_lev_t0 >130
+expect sa_lev_t0 <160
+expect sa_lev_ty1 1
+expect sa_lev_t1 >330
+expect sa_lev_t1 <360
+expect sa_lev_ty3 1
+# it plays: F3 at its time, out on the channel too, then again each turn
+out
+wait 400
+expect_out USB 90 35 64
+expect_out USB 80 35 40
+wait 900
+expect sa_lwraps 1
+# an overdub (LAYER DUB): C4 joins it; REC's press ends it, the loop plays on
+tap REC
+expect sa_lstate 4
+key 7 down 80
+wait 100
+key 7 up
+wait 50
+press REC
+release REC
+expect sa_lstate 1
+expect sa_ln 6
+sa loopget 0
+# PLAY stops it, PLAY plays it again
+tap PLAY
+expect sa_lstate 0
+expect sa_held 0
+tap PLAY
+expect sa_lstate 1
+expect sa_screen 10
+wait 300
+shot sa_loop_play.png
+# the recording options (REC held): LENGTH 1 BAR (KN1), QUANTIZE 1/16 (KN2), LAYER REPLACE (KN4); REC closes them
+press REC
+wait 600
+expect sa_screen 12
+expect sa_menu 1
+release REC
+turn K1 1
+turn K2 2
+turn K4 -1
+expect sa_rec_opts 1200
+wait 50
+shot sa_rec_options.png
+turn SELECT -1
+expect sa_rec_opts 1200
+turn PRESET -3
+turn SELECT 1
+expect sa_rec_opts 2200
+turn SELECT -1
+tap REC
+expect sa_screen 0
+expect sa_lstate 1
+# the 16 loops (PLAY held): loop 2 picked (SELECT), queued at the end of loop 1; empty: nothing plays then
+press PLAY
+wait 600
+expect sa_screen 11
+release PLAY
+turn SELECT 1
+wait 50
+shot sa_loops.png
+tap PLAY
+expect sa_lnext 1
+expect sa_lcur 0
+wait 900
+expect sa_lcur 1
+expect sa_lstate 0
+# a take of one bar (2000 ms at 120): the note 140 ms in lands on 125 (1/16); it ends by itself and plays
+tap REC
+expect sa_lstate 3
+wait 100
+key 2 down 100
+wait 100
+key 2 up
+wait 1850
+expect sa_lstate 1
+expect sa_llen 2000
+expect sa_lev_t0 125
+expect sa_ln 2
+# loop 1 queued while loop 2 plays: it comes at loop 2's end
+press PLAY
+wait 600
+release PLAY
+turn SELECT -1
+tap PLAY
+expect sa_lnext 0
+wait 2000
+expect sa_lcur 0
+expect sa_lnext -1
+expect sa_lstate 1
+# a count-in (KN3): a bar counted (COUNT), then recording (a new take: REPLACE), PLAY ends it
+press REC
+wait 600
+release REC
+turn K3 1
+turn K1 -1
+tap REC
+tap PLAY
+tap REC
+expect sa_lstate 2
+wait 200
+shot sa_rec_count.png
+wait 1900
+expect sa_lstate 3
+key 9 down 100
+wait 100
+key 9 up
+press PLAY
+release PLAY
+expect sa_lstate 1
+expect sa_ln 2
+# SA_LOOP over SysEx (no HELLO: the standalone stays): INFO; loop 6 written (1000 ms: C4 at 100..500), played
+rf send usb 0A 00
+expect rf_n_usb_4A 1
+expect sa_panel 0
+rf send usb 0A 02 05 E8 03 00 00 78 00 00
+rf send usb 0A 03 05 00 00 02 64 00 00 00 00 3C 64 00 F4 01 00 00 01 3C 40 00
+rf send usb 0A 04 05
+expect rf_n_usb_4A 4
+expect sa_llen_5 1000
+sa loopget 5
+press PLAY
+wait 600
+release PLAY
+turn SELECT 5
+tap PLAY
+wait 1200
+expect sa_lcur 5
+out
+wait 1000
+expect_out USB 90 3C 64
+# a busy answer while recording (here: counting in); CLEAR empties a loop
+tap REC
+expect sa_lstate 2
+rf send usb 0A 05 05
+expect sa_llen_5 1000
+tap PLAY
+expect sa_lstate 0
+rf send usb 0A 05 01
+expect sa_llen_1 0
+# a host's HELLO: the loop stops, nothing sounds
+tap PLAY
+expect sa_lstate 1
+rf hello usb
+wait 20
+expect sa_lstate 0
+expect sa_held 0
+wait 3100
+expect sa_panel 0
+expect sa_ldrops 0

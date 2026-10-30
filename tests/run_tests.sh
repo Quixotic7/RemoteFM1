@@ -41,7 +41,7 @@ sim() {   # sim BINARY SCRIPT...
     done
 }
 
-SA_TESTS="firmware/tests/standalone_cc.txt"   # S2.. (the standalone's milestones)
+SA_TESTS="firmware/tests/standalone_cc.txt firmware/tests/standalone_loop.txt"   # S2.. (the standalone's milestones)
 echo "== the app in fm1-base's host simulator: USB SysEx, bulk, Bluetooth, the update's SysEx beside (firmware/tests)"
 env -u CC ./build.sh --host >/dev/null
 sim "$SIM/remotefm1_host" firmware/tests/session.txt firmware/tests/bulk_ota.txt firmware/tests/ble.txt \
@@ -124,6 +124,7 @@ $TCC $SAN -Wno-unused-but-set-variable -ffp-contract=off -DPLAT_HOST -Ifirmware/
 mkdir -p "$H/sa"
 for m in serial now late drop; do "$H/sa_synth_test" "$H/sa" $m; done
 python3 firmware/tools/sa_bench.py --selftest | tail -2
+python3 tools/sa_loops.py --selftest
 echo "== the render hash: the simulator's (SA_BENCH 02, one core and two) against firmware/tools/sa_hash_host.c's"
 cc -std=c99 -O2 -ffp-contract=off -w -DPLAT_HOST -DSA_POLY=8 -Ifirmware/build/gen -Ifirmware/sa -o "$H/sa_hash_host" \
     firmware/tools/sa_hash_host.c firmware/sa/sa_synth.c -lm

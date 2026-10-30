@@ -34,6 +34,15 @@ static struct {
     int8_t oct;
     /* S2: the CC screens */
     uint8_t ccbank, cc[4], ccv[4], knob;
+    /* S3: the looper's */
+    uint8_t lstate, lcur, lnext, lcursor, lfull, count_left, mfocus;
+    uint8_t lfilled[16];
+    uint32_t lpos, llen, lrec_ms;
+    uint8_t ropt[4];
+    uint8_t nbars;
+    struct {
+        uint8_t x0, x1, row, hi;
+    } bar[32];
     /* the hand-over */
     uint8_t host_t, warn;
     char info[4][32];

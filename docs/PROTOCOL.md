@@ -302,3 +302,27 @@ RemoteFM1 message starts `F0 7D 52 46`.
   first; `caps` bit8 (`RFM_CAP_BLE_FAST`; 0x1AF in all): libremotefm1 then paces Bluetooth at 30000 B/s with 8 KB
   in flight and budgets up to 3000 B (measured with a Mac: ~35 KB/s of 1 KB frames, nothing lost at 14 KB in flight).
 - 0.2.3: no protocol change (the USB audio input fixed; `caps` still 0x1AF).
+
+## 8. The standalone build's own messages (STANDALONE-PLAN.md)
+
+Outside a session the standalone build is an instrument (section 1's last point). These messages do not need a HELLO,
+and do not hand the unit to a host: they work while it plays. They go over USB SysEx, vendor bulk or Bluetooth SysEx
+like any other; their replies are long, so a host uses USB (a Bluetooth reply that finds no room is dropped, section 1).
+
+### SA_LOOP (`0x0A`) / SA_LOOP_R (`0x4A`): the 16 loops (firmware `sa/sa_loop.c`; `tools/sa_loops.py`)
+
+The loops live in RAM only (never in the unit's flash, where other firmwares keep their data): a computer saves and
+loads them with these. An event is 8 bytes: `t32` (ms from the loop's start), `type8` (0 note on, 1 note off, 2 CC),
+`d1` (note / CC number), `d2` (velocity / value), `0`. `slot` is 0..15. Every reply starts with the request's `op`.
+
+| op | request body | reply body |
+|---|---|---|
+| 0 INFO | `00` | `00 state8 cur8 16` then per loop `n16 ms32 bpm16 bars8` (state: 0 stopped, 1 playing, 2 counting in, 3 recording, 4 overdubbing; `ms` 0 = empty; `bars` 0 = free length) |
+| 1 GET | `01 slot first16 max8` | `01 slot first16 total16 ms32 bpm16 bars8 count8 events[count]` (at most 126 events a reply) |
+| 2 BEGIN | `02 slot ms32 bpm16 bars8` | `02 slot status8`: the loop emptied, its length, tempo and bars set |
+| 3 EVENTS | `03 slot first16 n8 events[n]` | `03 slot status8`: appended; `first` must be the loop's count so far |
+| 4 END | `04 slot` | `04 slot status8`: sorted by time; an event past the length makes the loop longer |
+| 5 CLEAR | `05 slot` | `05 slot status8` |
+
+`status`: 0 done, 1 the pool is full (3,584 events for all 16 loops), 2 a bad request, 3 busy (a recording or a
+count-in runs: nothing is written). Writing the loop that plays stops it. A loop being written is not played until END.

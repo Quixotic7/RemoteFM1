@@ -349,6 +349,22 @@ int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, c
             snprintf(w, sizeof w, "%s", want);
             w[strcspn(w, "\r\n")] = 0;
             sa_host_check("name", sa.name, w);
+        } else if (!strcmp(a, "loopget")) {     /* sa loopget K: SA_LOOP GET's replies give loop K's events back */
+            static uint8_t out[SA_LOOP_REPLY];
+            uint32_t k = (uint32_t)atoi(b) % SA_LOOPS, first = 0, bad = 0, n;
+            do {
+                uint8_t q[5] = {1, (uint8_t)k, (uint8_t)first, (uint8_t)(first >> 8), 100};
+                n = sa_loop_cmd(q, 5, out);
+                if (n < 14u || out[13] * 8u + 14u != n || (out[4] | out[5] << 8) != sl.n[k])
+                    bad++;
+                else if (memcmp(out + 14, &sa_lpool[sl.at[k] + first], 8u * out[13]))
+                    bad++;
+                first += n >= 14u ? out[13] : 0u;
+            } while (!bad && n > 14u);
+            if (bad || first != sl.n[k])
+                printf("FAIL sa loopget %u: %u of %u events\n", k, first, sl.n[k]), sa_host_fails++;
+            else
+                printf("  ok sa loopget %u: %u events\n", k, first);
         } else if (!strcmp(a, "storecheck")) {   /* the store's records (src/rfm_store.c) and its window */
             static uint8_t ble[1536], back[1536];
             uint32_t i, w0 = store_writes, o0 = store_outside;
@@ -687,6 +703,35 @@ int app_expect(const char *what, int *got)
         *got = sa.theme;
     else if (!strcmp(what, "sa_menu"))
         *got = sa.menu;
+    else if (!strcmp(what, "sa_lstate"))           /* S3: the looper (sa/sa_loop.c SL_*: 0 stop, 1 play, 2 count, 3 rec,
+                                                    * 4 overdub); the current loop, the one queued (-1 none) */
+        *got = sl.state;
+    else if (!strcmp(what, "sa_lcur"))
+        *got = sl.cur;
+    else if (!strcmp(what, "sa_lnext"))
+        *got = sl.next == 0xFFu ? -1 : sl.next;
+    else if (!strcmp(what, "sa_llen"))             /* the current loop's length (ms), events, the pool's events */
+        *got = (int)sl.len[sl.cur];
+    else if (!strcmp(what, "sa_ln"))
+        *got = sl.n[sl.cur];
+    else if (!strcmp(what, "sa_lused"))
+        *got = (int)sl.used;
+    else if (!strcmp(what, "sa_lpos"))
+        *got = (int)sl_pos();
+    else if (!strcmp(what, "sa_lwraps"))
+        *got = (int)sl.wraps;
+    else if (!strcmp(what, "sa_ldrops"))
+        *got = (int)sl.drops;
+    else if (!strcmp(what, "sa_ltake"))
+        *got = (int)sl.take_n;
+    else if (!strncmp(what, "sa_llen_", 8))        /* sa_llen_K: loop K's length */
+        *got = (int)sl.len[(uint32_t)atoi(what + 8) % SA_LOOPS];
+    else if (!strncmp(what, "sa_lev_ty", 9))   /* sa_lev_tyN, sa_lev_tN: the current loop's event N: type, time */
+        *got = sa_lpool[sl.at[sl.cur] + (uint32_t)atoi(what + 9) % SA_LPOOL].type;
+    else if (!strncmp(what, "sa_lev_t", 8))
+        *got = (int)sa_lpool[sl.at[sl.cur] + (uint32_t)atoi(what + 8) % SA_LPOOL].t;
+    else if (!strcmp(what, "sa_rec_opts"))         /* len quant count layer, a decimal digit each */
+        *got = sa.rec_len * 1000 + sa.rec_quant * 100 + sa.rec_count * 10 + sa.rec_layer;
     else if (!strcmp(what, "rf_store_saves"))      /* records saved into OBJ_RF (src/rfm_store.c); unchanged ones */
         *got = (int)rs_saves;
     else if (!strcmp(what, "rf_store_same"))
