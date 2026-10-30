@@ -121,7 +121,8 @@ settings):
 | KEY CH | 1..16: the keys (GLO + a white key sets it in MIDI KEYS) |
 | KEYS | FIXED (the keys send their notes, every button its CC, as before); MIDI KEYS (a keyboard: GLO is a shift, the shortcuts above) |
 | OCT KEYS | OCTAVE (in MIDI KEYS, OCT- / OCT+ shift the keys' octave) or CC 85/86 (they send their CCs) |
-| SCALES | ON (in MIDI KEYS, GLO + PRESETS / ALGORITHM set the scale) or OFF |
+| SCALE SHORTCUTS | ON (in MIDI KEYS, GLO + PRESETS / ALGORITHM set the scale) or OFF |
+| KNOB LEDS | ON (an absolute knob's or MASTER's value on the 16 white keys' LEDs for 1.5 s) or OFF |
 
 docs/PROTOCOL.md section 8 has the details.
 

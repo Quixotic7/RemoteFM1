@@ -88,7 +88,7 @@ enum { SA_SCR_HOME, SA_SCR_PRESET, SA_SCR_CHANNEL, SA_SCR_OCTAVE, SA_SCR_HOST, S
 enum { SA_RMD_VOID, SA_RMD_SOLID, SA_RMD_ALL, SA_RMD_KNOBS, SA_RMD_N };   /* the screen in MIDI REMOTE */
 enum { SA_RMR_ABS, SA_RMR_2C, SA_RMR_OFS, SA_RMR_N };   /* its encoders: absolute; relative 1..63 / 127..65; 65 / 63 */
 enum { SA_RMK_FIXED, SA_RMK_PLAY, SA_RMK_N };           /* its keys: fixed (as 0.3); MIDI KEYBOARD */
-#define SA_NSET 7u                           /* the settings' rows */
+#define SA_NSET 8u                           /* the settings' rows */
 #define SA_MENU_MS 6000u                     /* (a menu's ov_until: unused since menus stay; kept for the touch) */
 enum { SA_LE_ON, SA_LE_OFF, SA_LE_CC };      /* a loop's events (sa_loop.c) */
 static void sa_rec_ev(uint32_t type, uint32_t d1, uint32_t d2);   /* (sa_loop.c: what is played, recorded) */
@@ -130,6 +130,7 @@ static struct {
     uint8_t latch;                           /* LATCH (LFO held): the keys' notes held after they are let go */
     uint8_t rm_disp, rm_rel, rm_cc_ch, rm_key_ch, rm_keys, rm_octk;   /* the settings (SA_RMD_*, SA_RMR_*, 1..16,
                                               * 1..16, SA_RMK_*, the OCT buttons shift MIDI KEYBOARD's octave) */
+    uint8_t rm_kled;                         /* MIDI REMOTE: a knob's value on the white keys' LEDs (on by default) */
     uint8_t scale_root, scale, rm_scl;       /* the scale (sa_scale.c): root 0..11 (C..B), SA_SC_*; its GLO
                                               * shortcuts in MIDI KEYBOARD */
     uint8_t lat_n, lat_note[32], lat_ch[32], lat_arp[32];   /* the notes latched (let go, still held) */
@@ -453,7 +454,8 @@ typedef struct {
     uint8_t scale_root, scale, rm_disp, rm_rel, rm_cc_ch, rm_key_ch, rm_keys, rm_octk, rm_scl;
     uint8_t rec_metro, rec_click;            /* (2026-10-30, in what were spare bytes: 0, 0 before: off, the default) */
     uint8_t loop_launch;                     /* (the same: 0 before, read as AT END) */
-    uint8_t rsv[4];
+    uint8_t rm_kled_off;                     /* (2026-10-30, a spare byte: 0 before, read as on) */
+    uint8_t rsv[3];
 } sa_store_t;
 #define SA_STORE_V2_HEAD ((int)__builtin_offsetof(sa_store_t, scale_root))   /* (version 2: the bytes before it) */
 
@@ -584,6 +586,7 @@ static void sa_settings_fill(sa_store_t *s)
     s->rm_keys = sa.rm_keys;
     s->rm_octk = sa.rm_octk;
     s->rm_scl = sa.rm_scl;
+    s->rm_kled_off = (uint8_t)!sa.rm_kled;
     s->rec_metro = sa.rec_metro;
     s->rec_click = sa.rec_click;
     s->loop_launch = (uint8_t)(sa.loop_launch + 1u);   /* (0 in older records: the default) */
@@ -627,6 +630,7 @@ static void sa_settings_apply(const sa_store_t *s)   /* (each value checked: a r
     sa.rm_keys = (uint8_t)(s->rm_keys < SA_RMK_N ? s->rm_keys : 0u);
     sa.rm_octk = (uint8_t)(s->rm_octk != 0u);
     sa.rm_scl = (uint8_t)(s->rm_scl != 0u);
+    sa.rm_kled = (uint8_t)!s->rm_kled_off;
 }
 
 static void sa_settings_defaults(void)
@@ -645,6 +649,7 @@ static void sa_settings_defaults(void)
     sa.rm_cc_ch = sa.rm_key_ch = 1;
     sa.rm_octk = 1;
     sa.rm_scl = 1;
+    sa.rm_kled = 1;
 }
 
 /* ------------------------------------------------------------------ the modes --- */
@@ -862,10 +867,10 @@ static void sa_arpopt(uint32_t o, int32_t d) /* the arp's settings: MODE, RATE, 
 
 static void sa_setopt(uint32_t o, int32_t d) /* the settings' rows: SCREEN KNOBS CC-CH KEY-CH KEYS OCT-KEYS SCALES */
 {
-    static const uint8_t LO[SA_NSET + 1u] = {0, 0, 1, 1, 0, 0, 0},
-                         HI[SA_NSET + 1u] = {SA_RMD_N - 1u, SA_RMR_N - 1u, 16, 16, SA_RMK_N - 1u, 1, 1};
+    static const uint8_t LO[SA_NSET + 1u] = {0, 0, 1, 1, 0, 0, 0, 0},
+                         HI[SA_NSET + 1u] = {SA_RMD_N - 1u, SA_RMR_N - 1u, 16, 16, SA_RMK_N - 1u, 1, 1, 1};
     uint8_t *v[SA_NSET + 1u] = {&sa.rm_disp, &sa.rm_rel, &sa.rm_cc_ch, &sa.rm_key_ch, &sa.rm_keys, &sa.rm_octk,
-                                &sa.rm_scl};
+                                &sa.rm_scl, &sa.rm_kled};
     int32_t x;
     o = o < SA_NSET ? o : SA_NSET - 1u;
     x = clamp((int32_t)*v[o] + d, LO[o], HI[o]);

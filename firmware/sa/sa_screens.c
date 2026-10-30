@@ -892,7 +892,7 @@ static void sa_paint_scale(void)
  * colour, the value's place among its choices as stripes, the rows before and after peeking dim above and below, where
  * the row is on the right. SELECT the row, KN1 the value. */
 static const char *const SA_SET_LAB[SA_NSET] = {"SCREEN", "KNOBS", "CC CHANNEL", "KEY CHANNEL", "KEYS", "OCT KEYS",
-                                                "SCALE SHORTCUTS"};
+                                                "SCALE SHORTCUTS", "KNOB LEDS"};
 static uint32_t sa_set_val(uint32_t i, char *num, const char **v)   /* row i's value as text; its choices' count */
 {
     static const char *const DISP[SA_RMD_N] = {"VOID", "SOLID", "ALL", "KNOBS ONLY"};
@@ -905,13 +905,14 @@ static uint32_t sa_set_val(uint32_t i, char *num, const char **v)   /* row i's v
     case 4: *v = KEYS[ui.set[4] % SA_RMK_N]; return SA_RMK_N;
     case 5: *v = OCTK[ui.set[5] & 1u]; return 2;
     case 6: *v = SA_ONOFF[ui.set[6] & 1u]; return 2;
+    case 7: *v = SA_ONOFF[ui.set[7] & 1u]; return 2;
     default: sa_txt_num(num, ui.set[i]); *v = num; return 16;
     }
 }
 
 static void sa_paint_settings(void)
 {
-    static const uint8_t COL[SA_NSET] = {SA_TK_A5, SA_TK_A1, SA_TK_A3, SA_TK_A4, SA_TK_A2, SA_TK_A5, SA_TK_A1};
+    static const uint8_t COL[SA_NSET] = {SA_TK_A5, SA_TK_A1, SA_TK_A3, SA_TK_A4, SA_TK_A2, SA_TK_A5, SA_TK_A1, SA_TK_A3};
     int32_t f = ui.mfocus < SA_NSET ? ui.mfocus : 0, n, i, w, nv, cur, sw, x0;
     uint16_t c = ui.c[COL[f]];
     char num[4];
@@ -945,7 +946,7 @@ static void sa_ui_snap_more(void)
 {
     ui.blank = 0;
     ui.set[0] = sa.rm_disp, ui.set[1] = sa.rm_rel, ui.set[2] = sa.rm_cc_ch, ui.set[3] = sa.rm_key_ch;
-    ui.set[4] = sa.rm_keys, ui.set[5] = sa.rm_octk, ui.set[6] = sa.rm_scl;
+    ui.set[4] = sa.rm_keys, ui.set[5] = sa.rm_octk, ui.set[6] = sa.rm_scl, ui.set[7] = sa.rm_kled;
     ui.rm_info = rm.info;
     ui.rm_info_age = ui.now - rm.info_ms;
     ui.rm_oct = (uint8_t)(rm.oct + 3);

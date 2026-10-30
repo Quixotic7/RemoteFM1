@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: MPL-2.0
+# RemoteFM1 standalone: the settings' KNOB LEDS (the owner, 2026-10-30): on (the default), an absolute knob's value
+# shows on the 16 white keys' LEDs in MIDI REMOTE; off, the keys stay dark. tests/run_tests.sh runs it (both builds).
+wait 400
+expect sa_set7 1
+# MIDI REMOTE, KN1 one detent from 64: 65, the first 9 white keys lit
+press GLO
+press FX
+wait 20
+release FX
+release GLO
+expect sa_remote 1
+turn K1 1
+wait 30
+expect sa_lit_keys 23253
+# out of MIDI REMOTE, the settings: KNOB LEDS (the eighth row) off
+wait 1600
+press GLO
+press FX
+wait 20
+release FX
+release GLO
+expect sa_remote 0
+press HOME
+wait 600
+release HOME
+expect sa_screen 19
+turn SELECT 7
+turn K1 -1
+expect sa_set7 0
+wait 30
+shot sa_settings_kled.png
+# MIDI REMOTE again: the knob's value goes out, the keys stay dark
+press GLO
+press FX
+wait 20
+release FX
+release GLO
+expect sa_remote 1
+out
+turn K1 1
+wait 30
+expect sa_rm_n 1
+expect sa_lit_keys 0

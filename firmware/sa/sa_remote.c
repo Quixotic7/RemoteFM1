@@ -261,7 +261,7 @@ static void sa_rm_leds(void)
     if (sa_rm_kbd() && (sa.btns >> B_GLO & 1u)) {
         k = sa_glo_keys(sa.rm_key_ch, rm.oct);
         km = kr = 0;
-    } else if (rm.n && plat_ms() - rm.last_ms < SA_RM_KNOB_MS &&
+    } else if (sa.rm_kled && rm.n && plat_ms() - rm.last_ms < SA_RM_KNOB_MS &&   /* (KNOB LEDS on) */
                ((rm.src == SA_RM_SRC_ENC && sa.rm_rel == SA_RMR_ABS) || rm.src == SA_RM_SRC_MASTER)) {
         uint32_t v = rm.src == SA_RM_SRC_MASTER ? (uint32_t)rm.master : rm.enc[rm.src_i % NE], n = 1u + (v * 15u + 63u) / 127u, w;
         k = km = kr = 0;

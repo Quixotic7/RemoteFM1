@@ -753,9 +753,10 @@ int app_expect(const char *what, int *got)
         *got = sa.latch;
     else if (!strcmp(what, "sa_lat_n"))
         *got = sa.lat_n;
-    else if (!strncmp(what, "sa_set", 6) && what[6] >= '0' && what[6] <= '6') {   /* the settings' rows: screen,
-                                                    * knobs, CC channel, key channel, keys, OCT keys, scale shortcuts */
-        const uint8_t v[7] = {sa.rm_disp, sa.rm_rel, sa.rm_cc_ch, sa.rm_key_ch, sa.rm_keys, sa.rm_octk, sa.rm_scl};
+    else if (!strncmp(what, "sa_set", 6) && what[6] >= '0' && what[6] <= '7') {   /* the settings' rows: screen,
+                                           * knobs, CC channel, key channel, keys, OCT keys, scale shortcuts, knob LEDs */
+        const uint8_t v[8] = {sa.rm_disp, sa.rm_rel, sa.rm_cc_ch, sa.rm_key_ch, sa.rm_keys, sa.rm_octk, sa.rm_scl,
+                              sa.rm_kled};
         *got = v[what[6] - '0'];
     } else if (!strcmp(what, "sa_scale"))          /* the scale: root * 100 + scale */
         *got = sa.scale_root * 100 + sa.scale;
