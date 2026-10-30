@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-3.0-only
+/* SPDX-License-Identifier: MPL-2.0
  * Copyright (C) 2026 RemoteFM1 contributors */
 /* Test frames: 240 x 240 RGB565 in emu_hal_t.lcd's layout (each slot holds the pixel's bytes big-endian). */
 #ifndef RFM_TEST_FRAMES_H

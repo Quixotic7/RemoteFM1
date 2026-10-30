@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-3.0-only
+/* SPDX-License-Identifier: MPL-2.0
  * Copyright (C) 2026 RemoteFM1 contributors */
 /* The codec: both framings (golden vector, random bodies in random chunks among other MIDI traffic, resync), every
  * v2 body against the offsets of proto/rfm1.h, HELLO_R acceptance, the body size limits. */

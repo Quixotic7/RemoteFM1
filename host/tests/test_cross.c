@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-3.0-only
+/* SPDX-License-Identifier: MPL-2.0
  * Copyright (C) 2026 RemoteFM1 contributors */
 /* The cross test: the HOST library (session, screen encoder, panel decoder, codec) against the DEVICE's own
  * protocol code (firmware/src/rfm_app.c with rfm_draw.c and rfm_push.c, compiled natively), on a simulated clock.

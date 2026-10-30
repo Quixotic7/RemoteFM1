@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-3.0-only
+/* SPDX-License-Identifier: MPL-2.0
  * Copyright (C) 2026 RemoteFM1 contributors */
 /* The session against scripted fake units (fake.c), on a simulated millisecond clock: discovery among other
  * firmwares, frames and flow control, LEDs and keepalive, panel events and PANEL_R repair, shadow reset (a reboot),

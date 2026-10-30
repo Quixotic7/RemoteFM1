@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-3.0-only
+/* SPDX-License-Identifier: MPL-2.0
  * Copyright (C) 2026 RemoteFM1 contributors */
 #ifndef RFM_TEST_CHECK_H
 #define RFM_TEST_CHECK_H

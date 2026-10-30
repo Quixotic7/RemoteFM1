@@ -8,8 +8,13 @@ RemoteFM1 has two licences, by part:
   from it links JieLi's Bluetooth library (Apache-2.0, a binary), which a GPL firmware could not be given out with,
   and has no GPL file in it at all. `proto/rfm1.h`, the protocol's constants, is compiled into the firmware and is
   MPL-2.0 too.
-- **Everything else** (the site in `web/`, the host library and tools in `host/` and `tools/`, the tests in `tests/`
-  unless a file says otherwise, the documents) is free software under the GNU General Public License, version 3 only
+- **The host library's portable core** (`host/src/` codec, session, panel, screen, tiles_ref and fake, their headers in
+  `host/include/rfm/`, and `host/tests/`) and **the site's MIDI learn and OMX-27 modules** (`web/site/js/midi-map.js`,
+  `omx27.js`, `omx27-views.js`, `omx-link.js`) are MPL-2.0 from 2026-10-30, by their author's decision, so that other
+  hosts (FIZZ for iOS first) can use them in apps that are not GPL. Earlier commits of these files stay GPL-3.0-only.
+- **Everything else** (the rest of the site in `web/`, the host library's macOS back ends in `host/src/macos/` and the
+  tools in `tools/`, the tests in `tests/` unless a file says otherwise, the documents) is free software under the
+  GNU General Public License, version 3 only
   (`GPL-3.0-only`, full text in `LICENSE`). You may use, study, change and share it. If you give someone a program
   built from it, give them its complete source under the same licence too.
 
@@ -25,10 +30,11 @@ contributors, moved onto fm1-base.
 | The firmware app: `firmware/app.c`, `app.h`, `fm1.toml`, `words.tsv`, `firmware/src/` (`rfm_main.c`, `rfm_dev.c`, `rfm_host.c`, `rfm_app.c`, `rfm_draw.[ch]`, `rfm_push.[ch]`, `remote_proto.h`), `firmware/tests/`, the changes in `firmware/patches/`, `build.sh`, `proto/rfm1.h` | RemoteFM1 contributors, MPL-2.0 |
 | [fm1-base](https://github.com/charlesvestal/fm1-base), `base/` (a git submodule, used as it is; `firmware/patches/fm1-base/` changes it at build time) | Charles Vestal, with Leo Kuroshita's Felucca code by his permission ([felucca-bsp#4](https://github.com/hugelton/felucca-bsp/issues/4)), MPL-2.0 |
 | [felucca-bsp](https://github.com/hugelton/felucca-bsp), `base/bsp/` (fm1-base's submodule; `firmware/patches/felucca-bsp/` changes it at build time) | Leo Kuroshita (@kurogedelic), Hügelton Instruments; Kerem Kilic (Ellic Studio), the USB host; keremimo, the MIDI clock and transport sync ([felucca-bsp#3](https://github.com/hugelton/felucca-bsp/pull/3)), MPL-2.0 |
-| `docs/PROTOCOL.md`, `host/`, `tools/m0_bench.py`, `tools/m0_bulk.c`, `web/m0_bench.html`, `web/remote/`, `tests/` (`proto_test.c`, `rfm_draw_test.c`, `session_test.c`, `usb_midi_test.c`, `run_tests.sh`), `README.md`, `PLAN.md` | RemoteFM1 contributors, GPL-3.0-only |
+| `host/src/{codec,session,panel,screen,tiles_ref,fake}.c`, `host/include/rfm/{codec,session,panel,screen,tiles_ref,fake}.h`, `host/tests/`, `web/site/js/{midi-map,omx27,omx27-views,omx-link}.js` | RemoteFM1 contributors, MPL-2.0 (from 2026-10-30, the author's decision) |
+| `docs/PROTOCOL.md`, `host/` (the rest: `host/src/macos/`, `host/include/rfm/macos.h`), `tools/m0_bench.py`, `tools/m0_bulk.c`, `web/m0_bench.html`, `web/remote/`, `tests/` (`proto_test.c`, `rfm_draw_test.c`, `session_test.c`, `usb_midi_test.c`, `run_tests.sh`), `README.md`, `PLAN.md` | RemoteFM1 contributors, GPL-3.0-only |
 | `tests/ble_sysex_test.c` (a test of fm1-base's Bluetooth MIDI, for its upstream) | RemoteFM1 contributors, MPL-2.0 |
 | `tools/fm1_install.py`, `web/installer/fm1ota.js`, `web/installer/fm1pkg.js`, `tests/install_test.py` | Leo Kuroshita (Felucca's tool), with the changes of Dinghy, TransitFM1, ChoralRoot FM-1 and RemoteFM1 contributors, GPL-3.0-only |
-| The site's player and catalog (`web/site/`, `web/managers/`, `web/engine/`), the installer page | RemoteFM1 contributors, GPL-3.0-only; the cores and firmwares it runs are their authors' (`web/vendor/`: fm1-emu, FM1VST, each under its own licence) |
+| The site's player and catalog (`web/site/` except the four MPL-2.0 modules above, `web/managers/`, `web/engine/`), the installer page | RemoteFM1 contributors, GPL-3.0-only; the cores and firmwares it runs are their authors' (`web/vendor/`: fm1-emu, FM1VST, each under its own licence) |
 | `tools/rfm1/` (`build_fizz.sh`, `fizz/CMakeLists.txt`, `fizz/manifest.py`, `fizz/conformance.txt`, `README.md`): the build of FIZZ's .rfm1 | RemoteFM1 contributors, GPL-3.0-only; `fizz/fizz_desc.c` MPL-2.0 (FIZZ's descriptor, as RemoteFM1IOS has it); `fizz/plutovg-ft-raster-wasm.patch` FTL (a change to FreeType's rasterizer in FIZZ's plutovg) |
 | `web/site/fw/fizz-*.rfm1`: [FIZZ](https://github.com/Quixotic7/FIZZ) built to WebAssembly, served by the site | Michael P Jones (Quixotic7) and the parts' authors: `MPL-2.0 AND GPL-3.0-only AND MIT AND FTL AND OFL-1.1` (FIZZ; FM1VST's core glue; plutovg and Emscripten's runtime with musl; FreeType's rasterizer; Inter Tight). Its source: FIZZ at the commit in its manifest, FM1VST at its `glue_url`, and `tools/rfm1/`; its licence texts are in the file |
 

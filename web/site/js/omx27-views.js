@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-only
+// SPDX-License-Identifier: MPL-2.0
 // The OMX-27 as the FM-1's controller (REMOTE mode, js/omx27.js): its views, what each key does in them, its LEDs and
 // its screen's text. The owner's design: design/RemoteFM1---OMX-27-Remote.json (format: design/OMX-27-Designer-FORMAT.md).
 // No DOM: web/site/test.mjs runs it.

@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-3.0-only
+/* SPDX-License-Identifier: MPL-2.0
  * Copyright (C) 2026 RemoteFM1 contributors */
 /* The panel decoder: plain MIDI panel events -> state + events; PANEL_R reconciles. See rfm/panel.h. */
 #include "rfm/panel.h"
