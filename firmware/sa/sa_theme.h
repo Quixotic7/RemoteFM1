@@ -9,7 +9,6 @@
  * every token given. S1 uses Pixel; the SAVE menu that picks a theme is S5's. */
 #pragma once
 #include <stdint.h>
-#include <stdlib.h>
 
 enum { SA_TK_BG, SA_TK_BORDER, SA_TK_PANEL, SA_TK_INK, SA_TK_A1, SA_TK_A2, SA_TK_A3, SA_TK_A4, SA_TK_SHADOW, SA_TK_ON,
        SA_TK_MID, SA_TK_SOFT, SA_TK_A5, SA_TK_D1, SA_TK_D2, SA_TK_D5, SA_NTK };
@@ -148,8 +147,10 @@ static void sa_theme_build(uint32_t theme, uint32_t bg, uint16_t out[SA_NTK])   
     if (t[SA_TK_BORDER] == t[SA_TK_BG])
         out[SA_TK_BORDER] = out[SA_TK_BG];
     p = sa_888(t[SA_TK_PANEL]);
-    d = (uint32_t)abs((int)(p >> 16 & 255u) - (int)(rgb >> 16 & 255u)) +
-        (uint32_t)abs((int)(p >> 8 & 255u) - (int)(rgb >> 8 & 255u)) + (uint32_t)abs((int)(p & 255u) - (int)(rgb & 255u));
+    for (d = 0, k = 0; k < 24u; k += 8u) {   /* (the channels' distances, summed) */
+        uint32_t a = p >> k & 255u, b = rgb >> k & 255u;
+        d += a > b ? a - b : b - a;
+    }
     if (d < 72u)
         out[SA_TK_PANEL] = SA_565(SA_MIX(p, sa_888(t[SA_TK_INK]), 2u));
 }
