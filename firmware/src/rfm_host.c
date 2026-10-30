@@ -394,7 +394,7 @@ int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, c
             else
                 for (i = 0; i < 4104u; i++)
                     hu_byte(dx[i]);
-            run_ms(5);
+            run_ms(150);                          /* (written in steps: sa/sa_store.c) */
         } else if (!strcmp(a, "clock")) {       /* sa clock BPM MS: a computer's MIDI clock for MS ms (USB MIDI in) */
             double iv = 60000.0 / (atof(b) * 24.0), next = 0.0;
             int ms = atoi(c), i;
@@ -421,6 +421,98 @@ int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, c
                 printf("FAIL sa loopget %u: %u of %u events\n", k, first, sl.n[k]), sa_host_fails++;
             else
                 printf("  ok sa loopget %u: %u events\n", k, first);
+        } else if (!strcmp(a, "oldbank")) {     /* sa oldbank K SEQ: 0.3.0's bank in XDATA0's slot K (its layout:
+                                                 * voices | 0x80, the header "RFUB" seq crc at 0x96000 + 32 K), named
+                                                 * "OLDk Vvv"; written as the flash would hold it (the test's own) */
+            uint32_t k = (uint32_t)atoi(b) % 3u, v, i;
+            uint8_t *d = (uint8_t *)(uintptr_t)plat_data(0x93000u + 0x1000u * k);
+            uint8_t *h = (uint8_t *)(uintptr_t)plat_data(0x96000u + 32u * k);
+            uint32_t crc;
+            for (v = 0; v < 32u; v++) {
+                char nm[16];
+                memcpy(d + 128u * v, sa_synth_init_vmem(), 128);
+                snprintf(nm, sizeof nm, "OLD%u V%02u  ", k + 1u, v + 1u);
+                memcpy(d + 128u * v + 118u, nm, 10);
+                d[128u * v + 110u] = (uint8_t)(v & 31u);
+            }
+            for (i = 0; i < 4096u; i++)
+                d[i] |= 0x80u;
+            crc = sf_crc(d, 4096u, 0, 0xFFu);
+            memset(h, 0xFF, 32);
+            h[0] = 'R', h[1] = 'F', h[2] = 'U', h[3] = 'B', h[4] = (uint8_t)atoi(c);
+            h[8] = (uint8_t)crc, h[9] = (uint8_t)(crc >> 8), h[10] = (uint8_t)(crc >> 16), h[11] = (uint8_t)(crc >> 24);
+        } else if (!strcmp(a, "loopfill") || !strcmp(a, "loopcheck")) {   /* sa loopfill K N: loop K made of N
+                                                 * events (made from K and N) over SA_LOOP; sa loopcheck K N: it is so */
+            static uint8_t out[SA_LOOP_REPLY], q[5 + 8 * 100];
+            uint32_t k = (uint32_t)atoi(b) % SA_LOOPS, n = (uint32_t)atoi(c), i, j, bad = 0, len = 2u * n + 10u;
+            sa_lev_t e[100];
+            if (!strcmp(a, "loopfill")) {
+                uint8_t q0[9] = {2, (uint8_t)k, (uint8_t)len, (uint8_t)(len >> 8), (uint8_t)(len >> 16), 0, 120, 0, 0};
+                sa_loop_cmd(q0, 9, out);
+                bad |= out[2];
+            }
+            for (i = 0; i < n && !bad; i += j) {
+                for (j = 0; j < 100u && i + j < n; j++) {
+                    uint32_t x = i + j;
+                    e[j].t = 2u * x;
+                    e[j].type = (uint8_t)(x & 1u);
+                    e[j].d1 = (uint8_t)((k * 7u + x) & 127u);
+                    e[j].d2 = (uint8_t)((x * 13u) & 127u);
+                    e[j].rsv = 0;
+                }
+                if (!strcmp(a, "loopfill")) {
+                    q[0] = 3, q[1] = (uint8_t)k, q[2] = (uint8_t)i, q[3] = (uint8_t)(i >> 8), q[4] = (uint8_t)j;
+                    memcpy(q + 5, e, 8u * j);
+                    sa_loop_cmd(q, 5u + 8u * j, out);
+                    bad |= out[2];
+                } else if (sl.n[k] != n || memcmp(&sa_lpool[sl.at[k] + i], e, 8u * j)) {
+                    bad = 9;
+                }
+            }
+            if (!strcmp(a, "loopfill")) {
+                uint8_t q1[2] = {4, (uint8_t)k};
+                sa_loop_cmd(q1, 2, out);
+                bad |= out[2];
+            } else if (sl.len[k] != len) {
+                bad = 8;
+            }
+            if (bad)
+                printf("FAIL sa %s %u %u: %u (the loop: %u events, %u ms)\n", a, k, n, bad, sl.n[k], sl.len[k]),
+                    sa_host_fails++;
+            else
+                printf("  ok sa %s %u: %u events\n", a, k, n);
+        } else if (!strcmp(a, "cut")) {         /* sa cut N: the power gone at the data area's N-th flash operation
+                                                 * from now (that one and every later one not done: a reboot next) */
+            sf.cut = (uint32_t)atoi(b);
+        } else if (!strcmp(a, "info")) {        /* sa info N [I NAME]: SA_INFO BANKS says 16 most, N kept, the I-th's
+                                                 * name NAME */
+            static uint8_t out[SA_INFO_REPLY];
+            uint8_t q[1] = {0};
+            uint32_t n = sa_info_cmd(q, 1, out), want = (uint32_t)atoi(b), bad = 0;
+            char nm[12] = {0};
+            if (n != 6u + 19u * out[2] || out[1] != 16u || out[2] != want || out[5] != 16u)
+                bad = 1;
+            if (!bad && *c) {
+                const char *w = hb_word(plat_host_line, 4);
+                uint32_t i = (uint32_t)atoi(c), l = (uint32_t)strcspn(w, "\r\n");
+                memcpy(nm, out + 6u + 19u * i + 9u, 10);
+                if (i >= out[2] || l > 10u || memcmp(nm, w, l))
+                    bad = 2;
+            }
+            if (bad)
+                printf("FAIL sa info: %u bytes, max %u, %u kept (wanted %u), name \"%s\"\n", n, out[1], out[2], want, nm),
+                    sa_host_fails++;
+            else
+                printf("  ok sa info: %u of %u banks, next to slot %u%s%s\n", out[2], out[1], out[4], *c ? ", " : "", nm);
+        } else if (!strcmp(a, "bankname")) {    /* sa bankname SLOT NAME: SA_INFO NAME */
+            static uint8_t out[8];
+            uint8_t q[12] = {1, (uint8_t)atoi(b)};
+            uint32_t l = (uint32_t)strlen(c) < 10u ? (uint32_t)strlen(c) : 10u;
+            memcpy(q + 2, c, l);
+            sa_info_cmd(q, 2u + l, out);
+            if (out[2] != 0)
+                printf("FAIL sa bankname: status %u\n", out[2]), sa_host_fails++;
+            run_ms(100);
         } else if (!strcmp(a, "storecheck")) {   /* the store's records (src/rfm_store.c) and its window */
             static uint8_t ble[1536], back[1536];
             uint32_t i, w0 = store_writes, o0 = store_outside;
@@ -863,8 +955,37 @@ int app_expect(const char *what, int *got)
         *got = (int)ub.got;
     else if (!strcmp(what, "sa_ub_bad"))
         *got = (int)ub.bad;
-    else if (!strcmp(what, "sa_ub_refused"))
-        *got = (int)ub.refused;
+    else if (!strcmp(what, "sa_ub_refused"))       /* the data area's writes refused outside APP_STORE_OK */
+        *got = (int)sf.refused;
+    else if (!strcmp(what, "sa_ub_migrated"))      /* 0.3.0's banks taken over */
+        *got = (int)ub.migrated;
+    else if (!strcmp(what, "sa_ub_writes"))
+        *got = (int)ub.writes;
+    else if (!strcmp(what, "sa_sf_commits"))       /* the data area (sa/sa_store.c): directories written */
+        *got = (int)sf.commits;
+    else if (!strcmp(what, "sa_sf_erases"))
+        *got = (int)sf.erases;
+    else if (!strcmp(what, "sa_sf_progs"))
+        *got = (int)sf.progs;
+    else if (!strcmp(what, "sa_sf_same"))          /* saves with nothing changed: nothing written */
+        *got = (int)sf.same;
+    else if (!strcmp(what, "sa_sf_busy"))
+        *got = (int)(sf_busy() || sf.loops_req || ub.ready);
+    else if (!strcmp(what, "sa_sf_loads"))         /* loops read back at boot; ones whose CRC failed */
+        *got = (int)sf.loads;
+    else if (!strcmp(what, "sa_sf_lbad"))
+        *got = (int)sf.lbad;
+    else if (!strcmp(what, "sa_sf_aborted"))
+        *got = (int)sf.aborted;
+    else if (!strcmp(what, "sa_sf_full"))
+        *got = (int)sf.full;
+    else if (!strcmp(what, "sa_sf_pass_max")) {    /* the most flash operations in one main-loop pass */
+        *got = (int)sf.pass_max;
+        printf("  (the data area: at most %u flash operation(s) and %u bytes written a pass; the longest pass %u us on "
+               "this host; %u erases, %u writes)\n", sf.pass_max, sf.pass_bytes_max, sf.pass_us_max, sf.erases,
+               sf.progs);
+    } else if (!strcmp(what, "sa_sf_pass_bytes"))
+        *got = (int)sf.pass_bytes_max;
     else if (!strcmp(what, "sa_ub_slot"))          /* the user slot of the bank shown, -1 a ROM one */
         *got = sa.bank >= SA_NBANKS ? sa_ub_slot(sa.bank - SA_NBANKS) : -1;
     else if (!strcmp(what, "sa_nbanks"))

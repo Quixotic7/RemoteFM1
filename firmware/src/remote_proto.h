@@ -24,6 +24,8 @@
  *                                             layout; firmware/tools/sa_bench.py reads it)
  *   SA_LOOP     op8 ...                    -> SA_LOOP_R   the standalone's loops (firmware/sa/sa_loop.c; docs/PROTOCOL.md
  *                                             section 8; tools/sa_loops.py)
+ *   SA_INFO     op8 ...                    -> SA_INFO_R   0.3.1: the user DX7 banks kept (max, names), a name
+ *                                             (firmware/sa/sa_ubank.c; docs/PROTOCOL.md section 8)
  * Protocol 2 (M1) keeps all of these as diagnostics and adds the session, LED, screen and panel messages:
  * docs/PROTOCOL.md, proto/rfm1.h.
  * DATA's data[i] = (uint8_t)(seq * 7 + i); sum32 = rf_sum over data[] only. */
@@ -47,10 +49,10 @@
 
 enum {
     RF_HELLO = 0x01, RF_SINK = 0x02, RF_SOURCE = 0x03, RF_ECHO = 0x04, RF_STATS = 0x05, RF_STATS_RESET = 0x06,
-    RF_BLIT_BENCH = 0x07, RF_TILE = 0x08, RF_SA_BENCH = 0x09, RF_SA_LOOP = 0x0A,
+    RF_BLIT_BENCH = 0x07, RF_TILE = 0x08, RF_SA_BENCH = 0x09, RF_SA_LOOP = 0x0A, RF_SA_INFO = 0x0B,
     RF_R = 0x40,                    /* reply bit */
     RF_HELLO_R = 0x41, RF_DATA = 0x43, RF_ECHO_R = 0x44, RF_STATS_R = 0x45, RF_ACK = 0x46, RF_BLIT_R = 0x47,
-    RF_SA_BENCH_R = 0x49, RF_SA_LOOP_R = 0x4A,
+    RF_SA_BENCH_R = 0x49, RF_SA_LOOP_R = 0x4A, RF_SA_INFO_R = 0x4B,
     RF_SOURCE_DONE = 0x50           /* bytes32 msgs32 dev_us32 aborted8 */
 };
 enum { RF_T_SX = 0, RF_T_BK = 1 };
