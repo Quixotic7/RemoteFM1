@@ -692,8 +692,8 @@ int app_expect(const char *what, int *got)
     else if (!strcmp(what, "sa_screen"))           /* sa_main.c SA_SCR_*: 0 HOME, 1 preset, 2 channel, 3 octave, 4 the
                                                     * hand-over, 5 CC bank, 6 CC turn, 7 CC assign, 8 saved, 9 rec,
                                                     * 10 loop, 11 loops, 12 rec options, 13 arp, 14 arp settings,
-                                                    * 15 tempo, 16 theme */
-        *got = sa.panel ? SA_SCR_HOST : sa.ov;
+                                                    * 15 tempo, 16 theme, 17 MIDI REMOTE */
+        *got = sa.panel ? SA_SCR_HOST : rm.on ? SA_SCR_REMOTE : sa.ov;
     else if (!strcmp(what, "sa_sounding"))         /* FM6's voices sounding */
         *got = (int)sa_synth_voices();
     else if (!strcmp(what, "sa_held")) {           /* notes held (keys and MIDI in) */
@@ -737,6 +737,13 @@ int app_expect(const char *what, int *got)
         *got = (int)sa.save_holds;
     else if (!strcmp(what, "sa_theme"))
         *got = sa.theme;
+    else if (!strcmp(what, "sa_remote"))           /* MIDI REMOTE (sa/sa_remote.c): on; messages sent; the last
+                                                    * (status << 16 | data 1 << 8 | data 2) */
+        *got = rm.on;
+    else if (!strcmp(what, "sa_rm_n"))
+        *got = (int)rm.n;
+    else if (!strcmp(what, "sa_rm_last"))
+        *got = rm.last[0] << 16 | rm.last[1] << 8 | rm.last[2];
     else if (!strcmp(what, "sa_bg"))               /* the theme's background (sa_theme.h SA_BGS, 6 CLASSIC) */
         *got = sa.bg;
     else if (!strcmp(what, "sa_menu"))

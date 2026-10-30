@@ -40,10 +40,10 @@ and its `melodee_fm6.h` (Felucca's factory voices), and anything under saadet's 
 | PRESETS | DX7 voice 1..32 | GLO + PRESETS: bank (ROM1A..ROM4B, then the user banks) |
 | ALGORITHM | MIDI channel 1..16 | |
 | KN1..KN4 | send the 4 CCs of the current bank | GLO + knob: pick which CC that knob sends |
-| FX SEL ENV LFO EDIT | CC bank A..E | |
+| FX SEL ENV LFO EDIT | CC bank A..E (its screen stays until HOME or another screen; the knobs change it in place) | GLO + FX: MIDI REMOTE on / off (docs/PROTOCOL.md section 8) |
 | GLO | shift (held) | |
 | HOME | next view: Notes, Scope, Keys | |
-| SAVE | the theme menu | hold: save everything (CC map, loops, theme, settings) |
+| SAVE | the theme menu (ALGORITHM there: the background) | hold: save everything (CC map, loops, theme, settings) |
 | ARP | arp on / off | hold: arp settings (mode, rate, octaves, gate) |
 | SEQ | spare | |
 | PLAY | play / stop the current loop; stops a recording and plays it | hold: the 16 loops; a picked loop queues in at the end of the current one |

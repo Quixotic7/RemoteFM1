@@ -68,7 +68,7 @@ static void rf_sa_leds(uint32_t btns, uint32_t keys);   /* the LEDs, a host's mi
 
 enum { SA_SCR_HOME, SA_SCR_PRESET, SA_SCR_CHANNEL, SA_SCR_OCTAVE, SA_SCR_HOST, SA_SCR_CCBANK, SA_SCR_CCTURN,
        SA_SCR_CCASSIGN, SA_SCR_SAVED, SA_SCR_REC, SA_SCR_LOOP, SA_SCR_LOOPS, SA_SCR_RECOPT, SA_SCR_ARP, SA_SCR_ARPSET,
-       SA_SCR_TEMPO, SA_SCR_THEME, SA_NSCR };
+       SA_SCR_TEMPO, SA_SCR_THEME, SA_SCR_REMOTE, SA_NSCR };
 #define SA_HOLD_MS 500u                      /* SAVE, ARP, PLAY, REC: held this long is a hold, else a tap */
 #define SA_MENU_MS 6000u                     /* a menu (Loops, Rec options, Arp settings, Theme) closes untouched */
 enum { SA_LE_ON, SA_LE_OFF, SA_LE_CC };      /* a loop's events (sa_loop.c) */
@@ -410,6 +410,7 @@ static void sa_close(void)                   /* back to the HOME view */
 #include "sa_loop.c"
 #include "sa_arp.c"
 #include "sa_cc.c"
+#include "sa_remote.c"
 
 static void sa_settings_fill(sa_store_t *s)
 {
@@ -481,6 +482,7 @@ static void sa_enter_panel(uint32_t t)
     sa.host_t = (uint8_t)t;
     if (sa.panel)
         return;
+    sa_rm_exit(1);                           /* (MIDI REMOTE ends: the host has the panel) */
     sl_halt();
     sa_all_off(1);
     sar_set(sar.on);                         /* (the arp stops: on again, as it was, when the host leaves) */
@@ -529,10 +531,12 @@ static void sa_session(uint32_t on, uint32_t t)   /* (rfm_main.c rfa_session_cha
 static void sa_midi_in(uint32_t pkt)
 {
     uint32_t cin = pkt & 15u, st = (pkt >> 8) & 0xFFu, d1 = (pkt >> 16) & 0x7Fu, d2 = (pkt >> 24) & 0x7Fu;
-    if (!sa.panel && cin == 15u && st >= 0xF8u) {
+    if (!sa.panel && !rm.on && cin == 15u && st >= 0xF8u) {
         sar_realtime(st);                    /* MIDI clock, start, continue, stop (sa_arp.c) */
         return;
     }
+    if (rm.on)
+        return;                              /* MIDI REMOTE: the DX7 does not listen */
     if (sa.panel || cin < 8u || cin > 14u || st < 0x80u || st >= 0xF0u || (st & 15u) != sa.ch - 1u)
         return;
     sa.notes_in++;
@@ -766,6 +770,10 @@ static void sa_buttons(uint32_t btns)
 {
     const uint32_t OD = 1u << B_OCTDN, OU = 1u << B_OCTUP;
     uint32_t down = btns & ~sa.btns, up = sa.btns & ~btns, now = plat_ms(), b;
+    if (sa_rm_combo(down, btns)) {           /* GLO + FX: MIDI REMOTE (sa_remote.c) */
+        sa.btns = btns;
+        return;
+    }
     sa.btns = btns;
     if (down & (OD | OU)) {
         if ((btns & (OD | OU)) == (OD | OU)) {  /* both: a panic, and the octave as before the first went down */
@@ -784,6 +792,8 @@ static void sa_buttons(uint32_t btns)
         if (down & m) {
             sa.down_ms[b] = now;
             sa.hold_done &= ~m;
+            if (b == B_FX)
+                sa_rm_fx_note();
             if (!(SA_HOLDABLE & m))
                 sa_press(b);
             else
@@ -861,6 +871,16 @@ static void sa_ms(uint32_t btns, const int32_t *steps)
     }
     touch_poll();
     keys = touch_keys() & ((1u << NKEYS) - 1u);
+    if (rm.on) {                             /* MIDI REMOTE: the panel only sends MIDI */
+        sa_rm_ms(keys, btns & ((1u << NB) - 1u), steps);
+        if (rm.on) {
+            sa_rm_leds();
+            sa_store_step();
+            return;
+        }
+        sa.keys = keys;
+        return;
+    }
     for (ch = keys ^ sa.keys, k = 0; ch; ch >>= 1, k++)
         if (ch & 1u)
             sa_key(k, (keys >> k & 1u) ? touch_vel(k) : 0u);
@@ -892,6 +912,7 @@ static void sa_init(void)
 {
     uint32_t k;
     memset(&sa, 0, sizeof sa);               /* (the simulator's reboot runs this again) */
+    memset(&rm, 0, sizeof rm);               /* (MIDI REMOTE is never kept: off at power-on) */
     sa_settings_defaults();
     memset(&ub, 0, sizeof ub);
     sa_ub_scan();

@@ -309,6 +309,29 @@ Outside a session the standalone build is an instrument (section 1's last point)
 and do not hand the unit to a host: they work while it plays. They go over USB SysEx, vendor bulk or Bluetooth SysEx
 like any other; their replies are long, so a host uses USB (a Bluetooth reply that finds no room is dropped, section 1).
 
+### MIDI REMOTE: the whole panel as plain MIDI (firmware `sa/sa_remote.c`)
+
+Not a message: a mode of the standalone instrument. GLO + FX (either pressed first) turns it on, GLO + FX again off;
+it is not kept across a power cycle, and a host's session ends it. In it the panel only sends MIDI, over USB and
+Bluetooth at once: the DX7 stays silent (the keys do not play it; MIDI in and clock are ignored), the loops and the
+arp stop, and no button, knob or encoder does anything of the instrument's. The screen reads REMOTE MIDI with the last
+message (what sent it, the note or CC, its value and its bytes); the LEDs light the buttons and keys held. The map is
+fixed; every CC is one General MIDI leaves undefined, free for a DAW's MIDI learn:
+
+| Control | Message (on the current MIDI channel) |
+|---|---|
+| Keys (27) | notes F3..G5, shifted by the octave as it was when the mode came on, with velocity; note off velocity 64 |
+| FX SEL ENV LFO EDIT | CC 20, 21, 22, 23, 24: 127 pressed, 0 let go |
+| GLO HOME SAVE | CC 25, 26, 27 (127 / 0) |
+| ARP SEQ PLAY REC | CC 28, 29, 30, 31 (127 / 0) |
+| OCT- OCT+ | CC 85, 86 (127 / 0) |
+| SELECT ALGORITHM PRESETS | CC 102, 103, 104: absolute 0..127, each from 64 when the mode comes on (x2 / x4 when turned fast) |
+| KN1 KN2 KN3 KN4 | CC 105, 106, 107, 108: the same |
+| MASTER | CC 109, 0..127, sent when it moves |
+
+GLO + FX itself sends nothing for the button pressed second; turning the mode off sends 0 for every button still held
+that had sent 127, and the note offs of the keys held.
+
 ### SA_LOOP (`0x0A`) / SA_LOOP_R (`0x4A`): the 16 loops (firmware `sa/sa_loop.c`; `tools/sa_loops.py`)
 
 The loops live in RAM only (never in the unit's flash, where other firmwares keep their data): a computer saves and

@@ -767,9 +767,64 @@ static void sa_paint_theme(void)
         sg_rect(48 + 16 * i, 224, 10, 6, i == ui.theme ? UC(A1) : UC(PANEL));
 }
 
+/* ------------------------------------------------------------------ MIDI REMOTE (sa_remote.c) --- */
+static void sa_paint_remote(void)
+{
+    static const char *const BN[NB] = {"FX", "SEL", "ENV", "LFO", "EDIT", "GLO", "HOME", "SAVE", "ARP", "SEQ", "PLAY",
+                                       "REC", "OCT-", "OCT+"};
+    static const char *const EN[NE] = {"SELECT", "ALGORITHM", "PRESETS", "KN1", "KN2", "KN3", "KN4"};
+    static const char HEX[] = "0123456789ABCDEF";
+    char src[12], what[12], big[8], raw[12];
+    uint32_t st = ui.rm_last[0] & 0xF0u, v = ui.rm_last[2];
+    int32_t i, w, lit;
+    uint16_t acc = UC(A2);
+    sg_chip_text(10, 8, 0, 22, 7, "REMOTE MIDI", UC(A2), UC(ON));
+    w = sg_text_w(ui.ch_txt, 1) + 14;
+    sg_chip_text(230 - w, 8, w, 22, 7, ui.ch_txt, UC(PANEL), UC(INK));
+    if (!ui.rm_any) {                        /* nothing sent yet */
+        sg_text_sh((SG_W - sg_text_w("MIDI", 5)) / 2, 90, 5, "MIDI", UC(MID), 4, UC(SHADOW));
+        return;
+    }
+    switch (ui.rm_src) {
+    case SA_RM_SRC_KEY: sa_cpy(src, "KEY"); acc = UC(A1); break;
+    case SA_RM_SRC_BTN: sa_cpy(src, BN[ui.rm_src_i % NB]); acc = UC(A3); break;
+    case SA_RM_SRC_ENC: sa_cpy(src, EN[ui.rm_src_i % NE]); acc = ui.rm_src_i >= EN_K1 ? sa_kcol(ui.rm_src_i - EN_K1) : UC(A2); break;
+    default: sa_cpy(src, "MASTER"); acc = UC(A4); break;
+    }
+    w = sg_text_w(src, 1) + 16;
+    sg_chip_text((SG_W - w) / 2, 44, w, 22, 7, src, ui.rm_age < 120u ? UC(INK) : acc, UC(ON));
+    if (st == 0x90u || st == 0x80u) {        /* a note: its name big, the velocity */
+        sa_cpy(what, st == 0x90u ? "NOTE ON" : "NOTE OFF");
+        sa_note_name(ui.rm_last[1], big);
+    } else {                                 /* a CC: its number, the value big */
+        sa_cpy(what, "CC ");
+        sa_txt_num(what + 3, ui.rm_last[1]);
+        sa_txt_num(big, v);
+    }
+    sg_text_c(78, 2, what, UC(SOFT));
+    sg_text_sh((SG_W - sg_text_w(big, 5)) / 2, 106, 5, big, acc, 4, UC(SHADOW));
+    lit = (int32_t)(v * 16u + 63u) / 127;
+    for (i = 0; i < 16; i++)                 /* the value (the velocity), 16 segments */
+        sg_rect(17 + 13 * i, 178, 11, 12, i < lit ? acc : UC(PANEL));
+    for (i = 0; i < 3; i++) {                /* the bytes as sent */
+        raw[3 * i] = HEX[ui.rm_last[i] >> 4];
+        raw[3 * i + 1] = HEX[ui.rm_last[i] & 15u];
+        raw[3 * i + 2] = i < 2 ? ' ' : 0;
+    }
+    w = sg_text_w(raw, 1) + 16;
+    sg_chip_text((SG_W - w) / 2, 206, w, 22, 7, raw, UC(PANEL), UC(INK));
+}
+
 /* ------------------------------------------------------------------ the dispatch --- */
 static void sa_ui_snap_more(void)
 {
+    if (rm.on && !sa.panel)
+        ui.scr = SA_SCR_REMOTE;
+    memcpy(ui.rm_last, rm.last, 3);
+    ui.rm_src = rm.src;
+    ui.rm_src_i = rm.src_i;
+    ui.rm_any = rm.n != 0u;
+    ui.rm_age = ui.now - rm.last_ms;
     if (ui.scr == SA_SCR_HOME && sl_recording())
         ui.scr = SA_SCR_REC;                 /* (a recording: the Rec screen is HOME's) */
     sa_ui_snap_loop();
@@ -791,6 +846,7 @@ static int sa_paint_more(void)               /* 1: painted (a screen after S1) *
             sa_paint_keys();
         return ui.view == 1u || ui.view == 2u;
     case SA_SCR_THEME: sa_paint_theme(); return 1;
+    case SA_SCR_REMOTE: sa_paint_remote(); return 1;
     case SA_SCR_CCBANK: sa_paint_ccbank(); return 1;
     case SA_SCR_CCTURN: sa_paint_ccturn(); return 1;
     case SA_SCR_CCASSIGN: sa_paint_ccassign(); return 1;

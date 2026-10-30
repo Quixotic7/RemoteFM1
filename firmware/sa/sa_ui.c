@@ -55,6 +55,9 @@ static struct {
     struct {
         uint8_t x0, x1, row, hi;
     } bar[32];
+    /* MIDI REMOTE (sa_remote.c) */
+    uint8_t rm_last[3], rm_src, rm_src_i, rm_any;
+    uint32_t rm_age;
     /* the hand-over */
     uint8_t host_t, warn;
     char info[4][32];

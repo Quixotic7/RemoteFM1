@@ -1,0 +1,118 @@
+# SPDX-License-Identifier: MPL-2.0
+# RemoteFM1 standalone: MIDI REMOTE (sa/sa_remote.c). GLO + FX (either first) toggles it, and neither picks bank A
+# nor anything of GLO's; in it the keys send notes only (the DX7 silent, MIDI in ignored), every button a CC (127 / 0),
+# every encoder a CC (absolute 0..127 from 64), MASTER CC 109; the REMOTE MIDI screen shows the last message; the LEDs
+# the buttons and keys held; not kept across a power cycle. tests/run_tests.sh runs it (both builds).
+wait 400
+tap SEL
+expect sa_ccbank 1
+tap HOME
+# GLO first, then FX: in; the bank stays B, the hold of GLO sends nothing on its release
+out
+press GLO
+press FX
+wait 20
+expect sa_remote 1
+expect sa_screen 17
+expect sa_ccbank 1
+release FX
+release GLO
+wait 20
+expect sa_rm_n 0
+expect_no_out USB B0 14 00
+expect_no_out USB B0 19 00
+wait 60
+shot sa_remote_idle.png
+# a key: a note on channel 1, the DX7 silent
+out
+key 9 down 100
+wait 100
+expect_out USB 90 3E 64
+expect sa_sounding 0
+expect sa_held 0
+expect sa_rm_last 9453156
+wait 30
+shot sa_remote_note.png
+expect sa_lit_keys 512
+key 9 up
+wait 20
+expect_out USB 80 3E 40
+# buttons: CC 127 / 0 (PLAY 30, SAVE 27, OCT+ 86); nothing else happens (no loop, no theme menu, no octave)
+out
+press PLAY
+wait 20
+expect_out USB B0 1E 7F
+expect sa_lit_btns 1024
+release PLAY
+wait 20
+expect_out USB B0 1E 00
+expect sa_lstate 0
+tap SAVE
+expect_out USB B0 1B 7F
+expect_out USB B0 1B 00
+expect sa_menu 0
+tap OCT+
+expect_out USB B0 56 7F
+expect sa_oct 0
+tap ARP
+expect sa_arp 0
+# encoders: absolute from 64 (KN2 106, ALGORITHM 103, PRESETS 104): no channel or voice change, no CC bank value
+out
+turn K2 3 100
+expect_out USB B0 6A 41
+expect_out USB B0 6A 43
+expect sa_ccv_k1 0
+wait 30
+shot sa_remote_cc.png
+turn ALGO -2 100
+expect_out USB B0 67 3E
+expect sa_ch 1
+turn PRESET 1 100
+expect_out USB B0 68 41
+expect sa_voice 0
+# MASTER: CC 109
+out
+master 4096
+expect_out USB B0 6D 7F
+master 2048
+expect_out USB B0 6D 40
+# MIDI in does not play the DX7
+midi 90 40 64
+wait 50
+expect sa_sounding 0
+# FX first, then GLO: out again, bank B kept; FX's own CC sent (it was the remote's), its 0 on the way out
+out
+press FX
+wait 20
+press GLO
+wait 20
+expect sa_remote 0
+expect sa_ccbank 1
+expect_out USB B0 14 7F
+expect_out USB B0 14 00
+expect_no_out USB B0 19 7F
+release GLO
+release FX
+wait 20
+expect sa_screen 0
+# the instrument as it was: a key plays the DX7 again
+key 9 down 100
+wait 100
+expect sa_sounding 1
+key 9 up
+# FX first, then GLO from the instrument: in, the bank A of FX's press undone
+tap SEL
+expect sa_ccbank 1
+press FX
+wait 20
+expect sa_ccbank 0
+press GLO
+wait 20
+expect sa_remote 1
+expect sa_ccbank 1
+release GLO
+release FX
+# not kept: a power cycle starts in the instrument
+reboot
+wait 300
+expect sa_remote 0

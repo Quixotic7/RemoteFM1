@@ -77,6 +77,26 @@ emulator exists for the FM-1's CPU.
      `FM1VST/build/cores`).
 4. **To leave RemoteFM1**, install the next firmware with its own installer, as you would over V15.
 
+**Standalone** (the `standalone` branch; STANDALONE-PLAN.md): with no host, the FM-1 plays DX7 voices, works as a
+MIDI controller (CC banks on FX..EDIT and KN1..KN4: the CC-Bank screen a bank button opens stays until HOME or another
+screen), loops and arps. SAVE opens the theme menu: SELECT or the knobs pick the theme, ALGORITHM its background
+(black, five dark grounds, or the theme's classic colour, such as the C64's blue, where its text keeps 4.5:1).
+**MIDI REMOTE**: GLO + FX turns the whole panel into a plain MIDI controller (GLO + FX again leaves; not kept across a
+power cycle); the DX7 is silent and every control sends MIDI on the current channel:
+
+| Control | Message (on the current MIDI channel) |
+|---|---|
+| Keys (27) | notes F3..G5, shifted by the octave as it was when the mode came on, with velocity; note off velocity 64 |
+| FX SEL ENV LFO EDIT | CC 20, 21, 22, 23, 24: 127 pressed, 0 let go |
+| GLO HOME SAVE | CC 25, 26, 27 (127 / 0) |
+| ARP SEQ PLAY REC | CC 28, 29, 30, 31 (127 / 0) |
+| OCT- OCT+ | CC 85, 86 (127 / 0) |
+| SELECT ALGORITHM PRESETS | CC 102, 103, 104: absolute 0..127, each from 64 when the mode comes on (x2 / x4 when turned fast) |
+| KN1 KN2 KN3 KN4 | CC 105, 106, 107, 108: the same |
+| MASTER | CC 109, 0..127, sent when it moves |
+
+docs/PROTOCOL.md section 8 has the details.
+
 macOS keeps the MIDI port name of the first firmware it saw on the unit (for example "ChoralRoot FM-1"). The host
 finds RemoteFM1 by asking (HELLO), never by name. If the port shows up offline after a firmware change, use
 `--midi-restart` or Audio MIDI Setup > Rescan MIDI.
