@@ -281,6 +281,7 @@ export async function createWorld(createFakeUnit, { start = 1000 } = {}) {
     world.button = (u, b, d) => F._fk_button(u.h, b, d ? 1 : 0);
     world.enc = (u, e, d) => F._fk_enc(u.h, e, d);
     world.master = (u, v) => F._fk_master(u.h, v);
+    world.trs = (u, bytes) => { const p = F._fk_inbuf(bytes.length); F.HEAPU8.set(bytes, p); F._fk_trs(u.h, bytes.length); };   // MIDI into its TRS jack
     world.reboot = u => F._fk_reboot(u.h);
     world.deaf = (u, on) => F._fk_deaf(u.h, on ? 1 : 0);
     world.dropMidi = (u, n) => F._fk_drop_midi(u.h, n);

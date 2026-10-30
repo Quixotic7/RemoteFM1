@@ -30,6 +30,8 @@ struct h {
     uint32_t now, max_in_flight, rescans, states[8];
     rfm_event_t ev[256];
     uint32_t nev;
+    uint8_t mi[1024];                                   /* MIDI_IN bytes delivered (the TRS jack) */
+    uint32_t nmi, mi_calls;
     int verbose;
 };
 
@@ -54,6 +56,13 @@ static void cb_state(void *ctx, int st, const char *why)
     h->states[st]++;
     if (h->verbose)
         printf("  %6u ms  %s (%s)\n", h->now, rfm_session_state_name(st), why);
+}
+static void cb_midi_in(void *ctx, const uint8_t *m, uint32_t n)
+{
+    h_t *h = (h_t *)ctx;
+    h->mi_calls++;
+    while (n-- && h->nmi < sizeof h->mi)
+        h->mi[h->nmi++] = *m++;
 }
 static void cb_rescan(void *ctx) { ((h_t *)ctx)->rescans++; }
 static void cb_log(void *ctx, const char *m)
@@ -91,6 +100,7 @@ static void setup(h_t *h, const rfm_session_cfg_t *sc)
     cb.state = cb_state;
     cb.rescan = cb_rescan;
     cb.log = cb_log;
+    cb.midi_in = cb_midi_in;
     h->s = rfm_session_new(sc, &cb);
     h->now = 1000;
 }
@@ -299,6 +309,51 @@ static void test_panel_events(void)
     step(&h, 600);
     CHECK(h.nev == 1 && h.ev[0].type == RFM_EV_ENC && h.ev[0].index == 0 && h.ev[0].value == 3 &&
           h.ev[0].source == RFM_EVS_RESYNC);
+    teardown(&h);
+}
+
+/* the TRS jack's MIDI (MIDI_IN, RFM_CAP_MIDI_IN): delivered in order, only in a session, over SysEx and bulk;
+ * a long burst split into messages of whole MIDI messages; malformed bodies counted, never delivered */
+static void test_midi_in(int bulk)
+{
+    h_t h;
+    rfm_session_cfg_t sc;
+    rfm_fake_cfg_t fc;
+    rfm_session_stats_t st;
+    static const uint8_t m[] = {0x90, 60, 100, 0xC0, 5, 0xF8, 0xB0, 7, 127, 0xE0, 0, 64, 0xD0, 33, 0xFA};
+    uint8_t burst[150];
+    uint32_t i;
+    rfm_session_cfg_default(&sc);
+    sc.transport = bulk ? RFM_T_BULK : RFM_T_MIDI;
+    setup(&h, &sc);
+    default_fake(&fc);
+    fc.has_bulk = bulk;
+    add_fake(&h, &fc);
+    rfm_fake_trs(h.f[0], m, sizeof m);                  /* no session yet: nothing */
+    step(&h, 30);
+    CHECK(rfm_session_state(h.s) == RFM_S_ACTIVE);
+    CHECK(rfm_session_hello(h.s)->caps & RFM_CAP_MIDI_IN);
+    CHECK(h.nmi == 0);
+    rfm_fake_trs(h.f[0], m, sizeof m);
+    step(&h, 5);
+    CHECK(h.nmi == sizeof m && !memcmp(h.mi, m, sizeof m) && h.mi_calls == 1);
+    for (i = 0; i < 50; i++) {
+        burst[3 * i] = 0x91;
+        burst[3 * i + 1] = (uint8_t)i;
+        burst[3 * i + 2] = 64;
+    }
+    h.nmi = h.mi_calls = 0;
+    rfm_fake_trs(h.f[0], burst, sizeof burst);
+    step(&h, 5);
+    CHECK(h.nmi == sizeof burst && !memcmp(h.mi, burst, sizeof burst) && h.mi_calls == 3);
+    rfm_session_stats(h.s, &st);
+    CHECK(st.midi_in == 4 && st.midi_in_bytes == sizeof m + sizeof burst && st.midi_in_bad == 0);
+    CHECK(rfm_parse_midi_in(m, sizeof m) == 0 && rfm_parse_midi_in(m, 2) == -1 && rfm_parse_midi_in(m + 1, 2) == -1);
+    CHECK(rfm_parse_midi_in(burst, 66) == -1);          /* longer than RFM_MIDI_IN_MAX */
+    {
+        static const uint8_t sx[] = {0xF0, 1, 0xF7}, bad[] = {0x90, 0x80, 1};
+        CHECK(rfm_parse_midi_in(sx, 3) == -1 && rfm_parse_midi_in(bad, 3) == -1 && rfm_midi_msg_len(0xF2) == 0);
+    }
     teardown(&h);
 }
 
@@ -599,6 +654,7 @@ static void test_bluetooth(int ble)
     cb.ctx = b;
     cb.state = bt_state;
     cb.log = bt_log;
+    cb.midi_in = NULL;
     cb.event = bt_event;
     b->s = rfm_session_new(&sc, &cb);
     rfm_fake_cfg_default(&fc);
@@ -696,6 +752,7 @@ static void bt_open2(bt_t *b, uint32_t colors, int unit_hold, int hold)
     cb.ctx = b;
     cb.state = bt_state;
     cb.log = bt_log;
+    cb.midi_in = NULL;
     cb.event = bt_event;
     b->s = rfm_session_new(&sc, &cb);
     rfm_fake_cfg_default(&fc);
@@ -1012,6 +1069,8 @@ int main(void)
     test_discovery_and_frames();
     test_sysex_flow();
     test_panel_events();
+    test_midi_in(0);
+    test_midi_in(1);
     test_faults(1);
     test_faults(0);
     test_not_found();

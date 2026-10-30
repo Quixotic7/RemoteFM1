@@ -72,6 +72,7 @@ const remote = new RemoteFM1(opts);
 | `setLeds(levels, playGreen)` | `engine.leds()`'s `Uint8Array(44)` (`levels[col*4+line]`) and PLAY green 0..255. Mapped as FM1VST's `fm1p_led_class`: lit ≥ 176, mid ≥ 96, dim ≥ 40, faint > 0; line l is row bit l+1; PLAY green on when ≥ 176. Unchanged values are ignored. |
 | `onStatus(cb)` | returns an unsubscribe function. `cb` gets the status object below. |
 | `onPanel(cb)` | returns an unsubscribe function. `cb` gets the panel object below. |
+| `onMidiIn(cb)` | the unit's TRS MIDI in during a session (MIDI_IN, HELLO_R caps bit9): `cb(Uint8Array)` of whole MIDI messages with their status; the page feeds them to the firmware's MIDI in (`site.midiIn`, use-fm1.js) |
 | `onLog(cb)` | the session's log lines (candidates, found, lost, resends), for a details pane |
 | `status`, `stats()`, `unitPorts()` | the current status; the session's counters; `{inputId, outputId, name}` of the unit's MIDI ports once found |
 

@@ -5,7 +5,7 @@
 # session end drops it; outside a session HOLD is an END. tests/run_tests.sh runs it (both builds).
 wait 300
 rf hello usb
-expect rf_hello_caps 431
+expect rf_hello_caps 943
 rf session usb 1 3000
 wait 50
 expect rf_screen_black 1

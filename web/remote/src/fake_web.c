@@ -58,6 +58,7 @@ EMSCRIPTEN_KEEPALIVE void fk_key(rfm_fake_t *f, uint32_t k, int down) { rfm_fake
 EMSCRIPTEN_KEEPALIVE void fk_button(rfm_fake_t *f, uint32_t b, int down) { rfm_fake_button(f, b, down); }
 EMSCRIPTEN_KEEPALIVE void fk_enc(rfm_fake_t *f, uint32_t e, int d) { rfm_fake_enc(f, e, d); }
 EMSCRIPTEN_KEEPALIVE void fk_master(rfm_fake_t *f, uint32_t adc) { rfm_fake_master(f, adc); }
+EMSCRIPTEN_KEEPALIVE void fk_trs(rfm_fake_t *f, uint32_t n) { rfm_fake_trs(f, inbuf, n); }   /* fk_inbuf's bytes */
 EMSCRIPTEN_KEEPALIVE void fk_reboot(rfm_fake_t *f) { rfm_fake_reboot(f); }
 EMSCRIPTEN_KEEPALIVE void fk_deaf(rfm_fake_t *f, int on) { rfm_fake_deaf(f, on); }
 EMSCRIPTEN_KEEPALIVE void fk_drop_acks(rfm_fake_t *f, uint32_t n) { rfm_fake_drop_acks(f, n); }

@@ -498,6 +498,29 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
       await Promise.all([link.disconnect(), run(400)]);
     }
   }
+  { // the unit's TRS MIDI in (MIDI_IN) through use-fm1.js into the site's MIDI in, as the computer's MIDI input goes
+    if (typeof globalThis.addEventListener !== "function") globalThis.addEventListener = () => {};
+    const { createFm1 } = await import("./js/use-fm1.js");
+    const w = await createWorld(createFakeUnit, { start: 3 });
+    w.midiPerm = "granted";
+    w.unit = w.addUnit({ midiName: "FM-1", bulk: true });
+    w.permitted.add(w.unit.usb);
+    let remote = null;
+    const mod = { RemoteFM1: class extends RemoteFM1 { constructor() { super({ navigator: w.navigator, now: () => w.t, timers: false, module: createRemoteFM1 }); remote = this; } } };
+    const got = [], noop = () => {};
+    const site = { panel: { key: noop, button: noop, turn: noop, master: noop, releaseAll: noop }, screen: () => ({ seq: 1, pixels: null }),
+      on: noop, midiIn: (b) => got.push(...b) };
+    const link = createFm1(site, mod);
+    const run = async (ms) => { for (let i = 0; i < ms; i++) { w.step(1); remote.tick(); if ((i & 3) === 3) await settle(); } await settle(); };
+    await link.auto();
+    await run(2000);
+    const m = [0x90, 60, 100, 0xC1, 7, 0xF8, 0xE0, 0, 64];
+    w.trs(w.unit, Uint8Array.from(m));
+    await run(10);
+    ok(link.view().tone === "on" && link.view().via === "USB" && got.join() === m.join(),
+       "fm1 TRS MIDI in: the unit's MIDI_IN (over USB bulk) -> site.midiIn, whole messages, in order");
+    await Promise.all([link.disconnect(), run(400)]);
+  }
   { // a click with the browser's prompt left unanswered, then allowed
     const { w, link, run } = await page("prompt", (w) => { w.unit = w.addUnit({ midiName: "FM-1" }); });
     const ask = w.navigator.requestMIDIAccess;

@@ -196,6 +196,38 @@ uint32_t rfm_build_panel_r(uint8_t *b, const rfm_panel_r_t *p)
     return RFM_PANEL_LEN;
 }
 
+uint32_t rfm_midi_msg_len(uint8_t st)
+{
+    if (st >= 0xF8u)
+        return 1;                                       /* real time */
+    if (st < 0x80u || st >= 0xF0u)
+        return 0;                                       /* data, SysEx, system common: never in MIDI_IN */
+    return (st & 0xE0u) == 0xC0u ? 2u : 3u;             /* Cx Dx: 2, the other channel messages 3 */
+}
+
+int rfm_parse_midi_in(const uint8_t *b, uint32_t n)
+{
+    uint32_t k = 0;
+    if (!b || !n || n > RFM_MIDI_IN_MAX)
+        return -1;
+    while (k < n) {
+        uint32_t m = rfm_midi_msg_len(b[k]), i;
+        if (!m || k + m > n)
+            return -1;
+        for (i = 1; i < m; i++)
+            if (b[k + i] & 0x80u)
+                return -1;
+        k += m;
+    }
+    return 0;
+}
+
+uint32_t rfm_build_midi_in(uint8_t *body, const uint8_t *msgs, uint32_t n)
+{
+    memcpy(body, msgs, n);
+    return n;
+}
+
 int rfm_parse_panel_r(const uint8_t *b, uint32_t n, rfm_panel_r_t *p)
 {
     uint32_t e;

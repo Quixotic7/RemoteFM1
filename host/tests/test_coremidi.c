@@ -117,6 +117,7 @@ int main(void)
     cb.ctx = mac;
     cb.event = on_event;
     cb.log = on_log;
+    cb.midi_in = NULL;
     cb.rescan = (void (*)(void *))rfm_mac_rescan;
     s = rfm_session_new(&sc, &cb);
     rfm_mac_attach(mac, s);
