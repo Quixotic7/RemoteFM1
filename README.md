@@ -91,7 +91,10 @@ recording options: the page). REC arms a take (it starts with the first note pla
 held) have a count-in of 1, 2 or 4 bars and a metronome on the audio out; a loop holds the keys as played and the arp
 steps them on playback. SEQ opens the 16 loops: the white keys pick one, the black keys (F# G# A#) or KN1 when it
 comes in (INSTANT, AT BAR, AT END). GLO + a white key sets the MIDI channel, GLO + a black key the octave; GLO held
-shows both on the keys' LEDs.
+shows both on the keys' LEDs. SAVE held saves everything: the settings, and (0.3.1) the 16 loops into the unit's
+flash, back at the next power-on. A DX7 32-voice bank sent over USB or Bluetooth MIDI (any librarian, or the site)
+becomes a user bank after the ROM cartridges: up to 16 (0.3.1; 0.3.0 kept 3, taken over at 0.3.1's first start), a
+17th replaces the oldest; SA_INFO (docs/PROTOCOL.md section 8) tells a host how many are kept and their names.
 **MIDI REMOTE**: GLO + FX turns the whole panel into a plain MIDI controller (GLO + FX again leaves; not kept across a
 power cycle); the DX7 is silent and every control sends MIDI on the channels of the settings page (HOME held):
 
@@ -189,8 +192,11 @@ anything is sent.
 
 **What it writes in flash:** the Bluetooth build keeps the radio's address (and any pairing) in two 4 KiB sectors at
 0xF2000..0xF3FFF, written at its first Bluetooth start (free in ChoralRoot's map and the stock firmware's); OCT- + OCT+
-held at power-on (the panel calibration) writes 0xFC000..0xFDFFF. Nothing else: the data an earlier firmware left
-elsewhere stays where it is. Every update stages its loader at 0xE0000..0xE4FFF, as 0.1's did. [docs/SAFETY.md](docs/SAFETY.md) is 0.1's (TransitFM1's) design, kept for its history.
+held at power-on (the panel calibration) writes 0xFC000..0xFDFFF. From 0.3.1 the standalone keeps its user DX7 banks
+and its loops in 0x97000..0xD8FFF, part of the data area where ChoralRoot and FIZZ keep theirs (the owner's choice,
+2026-10-30: both can back up and restore their data): a bank sent or a SAVE held there overwrites what another
+firmware kept, and installing one of them loses RemoteFM1's banks and loops (0.3.0 used XDATA0, 0x93000..0x96FFF,
+for three banks; 0.3.1 only reads it). Nothing else: the data an earlier firmware left elsewhere stays where it is. Every update stages its loader at 0xE0000..0xE4FFF, as 0.1's did. [docs/SAFETY.md](docs/SAFETY.md) is 0.1's (TransitFM1's) design, kept for its history.
 
 Installing firmware is at your own risk. Keep the [FM-1 Transporter](https://github.com/kurogedelic/FM-1-transporter)
 or [MvaveFM1Unbricker](https://github.com/Quixotic7/MvaveFM1Unbricker) at hand.

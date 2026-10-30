@@ -41,7 +41,7 @@ sim() {   # sim BINARY SCRIPT...
     done
 }
 
-SA_TESTS="firmware/tests/standalone_cc.txt firmware/tests/standalone_loop.txt firmware/tests/standalone_arp.txt firmware/tests/standalone_s5.txt firmware/tests/standalone_remote.txt firmware/tests/standalone_menus.txt firmware/tests/standalone_latch.txt firmware/tests/standalone_settings.txt firmware/tests/standalone_scales.txt firmware/tests/standalone_return.txt firmware/tests/standalone_rec.txt firmware/tests/standalone_loops.txt firmware/tests/standalone_leds.txt firmware/tests/standalone_scale_look.txt firmware/tests/standalone_kled.txt"   # S2.. (the standalone's milestones)
+SA_TESTS="firmware/tests/standalone_cc.txt firmware/tests/standalone_loop.txt firmware/tests/standalone_arp.txt firmware/tests/standalone_s5.txt firmware/tests/standalone_remote.txt firmware/tests/standalone_menus.txt firmware/tests/standalone_latch.txt firmware/tests/standalone_settings.txt firmware/tests/standalone_scales.txt firmware/tests/standalone_return.txt firmware/tests/standalone_rec.txt firmware/tests/standalone_loops.txt firmware/tests/standalone_leds.txt firmware/tests/standalone_scale_look.txt firmware/tests/standalone_kled.txt firmware/tests/standalone_store.txt"   # S2.. (the standalone's milestones)
 echo "== the app in fm1-base's host simulator: USB SysEx, bulk, Bluetooth, the update's SysEx beside (firmware/tests)"
 env -u CC ./build.sh --host >/dev/null
 sim "$SIM/remotefm1_host" firmware/tests/session.txt firmware/tests/bulk_ota.txt firmware/tests/ble.txt \
@@ -76,18 +76,18 @@ echo "== the TILES decoder, with and without the shadow, and the screen push (fi
 $TCC $SAN -o "$H/rfm_draw_test" tests/rfm_draw_test.c
 "$H/rfm_draw_test"
 echo "== the store's window: RemoteFM1 writes only 0xF2000..0xF3FFF, the calibration's 0xFC000..0xFDFFF and the"
-echo "   user DX7 banks' 0x93000..0x96FFF"
+echo "   standalone's user banks and loops in 0x97000..0xD8FFF (0.3.1; XDATA0 no longer written)"
 echo "   (firmware/app.h APP_STORE_OK; fm1-base's st_erase / st_prog keep to it: patches/fm1-base/0006)"
 $TCC -DPLAT_HOST -Ibuild/fm1-base/include -Ifirmware -o "$H/store_window_test" tests/store_window_test.c
 "$H/store_window_test"
 [ "$(grep -c 'if (!APP_STORE_OK(off' build/fm1-base/device/unity.c)" = 2 ] ||
     { echo "FAILED: fm1-base's st_erase / st_prog do not keep to APP_STORE_OK"; exit 1; }
 if grep -rn "plat_data_erase\|plat_data_write\|fl_erase4k\|fl_write" firmware/src firmware/sa firmware/app.c |
-    grep -v "^firmware/sa/sa_ubank.c:[0-9]*:    return plat_data_\(erase(off)\|write(off, src, n)\);$"; then
-    echo "FAILED: the app writes the flash beside the store (and sa_ubank.c's two checked writers)"; exit 1
+    grep -v "^firmware/sa/sa_store.c:[0-9]*:    return plat_data_\(erase(off)\|write(off, src, n)\);$"; then
+    echo "FAILED: the app writes the flash beside the store (and sa_store.c's two checked writers)"; exit 1
 fi
-[ "$(grep -c 'if (!APP_STORE_OK(off, ' firmware/sa/sa_ubank.c)" = 2 ] ||
-    { echo "FAILED: sa_ubank.c's flash writes do not keep to APP_STORE_OK"; exit 1; }
+[ "$(grep -c 'if (!APP_STORE_OK(off, ' firmware/sa/sa_store.c)" = 2 ] ||
+    { echo "FAILED: sa_store.c's flash writes do not keep to APP_STORE_OK"; exit 1; }
 echo "== the standalone's themes over every background readable (firmware/sa/sa_theme.h)"
 $TCC $SAN -o "$H/sa_theme_test" tests/sa_theme_test.c
 "$H/sa_theme_test"

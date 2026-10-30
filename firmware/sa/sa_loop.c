@@ -1,9 +1,9 @@
 /* SPDX-License-Identifier: MPL-2.0
  * Copyright (C) 2026 RemoteFM1 contributors */
 /* The standalone's looper (STANDALONE-PLAN.md S3): 16 loops of events, recorded exactly as played (the keys' notes,
- * as played even with the arp on, and the knobs' CCs, at the millisecond), kept in RAM (the pool) and saved to and
- * loaded from a computer over SysEx (SA_LOOP, docs/PROTOCOL.md section 8; tools/sa_loops.py), never in the unit's
- * flash (the plan's question 3, the owner's choice). Part of sa_main.c (its state, sa).
+ * as played even with the arp on, and the knobs' CCs, at the millisecond), kept in RAM (the pool), saved to and loaded
+ * from a computer over SysEx (SA_LOOP, docs/PROTOCOL.md section 8; tools/sa_loops.py), and (0.3.1) kept in the unit's
+ * flash when SAVE is held, loaded at power-on (sa_store.c; sl_store_* below). Part of sa_main.c (its state, sa).
  *
  * What a loop holds (the owner, 2026-10-30): the notes the user plays, not the arp's; on playback they go through the
  * arp when it is on (sl_note), so the arp can be turned on and off while a loop plays (sl_arp_moved). With LATCH a
@@ -659,4 +659,51 @@ static uint32_t sa_loop_cmd(const uint8_t *b, uint32_t len, uint8_t *out)
     }
     sa.poke = 1;
     return 3;
+}
+
+/* ------------------------------------------------------------------ the flash (sa_store.c, 0.3.1) --- */
+_Static_assert(SA_LOOPS == SF_NL && SA_LPOOL <= SF_LSEC * SF_EVS && sizeof(sa_lev_t) * SF_EVS == 4096u,
+               "the loops' places in the data area");
+
+static uint32_t sl_store_meta(uint32_t k, sf_loop_t *e)   /* loop k as it is now (its sectors not filled): its count */
+{
+    memset(e, 0, sizeof *e);
+    e->n = sl.n[k];
+    e->len = sl.len[k];
+    e->bpm = sl.len[k] ? sl.bpm[k] : 0u;
+    e->bars = sl.len[k] ? sl.bars[k] : 0u;
+    e->crc = sf_crc((const uint8_t *)&sa_lpool[sl.at[k]], 8u * sl.n[k], 0, 0xFFu);
+    return sl.n[k];
+}
+static const uint8_t *sl_store_bytes(uint32_t k) { return (const uint8_t *)&sa_lpool[sl.at[k]]; }
+static uint32_t sl_store_cur(void) { return sl.cur; }
+
+static void sl_store_load(void)              /* (sa_init, after sl_init) the loops the directory lists, CRC good */
+{
+    uint32_t k, j, used = 0;
+    for (k = 0; k < SA_LOOPS; k++) {
+        const sf_loop_t *e = &sf.d.l[k];
+        sl.at[k] = (uint16_t)used;
+        if (!e->len || used + e->n > SA_LPOOL)
+            continue;
+        for (j = 0; j < e->nsec; j++) {
+            uint32_t m = e->n - j * SF_EVS < SF_EVS ? e->n - j * SF_EVS : SF_EVS;
+            const uint8_t *d = plat_data(sf_sec(e->sec[j]));
+            if (!d)
+                break;
+            memcpy(&sa_lpool[used + j * SF_EVS], d, 8u * m);
+        }
+        if (j < e->nsec || sf_crc((const uint8_t *)&sa_lpool[used], 8u * e->n, 0, 0xFFu) != e->crc) {
+            sf.lbad++;                       /* (overwritten by another firmware: the loop empty) */
+            continue;
+        }
+        sl.n[k] = e->n;
+        sl.len[k] = e->len;
+        sl.bpm[k] = e->bpm;
+        sl.bars[k] = e->bars;
+        used += e->n;
+        sf.loads++;
+    }
+    sl.used = used;
+    sl.cur = (uint8_t)(sf.d.lcur < SA_LOOPS ? sf.d.lcur : 0u);
 }

@@ -389,8 +389,8 @@ that had sent 127, and the note offs of the keys held.
 
 ### SA_LOOP (`0x0A`) / SA_LOOP_R (`0x4A`): the 16 loops (firmware `sa/sa_loop.c`; `tools/sa_loops.py`)
 
-The loops live in RAM only (never in the unit's flash, where other firmwares keep their data): a computer saves and
-loads them with these. An event is 8 bytes: `t32` (ms from the loop's start), `type8` (0 note on, 1 note off, 2 CC),
+The loops live in RAM; SAVE held (0.3.1) also keeps them in the unit's flash (sa/sa_store.c), loaded at power-on. A
+computer saves and loads them with these. An event is 8 bytes: `t32` (ms from the loop's start), `type8` (0 note on, 1 note off, 2 CC),
 `d1` (note / CC number), `d2` (velocity / value), `0`. `slot` is 0..15. Every reply starts with the request's `op`.
 Since 2026-10-30 a loop's notes are the keys as played (an arp running while it was recorded is not in it: the arp
 steps the loop's notes on playback when it is on).
@@ -406,3 +406,22 @@ steps the loop's notes on playback when it is on).
 
 `status`: 0 done, 1 the pool is full (3,584 events for all 16 loops), 2 a bad request, 3 busy (a recording or a
 count-in runs, or a take is armed: nothing is written). Writing the loop that plays stops it. A loop being written is not played until END.
+
+### SA_INFO (`0x0B`) / SA_INFO_R (`0x4B`): the user DX7 banks kept (0.3.1; firmware `sa/sa_ubank.c`)
+
+A DX7 32-voice bulk dump sent to the unit (outside a session, over USB or Bluetooth MIDI: `F0 43 0n 09 20 00`, 4,096
+bytes, checksum, `F7`) is kept as a user bank, USER1..USER16, after the ROM cartridges; a 17th replaces the oldest.
+It is written in steps (about 0.1 s); a dump that arrives meanwhile is dropped, so a host sends the next one after
+`busy` reads 0. 0.3.0 answers nothing to SA_INFO (it kept 3 banks): a host that hears no reply says "up to 3".
+
+| op | request body | reply body |
+|---|---|---|
+| 0 BANKS | `00` | `00 max8 count8 busy8 next8 loops8`, then `count` times `slot8 arrival32 crc32 name[10]` |
+| 1 NAME | `01 slot8 name[1..10]` | `01 slot8 status8`: the bank's name, written a moment after (status 0 taken, 2 a bad request: no bank in the slot or no name, 3 one waits already) |
+
+`max`: 16. `count`: the banks kept (each listed once, in slot order). `busy`: 1 while a bank, a name or a SAVE is
+being written. `next`: the slot the next bank goes to (the first free one, else the oldest's: it is replaced).
+`loops`: 16. Per bank: `slot` 0..15 (shown as USER `slot`+1 in slot order: GLO + SELECT steps through the banks
+kept), `arrival` (a count: the smallest is the oldest), `crc` (CRC-32, zlib's, of the 4,096 voice bytes as sent: a
+host matches it with the file it has), `name` (ASCII, spaces after: the bank's first voice's name until NAME gives
+one). A NAME's characters outside 0x20..0x7E are stored as spaces.

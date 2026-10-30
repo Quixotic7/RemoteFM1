@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: MPL-2.0
 # RemoteFM1 standalone, S5 (STANDALONE-PLAN.md): HOME cycles the views (Notes, Scope, Keys); SAVE opens the theme menu
 # (9 themes: Pixel and the mockup's 8, the screen in each at once, kept across a power cycle); the user's DX7 banks: a
-# 32-voice bulk dump over USB or Bluetooth MIDI kept in XDATA0 (USER1..3 after the ROM cartridges, the oldest replaced
-# by a fourth, a bad checksum refused, nothing written outside APP_STORE_OK), there after a power cycle. Both builds.
+# 32-voice bulk dump over USB or Bluetooth MIDI kept in the data area (0.3.1: USER1..16 after the ROM cartridges, the
+# oldest replaced by a 17th, a bad checksum refused, nothing written outside APP_STORE_OK; SA_INFO's count and names),
+# there after a power cycle. Both builds.
 wait 400
 expect sa_view 0
 # a chord held: the Scope view (HOME), the Keys view (HOME again), back to Notes
@@ -149,21 +150,45 @@ expect sa_ub_slot -1
 turn SELECT 40
 expect sa_ub_slot 1
 release GLO
-# a third, then a fourth: the oldest (USER1) replaced
+# 0.3.1: up to 16 (USER1..USER16), then a 17th: the oldest (USER1) replaced; SA_INFO says how many and their names
+sa info 2 0 USR1 V01
 sa dx7bank 3 usb
 sa dx7bank 4 usb
-expect sa_ubanks 3
+sa dx7bank 5 usb
+sa dx7bank 6 usb
+sa dx7bank 7 usb
+sa dx7bank 8 usb
+sa dx7bank 9 usb
+sa dx7bank 10 usb
+sa dx7bank 11 usb
+sa dx7bank 12 usb
+sa dx7bank 13 usb
+sa dx7bank 14 usb
+sa dx7bank 15 usb
+sa dx7bank 16 usb
+expect sa_ubanks 16
+expect sa_ub_slot 15
+sa name USR16 V01
+sa info 16 15 USR16 V01
+sa dx7bank 17 usb
+expect sa_ubanks 16
 expect sa_ub_slot 0
-sa name USR4 V01
+sa name USR17 V01
+sa info 16 0 USR17 V01
+# a bank's name (SA_INFO NAME), kept
+sa bankname 1 MY-BANK
+sa info 16 1 MY-BANK
 expect sa_ub_refused 0
 expect store_outside 0
+expect sa_sf_pass_max 1
 # kept across a power cycle (the voice and the theme too, saved a little after)
 wait 3000
 reboot
 wait 300
-expect sa_ubanks 3
+expect sa_ubanks 16
 expect sa_ub_slot 0
-sa name USR4 V01
+sa name USR17 V01
+sa info 16 1 MY-BANK
 expect sa_theme 2
 expect sa_bg 1
 expect sa_view 0

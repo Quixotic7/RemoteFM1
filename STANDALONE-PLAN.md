@@ -135,7 +135,7 @@ RemoteFM1 unit, and the owner trying it.
    `tools/gen_dx7_rom.py` reads them from that path; only the packed header goes into the build. ROM1A is the EU/JP
    master, ROM3A the US one; ROM3/4 repeat many ROM1/2 voices, so S1 may list each distinct voice once.
 2. Saadet credit: Kerem Kilic in the README and the About screen, besides PROVENANCE.md (assumed yes).
-3. **Where S2..S5 keep their data** (proposal, 2026-10-30; not implemented). The owner moves units between
+3. **Where S2..S5 keep their data** (proposal, 2026-10-30; decided the same day: the data area, below). The owner moves units between
    firmwares, and no other firmware's data may be lost. Since S1, RemoteFM1 writes only 0xF2000..0xF3FFF (one A/B
    object, OBJ_RF, whose records are Bluetooth's address, trim and bondings, up to 1,536 B, and the standalone's
    settings) and the panel calibration's 0xFC000..0xFDFFF (`firmware/app.h` APP_STORE_OK, fm1-base patch 0006,
@@ -170,3 +170,26 @@ RemoteFM1 unit, and the owner trying it.
    0x96000; APP_STORE_OK widened to exactly 0x93000..0x96FFF, the only writers sa_ubank.c's two checked ones
    (tests/store_window_test.c, tests/run_tests.sh). (c) The loops in the pool (3,584 events + a 512-event take),
    saved and loaded over SysEx: SA_LOOP, docs/PROTOCOL.md section 8, tools/sa_loops.py; nothing of them in flash.
+
+   **The owner's decision, 2026-10-30 (0.3.1, branch `more-storage`):** "I think it's fine to use the space
+   choralroot or fizz stores data in. Both can backup and restore data." So the standalone claims part of the data
+   area, 0x97000..0xD8FFF (66 sectors; `firmware/app.h` SA_STORE_LO / SA_STORE_HI, `firmware/sa/sa_store.c`):
+   0x97000 / 0x98000 a directory (an A/B pair: the valid one with the higher sequence is in charge; its CRC last) and
+   0x99000..0xD8FFF a pool of 64 sectors. The directory lists 16 user banks (pool sector, arrival, the CRC-32 of the
+   voices as sent, a 10-character name) and 16 loops (length, tempo, bars, events, their CRC-32 and up to 7 pool
+   sectors of 512 events each). A save never writes over what the directory in charge uses: the changed banks or loops
+   go into free pool sectors (taken in turn from a cursor), then the other directory sector; a power cut leaves the old
+   directory and its data in charge. Unchanged loops cost nothing; a save where nothing changed writes nothing. The pool
+   holds every bank, the loops at their largest (23 sectors) and a whole new copy of them (a compile-time check). The
+   writes run from the main loop in steps, one flash operation (a 4 KiB erase or a 1 KiB write) a pass and one pass in
+   10 ms at most, since the device's erase silences the audio while it runs. User banks: 16 (USER1..USER16), the
+   17th replaces the oldest; SAVE held also saves the 16 loops (the recording options were already in OBJ_SA), loaded
+   at power-on; SA_LOOP stays. 0.3.0's three banks in XDATA0 are taken over at the first start (oldest first, once:
+   the directory's `mig`), and XDATA0 is no longer written. SA_INFO (`0x0B`, docs/PROTOCOL.md section 8) tells a host
+   the most banks, how many are kept, their names and whether a write runs; NAME renames one. APP_STORE_OK is exactly
+   0xF2000..0xF3FFF, 0xFC000..0xFDFFF and 0x97000..0xD8FFF (tests/store_window_test.c; tests/run_tests.sh checks
+   that sa_store.c's sf_erase / sf_write are the app's only flash writers). Installing ChoralRoot or FIZZ (or saving
+   there) loses RemoteFM1's banks and loops, and RemoteFM1's saves lose theirs: each firmware's backup is the way back.
+   Tests: firmware/tests/standalone_s5.txt (16 banks, the 17th, SA_INFO, NAME, a power cycle) and standalone_store.txt
+   (0.3.0's banks taken over once, loops across a power cycle, nothing written when nothing changed, one loop alone,
+   power cuts in the data, at the directory's erase and at its write).

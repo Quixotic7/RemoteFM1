@@ -954,6 +954,11 @@ static void rfa_diag(uint32_t t, uint32_t cmd, const uint8_t *body, uint32_t len
         rf_send(t, RF_SA_LOOP_R, b, sa_loop_cmd(body, len, b));
         break;
     }
+    case RF_SA_INFO: {                              /* the standalone's user banks (sa/sa_ubank.c) */
+        static uint8_t b[SA_INFO_REPLY] PLAT_POOL;
+        rf_send(t, RF_SA_INFO_R, b, sa_info_cmd(body, len, b));
+        break;
+    }
     case RF_TILE:
         if (!rfm_app_tile_m0(body, len)) {
             rf_st[t].bad++;

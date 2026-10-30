@@ -120,7 +120,7 @@ static struct {
     uint8_t arp_show;                        /* the arp's last note + 1, shown (screen, LEDs) through its gate's gap
                                               * till the next step (0: none; the owner, 2026-10-30: no blank flicker) */
     uint8_t loop_launch;                     /* a loop picked while one plays: at once, at the bar, at the end (SL_LAUNCH_*) */
-    uint8_t ubank_seq;                       /* the user banks' count of arrivals (sa_ubank.c) */
+    uint8_t ubank_seq;                       /* (0.3.0's count of the user banks' arrivals: kept, unused) */
     char name[12];                           /* the voice's */
     uint32_t keys;                           /* keys held (as played: lib/touch) */
     uint32_t btns;                           /* buttons held (plat.h's B_*) */
@@ -151,6 +151,7 @@ static struct {
     uint32_t notes_out, notes_in, ev_drop, panics, saves, loads, cc_out, save_holds;   /* (the simulator's checks) */
 } sa;
 
+#include "sa_store.c"
 #include "sa_ubank.c"
 
 /* ------------------------------------------------------------------ the render's queue --- */
@@ -1014,6 +1015,7 @@ static void sa_hold(uint32_t b)              /* ... held SA_HOLD_MS */
     if (b == B_SAVE) {                       /* save everything now */
         sa.save_holds++;
         sa_save_now();
+        sf.loops_req = 1;                    /* the loops too (sa_store.c: in steps, from the main loop) */
         sa_overlay(SA_SCR_SAVED);
     } else if (b == B_ARP) {                 /* the arp's settings */
         sa_overlay_menu(SA_SCR_ARPSET);
@@ -1166,6 +1168,16 @@ static void sa_ms(uint32_t btns, const int32_t *steps)
         sa_load_voice();
     }
     sa.bench_was = (uint8_t)busy;
+    sa_ub_poll();                            /* the flash (sa_store.c): a bank that came in, a name, 0.3.0's banks */
+    if (sf.loops_req && !sf_busy() && sf_loops_begin() == 0)
+        sf.loops_req = 0;                    /* ... the loops (SAVE held) */
+    if (sf_ms(now) && !sa.panel && ub.valid[sf.slot]) {   /* a DX7 bank arrived: kept, and its first voice played */
+        sa.bank = (uint8_t)sa_bank_of_slot(sf.slot);
+        sa.voice = 0;
+        sa_load_voice();
+        sa_changed();
+        sa_overlay(SA_SCR_PRESET);
+    }
     if (sa.panel) {
         if (!rf_session_on() && now - sa.host_ms >= SA_HOST_MS)
             sa_leave_panel();                /* a HELLO and nothing since */
@@ -1217,16 +1229,6 @@ static void sa_ms(uint32_t btns, const int32_t *steps)
     sa_encoders(steps);
     sar_ms(now);
     sl_step(now);
-    {
-        int32_t u = sa_ub_take();            /* a DX7 bank arrived: kept, and its first voice played */
-        if (u >= 0) {
-            sa.bank = (uint8_t)sa_bank_of_slot((uint32_t)u);
-            sa.voice = 0;
-            sa_load_voice();
-            sa_changed();
-            sa_overlay(SA_SCR_PRESET);
-        }
-    }
     if (sa.ov != sa.base && (int32_t)(now - sa.ov_until) >= 0) {
         sa.ov = sa.base;                     /* a passing screen: back to the one under it (a menu, CC-Bank, HOME) */
         sa.poke = 1;
@@ -1242,9 +1244,13 @@ static void sa_init(void)
     memset(&sa, 0, sizeof sa);               /* (the simulator's reboot runs this again) */
     memset(&rm, 0, sizeof rm);               /* (MIDI REMOTE is never kept: off at power-on) */
     sa_settings_defaults();
+    sf_init();                               /* the data area's directory (sa_store.c) */
     memset(&ub, 0, sizeof ub);
+    ub.name_slot = SF_NONE;
     sa_ub_scan();
+    sa_ub_mig_scan();
     sl_init();
+    sl_store_load();                         /* the loops kept (SAVE held) */
     sar_init();
     for (k = 0; k < NKEYS; k++)
         sa.key_note[k] = 0xFFu;
