@@ -86,6 +86,7 @@ static struct {
     uint8_t menu;                            /* the overlay is a menu (sa_overlay_menu) */
     uint8_t view;                            /* HOME's view: 0 Notes, 1 Scope, 2 Keys */
     uint8_t mfocus;                          /* a settings menu's option (Rec options, Arp settings: 0..3) */
+    uint32_t sel_ms;                         /* SELECT's last detent */
     uint8_t arp_mode, arp_rate, arp_oct, arp_gate;   /* sa_arp.c's settings */
     uint16_t bpm;                            /* the tempo (SELECT), 40..240 */
     uint8_t rec_len, rec_quant, rec_count, rec_layer;   /* sa_loop.c's recording options */
@@ -94,6 +95,7 @@ static struct {
     uint32_t keys;                           /* keys held (as played: lib/touch) */
     uint32_t btns;                           /* buttons held (plat.h's B_*) */
     uint8_t key_note[NKEYS], key_ch[NKEYS];  /* what each held key started (0xFF: nothing, after a panic) */
+    uint8_t key_arp[NKEYS];                  /* ... given to the arp */
     uint8_t held[128];                       /* the notes sounding from the keys and MIDI in, counted: the screen */
     uint32_t rheld[4];                       /* MIDI in's notes held (bit n) */
     int8_t oct_before;                       /* the octave before the first of OCT- / OCT+ went down */
@@ -225,6 +227,9 @@ static void sa_note(uint32_t note, uint32_t vel)   /* the screen's count and the
     sa.poke = 1;
 }
 
+static void sar_key(uint32_t note, uint32_t vel);   /* (sa_arp.c) */
+static int sar_is_on(void);
+
 static void sa_key(uint32_t k, uint32_t vel)       /* a key down (vel) or up (0) */
 {
     if (vel) {
@@ -232,14 +237,24 @@ static void sa_key(uint32_t k, uint32_t vel)       /* a key down (vel) or up (0)
         n = clamp(n, 0, 127);
         sa.key_note[k] = (uint8_t)n;
         sa.key_ch[k] = (uint8_t)(sa.ch - 1u);
+        sa.key_arp[k] = (uint8_t)sar_is_on();
+        sa.notes_out++;
+        if (sa.key_arp[k]) {                 /* the arp plays it (sa_arp.c) */
+            sar_key((uint32_t)n, vel);
+            sa.poke = 1;
+            return;
+        }
         sa_note((uint32_t)n, vel);
         sa_midi3(0x90u | sa.key_ch[k], (uint32_t)n, vel);
         sa_rec_ev(SA_LE_ON, (uint32_t)n, vel);
-        sa.notes_out++;
     } else if (sa.key_note[k] != 0xFFu) {
-        sa_note(sa.key_note[k], 0);
-        sa_midi3(0x80u | sa.key_ch[k], sa.key_note[k], 0x40u);
-        sa_rec_ev(SA_LE_OFF, sa.key_note[k], 0x40u);
+        if (sa.key_arp[k]) {
+            sar_key(sa.key_note[k], 0);
+        } else {
+            sa_note(sa.key_note[k], 0);
+            sa_midi3(0x80u | sa.key_ch[k], sa.key_note[k], 0x40u);
+            sa_rec_ev(SA_LE_OFF, sa.key_note[k], 0x40u);
+        }
         sa.key_note[k] = 0xFFu;
     }
 }
@@ -377,8 +392,7 @@ static void sa_close(void)                   /* back to the HOME view */
 }
 
 #include "sa_loop.c"
-static int sl_clock_on(void) { return 0; }
-static uint32_t sl_bpm_now(void) { return sa.bpm; }
+#include "sa_arp.c"
 #include "sa_cc.c"
 
 static void sa_settings_fill(sa_store_t *s)
@@ -451,6 +465,7 @@ static void sa_enter_panel(uint32_t t)
         return;
     sl_halt();
     sa_all_off(1);
+    sar_set(sar.on);                         /* (the arp stops: on again, as it was, when the host leaves) */
     sa.keys = 0;
     touch_on(0);                             /* (the panel's keys are plat_keys again, as RemoteFM1 0.2 has them) */
     sa.panel = 1;
@@ -496,6 +511,10 @@ static void sa_session(uint32_t on, uint32_t t)   /* (rfm_main.c rfa_session_cha
 static void sa_midi_in(uint32_t pkt)
 {
     uint32_t cin = pkt & 15u, st = (pkt >> 8) & 0xFFu, d1 = (pkt >> 16) & 0x7Fu, d2 = (pkt >> 24) & 0x7Fu;
+    if (!sa.panel && cin == 15u && st >= 0xF8u) {
+        sar_realtime(st);                    /* MIDI clock, start, continue, stop (sa_arp.c) */
+        return;
+    }
     if (sa.panel || cin < 8u || cin > 14u || st < 0x80u || st >= 0xF0u || (st & 15u) != sa.ch - 1u)
         return;
     sa.notes_in++;
@@ -549,6 +568,8 @@ static void sa_leds(void)
         b |= 1u << B_PLAY;                   /* a loop plays */
     if (sl.state == SL_REC || sl.state == SL_DUB || (sl.state == SL_COUNT && plat_ms() % 500u < 250u))
         b |= 1u << B_REC;                    /* recording (blinking: the count) */
+    if (sar.on)
+        b |= 1u << B_ARP;
     if (sa.oct < 0)
         b |= 1u << B_OCTDN;
     if (sa.oct > 0)
@@ -589,6 +610,18 @@ static void sa_recopt(uint32_t o, int32_t d) /* the recording options: LEN, QUAN
     }
 }
 
+static void sa_arpopt(uint32_t o, int32_t d) /* the arp's settings: MODE, RATE, OCT, GATE */
+{
+    static const uint8_t LO[4] = {0, 0, 1, 1}, HI[4] = {SA_ARP_NMODES - 1u, SA_ARP_NRATES - 1u, 4, 10};
+    uint8_t *v[4] = {&sa.arp_mode, &sa.arp_rate, &sa.arp_oct, &sa.arp_gate};
+    int32_t x = clamp((int32_t)*v[o & 3u] + d, LO[o & 3u], HI[o & 3u]);
+    sa.mfocus = (uint8_t)(o & 3u);
+    if (x != *v[o & 3u]) {
+        *v[o & 3u] = (uint8_t)x;
+        sa_changed();
+    }
+}
+
 static int sa_menu_knob(uint32_t k, int32_t d)   /* a menu takes KN1..KN4 (k 0..3) or PRESETS (4): 1 taken */
 {
     if (!sa.menu)
@@ -602,6 +635,12 @@ static int sa_menu_knob(uint32_t k, int32_t d)   /* a menu takes KN1..KN4 (k 0..
         break;
     case SA_SCR_LOOPS:
         sl.cursor = (uint8_t)clamp((int32_t)sl.cursor + d, 0, (int32_t)SA_LOOPS - 1);
+        break;
+    case SA_SCR_ARPSET:
+        if (k < 4u)
+            sa_arpopt(k, d);
+        else
+            sa.mfocus = (uint8_t)clamp((int32_t)sa.mfocus + d, 0, 3);
         break;
     default:
         return 0;
@@ -617,6 +656,18 @@ static void sa_select(int32_t d)             /* SELECT: the tempo; in a menu, it
         sa_menu_touch();
     } else if (sa.menu && sa.ov == SA_SCR_LOOPS) {
         sa_menu_knob(4u, d);
+    } else if (sa.menu && sa.ov == SA_SCR_ARPSET) {
+        sa_arpopt(sa.mfocus, d);
+        sa_menu_touch();
+    } else if (!sa.menu || sa.ov != SA_SCR_THEME) {   /* the tempo (faster when turned fast) */
+        uint32_t now = plat_ms(), dt = now - sa.sel_ms;
+        int32_t b = clamp((int32_t)sa.bpm + d * (dt < 40u ? 4 : 1), SA_BPM_MIN, SA_BPM_MAX);
+        sa.sel_ms = now;
+        if (b != sa.bpm) {
+            sa.bpm = (uint16_t)b;
+            sa_changed();
+        }
+        sa_overlay(SA_SCR_TEMPO);
     }
 }
 
@@ -630,6 +681,13 @@ static void sa_tap(uint32_t b)               /* SAVE, ARP, PLAY, REC let go befo
             sl_play_tap();
             if (sl.state != SL_PLAY && sa.ov == SA_SCR_LOOP)
                 sa_close();
+        }
+    } else if (b == B_ARP) {
+        if (sa.menu && sa.ov == SA_SCR_ARPSET) {
+            sa_close();
+        } else {
+            sar_set(!sar.on);
+            sa_overlay(SA_SCR_ARP);
         }
     } else if (b == B_REC) {
         if (sa.menu && sa.ov == SA_SCR_RECOPT)
@@ -652,6 +710,8 @@ static void sa_hold(uint32_t b)              /* ... held SA_HOLD_MS */
     } else if (b == B_PLAY) {                /* the 16 loops */
         sl.cursor = sl.next != 0xFFu ? sl.next : sl.cur;
         sa_overlay_menu(SA_SCR_LOOPS);
+    } else if (b == B_ARP) {                 /* the arp's settings */
+        sa_overlay_menu(SA_SCR_ARPSET);
     } else if (b == B_REC && !sl_recording()) {   /* the recording options */
         sa_overlay_menu(SA_SCR_RECOPT);
     }
@@ -766,6 +826,7 @@ static void sa_ms(uint32_t btns, const int32_t *steps)
     sa.keys = keys;
     sa_buttons(btns & ((1u << NB) - 1u));
     sa_encoders(steps);
+    sar_ms(now);
     sl_step(now);
     if (sa.ov != SA_SCR_HOME && (int32_t)(now - sa.ov_until) >= 0) {
         sa.ov = SA_SCR_HOME;
@@ -782,6 +843,7 @@ static void sa_init(void)
     memset(&sa, 0, sizeof sa);               /* (the simulator's reboot runs this again) */
     sa_settings_defaults();
     sl_init();
+    sar_init();
     for (k = 0; k < NKEYS; k++)
         sa.key_note[k] = 0xFFu;
     sa.led_b = sa.led_k = 0xFFFFFFFFu;

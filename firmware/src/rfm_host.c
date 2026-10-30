@@ -349,6 +349,16 @@ int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, c
             snprintf(w, sizeof w, "%s", want);
             w[strcspn(w, "\r\n")] = 0;
             sa_host_check("name", sa.name, w);
+        } else if (!strcmp(a, "clock")) {       /* sa clock BPM MS: a computer's MIDI clock for MS ms (USB MIDI in) */
+            double iv = 60000.0 / (atof(b) * 24.0), next = 0.0;
+            int ms = atoi(c), i;
+            for (i = 0; i < ms; i++) {
+                if (i >= (int)next) {
+                    sa_midi_in(0x0Fu | 0xF8u << 8);
+                    next += iv;
+                }
+                run_ms(1);
+            }
         } else if (!strcmp(a, "loopget")) {     /* sa loopget K: SA_LOOP GET's replies give loop K's events back */
             static uint8_t out[SA_LOOP_REPLY];
             uint32_t k = (uint32_t)atoi(b) % SA_LOOPS, first = 0, bad = 0, n;
@@ -732,6 +742,16 @@ int app_expect(const char *what, int *got)
         *got = (int)sa_lpool[sl.at[sl.cur] + (uint32_t)atoi(what + 8) % SA_LPOOL].t;
     else if (!strcmp(what, "sa_rec_opts"))         /* len quant count layer, a decimal digit each */
         *got = sa.rec_len * 1000 + sa.rec_quant * 100 + sa.rec_count * 10 + sa.rec_layer;
+    else if (!strcmp(what, "sa_arp"))              /* S4: the arp on, its notes, the tempo (a clock's if one runs) */
+        *got = sar.on;
+    else if (!strcmp(what, "sa_arp_notes"))
+        *got = (int)sar.notes;
+    else if (!strcmp(what, "sa_arp_opts"))         /* mode rate oct gate, a digit each (gate 10: 0) */
+        *got = sa.arp_mode * 1000 + sa.arp_rate * 100 + sa.arp_oct * 10 + sa.arp_gate % 10;
+    else if (!strcmp(what, "sa_bpm"))
+        *got = (int)sl_bpm_now();
+    else if (!strcmp(what, "sa_clock"))
+        *got = sl_clock_on();
     else if (!strcmp(what, "rf_store_saves"))      /* records saved into OBJ_RF (src/rfm_store.c); unchanged ones */
         *got = (int)rs_saves;
     else if (!strcmp(what, "rf_store_same"))

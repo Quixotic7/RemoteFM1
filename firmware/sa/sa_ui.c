@@ -40,6 +40,9 @@ static struct {
     uint32_t lpos, llen, lrec_ms;
     uint8_t ropt[4];
     uint8_t nbars;
+    /* S4: the arp's, the tempo's */
+    uint8_t arp_on, aopt[4], arp_step, clk;
+    uint32_t bpm;
     struct {
         uint8_t x0, x1, row, hi;
     } bar[32];

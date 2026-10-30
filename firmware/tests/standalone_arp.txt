@@ -1,0 +1,122 @@
+# SPDX-License-Identifier: MPL-2.0
+# RemoteFM1 standalone, S4 (STANDALONE-PLAN.md): the arp and the tempo. ARP turns it on (the Arp screen, ARP lit): the
+# keys held step at 1/16 of 120 BPM, up, each note 60 % of its step; ARP held: its settings (MODE, RATE, OCTAVES, GATE
+# on KN1..KN4); SELECT the tempo (the Tempo screen); a computer's MIDI clock sets the tempo and steps the arp, its
+# start restarts the pattern and the loop, its stop stops the loop; an arp recorded into a loop. Both builds.
+wait 400
+expect sa_bpm 120
+tap ARP
+expect sa_arp 1
+expect sa_screen 13
+expect sa_lit_btns >255
+# C major held: C4 E4 G4 (keys 7, 11, 14): C4 at once, then E4 125 ms later, G4, C4 again; off after 75 ms
+out
+key 7 down 100
+key 11 down 90
+key 14 down 80
+wait 20
+expect_out USB 90 3C 64
+expect_no_out USB 90 40 5A
+wait 70
+expect_out USB 80 3C 40
+wait 60
+expect_out USB 90 40 5A
+wait 125
+expect_out USB 90 43 50
+wait 125
+expect sa_arp_notes 4
+wait 30
+shot sa_arp.png
+wait 1000
+expect sa_arp_notes 12
+key 7 up
+key 11 up
+key 14 up
+wait 200
+expect sa_arp_notes 12
+expect sa_held 0
+expect sa_sounding <9
+# the settings (ARP held): DOWN (KN1), 1/8 (KN2 -2), 2 octaves (KN3), gate 100 % (KN4 +4); ARP closes them
+press ARP
+wait 600
+release ARP
+expect sa_screen 14
+turn K1 1
+turn K2 -2
+turn K3 1
+turn K4 4
+expect sa_arp_opts 1120
+wait 30
+shot sa_arp_settings.png
+turn PRESET -3
+turn SELECT 2
+expect sa_arp_opts 3120
+wait 30
+shot sa_arp_settings_mode.png
+turn SELECT -2
+tap ARP
+expect sa_screen 0
+expect sa_arp 1
+# DOWN over 2 octaves at 1/8: C4 E4 held: E5 C5 E4 C4, 250 ms apart, legato (gate 100 %)
+out
+key 7 down 100
+key 11 down 100
+wait 20
+expect_out USB 90 4C 64
+wait 250
+expect_out USB 80 4C 40
+expect_out USB 90 48 64
+wait 500
+expect_out USB 90 3C 64
+key 7 up
+key 11 up
+wait 50
+# the tempo: SELECT (the Tempo screen); 130 BPM: 1/8 is 230 ms
+turn SELECT 10 100
+expect sa_bpm 130
+expect sa_screen 15
+wait 30
+shot sa_tempo.png
+turn SELECT -10 100
+# a computer's MIDI clock at 100 BPM: the tempo follows it, the arp steps on its ticks (1/8: 300 ms)
+sa clock 100 600
+expect sa_clock 1
+expect sa_bpm >98
+expect sa_bpm <102
+key 7 down 100
+sa clock 100 610
+expect sa_arp_notes >17
+expect sa_arp_notes <21
+key 7 up
+turn SELECT 1 100
+wait 30
+shot sa_tempo_clock.png
+wait 500
+expect sa_clock 0
+expect sa_bpm 121
+turn SELECT -1 100
+# an arp recorded into a loop: REC, a key held, REC: the loop holds the arp's notes
+tap ARP
+tap ARP
+expect sa_arp 1
+tap REC
+key 7 down 100
+wait 600
+key 7 up
+press REC
+release REC
+expect sa_lstate 1
+expect sa_ln >4
+# MIDI start: the loop from its start; stop: it stops
+sa clock 120 300
+midi USB FA
+expect sa_lpos <5
+sa clock 120 300
+midi USB FC
+expect sa_lstate 0
+# ARP off: the keys play again
+tap ARP
+expect sa_arp 0
+out
+tapkey 7
+expect_out USB 90 3C 64

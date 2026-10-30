@@ -48,7 +48,9 @@ static struct {
     uint32_t drops, wraps, takes;            /* (the simulator's checks) */
 } sl;
 
-static uint32_t sl_bar_ms(void) { return 240000u / sa.bpm; }
+static int sl_clock_on(void);                /* (sa_arp.c: a computer's MIDI clock is running) */
+static uint32_t sl_bpm_now(void);            /* (sa_arp.c: the tempo, the clock's or SELECT's) */
+static uint32_t sl_bar_ms(void) { return 240000u / sl_bpm_now(); }
 
 /* ------------------------------------------------------------------ the pool --- */
 static void sl_move(uint32_t to, uint32_t from, uint32_t n)   /* (overlapping: no memmove in the USB-only build) */
@@ -174,7 +176,7 @@ static void sa_rec_ev(uint32_t type, uint32_t d1, uint32_t d2)   /* what is play
     t = sl.state == SL_REC ? (int32_t)(plat_ms() - sl.rec_t0) : (int32_t)sl_pos();
     if (type == SA_LE_ON) {
         if (sa.rec_quant) {                  /* to the grid: 1/8 or 1/16 at the tempo */
-            int32_t g = (int32_t)(60000u / sa.bpm / (sa.rec_quant == 1u ? 2u : 4u)), q = (t + g / 2) / g * g;
+            int32_t g = (int32_t)(60000u / sl_bpm_now() / (sa.rec_quant == 1u ? 2u : 4u)), q = (t + g / 2) / g * g;
             sl.qsh[d1 & 127u] = (int16_t)(q - t);
             t = q;
         } else {
@@ -223,7 +225,7 @@ static void sl_begin(void)                   /* the recording starts (after the 
     } else {                                 /* a new take */
         sl_all_off();
         sl_clear(k);
-        sl.bpm[k] = sa.bpm;
+        sl.bpm[k] = (uint16_t)sl_bpm_now();
         sl.bars[k] = (uint8_t)bars;
         sl.rec_target = bars * sl_bar_ms();
         sl.rec_t0 = plat_ms();
@@ -286,9 +288,6 @@ static void sl_rec_stop(int play)            /* the recording ends; play: the lo
 }
 
 /* ------------------------------------------------------------------ playing --- */
-static int sl_clock_on(void);                /* (sa_arp.c: a computer's MIDI clock is running) */
-static uint32_t sl_bpm_now(void);
-
 /* the loop's events up to its position; at its end, the next turn (an overdub's take joins it; a queued loop comes) */
 static void sl_fire(void)
 {

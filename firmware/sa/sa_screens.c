@@ -430,12 +430,107 @@ static void sa_paint_recopt(void)
     }
 }
 
+/* ------------------------------------------------------------------ S4: Arp, Arp settings, Tempo --- */
+static const char *const SA_AMODE[SA_ARP_NMODES] = {"UP", "DOWN", "UP DOWN", "RANDOM", "PLAYED"};
+static const char *const SA_AMODE_S[SA_ARP_NMODES] = {"UP", "DOWN", "UP/DN", "RAND", "ORDER"};
+static const char *const SA_ARATE[SA_ARP_NRATES] = {"1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32"};
+static const char *const SA_AOCT[4] = {"1", "2", "3", "4"};
+static const char *const SA_AGATE[10] = {"10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%"};
+
+static void sa_bpm_chip(int32_t y, int bpm_word)
+{
+    char t[12];
+    int32_t w;
+    sa_txt_num(t, ui.bpm);
+    if (bpm_word)
+        sa_cpy(t + (ui.bpm >= 100u ? 3 : 2), ui.clk ? " EXT" : " BPM");
+    w = sg_text_w(t, 1) + 14;
+    sg_chip_text(230 - w, y, w, 22, 7, t, ui.clk ? UC(A2) : UC(PANEL), ui.clk ? UC(ON) : UC(INK));
+}
+
+/* eight steps (16, 28, 40, 52 high, twice) with the ball hopping on the one that sounds */
+static void sa_steps(uint32_t step, int lit)
+{
+    static const uint8_t H[4] = {16, 28, 40, 52};
+    static const char *const BALL[] = {"..aaaaaa..", ".aaaaaaaa.", "aaaaaaaaaa", "aaaaaaaaaa", "aaaaaaaaaa",
+                                       "aaaaaaaaaa", "aaaaaaaaaa", "aaaaaaaaaa", ".aaaaaaaa.", "..aaaaaa.."};
+    int32_t i, s = (int32_t)(step % 8u);
+    for (i = 0; i < 8; i++)
+        sg_rect(18 + 26 * i, 218 - H[i & 3], 22, H[i & 3], lit && i == s ? UC(A4) : UC(D2));
+    if (lit) {
+        sa_arrow_c = UC(A3);
+        sg_sprite(23 + 26 * s, 218 - H[s & 3] - 14, 1, BALL, 10, sa_arrow_col);
+    }
+}
+
+static void sa_paint_arp(void)
+{
+    const char *m = ui.arp_on ? SA_AMODE[ui.aopt[0]] : "OFF";
+    int32_t n = 9;
+    sg_chip_text(10, 8, 0, 22, 7, "ARP", ui.arp_on ? UC(A4) : UC(PANEL), ui.arp_on ? UC(ON) : UC(INK));
+    sa_bpm_chip(8, 0);
+    while (n > 3 && sg_text_w(m, n) > 224)
+        n--;
+    sg_text_sh((SG_W - sg_text_w(m, n)) / 2, 52 + (9 - n) * 4, n, m, ui.arp_on ? UC(INK) : UC(MID), 4, UC(D2));
+    sa_steps(ui.arp_step, ui.arp_on);
+}
+
+static void sa_paint_arpset(void)
+{
+    static const char *const *const BIG[4] = {SA_AMODE, SA_ARATE, SA_AOCT, SA_AGATE};
+    static const uint8_t LO[4] = {0, 0, 1, 1}, N[4] = {SA_ARP_NMODES, SA_ARP_NRATES, 4, 10};
+    char bpm[12];
+    sa_optmenu_t m = {"ARP", 0, 0, 0, {"MODE", "RATE", "OCTAVES", "GATE"}, {"MODE", "RATE", "OCT", "GATE"},
+                      {0}, 0, 0, {SA_TK_A5, SA_TK_A1, SA_TK_A3, SA_TK_A4}, ui.mfocus & 3u};
+    uint32_t f = m.focus, v = ui.aopt[f] - LO[f];
+    sa_txt_num(bpm, ui.bpm);
+    sa_cpy(bpm + (ui.bpm >= 100u ? 3 : 2), ui.clk ? " EXT" : " BPM");
+    m.right = bpm;
+    m.title_bg = UC(A4);
+    m.title_fg = UC(ON);
+    m.val[0] = SA_AMODE_S[ui.aopt[0]];
+    m.val[1] = SA_ARATE[ui.aopt[1]];
+    m.val[2] = SA_AOCT[ui.aopt[2] - 1u];
+    m.val[3] = SA_AGATE[ui.aopt[3] - 1u];
+    m.prev = v > 0u ? BIG[f][v - 1u] : 0;
+    m.next = v + 1u < N[f] ? BIG[f][v + 1u] : 0;
+    if (f == 0u) {                           /* (the centre: the mode's long name; its cell the short one) */
+        sa_optmenu_t big = m;
+        big.val[0] = SA_AMODE[ui.aopt[0]];
+        sa_paint_optmenu(&big);
+        if (sg_hits(186, 46)) {
+            sg_chip(10, 188, 49, 42, UC(A5));
+            sg_text(8 + (53 - sg_text_w("MODE", 1)) / 2, 195, 1, "MODE", UC(ON));
+            sg_text(8 + (53 - sg_text_w(m.val[0], 1)) / 2, 213, 1, m.val[0], UC(ON));
+        }
+    } else {
+        sa_paint_optmenu(&m);
+    }
+}
+
+static void sa_paint_tempo(void)
+{
+    char t[4];
+    uint32_t beat = (uint32_t)((uint64_t)ui.now * ui.bpm / 60000u);
+    sg_chip_text(10, 8, 0, 22, 7, "TEMPO", UC(A3), UC(ON));
+    sg_chip_text(ui.clk ? 167 : 175, 8, 0, 22, 7, ui.clk ? "MIDI CLK" : "BPM", ui.clk ? UC(A2) : UC(PANEL),
+                 ui.clk ? UC(ON) : UC(INK));
+    sa_txt_num(t, ui.bpm);
+    sg_text_sh((SG_W - sg_text_w(t, 9)) / 2, 52, 9, t, UC(INK), 4, UC(D2));
+    sa_steps(beat, 1);
+}
+
 /* ------------------------------------------------------------------ the dispatch --- */
 static void sa_ui_snap_more(void)
 {
     if (ui.scr == SA_SCR_HOME && sl_recording())
         ui.scr = SA_SCR_REC;                 /* (a recording: the Rec screen is HOME's) */
     sa_ui_snap_loop();
+    ui.arp_on = sar.on;
+    ui.aopt[0] = sa.arp_mode, ui.aopt[1] = sa.arp_rate, ui.aopt[2] = sa.arp_oct, ui.aopt[3] = sa.arp_gate;
+    ui.arp_step = (uint8_t)(sar.step ? sar.step - 1u : 0u);
+    ui.clk = (uint8_t)sl_clock_on();
+    ui.bpm = sl_bpm_now();
 }
 
 static int sa_paint_more(void)               /* 1: painted (a screen after S1) */
@@ -449,6 +544,9 @@ static int sa_paint_more(void)               /* 1: painted (a screen after S1) *
     case SA_SCR_LOOP: sa_paint_loopplay(); return 1;
     case SA_SCR_LOOPS: sa_paint_loops(); return 1;
     case SA_SCR_RECOPT: sa_paint_recopt(); return 1;
+    case SA_SCR_ARP: sa_paint_arp(); return 1;
+    case SA_SCR_ARPSET: sa_paint_arpset(); return 1;
+    case SA_SCR_TEMPO: sa_paint_tempo(); return 1;
     default: return 0;
     }
 }
