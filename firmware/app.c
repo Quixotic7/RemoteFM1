@@ -8,6 +8,8 @@
  *   src/rfm_draw.c       the TILES decoder, into the shadow (or straight to the panel: RFM_SHADOW 0)
  *   src/rfm_push.c       the push of the shadow's dirty tiles, a step at a time, never waiting for the panel
  *   src/rfm_app.c        the protocol layer: session, HELLO_R, LEDS, TILES, FRAME_ACK, PANEL_R, the panel as MIDI
+ *   sa/sa_bench.c        the standalone DX7's bench (STANDALONE-PLAN.md S0): FM6 (sa/sa_synth.c, its own unit:
+ *                        fm1.toml o2) timed block by block, asked for over SysEx (SA_BENCH)
  *   src/rfm_main.c       the app: its transports (USB SysEx, USB bulk, Bluetooth SysEx), the LEDs, the panel, the
  *                        waiting screen, M0's diagnostics, the contract with the platform
  *   src/rfm_dev.c        what only the FM-1 has (usb.c's rings, the panel's DMA), or
@@ -15,4 +17,5 @@
 #include "remote_proto.h"
 #include "rfm_draw.c"
 #include "rfm_push.c"
+#include "sa/sa_bench.c"
 #include "rfm_main.c"

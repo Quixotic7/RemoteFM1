@@ -9,7 +9,9 @@
 #     protocol layer in a scripted session;
 #   - felucca-bsp's usb.c as RemoteFM1 patches it (its SysEx tap, macOS's CIN 0xF byte), and as everyone else builds it;
 #   - fm1-base's Bluetooth MIDI SysEx as RemoteFM1 patches it (le_midi.c's parser and encoder);
-#   - tools/fm1_install.py's package checks and identity names (the built packages too, when there).
+#   - tools/fm1_install.py's package checks and identity names (the built packages too, when there);
+#   - the standalone DX7 (firmware/sa/sa_synth.c on saadet's FM6): its own checks, its bench over SysEx in the
+#     simulator, and with SAADET=dir (a saadet checkout) the same renders as saadet's own (tests/fm6_parity.sh).
 #   tests/run_tests.sh          (host/run_tests.sh and the web/ tests are their own: README.md "Tests")
 # Ends "ALL TESTS PASSED" (exit 0), or stops at the first failure.
 set -e
@@ -39,10 +41,11 @@ sim() {   # sim BINARY SCRIPT...
 echo "== the app in fm1-base's host simulator: USB SysEx, bulk, Bluetooth, the update's SysEx beside (firmware/tests)"
 env -u CC ./build.sh --host >/dev/null
 sim "$SIM/remotefm1_host" firmware/tests/session.txt firmware/tests/bulk_ota.txt firmware/tests/ble.txt \
-    firmware/tests/hold.txt
+    firmware/tests/hold.txt firmware/tests/sa_bench.txt
 echo "== the same, the USB-only build (--no-ble)"
 env -u CC ./build.sh --host --no-ble >/dev/null
-sim "$SIM/remotefm1-usb_host" firmware/tests/session.txt firmware/tests/bulk_ota.txt firmware/tests/hold.txt
+sim "$SIM/remotefm1-usb_host" firmware/tests/session.txt firmware/tests/bulk_ota.txt firmware/tests/hold.txt \
+    firmware/tests/sa_bench.txt
 echo "== without the shadow frame buffer (RFM_SHADOW 0: rectangles straight to the panel, no COPY)"
 CC="$PWD/firmware/tests/cc_noshadow.sh" ./build.sh --host >/dev/null
 sim "$SIM/remotefm1_host" firmware/tests/noshadow.txt
@@ -85,5 +88,17 @@ if [ -f /opt/homebrew/include/libusb-1.0/libusb.h ]; then
         -L/opt/homebrew/lib -lusb-1.0
 else
     echo "(no libusb in /opt/homebrew: tools/m0_bulk.c not built)"
+fi
+echo "== the standalone DX7: sa_synth's checks (firmware/sa/sa_synth.c, saadet's FM6; the tables of the build above)"
+$TCC $SAN -Wno-unused-but-set-variable -ffp-contract=off -DPLAT_HOST -Ifirmware/build/gen -Ifirmware/sa -Itests \
+    -o "$H/sa_synth_test" tests/sa_synth_test.c firmware/sa/sa_synth.c -lm
+mkdir -p "$H/sa"
+"$H/sa_synth_test" "$H/sa"
+python3 firmware/tools/sa_bench.py --selftest | tail -1
+if [ -n "${SAADET:-}" ]; then
+    echo "== the standalone DX7 against saadet's own (SAADET=$SAADET)"
+    tests/fm6_parity.sh "$SAADET"
+else
+    echo "(no SAADET=dir: the FM6 parity with saadet's own instrument not run: tests/fm6_parity.sh)"
 fi
 echo "ALL TESTS PASSED"

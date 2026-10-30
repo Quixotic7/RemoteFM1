@@ -8,6 +8,10 @@ id_prefix = "FM-1_52"          # package identity: dev FM-1_5200, releases FM-1_
 usb_product = "FM-1"           # the USB product name as RemoteFM1 0.1 had it (the manufacturer: felucca-bsp's own,
                                # "Hügelton Instruments", as 0.1): the same descriptors, so hosts see the same device
 include = ["src"]              # the protocol layer, the decoder and the push (src/: host/ compiles them too)
+o2 = ["sa/sa_synth.c"]         # the standalone DX7 (saadet's FM6 in third_party/saadet-fm6, STANDALONE-PLAN.md), -O2
+gen = ["tools/gen_fm6_tables.py --out {gen}/fm6_tables.h",   # FM6's tables, from MSFA's formulas
+       "tools/gen_sa_config.py --out {gen}/sa_config.h"]     # SA_BENCH=1 (./build.sh --bench): the bench build
+vendored = ["third_party/"]    # (other people's code: the register check leaves it)
 words = "words.tsv"
 ble = true                     # Bluetooth MIDI with a computer or tablet (--no-ble: the USB-only package)
 # Bluetooth's radio (patch 0003; measured on an FM-1 with a Mac, 2026-10-27, 1 KB SysEx frames: 6 KB/s stock,

@@ -1,0 +1,13 @@
+--- a/device/app.ld
++++ b/device/app.ld
+@@ -24,7 +24,9 @@
+      * and the radio trim (*.rf_trim, CONFIG_RF_TRIM_CODE_AT_RAM in their demos) run from RAM: the trim
+      * draws ~500 ms of high current, and fetching from the flash meanwhile corrupts what is read
+      * (the crashes 0.7 s into every BT start, fm1-ble notes/03-05) */
+-    .text : { KEEP(*(.text.crt0)) *(.text*) *(.rodata*)
++    /* .dsp_text, .audio_text: an app's DSP code that names its own sections (saadet's FM6), in the flash with
++     * the rest of the code unless an app's linker script places it */
++    .text : { KEEP(*(.text.crt0)) *(.text*) *(.dsp_text*) *(.audio_text*) *(.rodata*)
+               *(.bt_stack_code .ble_sm_code .hci_controller_code .ble_hci_code .ble_att_code .ble_db_code
+                 .classic_lmp_code .link_bulk_code .classic_rf_code .lmp_irq_code .ble_gatt_code .ble_ll_code
+                 .ble_rf_code .bt_rf_code .hci_interface_code .vendor_manager_code .device_manager_code)

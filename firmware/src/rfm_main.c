@@ -847,6 +847,11 @@ static void rfa_diag(uint32_t t, uint32_t cmd, const uint8_t *body, uint32_t len
         rf_blit_bench(t, body, len);
         break;
 #endif
+    case RF_SA_BENCH: {                             /* the standalone DX7's bench (sa/sa_bench.c) */
+        uint8_t b[SA_BENCH_REPLY];
+        rf_send(t, RF_SA_BENCH_R, b, sa_bench_cmd(body, len, b));
+        break;
+    }
     case RF_TILE:
         if (!rfm_app_tile_m0(body, len)) {
             rf_st[t].bad++;
@@ -1199,6 +1204,7 @@ void app_init(void)
     rfa.draw.rowbuf = rf_rowbuf;
 #endif
     rf_drain_t = rf_ticks();
+    sa_bench_init();
 #ifdef PLAT_HOST
     hs_init();                                      /* (the simulated host's parsers: rfm_host.c) */
 #endif
@@ -1229,9 +1235,14 @@ void app_frame(void)
     rf_run();
     if (lcd_idle())
         rf_screen_step();
+    sa_bench_step();
 }
 
-void app_input_only(void) { rf_run(); }
+void app_input_only(void)
+{
+    rf_run();
+    sa_bench_step();
+}
 
 void app_say(const char *a, const char *b) { (void)a, (void)b; }   /* (no UI of its own to speak) */
 

@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: MPL-2.0
+# The standalone DX7's bench (firmware/sa/sa_bench.c) asked for over USB SysEx (SA_BENCH 0x09), in fm1-base's host
+# simulator: idle until asked, waits for 3 s after boot, then 1 and 8 voices (SA_POLY 8) for 3 s of audio each, every
+# voice sounding throughout; the reply at each step. tests/run_tests.sh runs it.
+wait 300
+rf send usb 09
+expect rf_n_usb_49 1
+expect sa_bench_state 0
+rf send usb 09 01
+expect rf_n_usb_49 2
+expect sa_bench_state 1
+wait 2000
+expect sa_bench_state 1
+wait 1500
+expect sa_bench_state 2
+wait 6000
+rf send usb 09
+expect rf_n_usb_49 3
+expect sa_bench_state 3
+expect sa_bench_n 2
+expect sa_bench_blocks0 516
+expect sa_bench_sounding0 1
+expect sa_bench_blocks1 516
+expect sa_bench_sounding1 8
+expect rf_bad_usb 0

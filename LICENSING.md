@@ -39,6 +39,7 @@ contributors, moved onto fm1-base.
 | JieLi AC79 SDK: the Bluetooth libraries (`btctrler.a`, `btstack.a`, `crypto_toolbox_Osize.a`, `lib_ccm_aes.a`, `wl_rf_common.a`), the few SDK sources fm1-base's build compiles with them, `uboot.boot`, `cfg_tool.bin`, `eq_cfg_hw.bin`: read from your SDK checkout at build time, linked or placed in the package. No SDK file is in this tree | Apache-2.0 | <https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK> |
 | fm1-base's `ble/midi/le_midi.c`: portions from the SDK's `le_trans_data.c` (JieLi) | MPL-2.0 AND Apache-2.0 | `base/LICENSES/Apache-2.0.txt` |
 | The fonts fm1-base renders at build time (Barlow Semi Condensed, Terminus) | SIL OFL 1.1 | `base/assets/fonts/` |
+| The standalone DX7: FM6 from [saadet](https://github.com/keremimo/saadet) by Kerem Kilic (Ellic Studio), at `2eff7f1` (`fm6_core.c`, `fm6_msfa_ops.h`, `eng_fm6.c` (two includes dropped, the factory voices left out), `fm6_voice_policy.h`, `fm6_store.c`, `x0x/fastmath.h`); its MSFA portions are Google Inc.'s, Pascal Gauthier's and Jean Pierre Cimalando's (Apache-2.0). Provenance and changes: `firmware/third_party/saadet-fm6/PROVENANCE.md`. RemoteFM1's own around it (`firmware/sa/`, `firmware/tools/gen_fm6_tables.py`, `gen_sa_config.py`, `sa_bench.py`, `tests/sa_*`, `tests/fm6_*`): RemoteFM1 contributors, MPL-2.0 | MPL-2.0, and MPL-2.0 AND Apache-2.0 where MSFA's portions are | `firmware/third_party/saadet-fm6/LICENSES/Apache-2.0-msfa.txt`, `LICENSES/MPL-2.0.txt` |
 
 ## Trademarks
 

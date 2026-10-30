@@ -25,9 +25,10 @@
 /* commands (host -> device) and replies (device -> host); M0's numbers are kept (docs/PROTOCOL.md section 5) */
 enum {
     RFM_HELLO = 0x01, RFM_SINK = 0x02, RFM_SOURCE = 0x03, RFM_ECHO = 0x04, RFM_STATS = 0x05, RFM_STATS_RESET = 0x06,
-    RFM_BLIT_BENCH = 0x07, RFM_TILE_M0 = 0x08,
+    RFM_BLIT_BENCH = 0x07, RFM_TILE_M0 = 0x08, RFM_SA_BENCH = 0x09,
     RFM_SESSION = 0x10, RFM_LEDS = 0x11, RFM_TILES = 0x12, RFM_PANEL_REQ = 0x13,
     RFM_HELLO_R = 0x41, RFM_DATA = 0x43, RFM_ECHO_R = 0x44, RFM_STATS_R = 0x45, RFM_ACK = 0x46, RFM_BLIT_R = 0x47,
+    RFM_SA_BENCH_R = 0x49,
     RFM_SOURCE_DONE = 0x50, RFM_FRAME_ACK = 0x52, RFM_PANEL_R = 0x53
 };
 

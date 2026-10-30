@@ -258,6 +258,10 @@ ECHO `0x04` / ECHO_R `0x44`, STATS `0x05` / STATS_R `0x45`, STATS_RESET `0x06`, 
 SINK `0x02`, SOURCE `0x03` / DATA `0x43` / SOURCE_DONE `0x50`, and M0's raw TILE `0x08`. They work as in M0, in and
 out of a session.
 
+SA_BENCH `0x09` / SA_BENCH_R `0x49` (the standalone DX7, STANDALONE-PLAN.md S0): body `01` starts the FM6 bench
+(again), an empty body asks how far it is; the reply is the state and the render time per audio block at each voice
+count measured (layout: `firmware/sa/sa_bench.c`; `firmware/tools/sa_bench.py` asks and prints it).
+
 Bluetooth radio test builds (firmware/patches/fm1-base 0004, the Bluetooth build only): STATS_R carries 40 more bytes
 after its `n` counters, what the computer's Bluetooth link negotiated (fm1-base `le_midi.c` `ble_midi_radio`),
 little-endian: `'R'` (0x52), 1 (the layout), the build's asks (bit0 data length 251, bit1 2M PHY, bit2 7.5 ms interval

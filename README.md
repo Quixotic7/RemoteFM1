@@ -161,8 +161,11 @@ git clone --depth 1 --branch AC79NN_SDK_V1.2.1_2023-12-13 https://gitee.com/Jiel
 ./build.sh --release 0.2.3           # -> firmware/build/remotefm1-0.2.3.fwsc (USB + Bluetooth MIDI), FM-1_52000203
 ./build.sh --release 0.2.3 --no-ble  # -> firmware/build/remotefm1-usb-0.2.3.fwsc (USB only: no Bluetooth library)
 ./build.sh                           # a development build, FM-1_5200
+./build.sh --bench [--no-ble]        # the standalone DX7's bench at boot (firmware/build/remotefm1[-usb]-bench.fwsc);
+                                     # firmware/tools/sa_bench.py reads it over USB-MIDI
 tests/run_tests.sh                   # the app in fm1-base's host simulator (firmware/tests/), the protocol code,
-                                     # the patched usb.c and Bluetooth SysEx, tools/fm1_install.py
+                                     # the patched usb.c and Bluetooth SysEx, tools/fm1_install.py, the DX7's checks
+tests/fm6_parity.sh SAADET_DIR       # the DX7 (saadet's FM6) against saadet's own build: tables and samples
 host/run_tests.sh                    # the host library's tests, with the cross test against the firmware's own code
 ```
 
@@ -175,6 +178,9 @@ firmware/src/rfm_dev.c      what only the FM-1 has (felucca-bsp usb.c's rings, t
                             host simulator's stand-ins, commands and checks (firmware/tests/*.txt)
 firmware/src/rfm_app.c      the protocol layer (no hardware; also compiled into the host tests)
 firmware/src/rfm_draw.c     the TILES decoder;  rfm_push.c: the screen push, which never blocks USB
+firmware/sa/                the standalone instrument (STANDALONE-PLAN.md): sa_synth.c, the DX7 on saadet's FM6
+firmware/third_party/saadet-fm6/   saadet's FM6 (Kerem Kilic; MSFA), pinned: PROVENANCE.md
+firmware/tools/             gen_fm6_tables.py (FM6's tables from MSFA's formulas), sa_bench.py
 firmware/patches/           RemoteFM1's changes to fm1-base and felucca-bsp (MPL-2.0), applied by build.sh
 base/                       fm1-base (git submodule), felucca-bsp in base/bsp
 proto/, docs/PROTOCOL.md    the protocol

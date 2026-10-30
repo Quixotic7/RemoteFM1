@@ -20,6 +20,8 @@
  *   BLIT_BENCH  baud8[] (none: 4, 2)       -> BLIT_R    n8, n x (baud8 full_us32 tiles_us32 strips_us32)
  *   TILE        x8 y8 w8 h8 px[w*h*2]      -> nothing: drawn at once (px RGB565 big endian, as the panel takes it;
  *                                             M1: into the shadow, then pushed)
+ *   SA_BENCH    (01: start)                -> SA_BENCH_R  the standalone DX7's bench (firmware/sa/sa_bench.c: its
+ *                                             layout; firmware/tools/sa_bench.py reads it)
  * Protocol 2 (M1) keeps all of these as diagnostics and adds the session, LED, screen and panel messages:
  * docs/PROTOCOL.md, proto/rfm1.h.
  * DATA's data[i] = (uint8_t)(seq * 7 + i); sum32 = rf_sum over data[] only. */
@@ -43,9 +45,10 @@
 
 enum {
     RF_HELLO = 0x01, RF_SINK = 0x02, RF_SOURCE = 0x03, RF_ECHO = 0x04, RF_STATS = 0x05, RF_STATS_RESET = 0x06,
-    RF_BLIT_BENCH = 0x07, RF_TILE = 0x08,
+    RF_BLIT_BENCH = 0x07, RF_TILE = 0x08, RF_SA_BENCH = 0x09,
     RF_R = 0x40,                    /* reply bit */
     RF_HELLO_R = 0x41, RF_DATA = 0x43, RF_ECHO_R = 0x44, RF_STATS_R = 0x45, RF_ACK = 0x46, RF_BLIT_R = 0x47,
+    RF_SA_BENCH_R = 0x49,
     RF_SOURCE_DONE = 0x50           /* bytes32 msgs32 dev_us32 aborted8 */
 };
 enum { RF_T_SX = 0, RF_T_BK = 1 };

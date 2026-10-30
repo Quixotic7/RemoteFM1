@@ -550,6 +550,14 @@ int app_expect(const char *what, int *got)
         *got = (int)rf_led_mid_k;
     else if (!strcmp(what, "rf_glow_keys"))
         *got = (int)rf_led_glow_k;
+    else if (!strcmp(what, "sa_bench_state"))      /* the standalone DX7's bench (sa/sa_bench.c) */
+        *got = sab.state;
+    else if (!strcmp(what, "sa_bench_n"))
+        *got = sab.n;
+    else if (!strncmp(what, "sa_bench_sounding", 17))
+        *got = sab.r[(uint32_t)atoi(what + 17) % SA_BENCH_NC].sounding;
+    else if (!strncmp(what, "sa_bench_blocks", 15))
+        *got = sab.r[(uint32_t)atoi(what + 15) % SA_BENCH_NC].blocks;
     else
         return 0;
     return 1;
