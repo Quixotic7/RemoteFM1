@@ -11,7 +11,10 @@
 #   - fm1-base's Bluetooth MIDI SysEx as RemoteFM1 patches it (le_midi.c's parser and encoder);
 #   - tools/fm1_install.py's package checks and identity names (the built packages too, when there);
 #   - the standalone DX7 (firmware/sa/sa_synth.c on saadet's FM6): its own checks, its bench over SysEx in the
-#     simulator, and with SAADET=dir (a saadet checkout) the same renders as saadet's own (tests/fm6_parity.sh).
+#     simulator, and with SAADET=dir (a saadet checkout) the same renders as saadet's own (tests/fm6_parity.sh);
+#   - the standalone instrument (firmware/sa/sa_main.c, STANDALONE-PLAN.md S1) in the simulator: the keys, MIDI out and
+#     in, the octave, channel and voices, the sound under full scale, the settings kept, the hand-over to a host and
+#     back; its screens shot to build/host/sim/sa_*.png; built with and without Yamaha's ROM cartridges; the chord names.
 #   tests/run_tests.sh          (host/run_tests.sh and the web/ tests are their own: README.md "Tests")
 # Ends "ALL TESTS PASSED" (exit 0), or stops at the first failure.
 set -e
@@ -41,17 +44,26 @@ sim() {   # sim BINARY SCRIPT...
 echo "== the app in fm1-base's host simulator: USB SysEx, bulk, Bluetooth, the update's SysEx beside (firmware/tests)"
 env -u CC ./build.sh --host >/dev/null
 sim "$SIM/remotefm1_host" firmware/tests/session.txt firmware/tests/bulk_ota.txt firmware/tests/ble.txt \
-    firmware/tests/hold.txt firmware/tests/sa_bench.txt
+    firmware/tests/hold.txt firmware/tests/sa_bench.txt firmware/tests/standalone.txt firmware/tests/standalone_ble.txt
+if grep -q "SA_ROM_NBANKS 8u" firmware/build/gen/dx7_rom.h; then
+    sim "$SIM/remotefm1_host" firmware/tests/standalone_rom.txt
+else
+    echo "(no ROM cartridges in this build: firmware/tests/standalone_rom.txt not run; DX7_ROM_DIR)"
+fi
 echo "== the same, the USB-only build (--no-ble)"
 env -u CC ./build.sh --host --no-ble >/dev/null
 sim "$SIM/remotefm1-usb_host" firmware/tests/session.txt firmware/tests/bulk_ota.txt firmware/tests/hold.txt \
-    firmware/tests/sa_bench.txt
+    firmware/tests/sa_bench.txt firmware/tests/standalone.txt
 echo "== the bench build (SA_BENCH=1): the standalone DX7's bench at boot, up to 16 voices"
 SA_BENCH=1 env -u CC ./build.sh --host >/dev/null
 sim "$SIM/remotefm1_host" firmware/tests/sa_bench_boot.txt
 echo "== without the shadow frame buffer (RFM_SHADOW 0: rectangles straight to the panel, no COPY)"
 CC="$PWD/firmware/tests/cc_noshadow.sh" ./build.sh --host >/dev/null
-sim "$SIM/remotefm1_host" firmware/tests/noshadow.txt
+sim "$SIM/remotefm1_host" firmware/tests/noshadow.txt firmware/tests/standalone.txt
+echo "== without Yamaha's ROM cartridges (DX7_ROM_DIR somewhere empty): the build goes on, the INIT VOICE only"
+DX7_ROM_DIR=/nonexistent env -u CC ./build.sh --host | grep "dx7 rom"
+grep -q "SA_ROM_NBANKS 0u" firmware/build/gen/dx7_rom.h
+sim "$SIM/remotefm1_host" firmware/tests/standalone.txt
 env -u CC ./build.sh --host >/dev/null                  # (the simulator as it should be left: with the shadow)
 
 echo "== RemoteFM1's bench protocol (firmware/src/remote_proto.h; tools/m0_bench.py's codec against it)"
@@ -61,6 +73,9 @@ python3 tools/m0_bench.py --selftest
 echo "== the TILES decoder, with and without the shadow, and the screen push (firmware/src/rfm_draw.c, rfm_push.c)"
 $TCC $SAN -o "$H/rfm_draw_test" tests/rfm_draw_test.c
 "$H/rfm_draw_test"
+echo "== the standalone's chord names (firmware/sa/sa_chord.c)"
+$TCC $SAN -o "$H/sa_chord_test" tests/sa_chord_test.c
+"$H/sa_chord_test"
 echo "== the protocol layer: a scripted session from both USB transports (firmware/src/rfm_app.c)"
 $TCC $SAN -o "$H/session_test" tests/session_test.c
 "$H/session_test"

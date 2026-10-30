@@ -1,0 +1,115 @@
+# SPDX-License-Identifier: MPL-2.0
+# RemoteFM1 standalone with Yamaha's ROM cartridges built in (tests/run_tests.sh runs it only when build/gen/dx7_rom.h
+# has them): PRESETS the voice, GLO + PRESETS the cartridge, a program change, the names from the data; and the S1
+# screens as the mockup has them (design/standalone-mockup at half size), shot to PNGs: Notes (Dm7 on E.PIANO 1),
+# Preset (11), Channel (10), Octave (+1).
+wait 400
+sa name BRASS 1
+expect sa_bank 0
+expect sa_voice 0
+# PRESETS: E.PIANO 1, the Preset screen (the cartridge slid in)
+turn PRESET 10 20
+expect sa_voice 10
+expect sa_screen 1
+sa name E.PIANO 1
+wait 450
+shot sa_preset.png
+wait 1100
+expect sa_screen 0
+# HOME: Notes, Dm7 held
+key 9 down 90
+key 12 down 80
+key 16 down 100
+key 19 down 110
+wait 120
+sa chord Dm7
+master 4096
+peakreset
+wait 400
+expect peak_db_min -30
+shot sa_notes.png
+key 9 up
+key 12 up
+key 16 up
+key 19 up
+wait 300
+shot sa_notes_ghost.png
+# ALGORITHM: channel 10
+turn ALGO 9 20
+expect sa_ch 10
+wait 100
+shot sa_channel.png
+turn ALGO -9 5
+expect sa_ch 1
+# OCT+: +1, the furball on its step
+tap OCT+
+expect sa_oct 1
+wait 100
+shot sa_octave.png
+tap OCT-
+expect sa_oct 0
+wait 1100
+# GLO + PRESETS: the cartridges, the voice number kept; clamped at both ends
+press GLO
+turn PRESET 1
+release GLO
+expect sa_bank 1
+expect sa_voice 10
+sa name CLAV 2
+press GLO
+turn PRESET 20 5
+release GLO
+expect sa_bank 7
+sa name ORCHESTRA
+shot sa_preset_rom4b.png
+press GLO
+turn PRESET -20 5
+release GLO
+expect sa_bank 0
+# PRESETS clamped at 32 and 1
+turn PRESET 40 5
+expect sa_voice 31
+sa name TAKE OFF
+turn PRESET -40 5
+expect sa_voice 0
+# a program change on the channel: voice 6
+midi USB C0 05
+expect sa_voice 5
+sa name STRINGS 3
+midi USB C1 07
+expect sa_voice 5
+# kept across a power cycle
+wait 2500
+reboot
+wait 300
+expect sa_voice 5
+expect sa_bank 0
+sa name STRINGS 3
+# every voice of every cartridge: loudest chords stay under full scale
+master 4096
+peakreset
+press GLO
+turn PRESET 7 5
+release GLO
+turn PRESET -40 5
+turn PRESET 1 5
+key 0 down 127
+key 4 down 127
+key 7 down 127
+key 11 down 127
+key 14 down 127
+key 16 down 127
+key 19 down 127
+key 23 down 127
+wait 1500
+sa name PERC BRASS
+expect peak_db_max -0.05
+key 0 up
+key 4 up
+key 7 up
+key 11 up
+key 14 up
+key 16 up
+key 19 up
+key 23 up
+wait 500

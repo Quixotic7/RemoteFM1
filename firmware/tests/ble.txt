@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: MPL-2.0
 # RemoteFM1 over Bluetooth MIDI (SysEx as USB-MIDI packets through plat_midi_in, fm1-base patched), in the host
 # simulator: a message on the Bluetooth port answered on Bluetooth only, a session there (TILES, FRAME_ACK, LEDS, the
-# panel's events to Bluetooth only), the USB port answered meanwhile on USB, a disconnect ending the session.
+# panel's events to Bluetooth only), the USB port answered meanwhile on USB, a disconnect ending the session (and the
+# panel mode: standalone again, its notes to USB, and to Bluetooth once a computer listens again).
 wait 1100
 ble connect
 wait 10
@@ -63,19 +64,23 @@ expect rf_n_ble_41 3
 # the heartbeat goes to Bluetooth
 wait 1100
 expect rf_n_ble_53 >2
-# a disconnect ends the Bluetooth session; the events go to USB again
+# a disconnect ends the Bluetooth session: standalone again (STANDALONE-PLAN.md), the keys play the DX7 and send their
+# notes on the channel (1) to USB
 ble disconnect
 wait 5
 expect rf_session 0
+expect sa_panel 0
 out
 tapkey 2
-expect_out USB 9F 37 64
-expect_no_out BLE 9F 37 64
-# connected again, no session: the events to both
+expect_out USB 90 37 64
+expect_out USB 80 37 40
+expect_no_out BLE 90 37 64
+expect_no_out USB 9F 37 64
+# connected again: the notes to both
 ble connect
 wait 5
 out
 tapkey 4
-expect_out USB 9F 39 64
-expect_out BLE 9F 39 64
+expect_out USB 90 39 64
+expect_out BLE 90 39 64
 expect rf_drop_ble 0

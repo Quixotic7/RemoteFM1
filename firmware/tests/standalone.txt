@@ -1,0 +1,241 @@
+# SPDX-License-Identifier: MPL-2.0
+# RemoteFM1 standalone (STANDALONE-PLAN.md S1) in the host simulator, whatever voices the build has: the keys play FM6
+# with their velocity and send their notes on the channel over USB and Bluetooth, the octave and its panic, the
+# channel, MIDI in from USB and Bluetooth on the channel (and not on others), the Notes view's chord, the sound (not
+# silent, never past full scale: the limiter), the settings across a power cycle, and the hand-over: a HELLO gives the
+# FM-1 to the host (every note off, the keys' sensing off, the hand-over screen), its session's end or a HELLO's
+# timeout gives it back as it was. tests/run_tests.sh runs it (both builds); standalone_rom.txt has the voices,
+# standalone_ble.txt Bluetooth.
+wait 400
+expect sa_panel 0
+expect sa_touch 1
+expect sa_screen 0
+expect sa_ch 1
+expect sa_oct 0
+expect sa_frames >2
+expect sa_bands >14
+sa chord -
+# a chord: D4 F4 A4 C5 (keys 9, 12, 16, 19), each at its own velocity; the notes out on channel 1, to USB
+out
+key 9 down 90
+key 12 down 80
+key 16 down 100
+key 19 down 110
+wait 100
+expect sa_held 4
+expect sa_sounding 4
+expect_out USB 90 3E 5A
+expect_out USB 90 41 50
+expect_out USB 90 45 64
+expect_out USB 90 48 6E
+expect_no_out BLE 90 3E 5A
+sa chord Dm7
+expect sa_lit_keys 594432
+shot sa_notes_dm7.png
+key 9 up
+key 12 up
+key 16 up
+key 19 up
+wait 50
+expect_out USB 80 3E 40
+expect_out USB 80 48 40
+expect sa_held 0
+sa chord -
+# a slash chord, an inversion, a power chord
+key 11 down
+key 15 down
+key 18 down
+wait 30
+sa chord E
+key 11 up
+key 15 up
+key 18 up
+key 18 down
+key 21 down
+key 26 down
+wait 30
+sa chord G/B
+key 18 up
+key 21 up
+key 26 up
+key 0 down
+key 7 down
+wait 30
+sa chord F5
+key 0 up
+key 7 up
+wait 20
+# the sound: eight notes at full velocity, MASTER full: loud, and never past full scale (the limiter, its knee)
+master 4096
+peakreset
+wav sa_chord8.wav
+key 0 down 127
+key 4 down 127
+key 7 down 127
+key 11 down 127
+key 14 down 127
+key 16 down 127
+key 19 down 127
+key 23 down 127
+wait 1500
+expect sa_sounding 8
+expect peak_db_min -12
+expect peak_db_max -0.1
+key 0 up
+key 4 up
+key 7 up
+key 11 up
+key 14 up
+key 16 up
+key 19 up
+key 23 up
+wait 1000
+wavstop
+expect sa_ev_drop 0
+# MASTER down: quieter
+master 1024
+peakreset
+key 9 down 100
+wait 300
+expect peak_db_max -12
+key 9 up
+wait 200
+master 4096
+# the octave: OCT+ (the Octave screen), key 0 is F4 now; OCT- twice: -1, F2; both at once: a panic, and the octave as
+# before the first of the two went down
+out
+tap OCT+
+expect sa_oct 1
+expect sa_screen 3
+expect sa_lit_btns 8192
+tapkey 0
+expect_out USB 90 41 64
+tap OCT-
+tap OCT-
+expect sa_oct -1
+tapkey 0
+expect_out USB 90 29 64
+key 5 down
+wait 10
+press OCT+
+press OCT-
+release OCT-
+release OCT+
+expect sa_panics 1
+expect sa_oct -1
+expect sa_held 0
+expect_out USB 80 2E 40
+expect_out USB B0 7B 00
+out
+key 5 up
+wait 10
+expect_no_out USB 80 2E 40
+tap OCT+
+expect sa_oct 0
+wait 1100
+expect sa_screen 0
+# the channel: ALGORITHM (the Channel screen); notes out on channel 10; clamped at 16 and 1
+out
+turn ALGO 9
+expect sa_ch 10
+expect sa_screen 2
+tapkey 2
+expect_out USB 99 37 64
+turn ALGO 20 5
+expect sa_ch 16
+turn ALGO -30 5
+expect sa_ch 1
+turn ALGO 9 5
+expect sa_ch 10
+# MIDI in on channel 10 plays (USB), on channel 1 does not; the chord shows what comes in
+midi USB 99 3C 64
+midi USB 99 40 64
+midi USB 99 43 64
+wait 20
+expect sa_held 3
+expect sa_sounding >2
+sa chord C
+expect sa_notes_in 3
+midi USB 90 30 64
+expect sa_notes_in 3
+expect sa_held 3
+midi USB 89 3C 00
+midi USB 99 40 00
+midi USB 89 43 40
+wait 20
+expect sa_held 0
+# pitch bend, the wheel, aftertouch, the sustain pedal (a note held by it), a program change
+midi USB E9 00 60
+midi USB B9 01 7F
+midi USB D9 40
+midi USB B9 40 7F
+midi USB 99 45 64
+midi USB 89 45 00
+wait 300
+expect sa_sounding >0
+midi USB B9 40 00
+midi USB E9 00 40
+midi USB B9 01 00
+midi USB C9 00
+expect sa_voice 0
+out
+tapkey 4
+expect_out USB 99 39 64
+# the settings kept: saved a little after the last change while silent, there after a power cycle
+wait 3000
+expect sa_saves >0
+reboot
+wait 300
+expect sa_loads 1
+expect sa_ch 10
+expect sa_oct 0
+# the hand-over: a HELLO while a key is held: its note off goes out, the DX7 silent, the keys' sensing off, the
+# hand-over screen; the panel's events are the host's again
+key 9 down 100
+wait 20
+out
+rf hello usb
+wait 20
+expect sa_panel 1
+expect sa_touch 0
+expect sa_held 0
+expect sa_screen 4
+expect_out USB 89 3E 40
+shot sa_handover.png
+key 9 up
+wait 300
+expect sa_sounding 0
+out
+tapkey 2
+expect_out USB 9F 37 64
+expect_no_out USB 99 37 64
+# a HELLO and nothing more: standalone again after 3 s, as it was
+wait 3100
+expect sa_panel 0
+expect sa_touch 1
+expect sa_ch 10
+out
+tapkey 2
+expect_out USB 99 37 64
+# a session: panel mode; its keepalive ends it: standalone again, as it was
+rf hello usb
+rf session usb 1 300
+expect rf_session 1
+expect sa_panel 1
+wait 50
+expect rf_screen_black 1
+wait 400
+expect rf_session 0
+expect sa_panel 0
+expect sa_ch 10
+wait 100
+expect sa_screen 0
+expect sa_touch 1
+# a SESSION start without a HELLO hands it over too; SESSION 0 gives it back at once
+rf session usb 1 0
+expect sa_panel 1
+rf session usb 0
+expect sa_panel 0
+# the bench (SysEx, no HELLO): the standalone stays; the bench has the synth, then the voice comes back
+rf send usb 09 01
+expect sa_panel 0

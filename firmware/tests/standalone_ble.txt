@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: MPL-2.0
+# RemoteFM1 standalone over Bluetooth MIDI (the Bluetooth build; tests/run_tests.sh): MIDI in from a Bluetooth computer
+# plays the DX7 on the channel, the keys' notes go to it and to USB at once, a HELLO over Bluetooth hands the FM-1 to
+# that host, and the link's end gives it back.
+wait 1100
+turn ALGO 9 5
+expect sa_ch 10
+ble connect
+wait 10
+midi BLE 99 3E 64
+midi BLE 99 41 64
+wait 10
+expect sa_held 2
+expect sa_sounding 2
+sa chord D
+midi BLE 89 3E 00
+midi BLE 99 41 00
+wait 10
+expect sa_held 0
+midi BLE 90 3E 64
+expect sa_held 0
+out
+tapkey 4
+expect_out USB 99 39 64
+expect_out BLE 99 39 64
+expect_out USB 89 39 40
+expect_out BLE 89 39 40
+# a Bluetooth host: HELLO and SESSION over Bluetooth; panel mode; the link gone, standalone again
+rf hello ble
+expect sa_panel 1
+rf session ble 1 3000
+expect rf_session_t 2
+expect sa_panel 1
+midi BLE 99 3E 64
+wait 10
+expect sa_held 0
+ble disconnect
+wait 5
+expect rf_session 0
+expect sa_panel 0
+expect sa_ch 10
