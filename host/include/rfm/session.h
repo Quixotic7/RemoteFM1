@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-3.0-only
+/* SPDX-License-Identifier: MPL-2.0
  * Copyright (C) 2026 RemoteFM1 contributors */
 /* libremotefm1: the host session (docs/PROTOCOL.md section 2). Portable C99, single-threaded, no OS calls: the
  * caller gives it links (a write function each), feeds it the bytes each link received, and calls poll() with a

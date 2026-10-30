@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-only
+// SPDX-License-Identifier: MPL-2.0
 // USE MY OMX-27: the OMX-27 in REMOTE mode as the FM-1's controller (js/omx27.js the wire, js/omx27-views.js the
 // views). Web MIDI with SysEx: the port whose name says OMX; the MODE command puts it in REMOTE mode, and while it is
 // there its keys, encoder and pots drive the page's panel (source SRC.OMX) and the page lights its 27 keys and draws

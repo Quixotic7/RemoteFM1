@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-3.0-only
+/* SPDX-License-Identifier: MPL-2.0
  * Copyright (C) 2026 RemoteFM1 contributors */
 /* libremotefm1: the screen encoder (PLAN.md section 3, docs/PROTOCOL.md section 3 TILES). Portable C99.
  *

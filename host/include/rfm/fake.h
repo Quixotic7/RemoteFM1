@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-3.0-only
+/* SPDX-License-Identifier: MPL-2.0
  * Copyright (C) 2026 RemoteFM1 contributors */
 /* libremotefm1: a fake RemoteFM1 unit, the device side of docs/PROTOCOL.md v2 as far as a host can see it.
  * Portable C99. The tests and fm1remote's loopback mode (no --device) talk to it instead of the FM-1.

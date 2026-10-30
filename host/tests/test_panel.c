@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-3.0-only
+/* SPDX-License-Identifier: MPL-2.0
  * Copyright (C) 2026 RemoteFM1 contributors */
 /* The panel decoder: keys, buttons, encoder deltas, the 14-bit MASTER, running status through the link parser,
  * PANEL_R reconciliation (settling, counter differences, wrap-around). */

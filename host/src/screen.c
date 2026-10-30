@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-3.0-only
+/* SPDX-License-Identifier: MPL-2.0
  * Copyright (C) 2026 RemoteFM1 contributors */
 /* The screen encoder: dirty 16x16 tiles, oldest first within a byte budget, the smallest of FILL / PAL / RLE / RAW
  * per rect, greedy horizontal merging, TILES bodies under the transport's limit. See rfm/screen.h. */

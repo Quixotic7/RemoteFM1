@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-3.0-only
+/* SPDX-License-Identifier: MPL-2.0
  * Copyright (C) 2026 RemoteFM1 contributors */
 /* The screen encoder against the reference decoder (tiles_ref.c, written from the spec alone).
  *   test_screen                    the tests

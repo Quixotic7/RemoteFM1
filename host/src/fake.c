@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-3.0-only
+/* SPDX-License-Identifier: MPL-2.0
  * Copyright (C) 2026 RemoteFM1 contributors */
 /* A fake RemoteFM1 unit (the device side of protocol v2) for tests and fm1remote's loopback. See rfm/fake.h. */
 #include "rfm/fake.h"

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-only
+// SPDX-License-Identifier: MPL-2.0
 // The OMX-27's REMOTE mode, the wire (OMX-27 firmware q7-2026-3: SYSEX_SPEC.md "REMOTE mode", omx_mode_remote.cpp,
 // tools/remote_test.py, norns/omx_remote/lib/omx27.lua). No DOM: web/site/test.mjs runs it.
 //   every message    F0 7D 00 00 <cmd> <payload> F7

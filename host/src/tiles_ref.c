@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-3.0-only
+/* SPDX-License-Identifier: MPL-2.0
  * Copyright (C) 2026 RemoteFM1 contributors */
 /* The reference TILES decoder, from docs/PROTOCOL.md section 3 only. Deliberately plain: byte by byte, pixel by
  * pixel, no shared code with screen.c. */

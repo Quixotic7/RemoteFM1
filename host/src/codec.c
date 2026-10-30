@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-3.0-only
+/* SPDX-License-Identifier: MPL-2.0
  * Copyright (C) 2026 RemoteFM1 contributors */
 /* The protocol v2 codec: framing on firmware/src/remote_proto.h's helpers, every message body, the link parsers. */
 #include "rfm/codec.h"

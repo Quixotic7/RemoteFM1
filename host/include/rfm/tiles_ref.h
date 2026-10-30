@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-3.0-only
+/* SPDX-License-Identifier: MPL-2.0
  * Copyright (C) 2026 RemoteFM1 contributors */
 /* libremotefm1: a reference TILES decoder, written from docs/PROTOCOL.md section 3 alone (it shares no code with
  * the encoder). The tests check the encoder against it; the fake device draws with it. Portable C99.

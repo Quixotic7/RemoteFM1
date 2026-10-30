@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-only
+// SPDX-License-Identifier: MPL-2.0
 // MIDI learn: a controller's knobs, pots and buttons on the drawn FM-1's knobs, MASTER and buttons. No DOM:
 // web/site/test.mjs runs it. main.js feeds every Web MIDI message here first; a learned one is consumed (it plays no
 // key and does not reach the firmware's MIDI in), the rest flow as before.
