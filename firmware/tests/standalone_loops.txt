@@ -1,0 +1,87 @@
+# SPDX-License-Identifier: MPL-2.0
+# RemoteFM1 standalone: the 16 loops' page (the owner, 2026-10-30). SEQ opens it (SEQ again closes it); no cursor: the
+# current loop is lit; the 16 white keys pick loops 1..16 and play no notes there; LAUNCH, how a loop picked while
+# another plays comes in: INSTANT, AT BAR, AT END, on the black keys (each octave's F#, G#, A#) or KN1, kept. The keys'
+# LEDs: the loop lit, the loops with notes dim, the launch's black keys lit. tests/run_tests.sh runs it (both builds).
+wait 400
+# two loops of 2 bars (4000 ms at 120): loop 1 (F3), then loop 2 (A3)
+press REC
+wait 600
+release REC
+turn K1 2
+expect sa_rec_opts 2001
+tap REC
+tap REC
+key 0 down 100
+wait 100
+key 0 up
+wait 4000
+expect sa_lstate 1
+expect sa_llen 4000
+tap SEQ
+expect sa_screen 11
+tap PLAY
+expect sa_lstate 0
+tapkey w1
+expect sa_lcur 1
+expect sa_lstate 0
+expect sa_held 0
+tap SEQ
+tap REC
+key 4 down 100
+wait 100
+key 4 up
+wait 4000
+expect sa_lstate 1
+expect sa_lcur 1
+# INSTANT (the first black key): loop 1 at once
+tap SEQ
+expect sa_launch 2
+tapkey b0
+expect sa_launch 0
+tapkey w0
+expect sa_lcur 0
+expect sa_lnext -1
+expect sa_lstate 1
+expect sa_lpos <150
+wait 30
+expect sa_lit_keys 33562627
+# AT BAR (G#): loop 2 at loop 1's next bar (2000), not before
+wait 500
+tapkey b6
+expect sa_launch 1
+tapkey w1
+expect sa_lnext 1
+wait 30
+shot sa_loops_atbar.png
+wait 1050
+expect sa_lcur 0
+wait 300
+expect sa_lcur 1
+expect sa_lnext -1
+expect sa_lpos <300
+# AT END (KN1): loop 1 at loop 2's end (4000)
+turn K1 1
+expect sa_launch 2
+tapkey w0
+expect sa_lnext 0
+wait 2500
+expect sa_lcur 1
+wait 1400
+expect sa_lcur 0
+# the same loop's key again: the queue called off
+tapkey w1
+expect sa_lnext 1
+tapkey w0
+expect sa_lnext -1
+# an empty loop picked AT END: nothing plays then
+tapkey w9
+wait 4100
+expect sa_lcur 9
+expect sa_lstate 0
+# the launch kept across a power cycle
+tapkey b0
+wait 2500
+reboot
+wait 400
+expect sa_launch 0

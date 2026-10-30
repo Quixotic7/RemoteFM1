@@ -2,7 +2,7 @@
 # RemoteFM1 standalone, S3 (STANDALONE-PLAN.md): the looper. A free take recorded as played (REC, notes, REC: it plays
 # from its start, its notes at their times); an overdub (LAYER DUB); the recording options (REC held: LENGTH, QUANTIZE,
 # LAYER on KN1..KN3; SELECT the second page: COUNT-IN, METRONOME, its volume); a take of one bar at 120 BPM, quantized to 1/16, that ends by itself; the 16 loops
-# (PLAY held), a loop queued at the end of the one playing; a count-in; the loops over SysEx (SA_LOOP: INFO, GET,
+# (SEQ), a loop queued at the end of the one playing; a count-in; the loops over SysEx (SA_LOOP: INFO, GET,
 # BEGIN / EVENTS / END, CLEAR); a host's HELLO stops them. tests/run_tests.sh runs it (both builds).
 wait 400
 expect sa_lstate 0
@@ -82,20 +82,21 @@ turn K1 -1
 tap REC
 expect sa_screen 0
 expect sa_lstate 1
-# the 16 loops (PLAY held): loop 2 picked (SELECT), queued at the end of loop 1; empty: nothing plays then
-press PLAY
-wait 600
+# the 16 loops (SEQ; the owner, 2026-10-30): loop 2 picked (the second white key), queued at the end of loop 1 (LAUNCH
+# AT END); empty: nothing plays then
+tap SEQ
 expect sa_screen 11
-release PLAY
-turn K1 1
 wait 50
 shot sa_loops.png
-tap PLAY
+tapkey w1
 expect sa_lnext 1
 expect sa_lcur 0
-wait 900
+expect sa_held 0
+wait 1100
 expect sa_lcur 1
 expect sa_lstate 0
+tap SEQ
+expect sa_screen 0
 # a take of one bar (2000 ms at 120) from the first note: the note 140 ms in lands on 125 (1/16); it ends by itself
 # and plays
 tap REC
@@ -117,16 +118,14 @@ expect sa_lev_t0 0
 expect sa_lev_t2 125
 expect sa_ln 4
 # loop 1 queued while loop 2 plays: it comes at loop 2's end
-press PLAY
-wait 600
-release PLAY
-turn K1 -1
-tap PLAY
+tap SEQ
+tapkey w0
 expect sa_lnext 0
 wait 2000
 expect sa_lcur 0
 expect sa_lnext -1
 expect sa_lstate 1
+tap SEQ
 # a count-in (the second page, SELECT: KN1): a bar counted (COUNT), then recording (a new take: REPLACE), PLAY ends it
 press REC
 wait 600
@@ -162,11 +161,8 @@ rf send usb 0A 04 05
 expect rf_n_usb_4A 4
 expect sa_llen_5 1000
 sa loopget 5
-press PLAY
-wait 600
-release PLAY
-turn K1 5
-tap PLAY
+tap SEQ
+tapkey w5
 wait 1200
 expect sa_lcur 5
 expect sa_screen 11

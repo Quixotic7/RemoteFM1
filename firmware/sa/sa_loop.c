@@ -30,6 +30,8 @@
 #define SA_LPOOL 3584u                       /* events of all loops (8 B each: 28 KB of the pool) */
 #define SA_TAKE 512u                         /* a recording's events before they join their loop (4 KB) */
 enum { SL_STOP, SL_PLAY, SL_COUNT, SL_REC, SL_DUB, SL_ARM };
+enum { SL_LAUNCH_NOW, SL_LAUNCH_BAR, SL_LAUNCH_END, SL_NLAUNCH };   /* a loop picked while one plays comes in at once,
+                                                                    * at the playing one's next bar, or at its end */
 static const uint8_t SA_REC_BARS[SA_REC_NLENS] = {0, 1, 2, 4, 8};
 static const uint8_t SA_COUNT_BARS[SA_REC_NCOUNTS] = {0, 1, 2, 4};
 
@@ -47,7 +49,9 @@ static struct {
     uint16_t bpm[SA_LOOPS];                  /* the tempo it was recorded at */
     uint8_t bars[SA_LOOPS];                  /* 0: free */
     uint32_t used;                           /* events in the pool */
-    uint8_t cur, next, state, cursor;        /* the loop; the one queued (0xFF none); SL_*; the Loops screen's */
+    uint8_t cur, next, state;                /* the loop; the one queued (0xFF none); SL_* */
+    uint32_t switch_at;                      /* where in the current loop the queued one comes in (ms; its length:
+                                              * at its end) */
     uint8_t count_play;                      /* the loop plays on through the count (an overdub's) */
     uint32_t pos_q8, last_ms, idx;           /* where the loop is (ms x 256), when it moved, its next event */
     uint32_t take_n, rec_t0, rec_target, count_end;
@@ -355,12 +359,33 @@ static void sl_rec_stop(int play)            /* the recording ends; play: the lo
 }
 
 /* ------------------------------------------------------------------ playing --- */
-/* the loop's events up to its position; at its end, the next turn (an overdub's take joins it; a queued loop comes) */
+static void sl_switch(void)                  /* the queued loop comes in now, from its start */
+{
+    sl_all_off();
+    sl.cur = sl.next;
+    sl.next = 0xFFu;
+    sl.pos_q8 = 0;
+    sl.idx = 0;
+    if (!sl.len[sl.cur])
+        sl.state = SL_STOP;
+    else if (sa.base != SA_SCR_LOOPS)        /* (the 16 loops open: they show it) */
+        sa_overlay(SA_SCR_LOOP);
+    sa.poke = 1;
+}
+
+/* the loop's events up to its position; at its end, the next turn (an overdub's take joins it; a queued loop comes);
+ * a loop queued for the next bar comes at it */
 static void sl_fire(void)
 {
     uint32_t guard = 0;
     for (;;) {
         uint32_t k = sl.cur, p = sl_pos(), a = sl.at[k];
+        if (sl.next != 0xFFu && sl.state == SL_PLAY && sl.switch_at < sl.len[k] && p >= sl.switch_at) {
+            sl_switch();
+            if (sl.state != SL_PLAY || ++guard > 4u)
+                return;
+            continue;
+        }
         while (sl.idx < sl.n[k] && sa_lpool[a + sl.idx].t <= p && sa_lpool[a + sl.idx].t < sl.len[k])
             sl_play_ev(&sa_lpool[a + sl.idx++]);
         if (p < sl.len[k] || ++guard > 4u)
@@ -381,16 +406,9 @@ static void sl_fire(void)
                     sl_take_put(0, SA_LE_ON, n, 100u);
                 }
         } else if (sl.next != 0xFFu) {       /* the queued loop, from its start */
-            sl_all_off();
-            sl.cur = sl.next;
-            sl.next = 0xFFu;
-            sl.pos_q8 = 0;
-            if (!sl.len[sl.cur]) {
-                sl.state = SL_STOP;
+            sl_switch();
+            if (sl.state != SL_PLAY)
                 return;
-            }
-            if (sa.base != SA_SCR_LOOPS)     /* (the 16 loops open: they show it) */
-                sa_overlay(SA_SCR_LOOP);
         }
         sa.poke = 1;
     }
@@ -474,12 +492,28 @@ static void sl_play_tap(void)                /* PLAY: play / stop the current lo
     sa.poke = 1;
 }
 
-static void sl_pick(uint32_t k)              /* a loop picked on the Loops screen */
+/* a loop picked (a white key on the 16 loops' page): while one plays it comes in as LAUNCH says (at once, at the
+ * next bar, at the end; the same loop again: the queue called off); else it is the loop, playing if it has notes */
+static void sl_pick(uint32_t k)
 {
     if (sl_recording() || k >= SA_LOOPS)
         return;
     if (sl.state == SL_PLAY) {
-        sl.next = (uint8_t)(k == sl.cur ? 0xFFu : k);   /* at the end of this one */
+        uint32_t c = sl.cur, p = sl_pos(), bar;
+        sl.next = (uint8_t)(k == c ? 0xFFu : k);
+        sl.switch_at = sl.len[c];
+        if (sl.next != 0xFFu && sa.loop_launch == SL_LAUNCH_NOW) {
+            sl_switch();
+            if (sl.state == SL_PLAY) {
+                sl.last_ms = plat_ms();
+                sl_fire();
+            }
+        } else if (sl.next != 0xFFu && sa.loop_launch == SL_LAUNCH_BAR) {
+            bar = 240000u / (sl.bars[c] && sl.bpm[c] ? sl.bpm[c] : sl_bpm_now());   /* (in the loop's own time) */
+            sl.switch_at = (p / bar + 1u) * bar;
+            if (sl.switch_at > sl.len[c])
+                sl.switch_at = sl.len[c];
+        }
     } else {
         sl.cur = (uint8_t)k;
         sl.next = 0xFFu;

@@ -799,6 +799,8 @@ int app_expect(const char *what, int *got)
         *got = (int)sl.clicks;
     else if (!strcmp(what, "sa_rec_opts2"))        /* count-in metronome click, a digit each (click 10: 0) */
         *got = sa.rec_count * 100 + sa.rec_metro * 10 + sa.rec_click % 10;
+    else if (!strcmp(what, "sa_launch"))           /* the 16 loops' LAUNCH: 0 at once, 1 at the bar, 2 at the end */
+        *got = sa.loop_launch;
     else if (!strcmp(what, "sa_rpage"))
         *got = sa.rpage;
     else if (!strcmp(what, "sa_rec_opts"))         /* len quant count layer, a decimal digit each */

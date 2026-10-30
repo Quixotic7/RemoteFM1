@@ -38,7 +38,7 @@ static struct {
     /* S2: the CC screens */
     uint8_t ccbank, cc[4], ccv[4], knob;
     /* S3: the looper's */
-    uint8_t lstate, lcur, lnext, lcursor, lfull, count_left, mfocus;
+    uint8_t lstate, lcur, lnext, launch, lfull, count_left, mfocus;
     uint8_t lfilled[16];
     uint32_t lpos, llen, lrec_ms;
     uint8_t ropt[8], rpage;               /* the recording options (sa_recopt's order), the page */

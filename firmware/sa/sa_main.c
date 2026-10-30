@@ -116,6 +116,7 @@ static struct {
     uint8_t rec_len, rec_quant, rec_count, rec_layer;   /* sa_loop.c's recording options (rec_count: SA_REC_NCOUNTS) */
     uint8_t rec_metro, rec_click;            /* the metronome on (count-in and recording), its volume 1..10 */
     uint8_t rpage;                           /* the recording options' page (SELECT) */
+    uint8_t loop_launch;                     /* a loop picked while one plays: at once, at the bar, at the end (SL_LAUNCH_*) */
     uint8_t ubank_seq;                       /* the user banks' count of arrivals (sa_ubank.c) */
     char name[12];                           /* the voice's */
     uint32_t keys;                           /* keys held (as played: lib/touch) */
@@ -448,7 +449,8 @@ typedef struct {
     /* version 3 (2026-10-30): the settings page and the scale */
     uint8_t scale_root, scale, rm_disp, rm_rel, rm_cc_ch, rm_key_ch, rm_keys, rm_octk, rm_scl;
     uint8_t rec_metro, rec_click;            /* (2026-10-30, in what were spare bytes: 0, 0 before: off, the default) */
-    uint8_t rsv[5];
+    uint8_t loop_launch;                     /* (the same: 0 before, read as AT END) */
+    uint8_t rsv[4];
 } sa_store_t;
 #define SA_STORE_V2_HEAD ((int)__builtin_offsetof(sa_store_t, scale_root))   /* (version 2: the bytes before it) */
 
@@ -581,6 +583,7 @@ static void sa_settings_fill(sa_store_t *s)
     s->rm_scl = sa.rm_scl;
     s->rec_metro = sa.rec_metro;
     s->rec_click = sa.rec_click;
+    s->loop_launch = (uint8_t)(sa.loop_launch + 1u);   /* (0 in older records: the default) */
 }
 
 static void sa_settings_apply(const sa_store_t *s)   /* (each value checked: a record from another build) */
@@ -608,6 +611,7 @@ static void sa_settings_apply(const sa_store_t *s)   /* (each value checked: a r
     sa.rec_quant = (uint8_t)(s->rec_quant < 3u ? s->rec_quant : 0u);
     sa.rec_count = (uint8_t)(s->rec_count < SA_REC_NCOUNTS ? s->rec_count : 0u);   /* (1 was "on": one bar still) */
     sa.rec_metro = (uint8_t)(s->rec_metro != 0u);
+    sa.loop_launch = (uint8_t)(s->loop_launch >= 1u && s->loop_launch <= SL_NLAUNCH ? s->loop_launch - 1u : SL_LAUNCH_END);
     sa.rec_click = (uint8_t)(s->rec_click >= 1u && s->rec_click <= 10u ? s->rec_click : SA_CLICK_DEFAULT);
     sa.rec_layer = (uint8_t)(s->rec_layer < 2u ? s->rec_layer : 0u);
     sa.ubank_seq = s->ubank_seq;
@@ -633,6 +637,7 @@ static void sa_settings_defaults(void)
     sa.bpm = 120;
     sa.rec_layer = 1;                        /* DUB: REC on a loop adds to it */
     sa.rec_click = SA_CLICK_DEFAULT;
+    sa.loop_launch = SL_LAUNCH_END;
     sa.rm_disp = SA_RMD_ALL;
     sa.rm_cc_ch = sa.rm_key_ch = 1;
     sa.rm_octk = 1;
@@ -772,6 +777,19 @@ static void sa_leds(void)
             k |= 1u << i;
     }
     km = sa_scale_keys(sa.oct) & ~k;         /* the scale's notes, dim */
+    if (sa.base == SA_SCR_LOOPS) {           /* the 16 loops' page: the loop lit (the one queued blinking), the loops
+                                              * with notes dim; the launch's black keys lit */
+        k = km = 0;
+        for (i = 0; i < NKEYS; i++) {
+            int32_t w = sa_key_white(i), bl = sa_key_black(i);
+            if (w >= 0 && ((uint32_t)w == sl.cur || ((uint32_t)w == sl.next && plat_ms() % 500u < 250u)))
+                k |= 1u << i;
+            else if (w >= 0 && sl.len[w])
+                km |= 1u << i;
+            if (bl >= 0 && bl % 5 == (int32_t)sa.loop_launch)
+                k |= 1u << i;
+        }
+    }
     if (b == sa.led_b && k == sa.led_k && km == sa.led_km && plat_ms() - sa.led_ms < SA_LED_REFRESH_MS)
         return;
     sa.led_b = b;
@@ -789,7 +807,7 @@ static void sa_press_early(uint32_t b)       /* SAVE, ARP, PLAY, REC, HOME down 
         sa_hold(b);
         return;
     }
-    if ((b == B_PLAY || b == B_REC) && (sl.state == SL_REC || sl.state == SL_DUB)) {
+    if (b == B_REC && (sl.state == SL_REC || sl.state == SL_DUB)) {
         sl_rec_stop(1);                      /* a recording ends on the press, in time; the loop plays */
         sa.hold_done |= 1u << b;             /* (its release does nothing more) */
         sa_back();
@@ -854,9 +872,11 @@ static int sa_menu_knob(uint32_t k, int32_t d)
         return 0;
     switch (sa.base) {
     case SA_SCR_RECOPT: sa_recopt(sa.rpage * 4u + k, d); break;
-    case SA_SCR_LOOPS:
-        if (k == 0u)
-            sl.cursor = (uint8_t)clamp((int32_t)sl.cursor + d, 0, (int32_t)SA_LOOPS - 1);
+    case SA_SCR_LOOPS:                       /* KN1 the launch (the black keys too) */
+        if (k == 0u) {
+            sa.loop_launch = (uint8_t)clamp((int32_t)sa.loop_launch + d, 0, (int32_t)SL_NLAUNCH - 1);
+            sa_changed();
+        }
         break;
     case SA_SCR_ARPSET: sa_arpopt(k, d); break;
     case SA_SCR_SETTINGS:                    /* KN1 the row's value (the others nothing: one value at a time) */
@@ -941,14 +961,6 @@ static void sa_tap(uint32_t b)               /* SAVE, ARP, PLAY, REC let go befo
             sa_close();
         else
             sa_overlay_menu(SA_SCR_THEME);
-    } else if (b == B_PLAY) {
-        if (sa.base == SA_SCR_LOOPS) {       /* the loop under the cursor: next, or now */
-            sl_pick(sl.cursor);
-        } else {
-            sl_play_tap();
-            if (sl.state != SL_PLAY && sa.ov == SA_SCR_LOOP)
-                sa_back();
-        }
     } else if (b == B_ARP) {
         if (sa.base == SA_SCR_ARPSET) {
             sa_close();
@@ -982,9 +994,6 @@ static void sa_hold(uint32_t b)              /* ... held SA_HOLD_MS */
         sa.save_holds++;
         sa_save_now();
         sa_overlay(SA_SCR_SAVED);
-    } else if (b == B_PLAY) {                /* the 16 loops */
-        sl.cursor = sl.next != 0xFFu ? sl.next : sl.cur;
-        sa_overlay_menu(SA_SCR_LOOPS);
     } else if (b == B_ARP) {                 /* the arp's settings */
         sa_overlay_menu(SA_SCR_ARPSET);
     } else if (b == B_REC && !sl_recording()) {   /* the recording options */
@@ -1005,14 +1014,24 @@ static void sa_hold(uint32_t b)              /* ... held SA_HOLD_MS */
 
 static void sa_press(uint32_t b)             /* any other button down */
 {
-    if (b <= B_EDIT) {                       /* FX SEL ENV LFO EDIT: the CC bank */
+    if (b == B_PLAY) {                       /* PLAY (on the press): a recording ends, in time, and plays; else the
+                                              * loop plays / stops (held: nothing more, since 2026-10-30) */
+        sl_play_tap();
+        if (sl.state != SL_PLAY && sa.ov == SA_SCR_LOOP)
+            sa_back();
+    } else if (b == B_SEQ) {                 /* SEQ: the 16 loops; SEQ again closes them */
+        if (sa.base == SA_SCR_LOOPS)
+            sa_close();
+        else
+            sa_overlay_menu(SA_SCR_LOOPS);
+    } else if (b <= B_EDIT) {                /* FX SEL ENV LFO EDIT: the CC bank */
         sa_cc_bank(b - B_FX);
     } else if (b == B_GLO) {
         sa.poke = 1;
     }
 }
 
-#define SA_HOLDABLE (1u << B_SAVE | 1u << B_ARP | 1u << B_PLAY | 1u << B_REC | 1u << B_LFO | 1u << B_HOME)
+#define SA_HOLDABLE (1u << B_SAVE | 1u << B_ARP | 1u << B_REC | 1u << B_LFO | 1u << B_HOME)
 static void sa_buttons(uint32_t btns)
 {
     const uint32_t OD = 1u << B_OCTDN, OU = 1u << B_OCTUP;
@@ -1102,6 +1121,21 @@ static void sa_encoders(const int32_t *steps)   /* detents by plat.h's role (EN_
     }
 }
 
+/* the 16 loops' page (the owner, 2026-10-30): white key n the loop n (as LAUNCH says, while one plays); the black
+ * keys LAUNCH: F# at once, G# at the bar, A# at the end (each octave's) */
+static void sa_loops_key(uint32_t k)
+{
+    int32_t w = sa_key_white(k), b = sa_key_black(k);
+    if (w >= 0) {
+        sl_pick((uint32_t)w);
+    } else if (b >= 0 && b % 5 < 3) {
+        sa.loop_launch = (uint8_t)(b % 5);
+        sa_changed();
+    }
+    sa_back();
+    sa.poke = 1;
+}
+
 static void sa_ms(uint32_t btns, const int32_t *steps)
 {
     uint32_t now = plat_ms(), keys, ch, k;
@@ -1138,6 +1172,10 @@ static void sa_ms(uint32_t btns, const int32_t *steps)
                 sa_changed();
             }
             sa_overlay(SA_SCR_OCTAVE);
+            continue;
+        }
+        if ((keys >> k & 1u) && sa.base == SA_SCR_LOOPS) {   /* the 16 loops' page: the keys pick, play nothing */
+            sa_loops_key(k);
             continue;
         }
         sa_key(k, (keys >> k & 1u) ? touch_vel(k) : 0u);

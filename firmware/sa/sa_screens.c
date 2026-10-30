@@ -170,7 +170,7 @@ static void sa_ui_snap_loop(void)
     ui.lstate = sl.state;
     ui.lcur = sl.cur;
     ui.lnext = sl.next;
-    ui.lcursor = sl.cursor;
+    ui.launch = sa.loop_launch;
     ui.lfull = sl.used + sl.take_n >= SA_LPOOL || sl.drops != 0u;
     for (i = 0; i < SA_LOOPS; i++)
         ui.lfilled[i] = sl.len[i] != 0u;
@@ -309,42 +309,33 @@ static void sa_paint_loopplay(void)
     }
 }
 
-/* ------------------------------------------------------------------ Loop-Pick: the 16 loops --- */
-static const char *const SA_CURSOR[] = {"a......", "aa.....", "aba....", "abba...", "abbba..", "abbbba.", "abbbbba",
-                                        "abbaaa.", "aa.aba.", "....aa."};
-static int32_t sa_cursor_col(char ch) { return ch == 'a' ? UC(BG) : UC(INK); }
-
+/* ------------------------------------------------------------------ Loop-Pick: the 16 loops (SEQ) --- */
+/* No cursor (the owner, 2026-10-30): the current loop lit (playing: filled, with its progress; stopped: outlined),
+ * the one queued blinking; the white keys pick, the black keys or KN1 the launch (top right) */
+static const char *const SA_LAUNCH[3] = {"INSTANT", "AT BAR", "AT END"};
 static void sa_paint_loops(void)
 {
-    int32_t i, blink = ui.now % 1000u < 500u;
+    int32_t i, w, blink = ui.now % 1000u < 500u;
+    const char *ln = SA_LAUNCH[ui.launch % 3u];
     sg_chip_text(10, 8, 0, 22, 7, "LOOPS", UC(A4), UC(ON));
-    if (ui.lnext != 0xFFu && (blink || 1)) {
-        char t[8];
-        int32_t w;
-        sa_cpy(t, "NEXT ");
-        sa_txt_num(t + 5, ui.lnext + 1u);
-        w = sg_text_w(t, 1) + 14;
-        sg_chip_text(230 - w, 8, w, 22, 7, t, blink ? UC(A3) : UC(D1), UC(ON));
-    }
+    w = sg_text_w(ln, 1) + 14;
+    sg_chip_text(230 - w, 8, w, 22, 7, ln, UC(A3), UC(ON));
     for (i = 0; i < 16; i++) {               /* 4 x 4 from (15, 36): 48 x 43, 6 apart */
         int32_t x = 15 + 54 * (i % 4), y = 36 + 49 * (i / 4);
-        int playing = i == ui.lcur && (ui.lstate == SL_PLAY || ui.lstate == SL_DUB), queued = i == ui.lnext;
-        uint16_t line = playing ? UC(A4) : queued ? UC(A3) : ui.lfilled[i] ? UC(PANEL) : UC(D5);
-        uint16_t bg = playing ? UC(A4) : queued ? UC(BG) : ui.lfilled[i] ? UC(PANEL) : UC(BG);
-        uint16_t fg = playing ? UC(ON) : queued ? (blink ? UC(A3) : UC(MID)) : ui.lfilled[i] ? UC(INK) : UC(MID);
+        int cur = i == ui.lcur, playing = cur && (ui.lstate == SL_PLAY || ui.lstate == SL_DUB), queued = i == ui.lnext;
+        uint16_t line = cur ? UC(A4) : queued ? UC(A3) : ui.lfilled[i] ? UC(PANEL) : UC(D5);
+        uint16_t bg = playing ? UC(A4) : queued || cur ? UC(BG) : ui.lfilled[i] ? UC(PANEL) : UC(BG);
+        uint16_t fg = playing ? UC(ON) : queued ? (blink ? UC(A3) : UC(MID)) : cur ? UC(A4) :
+                      ui.lfilled[i] ? UC(INK) : UC(MID);
         char t[4];
         sg_chip(x, y, 48, 43, line);
-        sg_chip(x + 2, y + 2, 44, 39, bg);
+        sg_chip(x + (cur ? 4 : 2), y + (cur ? 4 : 2), cur ? 40 : 44, cur ? 35 : 39, bg);
         sa_txt_num(t, (uint32_t)i + 1u);
         sg_text(x + (48 - sg_text_w(t, 2)) / 2, y + 8, 2, t, fg);
         if (playing) {
             sg_rect(x + 6, y + 34, 36, 4, UC(D2));
             sg_rect(x + 6, y + 34, ui.llen ? (int32_t)(ui.lpos * 36u / ui.llen) : 0, 4, UC(BG));
         }
-    }
-    {                                        /* the cursor, poking at its loop's corner */
-        int32_t c = ui.lcursor, x = 15 + 54 * (c % 4) + 32, y = 36 + 49 * (c / 4) + 22, p = ui.now % 600u < 300u;
-        sg_sprite(x - 2 * p, y - 2 * p, 2, SA_CURSOR, 10, sa_cursor_col);
     }
 }
 
