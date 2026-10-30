@@ -1,0 +1,55 @@
+# SPDX-License-Identifier: MPL-2.0
+# RemoteFM1 standalone: the menus stay locked on (the owner, 2026-10-30): Arp settings (ARP held), Rec options (REC
+# held), the 16 loops (PLAY held) and the theme menu (SAVE) stay, untouched, until HOME, their own button or another
+# screen; like the CC-Bank screen. tests/run_tests.sh runs it (both builds).
+wait 400
+# Arp settings: still there 8 s later; HOME closes it
+press ARP
+wait 600
+release ARP
+expect sa_screen 14
+expect sa_menu 1
+wait 8000
+expect sa_screen 14
+shot sa_arp_settings_locked.png
+tap HOME
+expect sa_screen 0
+expect sa_view 0
+# ARP held again, then ARP tapped: closed, the arp untouched
+press ARP
+wait 600
+release ARP
+wait 7000
+expect sa_screen 14
+tap ARP
+expect sa_screen 0
+expect sa_arp 0
+# Rec options: stay; another screen (the octave) replaces them, and that one times out as before
+press REC
+wait 600
+release REC
+expect sa_screen 12
+wait 8000
+expect sa_screen 12
+tap OCT+
+expect sa_screen 3
+wait 1100
+expect sa_screen 0
+tap OCT-
+wait 1100
+# the 16 loops: stay; HOME closes
+press PLAY
+wait 600
+release PLAY
+expect sa_screen 11
+wait 8000
+expect sa_screen 11
+tap HOME
+expect sa_screen 0
+# the theme menu: stays; SAVE closes
+tap SAVE
+expect sa_screen 16
+wait 8000
+expect sa_screen 16
+tap SAVE
+expect sa_screen 0

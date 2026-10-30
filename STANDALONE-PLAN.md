@@ -50,7 +50,9 @@ and its `melodee_fm6.h` (Felucca's factory voices), and anything under saadet's 
 | REC | record a loop exactly as played (free length by default) | hold: recording options (length, quantize, count-in, layer) |
 | OCT- / OCT+ | octave -3..+3 | both: panic |
 
-Every turn or press shows its screen from the mockup for about a second, then returns to the current HOME view.
+Every turn or press shows its screen from the mockup for about a second, then returns to the current HOME view. The
+CC-Bank screen and the menus (Arp settings, Rec options, the 16 loops, the theme menu) stay locked on, untouched, until
+HOME, their own button or another screen (the owner, 2026-10-30).
 
 ## 4. Architecture
 

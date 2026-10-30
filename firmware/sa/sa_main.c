@@ -23,8 +23,8 @@
  * After S1 (STANDALONE-PLAN.md S2..S5): FX SEL ENV LFO EDIT the CC bank and KN1..KN4 its CCs (sa_cc.c); REC, PLAY
  * and their holds the looper (sa_loop.c); ARP and its hold the arp, SELECT the tempo, a computer's MIDI clock both
  * (sa_arp.c); HOME the next view (Notes, Scope, Keys); SAVE the theme menu, held: save; a DX7 bank dump the user
- * banks (sa_ubank.c); their screens in sa_screens.c. Menus (Loops, Rec options, Arp settings, Theme) stay up while
- * used and take the knobs, SELECT and PRESETS.
+ * banks (sa_ubank.c); their screens in sa_screens.c. Menus (Loops, Rec options, Arp settings, Theme) stay up, locked
+ * on, until HOME, their own button or another screen, and take the knobs, SELECT and PRESETS.
  *
  * The sound. The main loop never calls FM6's note functions: it queues them (sa_ev), and the render (app_render, the
  * audio interrupt) takes the queue at the start of each block. Voices are loaded from the main loop (sa_synth_load_vmem
@@ -70,7 +70,7 @@ enum { SA_SCR_HOME, SA_SCR_PRESET, SA_SCR_CHANNEL, SA_SCR_OCTAVE, SA_SCR_HOST, S
        SA_SCR_CCASSIGN, SA_SCR_SAVED, SA_SCR_REC, SA_SCR_LOOP, SA_SCR_LOOPS, SA_SCR_RECOPT, SA_SCR_ARP, SA_SCR_ARPSET,
        SA_SCR_TEMPO, SA_SCR_THEME, SA_SCR_REMOTE, SA_NSCR };
 #define SA_HOLD_MS 500u                      /* SAVE, ARP, PLAY, REC: held this long is a hold, else a tap */
-#define SA_MENU_MS 6000u                     /* a menu (Loops, Rec options, Arp settings, Theme) closes untouched */
+#define SA_MENU_MS 6000u                     /* (a menu's ov_until: unused since menus stay; kept for the touch) */
 enum { SA_LE_ON, SA_LE_OFF, SA_LE_CC };      /* a loop's events (sa_loop.c) */
 static void sa_rec_ev(uint32_t type, uint32_t d1, uint32_t d2);   /* (sa_loop.c: what is played, recorded) */
 static void sl_all_off(void);
@@ -393,7 +393,7 @@ static void sa_overlay(uint32_t scr)
     sa.poke = 1;
 }
 
-static void sa_overlay_menu(uint32_t scr)    /* a menu: stays while it is used, SA_MENU_MS after the last touch */
+static void sa_overlay_menu(uint32_t scr)    /* a menu: stays (no timeout) until HOME, its button or another screen */
 {
     sa_overlay(scr);
     sa.menu = 1;
@@ -899,7 +899,8 @@ static void sa_ms(uint32_t btns, const int32_t *steps)
             sa_overlay(SA_SCR_PRESET);
         }
     }
-    if (sa.ov != SA_SCR_HOME && sa.ov != SA_SCR_CCBANK && (int32_t)(now - sa.ov_until) >= 0) {   /* (CC-Bank stays) */
+    if (sa.ov != SA_SCR_HOME && sa.ov != SA_SCR_CCBANK && !sa.menu && (int32_t)(now - sa.ov_until) >= 0) {
+        /* (CC-Bank and the menus stay: until HOME or another screen) */
         sa.ov = SA_SCR_HOME;
         sa.poke = 1;
     }
