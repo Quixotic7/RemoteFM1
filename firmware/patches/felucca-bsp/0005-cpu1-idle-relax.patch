@@ -1,0 +1,43 @@
+--- a/chip/fm1_cpu1.h
++++ b/chip/fm1_cpu1.h
+@@ -61,6 +61,20 @@
+ #define FM1_CPU1_TIMEOUT_US 8000u               /* a job not back by then: far past any audio block, or it faulted */
+ #endif
+ #define FM1_CPU1_SYNC() __asm__ volatile("csync" ::: "memory")
++/* a pause between looks at the mailbox, registers only (RemoteFM1, 2026-10-30, as Melodee's fm1_aw_relax): a core that
++ * loads shared RAM and issues csync back to back, without a break, kept macOS from making the USB audio devices of
++ * a dual-core build, idle (the device enumerated, its audio interfaces there, no audio device). Well under 1 us */
++#ifndef FM1_CPU1_RELAX
++#define FM1_CPU1_RELAX 1
++#endif
++static inline __attribute__((always_inline)) void fm1_cpu1_relax(void)
++{
++#if FM1_CPU1_RELAX
++    uint32_t i;
++    for (i = 0; i < 16u; i++)
++        __asm__ volatile("nop; nop; nop; nop" ::: "memory");
++#endif
++}
+ #define FM1_C1_CON (*(volatile uint32_t *)0x1EEE004u)
+ #define FM1_C1_SYS_DIV (*(volatile uint32_t *)0x10008u)
+ #define FM1_C1_ENTRY_WORD (*(volatile uint32_t *)0x01C7FFF8u)
+@@ -136,8 +150,10 @@
+     for (;;) {
+         uint32_t request = fm1_cpu1_mb.request;
+         FM1_CPU1_SYNC();
+-        if (request == done)
++        if (request == done) {
++            fm1_cpu1_relax();
+             continue;
++        }
+         if (request == done + 1u) {
+             fm1_cpu1_fn fn = fm1_cpu1_mb.fn;
+             uint32_t arg = fm1_cpu1_mb.arg;
+@@ -307,6 +323,7 @@
+             fm1_cpu1_retire(FM1_CPU1_LATE);
+             return -1;
+         }
++        fm1_cpu1_relax();
+     }
+ }
+ 

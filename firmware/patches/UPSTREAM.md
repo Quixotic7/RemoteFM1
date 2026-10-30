@@ -162,3 +162,9 @@ own window; an app's objects as records of one of its own**
 RemoteFM1 (src/rfm_store.c): every object in 0xF2000..0xF3FFF, the one window ChoralRoot, the stock firmware and
 fm1-base's other firmwares leave free, plus the calibration's pair at 0xFC000. RemoteFM1 0.2 placed `OBJ_BLE` at 0xF2000,
 outside `FL_STORE_OK`: every save of the radio's address, trim and bondings was refused (-8) on the unit.
+
+## felucca-bsp 0005-cpu1-idle-relax.patch (2026-10-30)
+
+Core 1's idle loop and CPU0's wait spun on shared RAM with csync nonstop; with USB audio on, macOS then never
+created the FM-1's audio devices (enumeration and MIDI were fine). A short register-only pause per pass, as saadet's
+fm1_multicore.h does (MPL), fixes it: checked on a unit (both FM-1 audio devices, core 1 on, render hash equal).
