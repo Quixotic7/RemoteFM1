@@ -96,8 +96,19 @@ echo "== the standalone DX7: sa_synth's checks (firmware/sa/sa_synth.c, saadet's
 $TCC $SAN -Wno-unused-but-set-variable -ffp-contract=off -DPLAT_HOST -Ifirmware/build/gen -Ifirmware/sa -Itests \
     -o "$H/sa_synth_test" tests/sa_synth_test.c firmware/sa/sa_synth.c -lm
 mkdir -p "$H/sa"
-"$H/sa_synth_test" "$H/sa"
-python3 firmware/tools/sa_bench.py --selftest | tail -1
+for m in serial now late drop; do "$H/sa_synth_test" "$H/sa" $m; done
+python3 firmware/tools/sa_bench.py --selftest | tail -2
+echo "== the render hash: the simulator's (SA_BENCH 02, one core and two) against firmware/tools/sa_hash_host.c's"
+cc -std=c99 -O2 -ffp-contract=off -w -DPLAT_HOST -DSA_POLY=8 -Ifirmware/build/gen -Ifirmware/sa -o "$H/sa_hash_host" \
+    firmware/tools/sa_hash_host.c firmware/sa/sa_synth.c -lm
+python3 - "$("$H/sa_hash_host" 1)" "$("$H/sa_hash_host" 2)" > "$H/sa_hash.txt" <<'PYEOF'
+import sys
+s = lambda line: int(line.split()[1], 16) - (1 << 32) * (int(line.split()[1], 16) >> 31)
+print("# (made by tests/run_tests.sh: the host's hashes as the simulator's expect reads them)")
+print("wait 3100\nrf send usb 09 02\nwait 3000\nexpect sa_hash_state 3")
+print(f"expect sa_hash_one {s(sys.argv[1])}\nexpect sa_hash_two {s(sys.argv[2])}")
+PYEOF
+sim "$SIM/remotefm1_host" "$H/sa_hash.txt"
 if [ -n "${SAADET:-}" ]; then
     echo "== the standalone DX7 against saadet's own (SAADET=$SAADET)"
     tests/fm6_parity.sh "$SAADET"

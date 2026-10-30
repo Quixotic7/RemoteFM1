@@ -555,9 +555,17 @@ int app_expect(const char *what, int *got)
     else if (!strcmp(what, "sa_bench_n"))
         *got = sab.n;
     else if (!strncmp(what, "sa_bench_sounding", 17))
-        *got = sab.r[(uint32_t)atoi(what + 17) % SA_BENCH_NC].sounding;
+        *got = sab.r[(uint32_t)atoi(what + 17) % SA_BENCH_ROWS].sounding;
     else if (!strncmp(what, "sa_bench_blocks", 15))
-        *got = sab.r[(uint32_t)atoi(what + 15) % SA_BENCH_NC].blocks;
+        *got = (int)sab.r[(uint32_t)atoi(what + 15) % SA_BENCH_ROWS].blocks;
+    else if (!strncmp(what, "sa_bench_cores", 14))
+        *got = sab.r[(uint32_t)atoi(what + 14) % SA_BENCH_ROWS].cores;
+    else if (!strcmp(what, "sa_hash_state"))
+        *got = sab.hstate;
+    else if (!strcmp(what, "sa_hash_one"))         /* (as a signed int: the script's expect) */
+        *got = (int)sab.hash[0];
+    else if (!strcmp(what, "sa_hash_two"))
+        *got = (int)sab.hash[1];
     else
         return 0;
     return 1;

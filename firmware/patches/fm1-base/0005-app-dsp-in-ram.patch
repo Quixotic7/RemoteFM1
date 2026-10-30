@@ -1,0 +1,47 @@
+--- a/device/app.ld
++++ b/device/app.ld
+@@ -31,7 +31,10 @@
+               *(.*_const)
+               . = ALIGN(4); _etext = .; } > XIP
+     /* .c1_text: an app's second core's RAM loop (tools/build.py), copied and guarded with the rest */
++    /* .dsp_text, .audio_text: an app's DSP code that names its own sections (saadet's FM6), in RAM with the rest,
++     * out of the XIP cache's way (tools/build.py: its calls must stay in RAM) */
+     .ram_text : { _rt_start = .; KEEP(*(.ram_text*)) *(.volatile_ram_code) *(*.rf.text.cache.L2.rf_trim)
++                  *(.dsp_text*) *(.audio_text*)
+                   . = ALIGN(4); _c1_start = .; KEEP(*(.c1_text*)) . = ALIGN(4); _c1_end = .;
+                   _rt_end = .; } > RAMTEXT AT > XIP
+     _rt_load = LOADADDR(.ram_text);
+--- a/tools/build.py
++++ b/tools/build.py
+@@ -742,13 +742,29 @@
+           for m2 in [re.search(r"^([0-9a-f]+) .*\s" + n + r"$", syms, re.M)] if m2]
+     in_c1 = (lambda ln: (mm2 := LINE.match(ln)) is not None and c1[0] <= int(mm2.group(1), 16) < c1[1]) \
+         if len(c1) == 2 else (lambda ln: False)   # (the second core's loop: it may call into the flash, see the top)
+-    rt_calls = [ln for ln in rt.splitlines() if re.search(r"\bcall\b", ln) and not in_c1(ln)]
++    # RAM code may call RAM code: a direct call whose target is in RAM, or an indirect one (an app's DSP calls through
++    # function pointers: saadet's FM6) when the RAM code takes the address of no function in the flash. What is left
++    # could reach the flash (the second core's loop aside)
++    rt_lo, rt_hi = (lambda a, b: (int(a.group(1), 16), int(b.group(1), 16)) if a and b else (0, 0))(
++        re.search(r"^([0-9a-f]+) .*\s_rt_start$", syms, re.M), re.search(r"^([0-9a-f]+) .*\s_rt_end$", syms, re.M))
++    xip_fns = {int(m2.group(1), 16) for m2 in re.finditer(r"^([0-9a-f]+) .{6}F \.text\s", syms, re.M)}
++    rt_lines = [ln for ln in rt.splitlines() if LINE.match(ln) and not in_c1(ln)]
++    xip_taken = any(int(a, 16) in xip_fns for ln in rt_lines for a in re.findall(r"<[^:>]*: ([0-9a-f]+) >", ln)
++                    if not re.search(r"\bcall\b", ln))
++    def ram_call(ln):
++        m2 = re.search(r"\bcall -?\d+ <[^:>]*: ([0-9a-f]+) >", ln)
++        if m2:
++            return rt_lo <= int(m2.group(1), 16) < rt_hi
++        return bool(re.search(r"\bcall r\d+\s*$", ln)) and not xip_taken
++    rt_calls = [ln for ln in rt_lines if re.search(r"\bcall\b", ln) and not ram_call(ln)]
++    rt_ram_calls = sum(1 for ln in rt_lines if re.search(r"\bcall\b", ln)) - len(rt_calls)
+     if rt_calls and (BLE or WIFI):  # JieLi's .volatile_ram_code calls out; it runs with the flash on
+         notes.append(f"the radio: .ram_text contains calls (JieLi's .volatile_ram_code): {rt_calls[:3]}")
+     elif rt_calls:                  # RAM code runs with the flash off: no calls into XIP
+         errors.append(f".ram_text contains calls: {rt_calls[:3]}")
+     else:
+-        notes.append(f".ram_text: {len([ln for ln in rt.splitlines() if LINE.match(ln)])} insns, no calls")
++        notes.append(f".ram_text: {len([ln for ln in rt.splitlines() if LINE.match(ln)])} insns, " +
++                     (f"{rt_ram_calls} calls, all within RAM" if rt_ram_calls else "no calls"))
+     skip_fns, fn = set(CONF.get("rom_check_skip", [])), ""
+     for ln in dis.splitlines():     # nothing may call or load an address in the chip ROM
+         mm = LINE.match(ln)

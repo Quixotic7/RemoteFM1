@@ -5,7 +5,10 @@
  * tests/fm6_parity.sh compares with saadet's own instrument) and NAME.wav (16-bit, to listen to). Then the checks
  * that need no saadet: the INIT VOICE is a sine at the key's pitch, every render sounds and the voices differ, the
  * packed INIT VOICE is the DX7's, the sustain pedal, all notes off, all sound off, the stereo render.
- *   sa_synth_test OUTDIR        (tests/fm6_parity.sh builds it; SA_POLY from -D, 8 by default)
+ *   sa_synth_test OUTDIR [MODE]   (tests/fm6_parity.sh builds it; SA_POLY from -D, 8 by default)
+ * MODE: serial (the default: one core), batch (saadet's batch, every job here), now (a worker that runs its share at
+ * once, as fm1-base's simulator), late (one that runs it only when waited for: after this core's share), refuse (one
+ * that never takes it), drop (one that takes it but gives up: dropped, done here). The same samples in every mode.
  * Ends "sa_synth: N checks, all passed" (exit 0) or with the failures (exit 1). */
 #include <math.h>
 #include <stdio.h>
@@ -109,15 +112,39 @@ static double freq(const int32_t *w, uint32_t a, uint32_t b)   /* from the risin
     return n > 1 ? (n - 1) * (double)SA_FS / (f1 - f0) : 0;
 }
 
+/* the workers: the second core, simulated */
+static void (*late_fn)(uint32_t);
+static uint32_t late_arg;
+static int w_now(void (*fn)(uint32_t), uint32_t arg) { fn(arg); return 1; }
+static int w_late(void (*fn)(uint32_t), uint32_t arg) { late_fn = fn; late_arg = arg; return 1; }
+static int w_refuse(void (*fn)(uint32_t), uint32_t arg) { (void)fn; (void)arg; return 0; }
+static int w_wait(void) { if (late_fn) late_fn(late_arg); late_fn = 0; return 0; }
+static int w_drop(void) { late_fn = 0; return -1; }
+
 #define MAXN (SA_FS * 5u)
 static int32_t wav[SC_N][MAXN];
 static uint32_t len[SC_N];
 
 int main(int argc, char **argv)
 {
-    const char *dir = argc > 1 ? argv[1] : ".";
+    const char *dir = argc > 1 ? argv[1] : ".", *mode = argc > 2 ? argv[2] : "serial";
     char path[512], what[160];
     uint32_t k, j, i;
+    if (strcmp(mode, "serial")) {
+        sa_synth_cores(2);
+        if (!strcmp(mode, "now"))
+            sa_synth_worker(w_now, w_wait);
+        else if (!strcmp(mode, "late"))
+            sa_synth_worker(w_late, w_wait);
+        else if (!strcmp(mode, "refuse"))
+            sa_synth_worker(w_refuse, w_wait);
+        else if (!strcmp(mode, "drop"))
+            sa_synth_worker(w_late, w_drop);
+        else if (strcmp(mode, "batch")) {
+            printf("sa_synth: no mode %s\n", mode);
+            return 2;
+        }
+    }
     for (k = 0; k < SC_N; k++) {
         len[k] = play(&SC_SCENARIOS[k], wav[k]);
         snprintf(path, sizeof path, "%s/%s.raw", dir, SC_SCENARIOS[k].name);
@@ -138,6 +165,14 @@ int main(int argc, char **argv)
                 pk = abs(wav[k][i]) > pk ? abs(wav[k][i]) : pk;
             check(what, rms(wav[k], 0, len[k]) > 20000.0 && pk < 64 * 1024 * 1024);
         }
+    }
+    {                                        /* the split happened as the mode says */
+        uint32_t h, kp, d;
+        sa_synth_worker_stats(&h, &kp, &d);
+        snprintf(what, sizeof what, "%s: the worker took %u blocks' shares, did not take %u, dropped %u", mode, h, kp, d);
+        check(what, !strcmp(mode, "now") || !strcmp(mode, "late") ? h > 1000u && !kp && !d :
+                    !strcmp(mode, "refuse") ? kp > 1000u && !h && !d : !strcmp(mode, "drop") ? d > 1000u && !h && !kp :
+                    !h && !kp && !d);
     }
     for (k = 0; k < 6u; k++)                 /* the *_play renders: the same notes, six different voices */
         for (j = k + 1; j < 6u; j++) {
@@ -222,6 +257,6 @@ int main(int argc, char **argv)
     if (bad)
         printf("sa_synth: %d of %d checks FAILED\n", bad, checks);
     else
-        printf("sa_synth: %d checks, all passed (SA_POLY %d, renders in %s)\n", checks, SA_POLY, dir);
+        printf("sa_synth: %d checks, all passed (SA_POLY %d, %s, renders in %s)\n", checks, SA_POLY, mode, dir);
     return bad != 0;
 }

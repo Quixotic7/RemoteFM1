@@ -14,6 +14,8 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License. Source revisions: docs/BLE_MIGRATION.md. */
+/* Changed by RemoteFM1 contributors, 2026: fm6_logfreq's detune product moved into fm6_detune_q24
+ * (firmware/third_party/saadet-fm6/PROVENANCE.md). */
 
 #include "performance_options.h"
 /* FM6 core: DX7-compatible synthesis with native fp32 operator signals.
@@ -200,6 +202,9 @@ static int32_t fm6_rscale(const uint8_t *op, uint32_t note)   /* key rate scalin
     return (op[FP_RS] * clamp(x, 0, 31)) >> 3;
 }
 
+/* RemoteFM1: the detune's 64-bit product in a function of its own, out of reach of the loads around it (felucca-bsp
+ * docs/CPU.md: the FM-1's CPU now and then corrupts a register beside one); the same value */
+static __attribute__((noinline)) int32_t fm6_detune_q24(int64_t d, int32_t det) { return (int32_t)((d * det) >> 24); }
 static int32_t fm6_logfreq(const uint8_t *op, uint32_t note)   /* an operator's pitch for a note (osc_freq) */
 {
     int32_t lf;
@@ -208,7 +213,7 @@ static int32_t fm6_logfreq(const uint8_t *op, uint32_t note)   /* an operator's 
         return lf + (op[FP_DET] > 7 ? 13457 * (op[FP_DET] - 7) : 0);
     }
     lf = 50857777 + ((1 << 24) / 12) * (int32_t)note;
-    lf += (int32_t)((FM6_DETUNE[note] * (op[FP_DET] - 7)) >> 24) + FM6_COARSE[op[FP_FC] & 31];
+    lf += fm6_detune_q24(FM6_DETUNE[note], op[FP_DET] - 7) + FM6_COARSE[op[FP_FC] & 31];
     return lf + FM6_FINE[op[FP_FF]];
 }
 

@@ -162,7 +162,8 @@ git clone --depth 1 --branch AC79NN_SDK_V1.2.1_2023-12-13 https://gitee.com/Jiel
 ./build.sh --release 0.2.3 --no-ble  # -> firmware/build/remotefm1-usb-0.2.3.fwsc (USB only: no Bluetooth library)
 ./build.sh                           # a development build, FM-1_5200
 ./build.sh --bench [--no-ble]        # the standalone DX7's bench at boot (firmware/build/remotefm1[-usb]-bench.fwsc);
-                                     # firmware/tools/sa_bench.py reads it over USB-MIDI
+                                     # firmware/tools/sa_bench.py reads it over USB-MIDI (--hash: the render hash)
+FM1B_CPU2=0 ./build.sh [...]         # one core (the packages start the second core: fm1.toml cpu2, FIZZ's settings)
 tests/run_tests.sh                   # the app in fm1-base's host simulator (firmware/tests/), the protocol code,
                                      # the patched usb.c and Bluetooth SysEx, tools/fm1_install.py, the DX7's checks
 tests/fm6_parity.sh SAADET_DIR       # the DX7 (saadet's FM6) against saadet's own build: tables and samples

@@ -13,7 +13,7 @@ fork of Melodee, which is a modified Felucca (Leo Kuroshita, Hügelton Instrumen
 
 | File here | saadet's file | SHA-256 at 2eff7f1 | Licence (its SPDX line) | Changed |
 |---|---|---|---|---|
-| `fm6_core.c` | `firmware/src/fm6_core.c` | `637141836680a451146560dc219646cfafa109d41000330b594670fdde405c61` | MPL-2.0 AND Apache-2.0 | no |
+| `fm6_core.c` | `firmware/src/fm6_core.c` | `637141836680a451146560dc219646cfafa109d41000330b594670fdde405c61` | MPL-2.0 AND Apache-2.0 | yes, one product moved (below) |
 | `fm6_msfa_ops.h` | `firmware/src/fm6_msfa_ops.h` | `a784bb99c22d884197142342cf6710d53cd8f351d4c7df89931dc348e594c217` | MPL-2.0 AND Apache-2.0 | no |
 | `eng_fm6.c` | `firmware/src/eng_fm6.c` | `a8c576827146a614dc25fd67d615c6859f5495a0c0ef1b736c3d640b00ca2363` | MPL-2.0 AND Apache-2.0 | yes, below |
 | `fm6_voice_policy.h` | `firmware/src/fm6_voice_policy.h` | `d1b025cefae8d28700def1c48290c9da5ce3378f2144661942e2e3162f8bc09e` | MPL-2.0 | no |
@@ -29,7 +29,9 @@ that applies to the MSFA portions.
 
 ## What changed, and why
 
-Only `eng_fm6.c`, and as little as possible (`git diff 5b047d7 -- eng_fm6.c` shows all of it):
+`eng_fm6.c` and `fm6_core.c`, as little as possible (`git diff 5b047d7 -- .` shows all of it).
+
+In `eng_fm6.c`:
 
 1. `#include "melodee_fm6.h"` removed. That header is the output of saadet's `tools/gen_fm6_patches.py`
    (Felucca's factory voices, GPL-3.0-only): nothing of it may enter this firmware. It gave `FM6_INIT`,
@@ -42,27 +44,51 @@ Only `eng_fm6.c`, and as little as possible (`git diff 5b047d7 -- eng_fm6.c` sho
    preset model). `sa_synth.c` defines `FM6_NO_FACTORY`; without it the file is saadet's again (with the two headers).
 4. A two-line notice after the licence header that the file was changed (Apache-2.0 section 4(b)).
 
+In `fm6_core.c` (S0b, 2026-10-30):
+
+5. `fm6_logfreq`'s detune, `(int32_t)((FM6_DETUNE[note] * (op[FP_DET] - 7)) >> 24)`, is now
+   `fm6_detune_q24(FM6_DETUNE[note], op[FP_DET] - 7)`, a `noinline` function of its own (three lines above
+   `fm6_logfreq`) computing the same expression. Why: inlined into `fm6_keyed`, that 64-bit product sat beside byte
+   loads, which the FM-1's CPU now and then gets wrong (felucca-bsp `docs/CPU.md`; fm1-base's build listed
+   `fm6_keyed`). The samples are the same (`tests/fm6_parity.sh`), and the build now reports no 64-bit multiply beside
+   a load anywhere.
+6. A two-line notice after its licence header, as in 4.
+
 Nothing else changed: the synthesis, the envelopes, the controllers, the LFO, the voice policy and the patch
 formats are saadet's. Where saadet's instrument is needed, RemoteFM1 supplies it around the files instead:
 
 - `firmware/sa/fm6_shim.h`: what `eng_fm6.c` reads of saadet's `core.h` (`track_t`, `voice_t`, `vmod_t`, the song's
-  TUNE, `tuning_log`, the audio batch, the profiler's marks), reduced to one part, `SA_POLY` voices, one core, no
-  batch, the macros at 0. `clamp`, `amp_at`, `audio_dc_decay`, `VOICE_FS` and `AUDIO_ONE` restate saadet's
+  TUNE, `tuning_log`, the audio batch, the profiler's marks), reduced to one part, `SA_POLY` voices, the macros
+  at 0. `MELODEE_DUAL_CORE` is 1, so FM6 renders with the caller's scratch (`fm6_run_into`), and saadet's audio
+  batch (its `audio_batch.h` contract) is RemoteFM1's own queue: with `sa_synth_cores(2)`, `fm6_render` queues each
+  voice as a job (`fm6_batch_kernel`: its controls and operators into a buffer of its own) and `sa_synth.c` runs
+  about half of them on the second core, the rest on the first, then adds the buffers in queue order (integer sums:
+  the same samples). saadet's own pairing (`audio_worker.h`) is off (`audio_worker_online` 0). `clamp`, `amp_at`, `audio_dc_decay`, `VOICE_FS` and `AUDIO_ONE` restate saadet's
   `dsp.c` and `audio_pcm.h` (MPL-2.0) exactly, credited in its header; `audio_dc_decay` is out of line here
   (`noinline`), so that its 64-bit multiplies do not sit beside the DC filter's loads in `fm6_dc_samples`
-  (felucca-bsp `docs/CPU.md`: the FM-1's CPU now and then corrupts a register there). The result is the same.
-  fm1-base's build still notes one such function in FM6, `fm6_keyed` (the detune product of `fm6_logfreq`,
-  inlined): it runs at a note's start only; moving that multiply into a helper of its own would be a one-line,
-  bit-exact change to `fm6_core.c`, not made yet.
+  (felucca-bsp `docs/CPU.md`: the FM-1's CPU now and then corrupts a register there), and in `.dsp_text` with its
+  caller, in RAM. The result is the same. `sa_synth.c` also gives FM6 an inline `memset` (FM6's `fm6_plan`, in RAM
+  code, would call the C library's in the flash).
 - `firmware/sa/performance_options.h`: the one build option FM6 reads (`MELODEE_FM6_FAST`, 1 as in saadet).
 - `firmware/sa/sa_synth.c`: the instrument (saadet's `voice.c` for an engine with its own envelopes): POLY
   allocation, gates, the start and end ramps, and per block `fm6_block`, `fm6_render`, `fm6_done`, `fm6_post`.
 - The tables, which saadet generates with `tools/gen_tables.py` (GPL-3.0-only, not read, not used in the build):
   `firmware/tools/gen_fm6_tables.py` (below).
-- saadet places its DSP code in sections `.dsp_text` and `.audio_text` (its own linker script puts them in RAM);
-  fm1-base's `device/app.ld` does not know them: `firmware/patches/fm1-base/0005-app-ld-dsp-sections.patch` puts them
-  in `.text` (XIP flash) for now. On a Mac's host build `sa_synth.c` drops the section names (Mach-O wants
-  "segment,section").
+- saadet places its DSP code in sections `.dsp_text` and `.audio_text` (its own linker script copies them into
+  executable RAM in the pool). fm1-base's `device/app.ld` did not know them: `firmware/patches/fm1-base/
+  0005-app-dsp-in-ram.patch` puts them in `.ram_text` (RAM code, copied at boot), and extends fm1-base's RAM-code check
+  so that calls are allowed only when they stay in RAM (FM6 calls between its RAM functions through function
+  pointers, saadet's way of calling far code). saadet's calls from the flash into them are those pointers too. On a
+  Mac's host build `sa_synth.c` drops the section names (Mach-O wants "segment,section").
+- The second core follows the owner's FIZZ (`FMToneSeq/firmware/DUALCORE.md`, P2.14, and its `fm1.toml`): fm1-base's
+  `cpu2 = true` with `cpu2_fallback = true`, started in `app_init` before the sound, one hand-off a 32-frame control
+  block (`plat_cpu2_run`, then `plat_cpu2_wait`), core 1 the larger half of the sounding voices (FIZZ's P2.14b rule:
+  `(n + 1) / 2`), its job from the flash calling FM6's RAM code, a job it does not take or drops done by core 0 in
+  the same block. No FIZZ code is copied (only its settings); `fm6_render`'s batch path, `fm6_batch_kernel` and
+  `fm6_ghost_batch_kernel` are saadet's, written for this. RemoteFM1 differs from FIZZ in: FIZZ's RAM code sits in
+  the `.c1_text` window (exempt from the check), FM6's in `.ram_text` under the extended check; FIZZ splits the
+  pool's top voices, RemoteFM1 the first jobs in FM6's queue (the samples are the same either way); FIZZ's Bluetooth
+  package is its dual-core one too, as RemoteFM1's is.
 
 ## The tables
 
@@ -96,6 +122,8 @@ count), plays the same ten performances on both (`tests/sa_scenarios.h`: six voi
 feedback including algorithm 4's loop, the six LFO waves, pitch EG, scaling, velocity, bend, the controllers,
 portamento and glissando, voice stealing, edits and loads while notes sound) and compares them sample for sample:
 identical, every sample of every render (2026-10-30, saadet 2eff7f1, Apple clang on arm64, `-O2 -ffp-contract=off`).
+RemoteFM1's render is compared six ways, all identical: one core, the batch on one core, and the batch with a
+simulated second core that runs its share at once, after the first core's, never, or takes it and gives it up.
 
 ## Credit
 

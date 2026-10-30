@@ -23,7 +23,8 @@ int memcmp(const void *a, const void *b, unsigned n);
 #define FS FM6_FS
 #define NTRK 1u                          /* one part */
 #define NVOICE SA_POLY
-#define MELODEE_DUAL_CORE 0              /* one core: FM6's serial kernel */
+#define MELODEE_DUAL_CORE 1              /* FM6's kernel with the caller's scratch (fm6_run_into): a voice's job may run
+                                          * on either core. Saadet's own pairing (audio_worker) stays off, below */
 _Static_assert(CTL == (int)SA_CTL, "SA_CTL is saadet's CTL");
 
 /* a track's parameters as FM6 reads them: the eight macros (0: the patch as it is) and the voice mode */
@@ -66,8 +67,8 @@ static inline __attribute__((always_inline)) int32_t clamp(int32_t v, int32_t lo
     return v < lo ? lo : v > hi ? hi : v;
 }
 /* (out of line, unlike saadet's: its 64-bit multiplies must not sit beside the DC filter's loads, felucca-bsp
- * docs/CPU.md; the same result) */
-static __attribute__((noinline)) audio_dc_t audio_dc_decay(audio_dc_t y, int32_t coefficient)
+ * docs/CPU.md; the same result. In RAM with fm6_dc_samples, its caller) */
+static __attribute__((noinline, section(".dsp_text"))) audio_dc_t audio_dc_decay(audio_dc_t y, int32_t coefficient)
 {
     return (audio_dc_t)((y >> 30) * coefficient + (((int64_t)(y & 1073741823) * coefficient) >> 30));
 }
@@ -77,11 +78,40 @@ static inline __attribute__((always_inline)) int32_t amp_at(const vmod_t *m, uin
     return m->amp0 + ((x + ((x >> 31) & (CTL - 1))) >> 5);
 }
 
-/* one core, no audio batch: FM6's batch and profiling paths compile away */
-static const int audio_batch_active = 0;
-#define AUDIO_BATCH_BYTES 128
-#define audio_batch_push(kernel, job, size, out, n, ap) ((void)(kernel), (void)(job), (void)(out))
-#define audio_batch_push_cost(kernel, job, size, out, n, ap, cost) ((void)(kernel), (void)(job), (void)(out), (void)(cost))
+/* saadet's audio batch (its audio_batch.h's contract, as eng_fm6.c uses it): with audio_batch_active, fm6_render does
+ * the part's shared work on the calling core (fm6_prepare_controls) and queues each voice as a job (its control and
+ * its operators, into a buffer of its own: fm6_batch_kernel), and fm6_ctl_block queues the voices that rang out
+ * (fm6_ghost_batch_kernel). sa_synth.c runs the queue, on one core or split over two, and adds the jobs' buffers to
+ * their outputs in the queue's order: the same integer sums as the serial render, so the same samples. Off (0), FM6
+ * renders each voice at once, on one core (fm6_render's serial path) */
+static int audio_batch_active;
+#define AUDIO_BATCH_BYTES 96
+typedef void (*sa_kernel_t)(const void *job, int32_t *pcm);
+typedef struct {
+    sa_kernel_t kernel;
+    int32_t *out;                        /* the job's buffer goes there (added) */
+    uint32_t n, cost;                    /* frames; saadet's cost estimate (0: a voice) */
+    union { uint8_t b[AUDIO_BATCH_BYTES]; uint64_t align; } data;   /* the job, copied */
+    int32_t pcm[CTL];
+} sa_job_t;
+static sa_job_t sa_jobs[NVOICE + 1u] SA_POOL;   /* a block's: every voice, and the voices that rang out */
+static uint32_t sa_njobs;
+static void sa_batch_push(sa_kernel_t kernel, const void *job, uint32_t size, int32_t *out, uint32_t n, uint32_t cost)
+{
+    sa_job_t *j = &sa_jobs[sa_njobs < NVOICE + 1u ? sa_njobs++ : NVOICE];
+    j->kernel = kernel;
+    j->out = out;
+    j->n = n;
+    j->cost = cost;
+    memcpy(j->data.b, job, size);
+}
+#define audio_batch_push(kernel, job, size, out, n, ap) sa_batch_push((kernel), (job), (size), (out), (n), 0u)
+#define audio_batch_push_cost(kernel, job, size, out, n, ap, cost) \
+    sa_batch_push((kernel), (job), (size), (out), (n), (cost))
+/* saadet's own pairing of voices over the cores (audio_worker.h): not used, FM6 renders serially without it */
+#define audio_worker_online 0
+#define audio_worker_submit(fn, arg) 0
+#define audio_worker_join() 0
 #define AP_START(t)
 #define AP_END(what, t)
 #define RING_PUBLISH() __asm__ volatile("" ::: "memory")   /* the slot's stores before the index's (a compiler barrier) */

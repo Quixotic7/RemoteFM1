@@ -12,6 +12,11 @@ o2 = ["sa/sa_synth.c"]         # the standalone DX7 (saadet's FM6 in third_party
 gen = ["tools/gen_fm6_tables.py --out {gen}/fm6_tables.h",   # FM6's tables, from MSFA's formulas
        "tools/gen_sa_config.py --out {gen}/sa_config.h"]     # SA_BENCH=1 (./build.sh --bench): the bench build
 vendored = ["third_party/"]    # (other people's code: the register check leaves it)
+# the second core (fm1-base's cpu2: felucca-bsp's chip/fm1_cpu1.*), FIZZ's settings (FIZZ firmware/fm1.toml, P2.14):
+# started in app_init, core 1 renders about half the DX7's voices each control block (sa/sa_synth.c, the batch); a
+# unit whose second core fails plays on with one, barred until power-off. FM1B_CPU2=0 ./build.sh: one core
+cpu2 = true
+cpu2_fallback = true
 words = "words.tsv"
 ble = true                     # Bluetooth MIDI with a computer or tablet (--no-ble: the USB-only package)
 # Bluetooth's radio (patch 0003; measured on an FM-1 with a Mac, 2026-10-27, 1 KB SysEx frames: 6 KB/s stock,

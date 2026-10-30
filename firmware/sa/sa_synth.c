@@ -36,7 +36,17 @@ static const uint8_t FM6_INIT[SA_VMEM_LEN] = {
 #undef SA_INIT_OP
 
 #define FM6_NO_FACTORY                   /* (saadet's factory voices and engine table: not here) */
+/* FM6's memset inline: fm6_plan's (in fm6_control_ram, RAM code) must not call the C library's in the flash */
+static inline __attribute__((always_inline)) void *sa_memset(void *d, int c, unsigned n)
+{
+    uint8_t *p = d;
+    while (n--)
+        *p++ = (uint8_t)c;
+    return d;
+}
+#define memset sa_memset
 #include "../third_party/saadet-fm6/eng_fm6.c"
+#undef memset
 #if defined(__APPLE__)
 #undef section
 #endif
@@ -56,6 +66,64 @@ static struct {
 } sa;
 
 #define T (&trk[0])
+
+/* the render's split (sa_synth_cores): 1, every voice at once on this core (FM6's serial path); 2, FM6's batch: the
+ * voices queued as jobs, about half of them handed to the second core through the worker (sa_synth_worker), the rest
+ * done here meanwhile. Without a worker, or when it does not take a job, this core does all of them */
+static struct {
+    uint8_t cores;
+    int (*run)(void (*fn)(uint32_t), uint32_t arg);
+    int (*wait)(void);
+    uint32_t handed, kept, dropped;      /* blocks whose share the worker took; did not take; dropped (done here) */
+} sa_mp = {1, 0, 0, 0, 0, 0};
+static uint8_t sa_c1_list[NVOICE + 1u];  /* the jobs the second core runs, in order */
+
+static void sa_jobs_run(const uint8_t *list, uint32_t n)
+{
+    uint32_t k;
+    for (k = 0; k < n; k++) {
+        sa_job_t *j = &sa_jobs[list[k]];
+        j->kernel(j->data.b, j->pcm);
+    }
+}
+static void sa_c1_job(uint32_t n) { sa_jobs_run(sa_c1_list, n); }   /* (on the second core) */
+
+/* the block's queue: the voices split (the second core the first half of them in the queue's order, rounded up; the
+ * voices that rang out stay here), run, then every job's buffer added to its output in the queue's order */
+static void sa_batch_run(void)
+{
+    uint8_t c0[NVOICE + 1u];
+    uint32_t i, n0 = 0, n1 = 0, voices = 0, posted = 0;
+    for (i = 0; i < sa_njobs; i++)
+        voices += !sa_jobs[i].cost;
+    for (i = 0; i < sa_njobs; i++) {
+        if (!sa_jobs[i].cost && n1 < (voices + 1u) / 2u && sa_mp.run && voices > 1u)
+            sa_c1_list[n1++] = (uint8_t)i;
+        else
+            c0[n0++] = (uint8_t)i;
+    }
+    if (n1)
+        posted = (uint32_t)sa_mp.run(sa_c1_job, n1);
+    sa_jobs_run(c0, n0);
+    if (n1) {
+        if (!posted) {
+            sa_mp.kept++;
+            sa_jobs_run(sa_c1_list, n1);
+        } else if (sa_mp.wait() < 0) {   /* given up (the fallback): its jobs dropped, done here */
+            sa_mp.dropped++;
+            sa_jobs_run(sa_c1_list, n1);
+        } else {
+            sa_mp.handed++;
+        }
+    }
+    for (i = 0; i < sa_njobs; i++) {
+        const sa_job_t *j = &sa_jobs[i];
+        uint32_t k;
+        for (k = 0; k < j->n; k++)
+            j->out[k] += j->pcm[k];
+    }
+    sa_njobs = 0;
+}
 
 /* ------------------------------------------------------------------ the voices --- */
 /* the voice for a new note (saadet's POLY allocation): the same note sounding retriggers its voice; else a free
@@ -120,8 +188,12 @@ static void sa_block(int32_t *out)
     for (i = 0; i < NVOICE; i++)
         live |= t->v[i].active;
     memset(out, 0, CTL * sizeof *out);
+    audio_batch_active = sa_mp.cores > 1u;
+    sa_njobs = 0;
     fm6_block(t);                        /* the patch, the controllers, the LFO, the voices rung out (Dexed's) */
     if (!live) {
+        if (sa_njobs)
+            sa_batch_run();
         fm6_post(t, out, CTL, 0);        /* (the DC filter starts afresh) */
         return;
     }
@@ -142,9 +214,11 @@ static void sa_block(int32_t *out)
         m.cutoff = 0;
         m.shape = 64 << 8;
         m.plog = 0;
-        fm6_render(t, v, out, CTL, &m);
+        fm6_render(t, v, out, CTL, &m);   /* (batch: queued) */
         nr++;
     }
+    if (sa_njobs)
+        sa_batch_run();
     fm6_post(t, out, CTL, nr);
 }
 
@@ -285,6 +359,21 @@ void sa_synth_render(int32_t *lr, uint32_t n, uint32_t gain_q12)
             lr[2u * (k + i)] = lr[2u * (k + i) + 1u] = y;
         }
     }
+}
+
+void sa_synth_cores(uint32_t n) { sa_mp.cores = (uint8_t)(n > 1u ? 2u : 1u); }
+
+void sa_synth_worker(int (*run)(void (*fn)(uint32_t), uint32_t arg), int (*wait)(void))
+{
+    sa_mp.run = run;
+    sa_mp.wait = run ? wait : 0;
+}
+
+void sa_synth_worker_stats(uint32_t *handed, uint32_t *kept, uint32_t *dropped)
+{
+    *handed = sa_mp.handed;
+    *kept = sa_mp.kept;
+    *dropped = sa_mp.dropped;
 }
 
 uint32_t sa_synth_voices(void)

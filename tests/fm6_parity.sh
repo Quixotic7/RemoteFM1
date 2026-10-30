@@ -8,10 +8,11 @@
 #      family, feedback, the LFO's six waves, pitch EG, key and rate scaling, velocity, bend, the wheel, foot, breath,
 #      aftertouch, portamento and glissando, more keys than voices, edits and loads while notes sound) rendered by
 #      sa_synth (tests/sa_synth_test.c, SA_POLY 16) and by saadet's instrument itself (tests/fm6_ref.c: its voice.c,
-#      its eng_fm6.c, its tables), compared sample for sample;
+#      its eng_fm6.c, its tables), compared sample for sample; sa_synth on one core, and as saadet's batch split
+#      over two (a simulated second core that runs its share at once, after this core's, never, or gives it up);
 #   3. sa_synth's own checks at the default polyphony (tests/sa_synth_test.c, SA_POLY 8).
 #   tests/fm6_parity.sh SAADET_DIR      a saadet checkout (https://github.com/keremimo/saadet, 2eff7f1); nothing is
-#                                       written into it. Out: build/host/fm6/ (ours/, ref/: NAME.raw int32, NAME.wav)
+#                                       written into it. Out: build/host/fm6/ (ours_MODE/, ref/: NAME.raw int32)
 # saadet's generators (GPL-3.0-only) are run, never read or copied: their output stays in build/host/fm6/saadet_gen.
 # Ends "fm6 parity: PASS" (exit 0) or "fm6 parity: FAIL" (exit 1).
 set -e
@@ -19,7 +20,9 @@ cd "$(dirname "$0")/.."
 SAADET="${1:?usage: tests/fm6_parity.sh SAADET_DIR}"
 [ -f "$SAADET/firmware/src/eng_fm6.c" ] || { echo "fm6 parity: $SAADET is not a saadet checkout"; exit 2; }
 O=build/host/fm6
-mkdir -p "$O/gen" "$O/saadet_gen" "$O/ours" "$O/ref" "$O/ours8"
+MODES="serial batch now late refuse drop"
+mkdir -p "$O/gen" "$O/saadet_gen" "$O/ref" "$O/ours8"
+for m in $MODES; do mkdir -p "$O/ours_$m"; done
 CC="${HOST_CC:-cc}"
 FL="-O2 -ffp-contract=off"            # (as fm1-base builds its host simulator: no fused multiply-add)
 PY="${PYTHON:-python3}"
@@ -49,24 +52,26 @@ echo "tables: $(wc -l < "$O/tables_ours.txt" | tr -d ' ') values, $tables"
 echo "== the sound: sa_synth (SA_POLY 16) and saadet's instrument"
 $CC -std=c99 -w $FL -DPLAT_HOST -DSA_POLY=16 -I"$O/gen" -Ifirmware/sa -Itests -o "$O/sa_synth_test16" \
     tests/sa_synth_test.c firmware/sa/sa_synth.c -lm
-"$O/sa_synth_test16" "$O/ours"
+for m in $MODES; do "$O/sa_synth_test16" "$O/ours_$m" $m; done
 $CC -std=gnu11 -w $FL '-Dsection(x)=unused' -I"$SAADET/firmware/src" -I"$O/saadet_gen" -Itests -o "$O/fm6_ref" \
     tests/fm6_ref.c -lm
 "$O/fm6_ref" "$O/ref"
 sound=PASS
-"$PY" - "$O" <<'EOF' || sound=FAIL
+"$PY" - "$O" $MODES <<'EOF' || sound=FAIL
 import struct, sys
 from pathlib import Path
-o = Path(sys.argv[1])
+o, modes = Path(sys.argv[1]), sys.argv[2:]
 bad = 0
-for ref in sorted((o / "ref").glob("*.raw")):
-    a, b = (o / "ours" / ref.name).read_bytes(), ref.read_bytes()
+for mode in modes:
+  print(f"  {mode}:")
+  for ref in sorted((o / "ref").glob("*.raw")):
+    a, b = (o / f"ours_{mode}" / ref.name).read_bytes(), ref.read_bytes()
     x, y = struct.unpack(f"<{len(a) // 4}i", a), struct.unpack(f"<{len(b) // 4}i", b)
     diff = [abs(p - q) for p, q in zip(x, y) if p != q]
     peak = max(abs(v) for v in y)
     ok = len(x) == len(y) and not diff and peak > 1 << 20
     bad += not ok
-    print(f"  {ref.stem:12} {len(y):7} samples, peak {peak / (1 << 23):5.2f} of 24-bit full scale: " +
+    print(f"    {ref.stem:12} {len(y):7} samples, peak {peak / (1 << 23):5.2f} of 24-bit full scale: " +
           ("identical" if not diff and len(x) == len(y) else
            f"{len(diff)} differ (max {max(diff or [0])}), lengths {len(x)} / {len(y)}") + ("" if ok else "  FAIL"))
 sys.exit(bad != 0)

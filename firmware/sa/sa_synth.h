@@ -57,3 +57,12 @@ void sa_synth_render_mono(int32_t *out, uint32_t n);   /* n frames (a multiple o
 void sa_synth_render(int32_t *lr, uint32_t n, uint32_t gain_q12);   /* fm1-base's app_render: n stereo frames,
                                                         * interleaved, 24-bit, x gain / 4096, clipped */
 uint32_t sa_synth_voices(void);                        /* voices sounding (held or ringing out) */
+
+/* two cores: sa_synth_cores(2) renders FM6's voices as saadet's batch (each voice a job: its controls and operators,
+ * into a buffer of its own), about half of them handed to the worker, which runs fn(arg) elsewhere (fm1-base's
+ * plat_cpu2_run: 1 = taken, 0 = do it yourself) while the render does the rest, then waits for it (plat_cpu2_wait:
+ * 0 = done, -1 = dropped: done here). The same samples either way (tests/fm6_parity.sh). sa_synth_cores(1), the
+ * default: every voice at once, on the render's core. The worker's counts: blocks it took, did not take, dropped */
+void sa_synth_cores(uint32_t n);
+void sa_synth_worker(int (*run)(void (*fn)(uint32_t), uint32_t arg), int (*wait)(void));
+void sa_synth_worker_stats(uint32_t *handed, uint32_t *kept, uint32_t *dropped);

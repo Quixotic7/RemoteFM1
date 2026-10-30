@@ -125,15 +125,21 @@ receive pool and a 7.5 ms interval request (fm1.toml ble_dle, ble_2m, ble_rx_buf
 timeout, ATT MTU, the last data length change, the PHY, the connection-parameter result, the Bluetooth heap), for
 RemoteFM1's STATS_R (docs/PROTOCOL.md section 5). Drop it with `firmware/src/rfm_main.c`'s `RF_RADIO_N` part.
 
-## fm1-base: `fm1-base/0005-app-ld-dsp-sections.patch`
+## fm1-base: `fm1-base/0005-app-dsp-in-ram.patch`
 
-`device/app.ld`. PR title: **app.ld: place .dsp_text and .audio_text in .text**
+`device/app.ld`, `tools/build.py`. PR title: **An app's DSP sections in the RAM code; the RAM code's calls checked by
+their targets**
 
-> An app's DSP code may name its own sections for a linker script of its own to place (saadet's FM6 names
-> `.dsp_text` and `.audio_text`, which saadet's linker script copies to RAM). fm1-base's `app.ld` did not know them:
-> such code became an orphan section, outside the image `tools/build.py` makes from `.text`, `.ram_text` and `.data`.
-> Now it goes in `.text` (the flash, XIP) with the rest of the code. No change for an app without those sections.
+> - `app.ld`: `.dsp_text` and `.audio_text`, the sections an app's DSP code may name (saadet's FM6 does), go in
+>   `.ram_text` (RAM, copied at boot, inside the PC guard's window), out of the XIP cache's way. Before, such code was an
+>   orphan section, outside the image `tools/build.py` makes. No change for an app without those sections.
+> - `tools/build.py`: the check that RAM code makes no calls (the flash driver runs with the flash off) now lets a call
+>   through when it stays in RAM: a direct call whose target is inside `.ram_text`, or an indirect one (`call rN`) when
+>   no instruction of the RAM code takes the address of a function in the flash. Any other call is reported as before
+>   (an error without the radio, a note with it, for JieLi's `.volatile_ram_code`, which calls `memcpy` in the flash).
+>   The second core's loop (`.c1_text`) stays exempt. The note says how many calls stayed in RAM.
 
-RemoteFM1 standalone (STANDALONE-PLAN.md S0) links saadet's FM6 so (`firmware/third_party/saadet-fm6`). Running it
-from RAM instead (as saadet does) is a later choice: fm1-base's check that `.ram_text` makes no calls would need to
-leave such code out, as it leaves `.c1_text`.
+RemoteFM1 standalone (STANDALONE-PLAN.md S0b) runs saadet's FM6 so (`firmware/third_party/saadet-fm6`): ~2.9 KB of
+RAM code, 13 calls, all within RAM (FM6's own function pointers between its RAM functions, and its DC filter's helper).
+FIZZ (the owner's) places its RAM code in the `.c1_text` window instead, which the check leaves out entirely; this
+patch keeps FM6 under the check.

@@ -1191,6 +1191,9 @@ static void rf_run(void)
 }
 
 /* ------------------------------------------------------------------ the contract --- */
+#if FM1B_CPU2
+static int rf_c1_start = -2;                        /* plat_cpu2_set(1) at app_init: 0 it runs, -1 one core */
+#endif
 void app_init(void)
 {
     rf_body_init(&rf_sx[0].b, &rf_st[RF_T_SX], rf_sx_buf[0], RF_SX_BODY_MAX, rf_on_msg, (void *)(uintptr_t)RF_T_SX);
@@ -1204,6 +1207,10 @@ void app_init(void)
     rfa.draw.rowbuf = rf_rowbuf;
 #endif
     rf_drain_t = rf_ticks();
+#if FM1B_CPU2
+    rf_c1_start = plat_cpu2_set(1);                 /* the second core (fm1.toml cpu2), as FIZZ starts it: here or never,
+                                                     * before the sound; one core after a failed start or while barred */
+#endif
     sa_bench_init();
 #ifdef PLAT_HOST
     hs_init();                                      /* (the simulated host's parsers: rfm_host.c) */
