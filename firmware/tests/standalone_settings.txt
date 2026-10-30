@@ -3,7 +3,8 @@
 # ALL, KNOBS ONLY), KNOBS (ABSOLUTE, relative 1/127, relative 65/63), CC CH (buttons, encoders, MASTER), KEY CH,
 # KEYS (FIXED, MIDI KEYS: the octave on OCT- / OCT+ when OCT KEYS is on, GLO + a white key the keys' channel, GLO + a
 # black key the octave, GLO sends nothing), kept across a power cycle. SELECT the row, KN1 its value (the owner,
-# 2026-10-30); HOME (or HOME held) closes. And GLO + a black key in the instrument: the octave.
+# 2026-10-30; KN2..KN4 nothing); HOME (or HOME held, or GLO + HOME, which opens it too) closes; MIDI REMOTE from
+# it comes back to it. And GLO + a black key in the instrument: the octave.
 # tests/run_tests.sh runs it (both builds).
 wait 400
 expect sa_set0 2
@@ -172,3 +173,60 @@ wait 1100
 tap OCT+
 tap OCT+
 expect sa_oct 0
+# GLO + HOME opens the settings too (and closes them); KN2..KN4 change nothing there (no CC either)
+press GLO
+press HOME
+wait 20
+release HOME
+release GLO
+expect sa_screen 19
+expect sa_menu 1
+out
+turn K2 3
+turn K3 -2
+turn K4 5
+expect sa_set0 3
+expect sa_set1 2
+expect sa_set2 2
+expect sa_set3 1
+expect sa_cc_out 0
+turn SELECT 2
+wait 30
+shot sa_settings_ccch.png
+# MIDI REMOTE from here (GLO + FX) and back: the settings again, not HOME
+press GLO
+press FX
+wait 20
+release FX
+release GLO
+expect sa_remote 1
+press GLO
+press FX
+wait 20
+release FX
+release GLO
+expect sa_remote 0
+expect sa_screen 19
+# FX first, then GLO: the same (FX's bank undone, the settings kept)
+press FX
+wait 20
+press GLO
+wait 20
+release GLO
+release FX
+expect sa_remote 1
+press GLO
+press FX
+wait 20
+release FX
+release GLO
+expect sa_remote 0
+expect sa_screen 19
+wait 3000
+expect sa_screen 19
+press GLO
+press HOME
+wait 20
+release HOME
+release GLO
+expect sa_screen 0

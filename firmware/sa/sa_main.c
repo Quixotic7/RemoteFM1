@@ -25,7 +25,8 @@
  * off lets the notes go. Not kept across a power cycle.
  *
  * The scale (sa_scale.c): GLO + PRESETS its root, GLO + ALGORITHM the scale; the keys' notes snap onto it. GLO + a
- * black key the octave. HOME held: the settings page (MIDI REMOTE's screen, knobs, channels, keys; sa_remote.c).
+ * black key the octave. HOME held or GLO + HOME: the settings page (MIDI REMOTE's screen, knobs, channels, keys;
+ * sa_remote.c).
  *
  * After S1 (STANDALONE-PLAN.md S2..S5): FX SEL ENV LFO EDIT the CC bank and KN1..KN4 its CCs (sa_cc.c); REC, PLAY
  * and their holds the looper (sa_loop.c); ARP and its hold the arp, SELECT the tempo, a computer's MIDI clock both
@@ -738,8 +739,14 @@ static void sa_leds(void)
     rf_sa_leds(b, k, km);                    /* (rewritten now and then too: nothing else's LEDs stay) */
 }
 
-static void sa_press_early(uint32_t b)       /* SAVE, ARP, PLAY, REC down (most act when let go: sa_tap) */
+static void sa_hold(uint32_t b);
+static void sa_press_early(uint32_t b)       /* SAVE, ARP, PLAY, REC, HOME down (most act when let go: sa_tap) */
 {
+    if (b == B_HOME && (sa.btns >> B_GLO & 1u)) {   /* GLO + HOME: the settings page, as HOME held */
+        sa.hold_done |= 1u << b;
+        sa_hold(b);
+        return;
+    }
     if ((b == B_PLAY || b == B_REC) && (sl.state == SL_REC || sl.state == SL_DUB)) {
         sl_rec_stop(1);                      /* a recording ends on the press, in time; the loop plays */
         sa.hold_done |= 1u << b;             /* (its release does nothing more) */

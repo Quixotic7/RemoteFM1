@@ -882,43 +882,57 @@ static void sa_paint_scale(void)
     }
 }
 
-/* ------------------------------------------------------------------ the settings (HOME held) --- */
-static void sa_paint_settings(void)
+/* ------------------------------------------------------------------ the settings (HOME held, GLO + HOME) --- */
+/* "Big options like ChoralRoot" (the owner, 2026-10-30): one setting big in the middle, its value bigger in its
+ * colour, the value's place among its choices as stripes, the rows before and after peeking dim above and below, where
+ * the row is on the right. SELECT the row, KN1 the value. */
+static const char *const SA_SET_LAB[SA_NSET] = {"SCREEN", "KNOBS", "CC CHANNEL", "KEY CHANNEL", "KEYS", "OCT KEYS",
+                                                "SCALES"};
+static uint32_t sa_set_val(uint32_t i, char *num, const char **v)   /* row i's value as text; its choices' count */
 {
-    static const char *const LAB[7] = {"SCREEN", "KNOBS", "CC CH", "KEY CH", "KEYS", "OCT KEYS", "SCALES"};
     static const char *const DISP[SA_RMD_N] = {"VOID", "SOLID", "ALL", "KNOBS ONLY"};
     static const char *const REL[SA_RMR_N] = {"ABSOLUTE", "REL 1/127", "REL 65/63"};
     static const char *const KEYS[SA_RMK_N] = {"FIXED", "MIDI KEYS"};
     static const char *const OCTK[2] = {"CC 85/86", "OCTAVE"};
-    static const uint8_t COL[7] = {SA_TK_A5, SA_TK_A1, SA_TK_A3, SA_TK_A4, SA_TK_A2, SA_TK_A5, SA_TK_A1};
-    int32_t i, nudge = ui.now % 600u < 300u ? 0 : 2, f = ui.mfocus < SA_NSET ? ui.mfocus : 0;
-    sg_chip_text(10, 8, 0, 22, 7, "SETTINGS", UC(A2), UC(ON));
-    sg_chip_text(166, 8, 64, 22, 0, "REMOTE", UC(PANEL), UC(INK));
-    for (i = 0; i < (int32_t)SA_NSET; i++) {   /* a row each: its name, its value in a chip; the focused one lit */
-        char num[4];
-        const char *v = num;
-        int32_t y = 38 + 27 * i, w, on = i == f;
-        uint16_t c = ui.c[COL[i]];
-        switch (i) {
-        case 0: v = DISP[ui.set[0] % SA_RMD_N]; break;
-        case 1: v = REL[ui.set[1] % SA_RMR_N]; break;
-        case 4: v = KEYS[ui.set[4] % SA_RMK_N]; break;
-        case 5: v = OCTK[ui.set[5] & 1u]; break;
-        case 6: v = SA_ONOFF[ui.set[6] & 1u]; break;
-        default: sa_txt_num(num, ui.set[i]); break;
-        }
-        if (!sg_hits(y, 24))
-            continue;
-        if (on) {
-            sg_chip(8, y, 224, 24, c);
-            sa_arrow_c = UC(ON);
-        }
-        sg_text(18 - (on ? nudge : 0), y + 7, 1, LAB[i], on ? UC(ON) : UC(SOFT));
-        w = sg_text_w(v, 1) + 14;
-        sg_chip_text(226 - w, y + 2, w, 20, 6, v, on ? UC(BG) : UC(PANEL), on ? c : UC(INK));
-        if (!on)
-            sg_rect(10, y + 10, 4, 4, c);
+    switch (i) {
+    case 0: *v = DISP[ui.set[0] % SA_RMD_N]; return SA_RMD_N;
+    case 1: *v = REL[ui.set[1] % SA_RMR_N]; return SA_RMR_N;
+    case 4: *v = KEYS[ui.set[4] % SA_RMK_N]; return SA_RMK_N;
+    case 5: *v = OCTK[ui.set[5] & 1u]; return 2;
+    case 6: *v = SA_ONOFF[ui.set[6] & 1u]; return 2;
+    default: sa_txt_num(num, ui.set[i]); *v = num; return 16;
     }
+}
+
+static void sa_paint_settings(void)
+{
+    static const uint8_t COL[SA_NSET] = {SA_TK_A5, SA_TK_A1, SA_TK_A3, SA_TK_A4, SA_TK_A2, SA_TK_A5, SA_TK_A1};
+    int32_t f = ui.mfocus < SA_NSET ? ui.mfocus : 0, n, i, w, nv, cur, sw, x0;
+    uint16_t c = ui.c[COL[f]];
+    char num[4];
+    const char *v;
+    sg_chip_text(10, 8, 220, 22, 0, "REMOTE MODE SETTINGS", UC(A2), UC(ON));
+    if (f > 0)                               /* the row before, peeking above */
+        sg_text_c(38, 2, SA_SET_LAB[f - 1], UC(PANEL));
+    for (n = 3; n > 1 && sg_text_w(SA_SET_LAB[f], n) > 210; n--)
+        ;
+    sg_text_sh((SG_W - sg_text_w(SA_SET_LAB[f], n)) / 2, 64, n, SA_SET_LAB[f], UC(INK), 3, UC(SHADOW));
+    nv = (int32_t)sa_set_val((uint32_t)f, num, &v);
+    for (n = 5; n > 2 && sg_text_w(v, n) > 214; n--)
+        ;
+    sg_text_sh((SG_W - sg_text_w(v, n)) / 2, 100 + (5 - n) * 5, n, v, c, 4, UC(SHADOW));
+    /* the value's place: a stripe a choice, the value's lit */
+    cur = f == 2 || f == 3 ? ui.set[f] - 1 : ui.set[f];
+    sw = (200 - 3 * (nv - 1)) / nv;
+    x0 = (SG_W - (nv * sw + 3 * (nv - 1))) / 2;
+    for (i = 0; i < nv; i++)
+        sg_rect(x0 + i * (sw + 3), 164, sw, 8, i == cur ? c : UC(D5));
+    if (f + 1 < (int32_t)SA_NSET)            /* the row after, peeking below */
+        sg_text_c(182, 2, SA_SET_LAB[f + 1], UC(PANEL));
+    for (i = 0; i < (int32_t)SA_NSET; i++)   /* where the row is: a dot each, on the right */
+        sg_rect(228, 66 + 12 * i, 6, 8, i == f ? c : UC(PANEL));
+    w = sg_text_w("GLO + FX FOR REMOTE", 1) + 16;
+    sg_chip_text((SG_W - w) / 2, 210, w, 22, 7, "GLO + FX FOR REMOTE", UC(PANEL), UC(INK));
 }
 
 /* ------------------------------------------------------------------ the dispatch --- */
