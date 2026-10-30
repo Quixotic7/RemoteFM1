@@ -59,8 +59,12 @@ if [ $BENCH = 0 ]; then
     exec "$PY" "$B/tools/build.py" firmware "$@"
 fi
 case " $* " in *" --host "* | *" --web "* | *" --release "*) echo "build.sh: --bench is a device build only"; exit 1 ;; esac
-"$PY" "$B/tools/build.py" firmware "$@"
 stem=remotefm1
 case " $* " in *" --no-ble "*) stem=remotefm1-usb ;; esac
+[ ! -f firmware/build/$stem.fwsc ] || mv firmware/build/$stem.fwsc firmware/build/$stem.fwsc.keep
+"$PY" "$B/tools/build.py" firmware "$@" || { [ ! -f firmware/build/$stem.fwsc.keep ] ||
+    mv firmware/build/$stem.fwsc.keep firmware/build/$stem.fwsc; exit 1; }
 mv firmware/build/$stem.fwsc firmware/build/$stem-bench.fwsc
+[ ! -f firmware/build/$stem.fwsc.keep ] || mv firmware/build/$stem.fwsc.keep firmware/build/$stem.fwsc   # (the
+                                                        # ordinary package of the last ordinary build stays)
 echo "bench    $ROOT/firmware/build/$stem-bench.fwsc (SA_BENCH: the FM6 bench at boot)"
