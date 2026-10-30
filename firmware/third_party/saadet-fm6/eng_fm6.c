@@ -14,6 +14,8 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License. Source revisions: docs/BLE_MIGRATION.md. */
+/* Changed by RemoteFM1 contributors, 2026: the factory voices' two includes dropped; FM6_NO_FACTORY leaves out
+ * the factory voices and Saadet's engine table (firmware/third_party/saadet-fm6/PROVENANCE.md). */
 
 /* FM6: native DX7 patch editing and MSFA-based synthesis for Saadet.
  * The 155-byte voice, 128-byte packed bank record and function settings retain
@@ -23,7 +25,6 @@
  * The synthesis data and controller model retain Apache-2.0 MSFA provenance.
  * This file is MPL-2.0; its MSFA portions stay Apache-2.0 (the notice above). */
 #include "fm6_core.c"
-#include "melodee_fm6.h"         /* tools/gen_fm6_patches.py: FM6_INIT, FM6_FACTORY[FM6_NFACTORY] (F1..F8) */
 
 /* a Melodee factory voice: OP1..OP6 in patch order within an operator (DET 0..14, 7 = none), ALG 0..31,
  * TRNSP 24 = no transposition */
@@ -32,7 +33,6 @@ typedef struct {
     uint8_t pr[4], pl[4], alg, fb, oks, lfs, lfd, lpmd, lamd, lfks, lfw, lpms, trnsp;
     char name[11];
 } fm6_rom_t;
-#include "eng_fm6_rom.h"         /* FM6_ROM[FM6_NROM]: F9.. */
 
 #define ENGI_FM6 12u             /* engines.c ENGINES[] (append-only) */
 #define FM6_NFAC (FM6_NFACTORY + FM6_NROM)        /* F1..F24: the factory patches */
@@ -166,6 +166,7 @@ static void fm6_rom_patch(const fm6_rom_t *r, uint8_t *v)   /* a Melodee factory
     fm6_sanitize(v);
 }
 
+#ifndef FM6_NO_FACTORY   /* RemoteFM1: Saadet's factory voices and engine table left out (PROVENANCE.md) */
 /* factory patch k (F1..F24) as a packed record */
 static void fm6_factory(uint32_t k, uint8_t *pk)
 {
@@ -178,6 +179,7 @@ static void fm6_factory(uint32_t k, uint8_t *pk)
     memset(pk, 0, FM6_PACKED);
     fm6_pack(v, pk);
 }
+#endif
 
 static void fm6_name(char *d, const uint8_t *v)          /* the voice name, trailing spaces cut */
 {
@@ -215,6 +217,7 @@ static void fm6_set_patch(uint32_t tr, const uint8_t *v)
     fm6_put_patch(tr, v, memcmp(o + FP_NAME, v + FP_NAME, 10) || o[FP_TRNSP] != v[FP_TRNSP]);
 }
 
+#ifndef FM6_NO_FACTORY
 /* A factory preset loads its corresponding voice directly. */
 static void fm6_track_loaded(const track_t *t)
 {
@@ -227,6 +230,7 @@ static void fm6_track_loaded(const track_t *t)
         fm6_put_patch(tr, v, 1);
     }
 }
+#endif
 
 /* power-on: every track the init voice (what a project stores for the tracks that never played FM6), the
  * function settings Dexed's (a project or the template loaded then brings its own) */
@@ -901,6 +905,7 @@ static void fm6_sx_byte(uint8_t b)
 }
 
 /* --------------------------------------------------------- the engine --- */
+#ifndef FM6_NO_FACTORY
 static const char *const N_FM6_ALG[] = {"PAT", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13",
                                         "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25",
                                         "26", "27", "28", "29", "30", "31", "32", 0};
@@ -963,3 +968,4 @@ static const engine_t ENG_FM6 = {
     .legato = fm6_legato,
     .post = fm6_post,
 };
+#endif
