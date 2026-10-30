@@ -1,0 +1,100 @@
+# SPDX-License-Identifier: MPL-2.0
+# RemoteFM1 standalone: the keys' LEDs for playing with the screen off (the owner, 2026-10-30). GLO held: the MIDI
+# channel's white key (1..16 left to right) and the octave's black key lit, in the instrument and in MIDI REMOTE's
+# MIDI KEYS; GLO + a white key sets the instrument's channel too (as MIDI KEYS does). In MIDI REMOTE an encoder turned
+# in ABSOLUTE, or MASTER moved, shows its value on the 16 white keys for 1.5 s (0 the first, 127 all 16).
+# tests/run_tests.sh runs it (both builds).
+wait 400
+# GLO held: channel 1 (F3), octave 0 (the sixth black key, F#4)
+press GLO
+wait 30
+expect sa_lit_keys 8193
+# GLO + the fourth white key (B3): channel 4, no note, the Channel screen
+key 6 down 100
+wait 20
+key 6 up
+expect sa_ch 4
+expect sa_held 0
+expect sa_screen 2
+wait 30
+expect sa_lit_keys 8256
+# GLO + the first black key: octave -3 (the third black key lit)
+key 1 down 100
+wait 20
+key 1 up
+expect sa_oct -3
+wait 30
+expect sa_lit_keys 96
+shot sa_glo_leds.png
+release GLO
+wait 30
+expect sa_lit_keys 0
+press GLO
+key 13 down 100
+wait 20
+key 13 up
+key 0 down 100
+wait 20
+key 0 up
+release GLO
+expect sa_oct 0
+expect sa_ch 1
+# MIDI REMOTE (FIXED keys, ABSOLUTE): KN1 to 65: nine white keys lit, for 1.5 s
+press GLO
+press FX
+wait 20
+release FX
+release GLO
+expect sa_remote 1
+turn K1 1
+wait 30
+expect sa_lit_keys 23253
+wait 1600
+expect sa_lit_keys 0
+# MASTER to 0: the first white key; to the top: all 16
+master 0
+wait 30
+expect sa_lit_keys 1
+master 4096
+wait 30
+expect sa_lit_keys 95247061
+wait 1600
+expect sa_lit_keys 0
+# relative: no bar
+press GLO
+press FX
+wait 20
+release FX
+release GLO
+press HOME
+wait 600
+release HOME
+turn SELECT 1
+turn K1 1
+turn SELECT 3
+turn K1 1
+expect sa_set1 1
+expect sa_set4 1
+press HOME
+wait 600
+release HOME
+press GLO
+press FX
+wait 20
+release FX
+release GLO
+expect sa_remote 1
+turn K2 1
+wait 30
+expect sa_lit_keys 0
+# MIDI KEYS, GLO held: the keys' channel (1) and octave (0); GLO + the third white key: channel 3
+press GLO
+wait 30
+expect sa_lit_keys 8193
+key 4 down 100
+wait 20
+key 4 up
+expect sa_set3 3
+wait 30
+expect sa_lit_keys 8208
+release GLO

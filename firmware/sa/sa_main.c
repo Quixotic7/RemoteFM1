@@ -777,6 +777,10 @@ static void sa_leds(void)
             k |= 1u << i;
     }
     km = sa_scale_keys(sa.oct) & ~k;         /* the scale's notes, dim */
+    if (sa.btns >> B_GLO & 1u) {             /* GLO held: the channel's white key, the octave's black key */
+        k = sa_glo_keys(sa.ch, sa.oct);
+        km = 0;
+    }
     if (sa.base == SA_SCR_LOOPS) {           /* the 16 loops' page: the loop lit (the one queued blinking), the loops
                                               * with notes dim; the launch's black keys lit */
         k = km = 0;
@@ -1172,6 +1176,17 @@ static void sa_ms(uint32_t btns, const int32_t *steps)
                 sa_changed();
             }
             sa_overlay(SA_SCR_OCTAVE);
+            continue;
+        }
+        if ((keys >> k & 1u) && (btns >> B_GLO & 1u) && sa_key_white(k) >= 0) {   /* GLO + a white key: the channel
+                                                                                   * (as MIDI REMOTE's MIDI KEYS) */
+            uint32_t c = (uint32_t)sa_key_white(k) + 1u;
+            if (c != sa.ch) {
+                sa_remote_off_all();
+                sa.ch = (uint8_t)c;
+                sa_changed();
+            }
+            sa_overlay(SA_SCR_CHANNEL);
             continue;
         }
         if ((keys >> k & 1u) && sa.base == SA_SCR_LOOPS) {   /* the 16 loops' page: the keys pick, play nothing */

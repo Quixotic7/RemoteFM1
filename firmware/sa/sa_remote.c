@@ -243,9 +243,22 @@ static void sa_rm_ms(uint32_t keys, uint32_t btns, const int32_t *steps)
     }
 }
 
-static void sa_rm_leds(void)                 /* the buttons and keys held, lit; MIDI KEYS: the scale's keys dim */
+/* the buttons and keys held, lit; MIDI KEYS: the scale's keys dim. With the screen off in mind (the owner,
+ * 2026-10-30): an encoder turned in ABSOLUTE (or MASTER moved) shows its value on the 16 white keys for SA_RM_KNOB_MS
+ * (0 the first, 127 all 16); in MIDI KEYS, GLO held shows the keys' channel (a white key) and octave (a black key) */
+static void sa_rm_leds(void)
 {
     uint32_t b = sa.btns & ((1u << NB) - 1u), k = sa.keys, km = sa_rm_kbd() ? sa_scale_keys(rm.oct) & ~k : 0u;
+    if (sa_rm_kbd() && (sa.btns >> B_GLO & 1u)) {
+        k = sa_glo_keys(sa.rm_key_ch, rm.oct);
+        km = 0;
+    } else if (rm.n && plat_ms() - rm.last_ms < SA_RM_KNOB_MS &&
+               ((rm.src == SA_RM_SRC_ENC && sa.rm_rel == SA_RMR_ABS) || rm.src == SA_RM_SRC_MASTER)) {
+        uint32_t v = rm.src == SA_RM_SRC_MASTER ? (uint32_t)rm.master : rm.enc[rm.src_i % NE], n = 1u + (v * 15u + 63u) / 127u, w;
+        k = km = 0;
+        for (w = 0; w < n && w < 16u; w++)
+            k |= sa_white_bit(w);
+    }
     if (b == sa.led_b && k == sa.led_k && km == sa.led_km && plat_ms() - sa.led_ms < SA_LED_REFRESH_MS)
         return;
     sa.led_b = b;

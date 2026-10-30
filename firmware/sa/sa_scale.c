@@ -30,6 +30,31 @@ static int32_t sa_key_black(uint32_t k)      /* key k's place among the 11 black
     return b < 0 ? -1 : (int32_t)(k / 12u) * 5 + b;
 }
 
+static uint32_t sa_white_bit(uint32_t w)    /* the white key w's bit (0..15) among the 27 */
+{
+    uint32_t k;
+    for (k = 0; k < NKEYS; k++)
+        if (sa_key_white(k) == (int32_t)w)
+            return 1u << k;
+    return 0;
+}
+
+static uint32_t sa_black_bit(uint32_t b)     /* the black key b's (0..10) */
+{
+    uint32_t k;
+    for (k = 0; k < NKEYS; k++)
+        if (sa_key_black(k) == (int32_t)b)
+            return 1u << k;
+    return 0;
+}
+
+/* GLO held (the owner, 2026-10-30: usable with the screen off): the channel's white key (1..16 left to right) and the
+ * octave's black key (the one GLO + it picks: the middle one 0; -3 / +3 the third / ninth) lit */
+static uint32_t sa_glo_keys(uint32_t ch, int32_t oct)
+{
+    return sa_white_bit(ch - 1u) | sa_black_bit((uint32_t)clamp(oct + 5, 0, 10));
+}
+
 /* GLO + a black key: the octave, the middle black key (the sixth, F#4 at octave 0) 0, -1 / +1 a key left / right,
  * -3 / +3 at the ends (the first three, the last three) */
 static int32_t sa_black_oct(uint32_t b) { return clamp((int32_t)b - 5, -3, 3); }
