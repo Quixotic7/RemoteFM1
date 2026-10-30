@@ -563,3 +563,7 @@ body.learning #device { cursor: crosshair; }
   .fw-pill, .src-link, .rec-btn, .takes-btn, #top nav #install-link { height: 30px; }
 }
 @media (prefers-reduced-motion: reduce) { .sheet, .scrim, #corner, .toast { transition: none; } .fm1-dot.busy.live, .rec-btn .rec-dot, .learn-dot { animation: none !important; } }
+.cart-drop { display: flex; align-items: center; gap: 8px; padding: 10px; border: 1px dashed var(--muted); border-radius: 10px; }
+.cart-drop.over { border-color: var(--green); }
+.cart-bank { margin-top: 10px; }
+.cart-names { columns: 2; font-size: 12px; margin: 6px 0 8px; padding-left: 22px; }

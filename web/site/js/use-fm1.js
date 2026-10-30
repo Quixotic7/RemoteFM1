@@ -9,6 +9,7 @@
 // in, as the computer's MIDI input does.
 import { h } from "./sheet.js";
 import { Fm1Link } from "./fm1-link.js";
+import { mountCart } from "./cart.js";
 
 export function createFm1(site, mod, { onUnitPorts } = {}) {
   const remote = new mod.RemoteFM1();
@@ -86,6 +87,7 @@ export function mountUseFm1(slot, link, site) {
     h("div", { class: "pills two" }, btn, h("a", { class: "pill", href: site.installerUrl }, "Install RemoteFM1")),
     line,
     h("p", { class: "note" }, "Chrome or Edge. Once allowed, it connects by itself when the page opens or the FM-1 is plugged in. macOS and ChromeOS get the fast USB path; Windows and Linux fall back to MIDI."));
+  mountCart(slot, link);
 }
 
 // ---- the header's Connect FM-1 button, and its menu while connected or connecting

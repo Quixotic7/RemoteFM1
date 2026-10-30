@@ -1262,5 +1262,34 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   }
 }
 
+// ---- a DX7 cartridge to the FM-1 (js/cart.js; docs/CART-UPLOAD.md): parsed, checked, sent to a fake MIDI port
+{
+  const C = await import("./js/cart.js");
+  const bank = (ch = 0, bad = false) => {
+    const m = new Uint8Array(4104); m.set([0xF0, 0x43, ch, 0x09, 0x20, 0x00]);
+    for (let k = 0; k < 32; k++) for (let i = 0; i < 128; i++) m[6 + 128 * k + i] = i < 118 ? (k + i) & 0x7F : `VOICE ${String(k + 1).padStart(2, "0")}  `.charCodeAt(i - 118);
+    let s = 0; for (let i = 6; i < 4102; i++) s += m[i];
+    m[4102] = ((128 - (s & 0x7F)) & 0x7F) ^ (bad ? 1 : 0); m[4103] = 0xF7; return m;
+  };
+  const one = C.parseCarts(bank());
+  ok(one.length === 1 && one[0].ok && !one[0].fixed && one[0].names[0] === "VOICE 01" && one[0].names[31] === "VOICE 32" && one[0].bytes.length === 4104,
+     "cart: a 32-voice bank parsed, its 32 names, the checksum right");
+  const two = C.parseCarts(Uint8Array.from([...bank(3), 0xF0, 0x7E, 0x00, 0xF7, ...bank(0, true)]));
+  ok(two.length === 3 && two[0].ok && two[0].bytes[2] === 0 && !two[1].ok && two[2].ok && two[2].fixed && two[2].bytes[4102] === one[0].bytes[4102],
+     "cart: several dumps in a file: each listed, the channel set to 0, a wrong checksum corrected, other SysEx not a bank");
+  const short = bank().subarray(0, 200), c = C.parseCarts(Uint8Array.from([...short, 0xF7]));
+  ok(!c[0].ok && /not a 32-voice bank/.test(c[0].why) && !C.parseCarts(new Uint8Array(10))[0].ok, "cart: a short dump, no SysEx: refused with why");
+  const sent = [], out = (name) => ({ name, send: (b) => sent.push([name, b]) });
+  const access = { outputs: new Map([["a", out("FM-1 1F2D")], ["b", out("IAC Bus 1")], ["c", out("FM-1 update")], ["d", out("FM-1")]]) };
+  const outs = C.fm1Outputs(access);
+  ok(outs.map((o) => o.name).join() === "FM-1,FM-1 1F2D", "cart: FM-1 outputs, USB first, never the updater's or another device");
+  C.sendCart(outs[0], one[0].bytes);
+  let threw = false; try { C.sendCart(outs[0], short); } catch (_) { threw = true; }
+  ok(sent.length === 1 && sent[0][0] === "FM-1" && sent[0][1].length === 4104 && sent[0][1][0] === 0xF0 && sent[0][1][4103] === 0xF7 && threw,
+     "cart: the whole 4104-byte dump in one send to the USB port; anything else refused");
+  ok((await C.queryUserBanks()) === null && /up to 3 on RemoteFM1 0.3.0, 16 from 0.3.1/.test(C.banksText(null)) && /2 of 16 USER/.test(C.banksText({ max: 16, names: ["A", "B"] })),
+     "cart: no bank query yet (0.3.0): the limits as text; a query's answer shown when there is one");
+}
+
 console.log(fails ? `site: ${fails} of ${checks} FAILED` : `site tests passed (${checks})`);
 process.exit(fails ? 1 : 0);
