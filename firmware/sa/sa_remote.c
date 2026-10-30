@@ -45,6 +45,8 @@ static struct {
     uint8_t info;                            /* the last shortcut (SA_RM_INFO_*), shown a moment */
     uint32_t info_ms;
     uint32_t last_ms;
+    uint8_t kn_last[3], kn_src, kn_src_i;    /* the last encoder's / MASTER's message (KNOBS ONLY keeps showing it) */
+    uint32_t kn_n;
     /* FX first: what its bank change undoes */
     uint32_t fx_ms;
     uint8_t fx_bank, fx_ov, fx_base, fx_menu;
@@ -73,6 +75,12 @@ static void sa_rm_send(uint32_t st, uint32_t d1, uint32_t d2, uint32_t src, uint
     rm.src_i = (uint8_t)i;
     rm.n++;
     rm.last_ms = plat_ms();
+    if (src == SA_RM_SRC_ENC || src == SA_RM_SRC_MASTER) {
+        memcpy(rm.kn_last, rm.last, 3);
+        rm.kn_src = (uint8_t)src;
+        rm.kn_src_i = (uint8_t)i;
+        rm.kn_n++;
+    }
     sa.poke = 1;
 }
 

@@ -96,7 +96,7 @@ static void sa_ui_chord(void)
     uint32_t n = 0, i;
     sa_chord_t c;
     for (i = 0; i < 128u && n < sizeof held; i++)
-        if (sa.held[i])
+        if (sa.held[i] || sa.arp_show == i + 1u)   /* (the arp's note through its gate's gap: no blank frame) */
             held[n++] = (uint8_t)i;
     sa_chord_name(held, n, &c);
     if (n) {
@@ -294,7 +294,12 @@ static void sa_paint_preset(void)
     sa_num(num, ui.voice + 1, 0);
     sg_text_sh((SG_W - sg_text_w(num, 5)) / 2, 66, 5, num, UC(A3), 4, UC(D1));
     sa_voice_name(sa_bank_vmem(ui.bank, ui.voice), name);
-    sg_text_c(155, 1, name, UC(INK));
+    {                                        /* the name big (the owner, 2026-10-30: it was too small to read) */
+        int32_t s = 3;
+        while (s > 1 && sg_text_w(name, s) > 228)
+            s--;
+        sg_text_sh((SG_W - sg_text_w(name, s)) / 2, 138, s, name, UC(INK), 3, UC(SHADOW));
+    }
     for (i = 0; i < 32; i++) {               /* 16 x 2 slots: the voice, those before it, those after */
         uint16_t c = i == ui.voice ? UC(A3) : i < ui.voice ? UC(MID) : UC(PANEL);
         sg_rect(17 + (i % 16) * 13, 204 + (i / 16) * 13, 11, 11, c);

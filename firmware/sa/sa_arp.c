@@ -70,6 +70,7 @@ static void sar_release(void)
         sar_out(sar.sounding, 0);
         sar.sounding = 0xFFu;
     }
+    sa.arp_show = 0;
 }
 
 static uint32_t sar_pick(uint32_t *vel)      /* the pattern's note at idx */
@@ -110,6 +111,7 @@ static void sar_step(void)                   /* a new step: the last note off, t
     note = sar_pick(&vel);
     sar_out(note, vel);
     sar.sounding = (uint8_t)note;
+    sa.arp_show = (uint8_t)(note + 1u);
     sar.gate_off = 0;
     sar.idx++;
     sar.step++;
@@ -123,7 +125,9 @@ static void sar_tick(void)                   /* a clock tick (24 a beat) */
         return;
     sar.tick++;
     if (!sar.gate_off && sar.tick * 10u >= rate * sa.arp_gate && sa.arp_gate < 10u) {
+        uint8_t shown = sa.arp_show;
         sar_release();
+        sa.arp_show = shown;                 /* (still shown till the next step: no blank frame) */
         sar.gate_off = 1;
     }
     if (sar.tick >= rate)

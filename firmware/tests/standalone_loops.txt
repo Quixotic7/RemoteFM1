@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: MPL-2.0
 # RemoteFM1 standalone: the 16 loops' page (the owner, 2026-10-30). SEQ opens it (SEQ again closes it); no cursor: the
 # current loop is lit; the 16 white keys pick loops 1..16 and play no notes there; LAUNCH, how a loop picked while
-# another plays comes in: INSTANT, AT BAR, AT END, on the black keys (each octave's F#, G#, A#) or KN1, kept. The keys'
-# LEDs: the loop lit, the loops with notes dim, the launch's black keys lit. tests/run_tests.sh runs it (both builds).
+# another plays comes in: INSTANT, AT BAR, AT END, on the first three black keys (F#3, G#3, A#3; the owner, 2026-10-30) or KN1, kept. The keys'
+# LEDs: the loop lit, the loops with notes dim, the launch's black key lit. tests/run_tests.sh runs it (both builds).
 wait 400
 # two loops of 2 bars (4000 ms at 120): loop 1 (F3), then loop 2 (A3)
 press REC
@@ -45,10 +45,10 @@ expect sa_lnext -1
 expect sa_lstate 1
 expect sa_lpos <150
 wait 30
-expect sa_lit_keys 33562627
-# AT BAR (G#): loop 2 at loop 1's next bar (2000), not before
+expect sa_lit_keys 3
+# AT BAR (the second black key): loop 2 at loop 1's next bar (2000), not before
 wait 500
-tapkey b6
+tapkey b1
 expect sa_launch 1
 tapkey w1
 expect sa_lnext 1

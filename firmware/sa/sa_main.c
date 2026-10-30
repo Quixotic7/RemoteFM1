@@ -117,6 +117,8 @@ static struct {
     uint8_t rec_len, rec_quant, rec_count, rec_layer;   /* sa_loop.c's recording options (rec_count: SA_REC_NCOUNTS) */
     uint8_t rec_metro, rec_click;            /* the metronome on (count-in and recording), its volume 1..10 */
     uint8_t rpage;                           /* the recording options' page (SELECT) */
+    uint8_t arp_show;                        /* the arp's last note + 1, shown (screen, LEDs) through its gate's gap
+                                              * till the next step (0: none; the owner, 2026-10-30: no blank flicker) */
     uint8_t loop_launch;                     /* a loop picked while one plays: at once, at the bar, at the end (SL_LAUNCH_*) */
     uint8_t ubank_seq;                       /* the user banks' count of arrivals (sa_ubank.c) */
     char name[12];                           /* the voice's */
@@ -685,7 +687,10 @@ static int sa_standalone(void) { return !sa.panel; }
 static void sa_host_msg(uint32_t t, uint32_t cmd, const uint8_t *body, uint32_t len)
 {
     sa.host_ms = plat_ms();
-    if (cmd == RFM_HELLO || (cmd == RFM_SESSION && len >= 1u && body[0]))
+    /* only a SESSION start hands the FM-1 over (2026-10-30: a host's HELLO alone, which apps send to find a unit,
+     * flashed the screen and LEDs and cut the sound every time; HELLO_R is still answered, rfm_main.c) */
+    (void)RFM_HELLO;
+    if (cmd == RFM_SESSION && len >= 1u && body[0])
         sa_enter_panel(t);
 }
 
@@ -774,7 +779,7 @@ static void sa_leds(void)
         b |= 1u << B_OCTUP;
     for (i = 0; i < NKEYS; i++) {
         int32_t n = (int32_t)SA_NOTE0 + (int32_t)i + 12 * sa.oct;
-        if ((sa.keys >> i & 1u) || (n >= 0 && n < 128 && sa.held[n]))
+        if ((sa.keys >> i & 1u) || (n >= 0 && n < 128 && (sa.held[n] || sa.arp_show == n + 1)))
             k |= 1u << i;
     }
     km = sa_scale_keys(sa.oct) & ~k;         /* the scale's notes (40 %), its root (75 %); playing: lit */
@@ -792,7 +797,7 @@ static void sa_leds(void)
                 k |= 1u << i;
             else if (w >= 0 && sl.len[w])
                 km |= 1u << i;
-            if (bl >= 0 && bl % 5 == (int32_t)sa.loop_launch)
+            if (bl >= 0 && bl == (int32_t)sa.loop_launch)
                 k |= 1u << i;
         }
     }
@@ -911,7 +916,13 @@ static int sa_menu_knob(uint32_t k, int32_t d)
 
 static void sa_select(int32_t d)             /* SELECT: the tempo; in the settings the row */
 {
-    if (sa.menu && sa.base == SA_SCR_SETTINGS) {
+    if (sa.menu && sa.base == SA_SCR_THEME) {   /* the theme menu: SELECT the theme (as KN1) */
+        sa.theme = (uint8_t)(((int32_t)sa.theme + d % (int32_t)SA_NTHEMES + (int32_t)SA_NTHEMES) %
+                             (int32_t)SA_NTHEMES);
+        sa_changed();
+        sa_back();
+        sa_menu_touch();
+    } else if (sa.menu && sa.base == SA_SCR_SETTINGS) {
         sa.mfocus = (uint8_t)clamp((int32_t)sa.mfocus + d, 0, (int32_t)SA_NSET - 1);
         sa_back();
         sa_menu_touch();
@@ -931,10 +942,7 @@ static void sa_select(int32_t d)             /* SELECT: the tempo; in the settin
             sa.bpm = (uint16_t)b;
             sa_changed();
         }
-        if (sa.ov == SA_SCR_ARPSET)
-            sa.poke = 1;                     /* (the Arp settings show the tempo: in place) */
-        else
-            sa_overlay(SA_SCR_TEMPO);
+        sa_overlay(SA_SCR_TEMPO);            /* (the full Tempo screen, in a menu too: the owner, 2026-10-30) */
     }
 }
 
@@ -1136,8 +1144,8 @@ static void sa_loops_key(uint32_t k)
     int32_t w = sa_key_white(k), b = sa_key_black(k);
     if (w >= 0) {
         sl_pick((uint32_t)w);
-    } else if (b >= 0 && b % 5 < 3) {
-        sa.loop_launch = (uint8_t)(b % 5);
+    } else if (b >= 0 && b < 3) {            /* (the owner, 2026-10-30: only the first 3 black keys) */
+        sa.loop_launch = (uint8_t)b;
         sa_changed();
     }
     sa_back();

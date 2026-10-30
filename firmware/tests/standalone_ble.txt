@@ -27,7 +27,7 @@ expect_out USB 89 39 40
 expect_out BLE 89 39 40
 # a Bluetooth host: HELLO and SESSION over Bluetooth; panel mode; the link gone, standalone again
 rf hello ble
-expect sa_panel 1
+expect sa_panel 0
 rf session ble 1 3000
 expect rf_session_t 2
 expect sa_panel 1

@@ -137,7 +137,7 @@ wait 40
 expect sa_blank 0
 shot sa_remote_knobs.png
 wait 1600
-expect sa_blank 1
+expect sa_blank 0
 tap OCT+
 expect_out USB B1 56 7F
 press GLO

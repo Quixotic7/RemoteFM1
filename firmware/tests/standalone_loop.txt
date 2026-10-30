@@ -179,13 +179,17 @@ tap PLAY
 expect sa_lstate 0
 rf send usb 0A 05 01
 expect sa_llen_1 0
-# a host's HELLO: the loop stops, nothing sounds
+# a host's HELLO alone: the loop plays on; its SESSION start: the loop stops, nothing sounds
 tap PLAY
 expect sa_lstate 1
 rf hello usb
 wait 20
+expect sa_lstate 1
+rf session usb 1 0
+wait 20
 expect sa_lstate 0
 expect sa_held 0
-wait 3100
+rf session usb 0
+wait 20
 expect sa_panel 0
 expect sa_ldrops 0

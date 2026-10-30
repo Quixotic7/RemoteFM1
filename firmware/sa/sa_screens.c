@@ -477,8 +477,8 @@ static void sa_steps(uint32_t step, int lit)
 
 static void sa_paint_arp(void)
 {
-    const char *m = ui.arp_on ? SA_AMODE[ui.aopt[0]] : "OFF";
-    int32_t n = 9;
+    const char *m = ui.arp_on ? "ON" : "OFF";   /* (the owner, 2026-10-30: on / off only, not the pattern) */
+    int32_t n = 7;
     sg_chip_text(10, 8, 0, 22, 7, "ARP", ui.arp_on ? UC(A4) : UC(PANEL), ui.arp_on ? UC(ON) : UC(INK));
     sa_bpm_chip(8, 0);
     while (n > 3 && sg_text_w(m, n) > 224)
@@ -584,7 +584,7 @@ static void sa_ui_snap_views(void)
     ui.keyheld = 0;
     for (i = 0; i < NKEYS; i++) {
         int32_t n = (int32_t)SA_NOTE0 + (int32_t)i + 12 * sa.oct;
-        if ((sa.keys >> i & 1u) || (n >= 0 && n < 128 && sa.held[n]))
+        if ((sa.keys >> i & 1u) || (n >= 0 && n < 128 && (sa.held[n] || sa.arp_show == n + 1)))
             ui.keyheld |= 1u << i;
     }
     ui.lvl8 = (uint8_t)(uis.lvl * 8.0f + 0.5f);
@@ -784,16 +784,8 @@ static void sa_paint_remote(void)
     uint32_t st = ui.rm_last[0] & 0xF0u, v = ui.rm_last[2];
     int32_t i, w, lit;
     uint16_t acc = UC(A2);
-    char cht[16];
-    sg_chip_text(10, 8, 0, 22, 7, ui.rm_kbd ? "REMOTE KEYS" : "REMOTE MIDI", UC(A2), UC(ON));
-    sa_cpy(cht, "CC ");                      /* the channels: CC 1 KEY 2, or CH 01 when the same */
-    sa_txt_num(cht + 3, ui.set[2]);
-    sa_cpy(cht + sa_slen(cht), " KEY ");
-    sa_txt_num(cht + sa_slen(cht), ui.set[3]);
-    if (ui.set[2] == ui.set[3])
-        sa_cpy(cht, ui.set[2] < 10u ? "CH 0" : "CH "), sa_txt_num(cht + sa_slen(cht), ui.set[2]);
-    w = sg_text_w(cht, 1) + 14;
-    sg_chip_text(230 - w, 8, w, 22, 7, cht, UC(PANEL), UC(INK));
+    /* (the owner, 2026-10-30: no header, no channels chip, no source chip, no raw bytes: the CC and its value) */
+    (void)BN, (void)EN, (void)HEX, (void)raw, (void)src;
     if ((ui.rm_info == SA_RM_INFO_OCT || ui.rm_info == SA_RM_INFO_KEYCH) && ui.rm_info_age < SA_RM_INFO_MS) {
         int oct = ui.rm_info == SA_RM_INFO_OCT;   /* MIDI KEYBOARD's shortcuts: the octave, the keys' channel */
         sa_num(big, oct ? (int32_t)ui.rm_oct - 3 : (int32_t)ui.rm_keych, oct);
@@ -812,13 +804,11 @@ static void sa_paint_remote(void)
         return;
     }
     switch (ui.rm_src) {
-    case SA_RM_SRC_KEY: sa_cpy(src, "KEY"); acc = UC(A1); break;
-    case SA_RM_SRC_BTN: sa_cpy(src, BN[ui.rm_src_i % NB]); acc = UC(A3); break;
-    case SA_RM_SRC_ENC: sa_cpy(src, EN[ui.rm_src_i % NE]); acc = ui.rm_src_i >= EN_K1 ? sa_kcol(ui.rm_src_i - EN_K1) : UC(A2); break;
-    default: sa_cpy(src, "MASTER"); acc = UC(A4); break;
+    case SA_RM_SRC_KEY: acc = UC(A1); break;
+    case SA_RM_SRC_BTN: acc = UC(A3); break;
+    case SA_RM_SRC_ENC: acc = ui.rm_src_i >= EN_K1 ? sa_kcol(ui.rm_src_i - EN_K1) : UC(A2); break;
+    default: acc = UC(A4); break;
     }
-    w = sg_text_w(src, 1) + 16;
-    sg_chip_text((SG_W - w) / 2, 44, w, 22, 7, src, ui.rm_age < 120u ? UC(INK) : acc, UC(ON));
     if (st == 0x90u || st == 0x80u) {        /* a note: its name big, the velocity */
         sa_cpy(what, st == 0x90u ? "NOTE ON" : "NOTE OFF");
         sa_note_name(ui.rm_last[1], big);
@@ -832,18 +822,12 @@ static void sa_paint_remote(void)
             sa_txt_num(big, v);
         }
     }
-    sg_text_c(78, 2, what, UC(SOFT));
-    sg_text_sh((SG_W - sg_text_w(big, 5)) / 2, 106, 5, big, acc, 4, UC(SHADOW));
+    w = sg_text_w(what, 3);                  /* "CC 74" (or NOTE ON): big enough to read */
+    sg_text_sh((SG_W - w) / 2, 34, 3, what, UC(INK), 3, UC(SHADOW));
+    sg_text_sh((SG_W - sg_text_w(big, 6)) / 2, 92, 6, big, acc, 4, UC(SHADOW));
     lit = (int32_t)(v * 16u + 63u) / 127;
     for (i = 0; i < 16; i++)                 /* the value (the velocity), 16 segments */
-        sg_rect(17 + 13 * i, 178, 11, 12, i < lit ? acc : UC(PANEL));
-    for (i = 0; i < 3; i++) {                /* the bytes as sent */
-        raw[3 * i] = HEX[ui.rm_last[i] >> 4];
-        raw[3 * i + 1] = HEX[ui.rm_last[i] & 15u];
-        raw[3 * i + 2] = i < 2 ? ' ' : 0;
-    }
-    w = sg_text_w(raw, 1) + 16;
-    sg_chip_text((SG_W - w) / 2, 206, w, 22, 7, raw, UC(PANEL), UC(INK));
+        sg_rect(17 + 13 * i, 196, 11, 16, i < lit ? acc : UC(PANEL));
 }
 
 /* ------------------------------------------------------------------ LATCH (LFO held) --- */
@@ -908,7 +892,7 @@ static void sa_paint_scale(void)
  * colour, the value's place among its choices as stripes, the rows before and after peeking dim above and below, where
  * the row is on the right. SELECT the row, KN1 the value. */
 static const char *const SA_SET_LAB[SA_NSET] = {"SCREEN", "KNOBS", "CC CHANNEL", "KEY CHANNEL", "KEYS", "OCT KEYS",
-                                                "SCALES"};
+                                                "SCALE SHORTCUTS"};
 static uint32_t sa_set_val(uint32_t i, char *num, const char **v)   /* row i's value as text; its choices' count */
 {
     static const char *const DISP[SA_RMD_N] = {"VOID", "SOLID", "ALL", "KNOBS ONLY"};
@@ -979,8 +963,9 @@ static void sa_ui_snap_more(void)
             int knob = rm.n && (rm.src == SA_RM_SRC_ENC || rm.src == SA_RM_SRC_MASTER) &&
                        ui.now - rm.last_ms < SA_RM_KNOB_MS;
             int info = rm.info == SA_RM_INFO_SCALE && ui.rm_info_age < SA_RM_KNOB_MS;
-            if (!knob && !info) {
-                ui.cbuf[SA_TK_BG] = 0;
+            (void)knob;                      /* (the owner, 2026-10-30: the last knob stays shown, not black) */
+            if (!rm.kn_n && !info) {
+                ui.cbuf[SA_TK_BG] = 0;       /* (before any knob was turned: black) */
                 ui.blank = 1;
             }
         }
@@ -993,6 +978,11 @@ static void sa_ui_snap_more(void)
     ui.rm_src = rm.src;
     ui.rm_src_i = rm.src_i;
     ui.rm_any = rm.n != 0u;
+    if (rm.on && sa.rm_disp == SA_RMD_KNOBS && rm.kn_n) {   /* KNOBS ONLY: the last knob's, whatever came after */
+        memcpy(ui.rm_last, rm.kn_last, 3);
+        ui.rm_src = rm.kn_src;
+        ui.rm_src_i = rm.kn_src_i;
+    }
     ui.rm_age = ui.now - rm.last_ms;
     if (ui.scr == SA_SCR_HOME && sl_recording())
         ui.scr = SA_SCR_REC;                 /* (a recording: the Rec screen is HOME's) */

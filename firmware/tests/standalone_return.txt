@@ -10,11 +10,13 @@ press ARP
 wait 600
 release ARP
 expect sa_screen 14
-# SELECT: the tempo, the Arp settings stay (their BPM chip)
+# SELECT: the tempo, the full Tempo screen a moment (the owner, 2026-10-30), then the Arp settings again
 turn SELECT 3
-expect sa_screen 14
+expect sa_screen 15
 wait 30
 shot sa_arp_settings_tempo.png
+wait 1100
+expect sa_screen 14
 # PRESETS: the voice, the Preset screen a moment, then the Arp settings again
 turn PRESET 1
 expect sa_screen 1
@@ -66,11 +68,12 @@ wait 10000
 expect sa_screen 14
 tap HOME
 expect sa_screen 0
-# the theme menu: SELECT the tempo, the Tempo screen, then the menu again
+# the theme menu: SELECT the theme (the owner, 2026-10-30), the menu stays
 tap SAVE
 expect sa_screen 16
 turn SELECT -3
-expect sa_screen 15
+expect sa_screen 16
+turn SELECT 3
 wait 1100
 expect sa_screen 16
 tap SAVE

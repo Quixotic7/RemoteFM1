@@ -213,12 +213,20 @@ wait 300
 expect sa_loads 1
 expect sa_ch 10
 expect sa_oct 0
-# the hand-over: a HELLO while a key is held: its note off goes out, the DX7 silent, the keys' sensing off, the
-# hand-over screen; the panel's events are the host's again
+# a HELLO alone (an app looking for units) changes nothing: the held note sounds on, the instrument stays
+# (2026-10-30: it used to hand over and cut the sound each time, the owner's "the whole device flickers")
 key 9 down 100
 wait 20
 out
 rf hello usb
+wait 20
+expect sa_panel 0
+expect sa_touch 1
+expect sa_held 1
+expect_no_out USB 89 3E 40
+# the hand-over is a SESSION start: the held key's note off goes out, the DX7 silent, the keys' sensing off, the
+# hand-over screen; the panel's events are the host's again
+rf session usb 1 0
 wait 20
 expect sa_panel 1
 expect sa_touch 0
@@ -233,8 +241,8 @@ out
 tapkey 2
 expect_out USB 9F 37 64
 expect_no_out USB 99 37 64
-# a HELLO and nothing more: standalone again after 3 s, as it was
-wait 3100
+rf session usb 0
+wait 20
 expect sa_panel 0
 expect sa_touch 1
 expect sa_ch 10
