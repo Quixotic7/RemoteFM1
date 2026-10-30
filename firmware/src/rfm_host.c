@@ -637,7 +637,10 @@ int app_expect(const char *what, int *got)
         *got = sa.bank;
     else if (!strcmp(what, "sa_voice"))            /* (0..31: the screen's 1..32) */
         *got = sa.voice;
-    else if (!strcmp(what, "sa_screen"))           /* 0 HOME, 1 preset, 2 channel, 3 octave, 4 the hand-over */
+    else if (!strcmp(what, "sa_screen"))           /* sa_main.c SA_SCR_*: 0 HOME, 1 preset, 2 channel, 3 octave, 4 the
+                                                    * hand-over, 5 CC bank, 6 CC turn, 7 CC assign, 8 saved, 9 rec,
+                                                    * 10 loop, 11 loops, 12 rec options, 13 arp, 14 arp settings,
+                                                    * 15 tempo, 16 theme */
         *got = sa.panel ? SA_SCR_HOST : sa.ov;
     else if (!strcmp(what, "sa_sounding"))         /* FM6's voices sounding */
         *got = (int)sa_synth_voices();
@@ -670,6 +673,20 @@ int app_expect(const char *what, int *got)
         *got = (int)sa.led_b;
     else if (!strcmp(what, "sa_touch"))            /* the keys' velocity sensing on */
         *got = touch_is_on();
+    else if (!strcmp(what, "sa_ccbank"))           /* S2: the CC bank (0..4: A..E), the CCs sent, a knob's CC / value */
+        *got = sa.ccbank;
+    else if (!strcmp(what, "sa_cc_out"))
+        *got = (int)sa.cc_out;
+    else if (!strncmp(what, "sa_cc_k", 7))         /* sa_cc_kN: knob N's CC in the bank shown */
+        *got = sa.cc[sa.ccbank][(uint32_t)atoi(what + 7) & 3u];
+    else if (!strncmp(what, "sa_ccv_k", 8))
+        *got = sa.ccv[sa.ccbank][(uint32_t)atoi(what + 8) & 3u];
+    else if (!strcmp(what, "sa_save_holds"))
+        *got = (int)sa.save_holds;
+    else if (!strcmp(what, "sa_theme"))
+        *got = sa.theme;
+    else if (!strcmp(what, "sa_menu"))
+        *got = sa.menu;
     else if (!strcmp(what, "rf_store_saves"))      /* records saved into OBJ_RF (src/rfm_store.c); unchanged ones */
         *got = (int)rs_saves;
     else if (!strcmp(what, "rf_store_same"))

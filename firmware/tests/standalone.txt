@@ -125,13 +125,13 @@ expect peak_db_max -12
 key 9 up
 wait 200
 master 4096
-# the octave: OCT+ (the Octave screen), key 0 is F4 now; OCT- twice: -1, F2; both at once: a panic, and the octave as
+# the octave: OCT+ (the Octave screen, OCT+ lit beside bank A's FX), key 0 is F4 now; OCT- twice: -1, F2; both at once: a panic, and the octave as
 # before the first of the two went down
 out
 tap OCT+
 expect sa_oct 1
 expect sa_screen 3
-expect sa_lit_btns 8192
+expect sa_lit_btns 8193
 tapkey 0
 expect_out USB 90 41 64
 tap OCT-

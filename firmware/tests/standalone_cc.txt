@@ -1,0 +1,88 @@
+# SPDX-License-Identifier: MPL-2.0
+# RemoteFM1 standalone, S2 (STANDALONE-PLAN.md): the MIDI controller. FX SEL ENV LFO EDIT pick the CC bank A..E (the
+# CC-Bank screen, the bank's button lit); KN1..KN4 send their CCs on the channel (relative detents to 0..127, faster
+# when turned fast), to USB and the DX7; GLO + a knob picks its CC (the CC-Assign screen, with the CC's name); the
+# map and values kept (SAVE held saves at once) across a power cycle. tests/run_tests.sh runs it (both builds).
+wait 400
+expect sa_ccbank 0
+expect sa_cc_k0 1
+# bank B (SEL): 71 74 73 72, its screen, SEL lit (bit 1 | FX..EDIT's bit 1 and the rest)
+tap SEL
+expect sa_ccbank 1
+expect sa_screen 5
+expect sa_cc_k1 74
+wait 60
+shot sa_cc_bank.png
+# KN2 turned slowly up 5 detents: CC 74 on channel 1, values 1..5
+out
+turn K2 5 100
+expect sa_ccv_k1 5
+expect sa_screen 6
+expect_out USB B0 4A 01
+expect_out USB B0 4A 05
+expect sa_cc_out 5
+# fast: 10 detents 10 ms apart move it 4 a detent (after the first)
+turn K2 10 10
+expect sa_ccv_k1 >30
+turn K2 40 10
+expect sa_ccv_k1 127
+expect_out USB B0 4A 7F
+wait 60
+shot sa_cc_turn.png
+# down to 96 slowly, as the mockup
+turn K2 -31 50
+expect sa_ccv_k1 96
+wait 60
+shot sa_cc_turn96.png
+# GLO + KN2: its CC, 74 -> 76 (VIB RATE), clamped 0..119; no CC sent while picking
+out
+press GLO
+turn K2 2 100
+expect sa_cc_k1 76
+expect sa_screen 7
+wait 60
+shot sa_cc_assign.png
+turn K2 -2 100
+turn K2 -1 100
+expect sa_cc_k1 73
+release GLO
+expect_no_out USB B0 49
+# the knob now sends CC 73 from where the knob is (96)
+out
+turn K2 1 100
+expect_out USB B0 49 61
+# the other banks keep theirs: E (EDIT) KN4 sends CC 19; back on A, KN1 the wheel
+tap EDIT
+expect sa_ccbank 4
+out
+turn K4 3 100
+expect_out USB B0 13 03
+tap FX
+expect sa_cc_k0 1
+out
+turn K1 2 100
+expect_out USB B0 01 02
+# the channel follows ALGORITHM
+turn ALGO 2 5
+out
+turn K1 1 100
+expect_out USB B2 01 03
+turn ALGO -2 5
+# SAVE held: saved at once (the SAVED note), and everything back after a power cycle
+press SAVE
+wait 600
+expect sa_save_holds 1
+expect sa_screen 8
+wait 30
+shot sa_saved.png
+release SAVE
+tap SEL
+reboot
+wait 300
+expect sa_loads 1
+expect sa_ccbank 0
+tap SEL
+expect sa_cc_k1 73
+expect sa_ccv_k1 97
+tap EDIT
+expect sa_ccv_k3 3

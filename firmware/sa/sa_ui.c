@@ -32,6 +32,8 @@ static struct {
     /* overlays */
     uint8_t bank, voice, ch;
     int8_t oct;
+    /* S2: the CC screens */
+    uint8_t ccbank, cc[4], ccv[4], knob;
     /* the hand-over */
     uint8_t host_t, warn;
     char info[4][32];
@@ -135,6 +137,7 @@ static void sa_ui_bars(void)
     }
 }
 
+static void sa_ui_snap_more(void);
 static void sa_ui_snap(void)
 {
     ui.now = plat_ms();
@@ -150,6 +153,11 @@ static void sa_ui_snap(void)
     ui.voice = sa.voice;
     ui.ch = sa.ch;
     ui.oct = sa.oct;
+    ui.ccbank = sa.ccbank;
+    memcpy(ui.cc, sa.cc[sa.ccbank], 4);
+    memcpy(ui.ccv, sa.ccv[sa.ccbank], 4);
+    ui.knob = sa.knob;
+    sa_ui_snap_more();
     ui.host_t = sa.host_t;
     if (sa.panel)
         rf_info(ui.info, &ui.warn);
@@ -314,9 +322,12 @@ static void sa_paint_host(void)
         sg_text_c(160 + 18 * i, 1, ui.info[i], (ui.warn >> i & 1u) ? UC(A1) : UC(SOFT));
 }
 
+#include "sa_screens.c"
+
 static void sa_paint(void)
 {
-    switch (ui.scr) {
+    if (!sa_paint_more())
+        switch (ui.scr) {
     case SA_SCR_PRESET: sa_paint_preset(); break;
     case SA_SCR_CHANNEL: sa_paint_channel(); break;
     case SA_SCR_OCTAVE: sa_paint_octave(); break;

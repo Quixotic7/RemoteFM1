@@ -41,10 +41,12 @@ sim() {   # sim BINARY SCRIPT...
     done
 }
 
+SA_TESTS="firmware/tests/standalone_cc.txt"   # S2.. (the standalone's milestones)
 echo "== the app in fm1-base's host simulator: USB SysEx, bulk, Bluetooth, the update's SysEx beside (firmware/tests)"
 env -u CC ./build.sh --host >/dev/null
 sim "$SIM/remotefm1_host" firmware/tests/session.txt firmware/tests/bulk_ota.txt firmware/tests/ble.txt \
-    firmware/tests/hold.txt firmware/tests/sa_bench.txt firmware/tests/standalone.txt firmware/tests/standalone_ble.txt
+    firmware/tests/hold.txt firmware/tests/sa_bench.txt firmware/tests/standalone.txt firmware/tests/standalone_ble.txt \
+    $SA_TESTS
 if grep -q "SA_ROM_NBANKS 8u" firmware/build/gen/dx7_rom.h; then
     sim "$SIM/remotefm1_host" firmware/tests/standalone_rom.txt
 else
@@ -53,7 +55,7 @@ fi
 echo "== the same, the USB-only build (--no-ble)"
 env -u CC ./build.sh --host --no-ble >/dev/null
 sim "$SIM/remotefm1-usb_host" firmware/tests/session.txt firmware/tests/bulk_ota.txt firmware/tests/hold.txt \
-    firmware/tests/sa_bench.txt firmware/tests/standalone.txt
+    firmware/tests/sa_bench.txt firmware/tests/standalone.txt $SA_TESTS
 echo "== the bench build (SA_BENCH=1): the standalone DX7's bench at boot, up to 16 voices"
 SA_BENCH=1 env -u CC ./build.sh --host >/dev/null
 sim "$SIM/remotefm1_host" firmware/tests/sa_bench_boot.txt

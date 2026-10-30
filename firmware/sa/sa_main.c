@@ -53,8 +53,19 @@ static void rf_sa_leds(uint32_t btns, uint32_t keys);   /* the LEDs, a host's mi
 #define SA_LIM_T 0.89f                       /* the limiter's ceiling (of full scale) */
 #define SA_LIM_REL 0.0045f                   /* its release a block (32 frames): ~160 ms */
 #define SA_OBJ_MAGIC 0x31534652u             /* "RFS1" */
+#define SA_BPM_MIN 40
+#define SA_BPM_MAX 240
+#define SA_ARP_NMODES 5u                     /* sa_arp.c: up, down, up-down, random, as played */
+#define SA_ARP_NRATES 6u                     /* 1/4, 1/8, 1/8T, 1/16, 1/16T, 1/32 */
+#define SA_ARP_RATE_DEFAULT 3u               /* 1/16 */
+#define SA_REC_NLENS 5u                      /* sa_loop.c: free, 1, 2, 4, 8 bars */
 
-enum { SA_SCR_HOME, SA_SCR_PRESET, SA_SCR_CHANNEL, SA_SCR_OCTAVE, SA_SCR_HOST };
+enum { SA_SCR_HOME, SA_SCR_PRESET, SA_SCR_CHANNEL, SA_SCR_OCTAVE, SA_SCR_HOST, SA_SCR_CCBANK, SA_SCR_CCTURN,
+       SA_SCR_CCASSIGN, SA_SCR_SAVED, SA_SCR_REC, SA_SCR_LOOP, SA_SCR_LOOPS, SA_SCR_RECOPT, SA_SCR_ARP, SA_SCR_ARPSET,
+       SA_SCR_TEMPO, SA_SCR_THEME, SA_NSCR };
+#define SA_HOLD_MS 500u                      /* SAVE, ARP, PLAY, REC: held this long is a hold, else a tap */
+#define SA_MENU_MS 6000u                     /* a menu (Loops, Rec options, Arp settings, Theme) closes untouched */
+enum { SA_LE_ON, SA_LE_OFF, SA_LE_CC };      /* a loop's events (sa_loop.c) */
 
 static struct {
     uint8_t panel;                           /* panel mode: a host has the FM-1 */
@@ -64,6 +75,18 @@ static struct {
     int8_t oct;                              /* -3..+3 */
     uint8_t bank, voice;                     /* 0..SA_NBANKS - 1, 0..SA_BANK_VOICES - 1 */
     uint8_t theme;
+    uint8_t ccbank;                          /* 0..4: A..E */
+    uint8_t cc[5][4], ccv[5][4];             /* each bank's CCs (sa_cc.c) and their values */
+    uint8_t knob;                            /* the knob last turned */
+    uint32_t knob_ms[4];
+    uint32_t down_ms[16];                    /* when each button went down */
+    uint32_t hold_done;                      /* buttons whose hold has fired (bit B_*) */
+    uint8_t menu;                            /* the overlay is a menu (sa_overlay_menu) */
+    uint8_t view;                            /* HOME's view: 0 Notes, 1 Scope, 2 Keys */
+    uint8_t arp_mode, arp_rate, arp_oct, arp_gate;   /* sa_arp.c's settings */
+    uint16_t bpm;                            /* the tempo (SELECT), 40..240 */
+    uint8_t rec_len, rec_quant, rec_count, rec_layer;   /* sa_loop.c's recording options */
+    uint8_t ubank_seq;                       /* the user banks' count of arrivals (sa_ubank.c) */
     char name[12];                           /* the voice's */
     uint32_t keys;                           /* keys held (as played: lib/touch) */
     uint32_t btns;                           /* buttons held (plat.h's B_*) */
@@ -80,7 +103,7 @@ static struct {
     uint8_t lost;                            /* the panel was someone else's since the last frame */
     uint32_t frame_ms;
     uint32_t led_b, led_k, led_ms;
-    uint32_t notes_out, notes_in, ev_drop, panics, saves, loads;   /* (the simulator's checks) */
+    uint32_t notes_out, notes_in, ev_drop, panics, saves, loads, cc_out, save_holds;   /* (the simulator's checks) */
 } sa;
 
 /* ------------------------------------------------------------------ the render's queue --- */
@@ -262,45 +285,64 @@ static void sa_changed(void)
     sa.store_ms = plat_ms();
 }
 
+/* the settings (OBJ_SA, a record in OBJ_RF: src/rfm_store.c). Version 1 (S1) had the first 12 bytes; version 2 adds
+ * the CC map and values (S2), the arp, the tempo and the recording options (S3, S4), the HOME view (S5) */
 typedef struct {
     uint32_t magic;
     uint8_t ver, ch, bank, voice;
     int8_t oct;
-    uint8_t theme, rsv[2];
+    uint8_t theme, ccbank, view;
+    uint8_t cc[5][4], ccv[5][4];
+    uint8_t arp_mode, arp_rate, arp_oct, arp_gate;
+    uint16_t bpm;
+    uint8_t rec_len, rec_quant, rec_count, rec_layer;
+    uint8_t ubank_seq, rsv[7];
 } sa_store_t;
+
+static void sa_settings_apply(const sa_store_t *s);
+static void sa_settings_fill(sa_store_t *s);
 
 static void sa_load(void)
 {
     sa_store_t s;
-    if (plat_store_load(OBJ_SA, &s, sizeof s) != (int)sizeof s || s.magic != SA_OBJ_MAGIC || s.ver != 1u)
+    int n;
+    memset(&s, 0, sizeof s);
+    n = plat_store_load(OBJ_SA, &s, sizeof s);
+    if (n < 12 || s.magic != SA_OBJ_MAGIC || (s.ver != 1u && s.ver != 2u))
         return;
-    sa.ch = (uint8_t)clamp(s.ch, 1, 16);
-    sa.oct = (int8_t)clamp(s.oct, -3, 3);
-    sa.bank = (uint8_t)(s.bank < SA_NBANKS ? s.bank : 0u);
-    sa.voice = (uint8_t)(s.voice < SA_BANK_VOICES ? s.voice : 0u);
-    sa.theme = (uint8_t)(s.theme < SA_NTHEMES ? s.theme : SA_THEME_DEFAULT);
+    if (s.ver == 1u || n != (int)sizeof s) {  /* (S1's: the CC map and the rest at their defaults) */
+        sa_store_t d;
+        memset(&d, 0, sizeof d);
+        sa_settings_fill(&d);
+        memcpy(&d, &s, 12);
+        s = d;
+    }
+    sa_settings_apply(&s);
     sa.loads++;
+}
+
+static int sa_save_now(void)
+{
+    sa_store_t s;
+    memset(&s, 0, sizeof s);
+    sa_settings_fill(&s);
+    s.magic = SA_OBJ_MAGIC;
+    s.ver = 2;
+    sa.store_dirty = 0;
+    if (plat_store_save(OBJ_SA, &s, sizeof s) != 0)
+        return -1;
+    sa.saves++;
+    return 0;
 }
 
 static void sa_store_step(void)
 {
-    sa_store_t s;
     uint32_t since = plat_ms() - sa.store_ms;
     if (!sa.store_dirty || since < SA_STORE_MS || sa_bench_busy())
         return;
     if (sa_synth_voices() && since < SA_STORE_FORCE_MS)
         return;                              /* (a save stops the sound a moment: wait for a quiet one) */
-    memset(&s, 0, sizeof s);
-    s.magic = SA_OBJ_MAGIC;
-    s.ver = 1;
-    s.ch = sa.ch;
-    s.oct = sa.oct;
-    s.bank = sa.bank;
-    s.voice = sa.voice;
-    s.theme = sa.theme;
-    sa.store_dirty = 0;
-    if (plat_store_save(OBJ_SA, &s, sizeof s) == 0)
-        sa.saves++;
+    sa_save_now();
 }
 
 static void sa_overlay(uint32_t scr)
@@ -310,7 +352,89 @@ static void sa_overlay(uint32_t scr)
         sa.ov_t0 = now;
     sa.ov = (uint8_t)scr;
     sa.ov_until = now + SA_OVERLAY_MS;
+    sa.menu = 0;
     sa.poke = 1;
+}
+
+static void sa_overlay_menu(uint32_t scr)    /* a menu: stays while it is used, SA_MENU_MS after the last touch */
+{
+    sa_overlay(scr);
+    sa.menu = 1;
+    sa.ov_until = plat_ms() + SA_MENU_MS;
+}
+
+static void sa_close(void)                   /* back to the HOME view */
+{
+    sa.ov = SA_SCR_HOME;
+    sa.menu = 0;
+    sa.poke = 1;
+}
+
+static void sa_rec_ev(uint32_t type, uint32_t d1, uint32_t d2)   /* (S3's looper: what is played, recorded) */
+{
+    (void)type, (void)d1, (void)d2;
+}
+#include "sa_cc.c"
+
+static void sa_settings_fill(sa_store_t *s)
+{
+    s->ch = sa.ch;
+    s->oct = sa.oct;
+    s->bank = sa.bank;
+    s->voice = sa.voice;
+    s->theme = sa.theme;
+    s->ccbank = sa.ccbank;
+    s->view = sa.view;
+    memcpy(s->cc, sa.cc, sizeof s->cc);
+    memcpy(s->ccv, sa.ccv, sizeof s->ccv);
+    s->arp_mode = sa.arp_mode;
+    s->arp_rate = sa.arp_rate;
+    s->arp_oct = sa.arp_oct;
+    s->arp_gate = sa.arp_gate;
+    s->bpm = sa.bpm;
+    s->rec_len = sa.rec_len;
+    s->rec_quant = sa.rec_quant;
+    s->rec_count = sa.rec_count;
+    s->rec_layer = sa.rec_layer;
+    s->ubank_seq = sa.ubank_seq;
+}
+
+static void sa_settings_apply(const sa_store_t *s)   /* (each value checked: a record from another build) */
+{
+    uint32_t b, k;
+    sa.ch = (uint8_t)clamp(s->ch, 1, 16);
+    sa.oct = (int8_t)clamp(s->oct, -3, 3);
+    sa.bank = (uint8_t)(s->bank < SA_NBANKS ? s->bank : 0u);
+    sa.voice = (uint8_t)(s->voice < SA_BANK_VOICES ? s->voice : 0u);
+    sa.theme = (uint8_t)(s->theme < SA_NTHEMES ? s->theme : SA_THEME_DEFAULT);
+    sa.ccbank = (uint8_t)(s->ccbank < SA_NCCB ? s->ccbank : 0u);
+    sa.view = (uint8_t)(s->view < 3u ? s->view : 0u);
+    for (b = 0; b < SA_NCCB; b++)
+        for (k = 0; k < 4u; k++) {
+            sa.cc[b][k] = (uint8_t)(s->cc[b][k] <= SA_CC_MAX ? s->cc[b][k] : SA_CC_DEFAULT[b][k]);
+            sa.ccv[b][k] = (uint8_t)(s->ccv[b][k] & 0x7Fu);
+        }
+    sa.arp_mode = (uint8_t)(s->arp_mode < SA_ARP_NMODES ? s->arp_mode : 0u);
+    sa.arp_rate = (uint8_t)(s->arp_rate < SA_ARP_NRATES ? s->arp_rate : SA_ARP_RATE_DEFAULT);
+    sa.arp_oct = (uint8_t)clamp(s->arp_oct, 1, 4);
+    sa.arp_gate = (uint8_t)clamp(s->arp_gate, 1, 10);
+    sa.bpm = (uint16_t)clamp(s->bpm, SA_BPM_MIN, SA_BPM_MAX);
+    sa.rec_len = (uint8_t)(s->rec_len < SA_REC_NLENS ? s->rec_len : 0u);
+    sa.rec_quant = (uint8_t)(s->rec_quant < 3u ? s->rec_quant : 0u);
+    sa.rec_count = (uint8_t)(s->rec_count < 2u ? s->rec_count : 0u);
+    sa.rec_layer = (uint8_t)(s->rec_layer < 2u ? s->rec_layer : 0u);
+    sa.ubank_seq = s->ubank_seq;
+}
+
+static void sa_settings_defaults(void)
+{
+    sa.ch = 1;
+    sa.theme = SA_THEME_DEFAULT;
+    sa_cc_defaults();
+    sa.arp_rate = SA_ARP_RATE_DEFAULT;
+    sa.arp_oct = 1;
+    sa.arp_gate = 6;
+    sa.bpm = 120;
 }
 
 /* ------------------------------------------------------------------ the modes --- */
@@ -413,6 +537,7 @@ static void sa_leds(void)
     uint32_t b = 0, k = 0, i;
     if (sa.btns >> B_GLO & 1u)
         b |= 1u << B_GLO;
+    b |= 1u << (B_FX + sa.ccbank);           /* the CC bank's button */
     if (sa.oct < 0)
         b |= 1u << B_OCTDN;
     if (sa.oct > 0)
@@ -430,10 +555,53 @@ static void sa_leds(void)
     rf_sa_leds(b, k);                        /* (rewritten now and then too: nothing else's LEDs stay) */
 }
 
+static void sa_press_early(uint32_t b)       /* SAVE, ARP, PLAY, REC down (most act when let go: sa_tap) */
+{
+    (void)b;
+}
+
+static int sa_menu_knob(uint32_t k, int32_t d)   /* a menu takes KN1..KN4 (k 0..3) or PRESETS (4): 1 taken */
+{
+    (void)k;
+    (void)d;
+    return 0;
+}
+
+static void sa_select(int32_t d)             /* SELECT: the tempo; in a menu, its choice */
+{
+    (void)d;
+}
+
+static void sa_tap(uint32_t b)               /* SAVE, ARP, PLAY, REC let go before SA_HOLD_MS */
+{
+    (void)b;
+}
+
+static void sa_hold(uint32_t b)              /* ... held SA_HOLD_MS */
+{
+    if (b == B_SAVE) {                       /* save everything now */
+        sa.save_holds++;
+        sa_save_now();
+        sa_overlay(SA_SCR_SAVED);
+    }
+}
+
+static void sa_press(uint32_t b)             /* any other button down */
+{
+    if (b <= B_EDIT) {                       /* FX SEL ENV LFO EDIT: the CC bank */
+        sa_cc_bank(b - B_FX);
+    } else if (b == B_HOME) {
+        sa_close();                          /* the HOME view at once */
+    } else if (b == B_GLO) {
+        sa.poke = 1;
+    }
+}
+
+#define SA_HOLDABLE (1u << B_SAVE | 1u << B_ARP | 1u << B_PLAY | 1u << B_REC)
 static void sa_buttons(uint32_t btns)
 {
     const uint32_t OD = 1u << B_OCTDN, OU = 1u << B_OCTUP;
-    uint32_t down = btns & ~sa.btns;
+    uint32_t down = btns & ~sa.btns, up = sa.btns & ~btns, now = plat_ms(), b;
     sa.btns = btns;
     if (down & (OD | OU)) {
         if ((btns & (OD | OU)) == (OD | OU)) {  /* both: a panic, and the octave as before the first went down */
@@ -447,17 +615,35 @@ static void sa_buttons(uint32_t btns)
             sa_changed();
         sa_overlay(SA_SCR_OCTAVE);
     }
-    if (down & (1u << B_HOME)) {
-        sa.ov = SA_SCR_HOME;                 /* the HOME view at once (Notes: S1's only view) */
-        sa.poke = 1;
+    for (b = 0; b < (uint32_t)B_OCTDN; b++) {
+        uint32_t m = 1u << b;
+        if (down & m) {
+            sa.down_ms[b] = now;
+            sa.hold_done &= ~m;
+            if (!(SA_HOLDABLE & m))
+                sa_press(b);
+            else
+                sa_press_early(b);
+        }
+        if ((SA_HOLDABLE & m) && (btns & m) && !(sa.hold_done & m) && now - sa.down_ms[b] >= SA_HOLD_MS) {
+            sa.hold_done |= m;
+            sa_hold(b);
+        }
+        if ((up & m) && (SA_HOLDABLE & m) && !(sa.hold_done & m))
+            sa_tap(b);
     }
-    if (down & (1u << B_GLO))
-        sa.poke = 1;
 }
 
 static void sa_encoders(const int32_t *steps)   /* detents by plat.h's role (EN_*) */
 {
-    int32_t s = steps[EN_PRESET], c = steps[EN_ALGO];
+    int32_t s = steps[EN_PRESET], c = steps[EN_ALGO], k;
+    for (k = 0; k < 4; k++)
+        if (steps[EN_K1 + k] && !sa_menu_knob((uint32_t)k, steps[EN_K1 + k]))
+            sa_cc_knob((uint32_t)k, steps[EN_K1 + k]);
+    if (steps[EN_SELECT])
+        sa_select(steps[EN_SELECT]);
+    if (s && sa_menu_knob(4u, s))
+        s = 0;
     if (s) {
         if (sa.btns >> B_GLO & 1u) {
             int32_t b = clamp((int32_t)sa.bank + s, 0, (int32_t)SA_NBANKS - 1);
@@ -522,8 +708,7 @@ static void sa_init(void)
 {
     uint32_t k;
     memset(&sa, 0, sizeof sa);               /* (the simulator's reboot runs this again) */
-    sa.ch = 1;
-    sa.theme = SA_THEME_DEFAULT;
+    sa_settings_defaults();
     for (k = 0; k < NKEYS; k++)
         sa.key_note[k] = 0xFFu;
     sa.led_b = sa.led_k = 0xFFFFFFFFu;
