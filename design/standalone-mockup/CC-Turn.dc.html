@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>CC value</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Jersey+10&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.px{clip-path:polygon(0 8px,4px 8px,4px 4px,8px 4px,8px 0,calc(100% - 8px) 0,calc(100% - 8px) 4px,calc(100% - 4px) 4px,calc(100% - 4px) 8px,100% 8px,100% calc(100% - 8px),calc(100% - 4px) calc(100% - 8px),calc(100% - 4px) calc(100% - 4px),calc(100% - 8px) calc(100% - 4px),calc(100% - 8px) 100%,8px 100%,8px calc(100% - 4px),4px calc(100% - 4px),4px calc(100% - 8px),0 calc(100% - 8px))}
+.lcd{position:absolute;left:0;top:0;width:480px;height:480px;pointer-events:none;background-image:linear-gradient(rgba(0,0,0,.2) 1px,transparent 1px),linear-gradient(90deg,rgba(0,0,0,.2) 1px,transparent 1px);background-size:4px 4px}
+</style>
+</helmet>
+<div style="width: 480px; height: 480px; position: relative; background: #000000; font-family: 'Jersey 10', monospace; color: #f4f4f4; overflow: hidden; -webkit-font-smoothing: none; font-synthesis: none">
+  <div class="px" style="position: absolute; left: 20px; top: 16px; padding: 8px 14px 6px; background: #f4f4f4; color: #000000; font-size: 32px; font-weight: 700; line-height: 1">B</div>
+  <div class="px" style="position: absolute; right: 20px; top: 16px; padding: 8px 14px 6px; background: #ef7d57; color: #000000; font-size: 32px; font-weight: 700; line-height: 1">KN2</div>
+  <div style="position: absolute; left: 0; right: 0; top: 76px; display: flex; justify-content: center">
+    <div class="px" style="padding: 8px 18px 6px; background: #ef7d57; color: #000000; font-size: 56px; font-weight: 700; line-height: 1">CC 74</div>
+  </div>
+  <div style="position: absolute; left: 0; right: 0; top: 156px; text-align: center; font-size: 192px; font-weight: 700; line-height: 1; text-shadow: 8px 8px 0 #b13e53">96</div>
+  <div style="position: absolute; left: 18px; bottom: 32px; width: 444px; height: 44px; display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 4px">
+    <sc-for list="{{blocks}}" as="b" hint-placeholder-count="16">
+      <div style="background: {{b.bg}}"></div>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":480,"height":480}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const lit = Math.round((96 / 127) * 16);
+    const blocks = [];
+    for (let i = 0; i < 16; i++) blocks.push({ bg: i < lit ? (i === lit - 1 ? '#ffcd75' : '#ef7d57') : '#29366f' });
+    return { blocks };
+  }
+}
+</script>
+</body>
+</html>

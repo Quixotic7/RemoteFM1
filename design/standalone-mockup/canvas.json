@@ -1,0 +1,30 @@
+{"v":3,"createdOnFiles":{"v":1,"at":"2026-10-29T20:00:00Z"},"title":"RemoteFM1 Standalone","launch":{"view":"canvas"},"pages":[],
+"boards":{
+"Main.dc.html":{"x":0,"y":0,"w":2160,"h":980,"title":"Panel map"},
+"Home-Notes.dc.html":{"x":0,"y":1380,"w":480,"h":480,"title":"HOME · Notes"},
+"Home-Scope.dc.html":{"x":560,"y":1380,"w":480,"h":480,"title":"HOME · Scope"},
+"Home-Keys.dc.html":{"x":1120,"y":1380,"w":480,"h":480,"title":"HOME · Keys"},
+"Preset.dc.html":{"x":1680,"y":1380,"w":480,"h":480,"title":"PRESETS · DX7 voice"},
+"Channel.dc.html":{"x":0,"y":2260,"w":480,"h":480,"title":"ALGORITHM · MIDI channel"},
+"CC-Bank.dc.html":{"x":560,"y":2260,"w":480,"h":480,"title":"FX…EDIT · CC bank"},
+"CC-Turn.dc.html":{"x":1120,"y":2260,"w":480,"h":480,"title":"KN turn · CC value"},
+"CC-Assign.dc.html":{"x":1680,"y":2260,"w":480,"h":480,"title":"GLO + KN · pick the CC"},
+"Octave.dc.html":{"x":2240,"y":2260,"w":480,"h":480,"title":"OCT− / OCT+"},
+"Rec.dc.html":{"x":0,"y":3140,"w":480,"h":480,"title":"REC · recording"},
+"Loop-Play.dc.html":{"x":560,"y":3140,"w":480,"h":480,"title":"REC or PLAY · loop plays"},
+"Loop-Pick.dc.html":{"x":1120,"y":3140,"w":480,"h":480,"title":"Hold PLAY · 16 loops"},
+"Rec-Options.dc.html":{"x":1680,"y":3140,"w":480,"h":480,"title":"Hold REC · options"},
+"Arp.dc.html":{"x":0,"y":4020,"w":480,"h":480,"title":"ARP · on"},
+"Arp-Settings.dc.html":{"x":560,"y":4020,"w":480,"h":480,"title":"Hold ARP · settings"},
+"Theme.dc.html":{"x":0,"y":4900,"w":480,"h":480,"title":"SAVE · theme","is_interactive":true},
+"Themes.dc.html":{"x":560,"y":4900,"w":1120,"h":660,"title":"The eight themes"}
+},
+"order":["Main.dc.html","Home-Notes.dc.html","Home-Scope.dc.html","Home-Keys.dc.html","Preset.dc.html","Channel.dc.html","CC-Bank.dc.html","CC-Turn.dc.html","CC-Assign.dc.html","Octave.dc.html","Rec.dc.html","Loop-Play.dc.html","Loop-Pick.dc.html","Rec-Options.dc.html","Arp.dc.html","Arp-Settings.dc.html","Theme.dc.html","Themes.dc.html"],
+"notes":{
+"play":{"x":0,"y":1120,"text":"Play: a DX7 synth","kind":"title1","maxW":2160},
+"midi":{"x":0,"y":2000,"text":"MIDI controller","kind":"title1","maxW":2720},
+"loop":{"x":0,"y":2880,"text":"Looper","kind":"title1","maxW":2160},
+"arp":{"x":0,"y":3760,"text":"Arp","kind":"title1","maxW":1040},
+"themes":{"x":0,"y":4640,"text":"Themes","kind":"title1","maxW":1680}
+},
+"designSystems":[]}

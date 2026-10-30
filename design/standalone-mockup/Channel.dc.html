@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MIDI channel</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Jersey+10&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.px{clip-path:polygon(0 8px,4px 8px,4px 4px,8px 4px,8px 0,calc(100% - 8px) 0,calc(100% - 8px) 4px,calc(100% - 4px) 4px,calc(100% - 4px) 8px,100% 8px,100% calc(100% - 8px),calc(100% - 4px) calc(100% - 8px),calc(100% - 4px) calc(100% - 4px),calc(100% - 8px) calc(100% - 4px),calc(100% - 8px) 100%,8px 100%,8px calc(100% - 4px),4px calc(100% - 4px),4px calc(100% - 8px),0 calc(100% - 8px))}
+.lcd{position:absolute;left:0;top:0;width:480px;height:480px;pointer-events:none;background-image:linear-gradient(rgba(0,0,0,.2) 1px,transparent 1px),linear-gradient(90deg,rgba(0,0,0,.2) 1px,transparent 1px);background-size:4px 4px}
+@keyframes ping{0%,60%{opacity:1}61%,100%{opacity:0}}
+.pin{animation:ping 1.2s steps(1) infinite}
+</style>
+</helmet>
+<div style="width: 480px; height: 480px; position: relative; background: #000000; font-family: 'Jersey 10', monospace; color: #f4f4f4; overflow: hidden; -webkit-font-smoothing: none; font-synthesis: none">
+  <svg width="84" height="78" viewBox="0 0 84 78" shape-rendering="crispEdges" style="position: absolute; left: 198px; top: 16px" aria-hidden="true">
+    <path d="{{din.a}}" fill="#73eff7"></path>
+    <path class="pin" d="{{din.c}}" fill="#f4f4f4"></path>
+  </svg>
+  <div style="position: absolute; left: 0; right: 0; top: 112px; text-align: center; font-size: 176px; font-weight: 700; line-height: 1; color: #73eff7; text-shadow: 8px 8px 0 #257179">10</div>
+  <div style="position: absolute; left: 36px; bottom: 28px; width: 408px; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 8px">
+    <sc-for list="{{cells}}" as="c" hint-placeholder-count="16">
+      <div class="px" style="position: relative; height: 40px; background: {{c.line}}">
+        <div class="px" style="position: absolute; left: 4px; top: 4px; right: 4px; bottom: 4px; background: {{c.fill}}"></div>
+      </div>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":480,"height":480}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const spr = (rows, s) => { const o = {}; rows.forEach((r, y) => { for (let x = 0; x < r.length; x++) { const c = r[x]; if (c === '.') continue; o[c] = (o[c] || '') + 'M' + x * s + ' ' + y * s + 'h' + s + 'v' + s + 'h-' + s + 'z'; } }); return o; };
+    const din = spr([
+      '....aaaaaa....',
+      '..aa......aa..',
+      '.a..........a.',
+      '.a....cc....a.',
+      'a..cc....cc..a',
+      'a............a',
+      'a.cc......cc.a',
+      'a............a',
+      'a............a',
+      '.a..........a.',
+      '.a....aa....a.',
+      '..aa..aa..aa..',
+      '....aaaaaa....',
+    ], 6);
+    const cells = [];
+    for (let i = 1; i <= 16; i++) cells.push(i === 10 ? { line: '#73eff7', fill: '#73eff7' } : { line: '#333c57', fill: '#000000' });
+    return { din, cells };
+  }
+}
+</script>
+</body>
+</html>

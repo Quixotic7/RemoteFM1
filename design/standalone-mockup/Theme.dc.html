@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Theme menu</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Jersey+10&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.px{clip-path:polygon(0 8px,4px 8px,4px 4px,8px 4px,8px 0,calc(100% - 8px) 0,calc(100% - 8px) 4px,calc(100% - 4px) 4px,calc(100% - 4px) 8px,100% 8px,100% calc(100% - 8px),calc(100% - 4px) calc(100% - 8px),calc(100% - 4px) calc(100% - 4px),calc(100% - 8px) calc(100% - 4px),calc(100% - 8px) 100%,8px 100%,8px calc(100% - 4px),4px calc(100% - 4px),4px calc(100% - 8px),0 calc(100% - 8px))}
+.lcd{position:absolute;left:0;top:0;width:480px;height:480px;pointer-events:none;background-image:linear-gradient(rgba(0,0,0,.18) 1px,transparent 1px),linear-gradient(90deg,rgba(0,0,0,.18) 1px,transparent 1px);background-size:4px 4px}
+.arrow{position:absolute;top:120px;width:48px;height:72px;padding:0;border:none;background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center}
+</style>
+</helmet>
+<div style="width: 480px; height: 480px; position: relative; background: {{t.bg}}; font-family: 'Jersey 10', monospace; color: {{t.ink}}; overflow: hidden; -webkit-font-smoothing: none; font-synthesis: none">
+  <div style="position: absolute; left: 0; top: 0; width: 480px; height: 480px; box-shadow: inset 0 0 0 16px {{t.border}}; pointer-events: none"></div>
+  <div class="px" style="position: absolute; left: 28px; top: 28px; padding: 6px 14px 4px; background: {{t.a1}}; color: {{t.on}}; font-size: 32px; line-height: 1">THEME</div>
+  <div class="px" style="position: absolute; right: 28px; top: 28px; padding: 6px 14px 4px; background: {{t.panel}}; color: {{t.ink}}; font-size: 32px; line-height: 1">{{pos}}</div>
+
+  <button type="button" class="arrow" style="left: 24px" aria-label="Previous theme" onClick="{{prev}}">
+    <svg width="30" height="54" viewBox="0 0 30 54" shape-rendering="crispEdges" aria-hidden="true"><g transform="translate(30 0) scale(-1 1)"><path d="{{arrow}}" fill="{{t.a1}}"></path></g></svg>
+  </button>
+  <div style="position: absolute; left: 80px; right: 80px; top: 92px; height: 128px; display: flex; align-items: center; justify-content: center; text-align: center; font-size: {{nameSize}}px; line-height: 0.9; text-shadow: 6px 6px 0 {{t.shadow}}">{{t.name}}</div>
+  <button type="button" class="arrow" style="right: 24px" aria-label="Next theme" onClick="{{next}}">
+    <svg width="30" height="54" viewBox="0 0 30 54" shape-rendering="crispEdges" aria-hidden="true"><path d="{{arrow}}" fill="{{t.a1}}"></path></svg>
+  </button>
+
+  <div style="position: absolute; left: 54px; top: 236px; width: 372px; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px">
+    <sc-for list="{{swatches}}" as="s" hint-placeholder-count="6">
+      <div class="px" style="height: 52px; background: {{s.c}}; box-shadow: inset 0 0 0 4px {{s.edge}}"></div>
+    </sc-for>
+  </div>
+
+  <div style="position: absolute; left: 0; right: 0; top: 300px; text-align: center; font-size: 120px; line-height: 1; text-shadow: 8px 8px 0 {{t.shadow}}">Dm<span style="color: {{t.a1}}">7</span></div>
+
+  <div style="position: absolute; left: 102px; bottom: 36px; width: 276px; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 12px">
+    <sc-for list="{{dots}}" as="d" hint-placeholder-count="8">
+      <div style="height: 24px; background: {{d.c}}"></div>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["ChoralRoot","FIZZ","NES","C64","C64 Impossible Mission","SNES","Game Boy","SynthWave"],"default":"C64"},"$preview":{"width":480,"height":480}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const THEMES = [
+      { name: 'ChoralRoot', bg: '#000000', border: '#000000', panel: '#1c1c1c', ink: '#f4f1ea', a1: '#ff8a1f', a2: '#4d7cff', a3: '#ffd60a', a4: '#2fd27f', shadow: '#2a2a2a', on: '#000000' },
+      { name: 'FIZZ', bg: '#000000', border: '#000000', panel: '#26262d', ink: '#f1f0ea', a1: '#ff6a2c', a2: '#3f7dff', a3: '#ffd23f', a4: '#1fd47e', shadow: '#f03cff', on: '#000000' },
+      { name: 'NES', bg: '#000000', border: '#000000', panel: '#0000bc', ink: '#f8f8f8', a1: '#f83800', a2: '#3cbcfc', a3: '#f8b800', a4: '#58d854', shadow: '#0000bc', on: '#000000' },
+      { name: 'C64', bg: '#000000', border: '#6c5eb5', panel: '#352879', ink: '#ffffff', a1: '#9ad284', a2: '#70a4b2', a3: '#b8c76f', a4: '#9a6759', shadow: '#352879', on: '#000000' },
+      { name: 'C64 Impossible Mission', bg: '#000000', border: '#000000', panel: '#a1683c', ink: '#ffffff', a1: '#edf171', a2: '#75cec8', a3: '#c46c71', a4: '#a9ff9f', shadow: '#8e3c97', on: '#000000' },
+      { name: 'SNES', bg: '#000000', border: '#9a97b5', panel: '#4f43ae', ink: '#e6e4f0', a1: '#d8343c', a2: '#4a6cd8', a3: '#f4c20d', a4: '#2fa35c', shadow: '#4f43ae', on: '#000000' },
+      { name: 'Game Boy', bg: '#000000', border: '#306230', panel: '#306230', ink: '#9bbc0f', a1: '#8bac0f', a2: '#9bbc0f', a3: '#8bac0f', a4: '#306230', shadow: '#0f380f', on: '#000000' },
+      { name: 'SynthWave', bg: '#000000', border: '#000000', panel: '#2e1a5e', ink: '#ffffff', a1: '#ff2e97', a2: '#00e5ff', a3: '#ffe45e', a4: '#b84dff', shadow: '#ff2e97', on: '#000000' },
+    ];
+    const start = Math.max(0, THEMES.findIndex((x) => x.name === (this.props.theme ?? 'C64')));
+    const idx = this.state && this.state.idx != null ? this.state.idx : start;
+    const t = THEMES[idx];
+    const n = THEMES.length;
+    let arrow = '';
+    ['a....', 'aa...', 'aaa..', 'aaaa.', 'aaaaa', 'aaaa.', 'aaa..', 'aa...', 'a....'].forEach((r, y) => {
+      for (let x = 0; x < r.length; x++) if (r[x] === 'a') arrow += 'M' + x * 6 + ' ' + y * 6 + 'h6v6h-6z';
+    });
+    const swatches = [t.panel, t.a1, t.a2, t.a3, t.a4, t.ink].map((c) => ({ c, edge: t.bg }));
+    const dots = THEMES.map((_, i) => ({ c: i === idx ? t.a1 : t.panel }));
+    return {
+      t, arrow, swatches, dots,
+      pos: (idx + 1) + '/' + n,
+      nameSize: t.name.length > 12 ? 60 : 92,
+      prev: () => this.setState({ idx: (idx + n - 1) % n }),
+      next: () => this.setState({ idx: (idx + 1) % n }),
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DX7 voice</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Jersey+10&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.px{clip-path:polygon(0 8px,4px 8px,4px 4px,8px 4px,8px 0,calc(100% - 8px) 0,calc(100% - 8px) 4px,calc(100% - 4px) 4px,calc(100% - 4px) 8px,100% 8px,100% calc(100% - 8px),calc(100% - 4px) calc(100% - 8px),calc(100% - 4px) calc(100% - 4px),calc(100% - 8px) calc(100% - 4px),calc(100% - 8px) 100%,8px 100%,8px calc(100% - 4px),4px calc(100% - 4px),4px calc(100% - 8px),0 calc(100% - 8px))}
+.lcd{position:absolute;left:0;top:0;width:480px;height:480px;pointer-events:none;background-image:linear-gradient(rgba(0,0,0,.2) 1px,transparent 1px),linear-gradient(90deg,rgba(0,0,0,.2) 1px,transparent 1px);background-size:4px 4px}
+@keyframes slot{0%{transform:translateY(-16px)}100%{transform:translateY(0)}}
+.cart{animation:slot .4s steps(4) both}
+</style>
+</helmet>
+<div style="width: 480px; height: 480px; position: relative; background: #000000; font-family: 'Jersey 10', monospace; color: #f4f4f4; overflow: hidden; -webkit-font-smoothing: none; font-synthesis: none">
+  <svg class="cart" width="72" height="60" viewBox="0 0 72 60" shape-rendering="crispEdges" style="position: absolute; left: 20px; top: 14px" aria-hidden="true">
+    <path d="{{cart.a}}" fill="#566c86"></path>
+    <path d="{{cart.b}}" fill="#94b0c2"></path>
+    <path d="{{cart.c}}" fill="#ef7d57"></path>
+    <path d="{{cart.d}}" fill="#000000"></path>
+    <path d="{{cart.f}}" fill="#ffcd75"></path>
+  </svg>
+  <div class="px" style="position: absolute; right: 20px; top: 20px; padding: 8px 14px 6px; background: #ef7d57; color: #000000; font-size: 32px; font-weight: 700; line-height: 1">BANK 1</div>
+  <div style="position: absolute; left: 0; right: 0; top: 96px; text-align: center; font-size: 176px; font-weight: 700; line-height: 1; color: #ffcd75; text-shadow: 8px 8px 0 #b13e53">11</div>
+  <div style="position: absolute; left: 0; right: 0; top: 300px; text-align: center; font-size: 38px; font-weight: 700">E.PIANO 1</div>
+  <div style="position: absolute; left: 34px; bottom: 24px; width: 412px; display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 4px">
+    <sc-for list="{{slots}}" as="s" hint-placeholder-count="32">
+      <div style="height: 22px; background: {{s.bg}}"></div>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":480,"height":480}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const spr = (rows, s) => { const o = {}; rows.forEach((r, y) => { for (let x = 0; x < r.length; x++) { const c = r[x]; if (c === '.') continue; o[c] = (o[c] || '') + 'M' + x * s + ' ' + y * s + 'h' + s + 'v' + s + 'h-' + s + 'z'; } }); return o; };
+    const cart = spr([
+      'aaaaaaaaaaaa',
+      'abbbbbbbbbba',
+      'abccccccccba',
+      'abcddddddcba',
+      'abccccccccba',
+      'abbbbbbbbbba',
+      'abbbbbbbbbba',
+      'abbbbbbbbbba',
+      'aaaaaaaaaaaa',
+      'f.f.f.f.f.f.',
+    ], 6);
+    const slots = [];
+    for (let i = 1; i <= 32; i++) slots.push({ bg: i === 11 ? '#ffcd75' : i < 11 ? '#566c86' : '#333c57' });
+    return { cart, slots };
+  }
+}
+</script>
+</body>
+</html>

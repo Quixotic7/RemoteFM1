@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Octave</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Jersey+10&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.px{clip-path:polygon(0 8px,4px 8px,4px 4px,8px 4px,8px 0,calc(100% - 8px) 0,calc(100% - 8px) 4px,calc(100% - 4px) 4px,calc(100% - 4px) 8px,100% 8px,100% calc(100% - 8px),calc(100% - 4px) calc(100% - 8px),calc(100% - 4px) calc(100% - 4px),calc(100% - 8px) calc(100% - 4px),calc(100% - 8px) 100%,8px 100%,8px calc(100% - 4px),4px calc(100% - 4px),4px calc(100% - 8px),0 calc(100% - 8px))}
+.lcd{position:absolute;left:0;top:0;width:480px;height:480px;pointer-events:none;background-image:linear-gradient(rgba(0,0,0,.2) 1px,transparent 1px),linear-gradient(90deg,rgba(0,0,0,.2) 1px,transparent 1px);background-size:4px 4px}
+@keyframes hop{0%,70%{transform:translateY(0)}71%,85%{transform:translateY(-16px)}86%,100%{transform:translateY(0)}}
+.buddy{animation:hop 1.2s steps(1) infinite}
+@keyframes blink{0%,90%{opacity:0}91%,96%{opacity:1}97%,100%{opacity:0}}
+.lid{opacity:0;animation:blink 3.2s steps(1) infinite}
+</style>
+</helmet>
+<div style="width: 480px; height: 480px; position: relative; background: #000000; font-family: 'Jersey 10', monospace; color: #f4f4f4; overflow: hidden; -webkit-font-smoothing: none; font-synthesis: none">
+  <div class="px" style="position: absolute; left: 0; right: 0; margin: 0 auto; width: 100px; top: 16px; padding: 8px 0 6px; text-align: center; background: #41a6f6; color: #000000; font-size: 32px; font-weight: 700; line-height: 1">OCT</div>
+  <div style="position: absolute; left: 0; right: 0; top: 76px; text-align: center; font-size: 168px; font-weight: 700; line-height: 1; color: #41a6f6; text-shadow: 8px 8px 0 #29366f">+1</div>
+  <sc-for list="{{steps}}" as="s" hint-placeholder-count="7">
+    <div style="position: absolute; {{s.st}} width: 52px; background: {{s.bg}}"></div>
+  </sc-for>
+  <svg class="buddy" width="60" height="60" viewBox="0 0 60 60" shape-rendering="crispEdges" style="position: absolute; left: 266px; top: 272px" aria-hidden="true">
+    <path d="{{fuzz.a}}" fill="#41a6f6"></path>
+    <path d="{{fuzz.b}}" fill="#29366f"></path>
+    <path d="{{fuzz.w}}" fill="#f4f4f4"></path>
+    <path d="{{fuzz.k}}" fill="#000000"></path>
+    <path d="{{fuzz.m}}" fill="#5d275d"></path>
+    <path class="lid" d="{{lid.l}}" fill="#41a6f6"></path>
+    <path class="lid" d="{{lid.L}}" fill="#000000"></path>
+  </svg>
+  <div class="px" style="position: absolute; left: 0; right: 0; margin: 0 auto; width: 150px; bottom: 16px; padding: 8px 0 6px; text-align: center; background: #333c57; font-size: 32px; font-weight: 700; line-height: 1">F4-G6</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":480,"height":480}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const spr = (rows, s) => { const o = {}; rows.forEach((r, y) => { for (let x = 0; x < r.length; x++) { const c = r[x]; if (c === '.') continue; o[c] = (o[c] || '') + 'M' + x * s + ' ' + y * s + 'h' + s + 'v' + s + 'h-' + s + 'z'; } }); return o; };
+    // a furball monster: tufts on top, two big eyes, a fanged grin, stubby feet; it blinks now and then
+    const fuzz = spr([
+      '..a..aa..a..',
+      '.aaa.aa.aaa.',
+      '.aaaaaaaaaa.',
+      'aaaaaaaaaaaa',
+      'aawwwaawwwaa',
+      'aawkwaawkwaa',
+      'aawwwaawwwaa',
+      'aaaaaaaaaaaa',
+      'aaammmmmmaaa',
+      'aaaawmmwaaaa',
+      '.aaaaaaaaaa.',
+      '.bb......bb.',
+    ], 5);
+    const lid = spr([
+      '............',
+      '............',
+      '............',
+      '............',
+      '..lll..lll..',
+      '..LLL..LLL..',
+      '..lll..lll..',
+    ], 5);
+    const steps = [-3, -2, -1, 0, 1, 2, 3].map((o, i) => {
+      const h = 16 + i * 16;
+      return { st: 'left: ' + (34 + i * 60) + 'px; top: ' + (412 - h) + 'px; height: ' + h + 'px;', bg: o === 1 ? '#41a6f6' : o === 0 ? '#94b0c2' : '#333c57' };
+    });
+    return { fuzz, lid, steps };
+  }
+}
+</script>
+</body>
+</html>

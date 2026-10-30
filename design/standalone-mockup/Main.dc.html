@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RemoteFM1 standalone: panel map</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Jersey+10&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.px{clip-path:polygon(0 8px,4px 8px,4px 4px,8px 4px,8px 0,calc(100% - 8px) 0,calc(100% - 8px) 4px,calc(100% - 4px) 4px,calc(100% - 4px) 8px,100% 8px,100% calc(100% - 8px),calc(100% - 4px) calc(100% - 8px),calc(100% - 4px) calc(100% - 4px),calc(100% - 8px) calc(100% - 4px),calc(100% - 8px) 100%,8px 100%,8px calc(100% - 4px),4px calc(100% - 4px),4px calc(100% - 8px),0 calc(100% - 8px))}
+.oct{clip-path:polygon(30% 0,70% 0,100% 30%,100% 70%,70% 100%,30% 100%,0 70%,0 30%)}
+</style>
+</helmet>
+<div style="width: 2160px; height: 980px; position: relative; background: #000000; font-family: 'Jersey 10', monospace; color: #f4f4f4; overflow: hidden; -webkit-font-smoothing: none; font-synthesis: none">
+
+  <sc-for list="{{mainKnobs}}" as="k" hint-placeholder-count="4">
+    <div style="position: absolute; {{k.pos}} width: 220px; display: flex; flex-direction: column; align-items: center; gap: 10px">
+      <div style="font-size: 20px; color: #94b0c2">{{k.printed}}</div>
+      <div class="oct" style="width: 104px; height: 104px; background: #566c86; position: relative">
+        <div class="oct" style="position: absolute; left: 8px; top: 8px; width: 88px; height: 88px; background: #333c57"></div>
+        <div style="position: absolute; left: 48px; top: 12px; width: 8px; height: 32px; background: #f4f4f4"></div>
+      </div>
+      <div class="px" style="padding: 8px 12px 6px; background: {{k.color}}; color: #000000; font-size: 22px; font-weight: 700; line-height: 1">{{k.job}}</div>
+      <div style="font-size: 18px; color: #94b0c2; min-height: 22px">{{k.alt}}</div>
+    </div>
+  </sc-for>
+
+  <div style="position: absolute; left: 80px; top: 570px; width: 440px; display: flex; flex-direction: column; align-items: center; gap: 10px">
+    <div style="display: flex; gap: 20px">
+      <button type="button" class="px" style="width: 200px; height: 64px; border: none; background: #333c57; color: #f4f4f4; font: 700 22px 'Jersey 10', monospace">OCT-</button>
+      <button type="button" class="px" style="width: 200px; height: 64px; border: none; background: #333c57; color: #f4f4f4; font: 700 22px 'Jersey 10', monospace">OCT+</button>
+    </div>
+    <div class="px" style="padding: 8px 12px 6px; background: #41a6f6; color: #000000; font-size: 22px; font-weight: 700; line-height: 1">OCTAVE</div>
+    <div style="font-size: 18px; color: #94b0c2">both: panic</div>
+  </div>
+
+  <div class="px" style="position: absolute; left: 576px; top: 66px; width: 456px; height: 456px; background: #333c57"></div>
+  <div style="position: absolute; left: 584px; top: 74px; width: 440px; height: 440px; background: #000000; overflow: hidden">
+    <div class="px" style="position: absolute; left: 18px; top: 16px; padding: 8px 12px 6px; background: #73eff7; color: #000000; font-size: 22px; font-weight: 700; line-height: 1">CH 01</div>
+    <div class="px" style="position: absolute; right: 18px; top: 16px; padding: 8px 12px 6px; background: #333c57; font-size: 22px; font-weight: 700; line-height: 1">E.PIANO 1</div>
+    <div style="position: absolute; left: 0; right: 0; top: 110px; text-align: center; font-size: 120px; font-weight: 700; line-height: 1; text-shadow: 8px 8px 0 #5d275d">Dm<span style="color: #ef7d57">7</span></div>
+    <div style="position: absolute; left: 0; right: 0; top: 280px; display: flex; justify-content: center; gap: 12px">
+      <div class="px" style="padding: 8px 10px 6px; background: #333c57; font-size: 24px; font-weight: 700; line-height: 1">D4</div>
+      <div class="px" style="padding: 8px 10px 6px; background: #333c57; font-size: 24px; font-weight: 700; line-height: 1">F4</div>
+      <div class="px" style="padding: 8px 10px 6px; background: #333c57; font-size: 24px; font-weight: 700; line-height: 1">A4</div>
+      <div class="px" style="padding: 8px 10px 6px; background: #ef7d57; color: #000000; font-size: 24px; font-weight: 700; line-height: 1">C5</div>
+    </div>
+  </div>
+  <div style="position: absolute; left: 576px; top: 540px; width: 456px; text-align: center; font-size: 22px; color: #94b0c2; line-height: 1.4">HOME: notes / scope / keys</div>
+
+  <sc-for list="{{kn}}" as="k" hint-placeholder-count="4">
+    <div style="position: absolute; {{k.pos}} width: 230px; display: flex; flex-direction: column; align-items: center; gap: 10px">
+      <div style="font-size: 20px; color: #94b0c2">{{k.printed}}</div>
+      <div class="oct" style="width: 92px; height: 92px; background: {{k.color}}; position: relative">
+        <div class="oct" style="position: absolute; left: 8px; top: 8px; width: 76px; height: 76px; background: #333c57"></div>
+        <div style="position: absolute; left: 42px; top: 12px; width: 8px; height: 28px; background: #f4f4f4"></div>
+      </div>
+      <div class="px" style="padding: 8px 12px 6px; background: {{k.color}}; color: #000000; font-size: 22px; font-weight: 700; line-height: 1">{{k.job}}</div>
+    </div>
+  </sc-for>
+  <div style="position: absolute; left: 1080px; top: 296px; width: 1000px; text-align: center; font-size: 18px; color: #94b0c2">turn: send the CC / GLO held + turn: pick the CC</div>
+
+  <sc-for list="{{buttons}}" as="b" hint-placeholder-count="12">
+    <div style="position: absolute; {{b.pos}} width: 160px; display: flex; flex-direction: column; align-items: center; gap: 8px">
+      <button type="button" class="px" style="width: 150px; height: 64px; border: none; background: {{b.cap}}; color: {{b.capfg}}; font: 700 22px 'Jersey 10', monospace">{{b.printed}}</button>
+      <div class="px" style="padding: 7px 10px 5px; background: {{b.color}}; color: {{b.fg}}; font-size: 20px; font-weight: 700; line-height: 1">{{b.job}}</div>
+      <div style="font-size: 16px; color: #94b0c2; text-align: center; line-height: 1.3">{{b.alt}}</div>
+    </div>
+  </sc-for>
+
+  <div style="position: absolute; left: 80px; top: 676px; width: 2000px; display: flex; justify-content: space-between; font-size: 22px">
+    <span style="color: #ef7d57">keys: play the DX7 voice + send on the channel</span>
+    <span style="color: #94b0c2">held keys light</span>
+  </div>
+  <div style="position: absolute; left: 80px; top: 720px; width: 2000px; height: 220px">
+    <sc-for list="{{whites}}" as="w" hint-placeholder-count="16">
+      <div style="position: absolute; {{w.pos}} width: 117px; height: 220px; background: {{w.bg}}"></div>
+    </sc-for>
+    <sc-for list="{{blacks}}" as="b" hint-placeholder-count="11">
+      <div style="position: absolute; {{b.pos}} top: 0; width: 72px; height: 132px; background: #000000"></div>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":2160,"height":980}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const P = { white: '#f4f4f4', light: '#94b0c2', mid: '#566c86', panel: '#333c57', orange: '#ef7d57', yellow: '#ffcd75', lime: '#a7f070', sky: '#41a6f6', cyan: '#73eff7', red: '#b13e53', bg: '#000000' };
+    const at = (x, y) => 'left: ' + x + 'px; top: ' + y + 'px;';
+    const mainKnobs = [
+      { printed: 'MASTER', job: 'VOLUME', alt: '', color: P.light, pos: at(80, 70) },
+      { printed: 'SELECT', job: 'TEMPO', alt: 'in menus: choose', color: P.light, pos: at(300, 70) },
+      { printed: 'PRESETS', job: 'DX7 VOICE', alt: 'GLO: bank', color: P.orange, pos: at(80, 320) },
+      { printed: 'ALGORITHM', job: 'MIDI CH', alt: '', color: P.cyan, pos: at(300, 320) },
+    ];
+    const kc = [P.sky, P.orange, P.yellow, P.lime];
+    const kn = [0, 1, 2, 3].map((i) => ({ printed: 'KN' + (i + 1), job: 'CC ' + (i + 1), color: kc[i], pos: at(1080 + i * 256, 70) }));
+    const B = (printed, job, alt, color, fg) => ({ printed, job, alt, color, fg: fg || P.bg, cap: P.panel, capfg: P.white });
+    const top = [B('FX', 'BANK A', '', P.light), B('SEL', 'BANK B', '', P.white), B('ENV', 'BANK C', '', P.light), B('LFO', 'BANK D', '', P.light), B('EDIT', 'BANK E', '', P.light), B('GLO', 'SHIFT', 'hold', P.yellow)];
+    top[1].cap = P.white; top[1].capfg = P.bg;
+    const bottom = [B('HOME', 'VIEW', '', P.light), B('SAVE', 'THEME', 'hold: save all', P.light), B('ARP', 'ARP', 'hold: settings', P.lime), B('SEQ', 'SPARE', '', P.mid, P.white), B('PLAY', 'PLAY', 'hold: 16 loops', P.lime), B('REC', 'REC', 'hold: options', P.red, P.white)];
+    const buttons = [];
+    top.forEach((b, i) => buttons.push(Object.assign(b, { pos: at(1080 + i * 168, 344) })));
+    bottom.forEach((b, i) => buttons.push(Object.assign(b, { pos: at(1080 + i * 168, 500) })));
+    const held = { 5: 1, 7: 1, 9: 1, 11: 1 };
+    const whites = [];
+    for (let i = 0; i < 16; i++) whites.push({ pos: 'left: ' + (i * 125) + 'px; top: ' + (held[i] ? 8 : 0) + 'px;', bg: held[i] ? P.orange : P.white });
+    const after = [0, 1, 2, 4, 5, 7, 8, 9, 11, 12, 14];
+    const blacks = after.map((i) => ({ pos: 'left: ' + (i * 125 + 125 - 38) + 'px;' }));
+    return { mainKnobs, kn, buttons, whites, blacks };
+  }
+}
+</script>
+</body>
+</html>

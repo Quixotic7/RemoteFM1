@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Recording</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Jersey+10&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.px{clip-path:polygon(0 8px,4px 8px,4px 4px,8px 4px,8px 0,calc(100% - 8px) 0,calc(100% - 8px) 4px,calc(100% - 4px) 4px,calc(100% - 4px) 8px,100% 8px,100% calc(100% - 8px),calc(100% - 4px) calc(100% - 8px),calc(100% - 4px) calc(100% - 4px),calc(100% - 8px) calc(100% - 4px),calc(100% - 8px) 100%,8px 100%,8px calc(100% - 4px),4px calc(100% - 4px),4px calc(100% - 8px),0 calc(100% - 8px))}
+.lcd{position:absolute;left:0;top:0;width:480px;height:480px;pointer-events:none;background-image:linear-gradient(rgba(0,0,0,.2) 1px,transparent 1px),linear-gradient(90deg,rgba(0,0,0,.2) 1px,transparent 1px);background-size:4px 4px}
+.dith{background:repeating-conic-gradient(#29366f 0 25%,#000000 0 50%) 0 0/8px 8px}
+@keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+.blink{animation:blink 1s steps(1) infinite}
+</style>
+</helmet>
+<div style="width: 480px; height: 480px; position: relative; background: #000000; font-family: 'Jersey 10', monospace; color: #f4f4f4; overflow: hidden; -webkit-font-smoothing: none; font-synthesis: none">
+  <div class="px" style="position: absolute; left: 20px; top: 16px; padding: 8px 14px 6px; background: #b13e53; font-size: 32px; font-weight: 700; line-height: 1; display: flex; align-items: center; gap: 10px">
+    <span class="blink" style="width: 16px; height: 16px; background: #f4f4f4"></span>REC
+  </div>
+  <div class="px" style="position: absolute; right: 20px; top: 16px; padding: 8px 14px 6px; background: #333c57; font-size: 32px; font-weight: 700; line-height: 1">LOOP 3</div>
+  <div style="position: absolute; left: 0; right: 0; top: 84px; text-align: center; font-size: 140px; font-weight: 700; line-height: 1; text-shadow: 8px 8px 0 #b13e53">4.2</div>
+  <div class="dith" style="position: absolute; left: 20px; top: 252px; width: 440px; height: 204px; overflow: hidden">
+    <sc-for list="{{notes}}" as="n" hint-placeholder-count="14">
+      <div style="position: absolute; {{n.st}} height: 12px; background: {{n.bg}}; box-shadow: 4px 4px 0 #000000"></div>
+    </sc-for>
+    <div class="blink" style="position: absolute; right: 0; top: 0; bottom: 0; width: 8px; background: #b13e53"></div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":480,"height":480}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const raw = [[8, 72, 7], [8, 64, 5], [12, 72, 3], [96, 40, 9], [140, 32, 6], [176, 64, 7], [176, 60, 4], [180, 68, 2],
+      [264, 28, 10], [296, 24, 9], [324, 36, 6], [368, 60, 6], [368, 56, 4], [372, 60, 1]];
+    const notes = raw.map((n) => ({ st: 'left: ' + n[0] + 'px; width: ' + n[1] + 'px; top: ' + (188 - n[2] * 16) + 'px;', bg: n[2] > 7 ? '#ef7d57' : '#ffcd75' }));
+    return { notes };
+  }
+}
+</script>
+</body>
+</html>

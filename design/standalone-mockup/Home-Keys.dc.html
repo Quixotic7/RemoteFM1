@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Home: keys</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Jersey+10&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.px{clip-path:polygon(0 8px,4px 8px,4px 4px,8px 4px,8px 0,calc(100% - 8px) 0,calc(100% - 8px) 4px,calc(100% - 4px) 4px,calc(100% - 4px) 8px,100% 8px,100% calc(100% - 8px),calc(100% - 4px) calc(100% - 8px),calc(100% - 4px) calc(100% - 4px),calc(100% - 8px) calc(100% - 4px),calc(100% - 8px) 100%,8px 100%,8px calc(100% - 4px),4px calc(100% - 4px),4px calc(100% - 8px),0 calc(100% - 8px))}
+.lcd{position:absolute;left:0;top:0;width:480px;height:480px;pointer-events:none;background-image:linear-gradient(rgba(0,0,0,.2) 1px,transparent 1px),linear-gradient(90deg,rgba(0,0,0,.2) 1px,transparent 1px);background-size:4px 4px}
+</style>
+</helmet>
+<div style="width: 480px; height: 480px; position: relative; background: #000000; font-family: 'Jersey 10', monospace; color: #f4f4f4; overflow: hidden; -webkit-font-smoothing: none; font-synthesis: none">
+  <div class="px" style="position: absolute; left: 20px; top: 16px; padding: 8px 14px 6px; background: #73eff7; color: #000000; font-size: 32px; font-weight: 700; line-height: 1">CH 01</div>
+  <div class="px" style="position: absolute; right: 20px; top: 16px; padding: 8px 14px 6px; background: #333c57; font-size: 32px; font-weight: 700; line-height: 1">E.PIANO 1</div>
+  <div style="position: absolute; left: 0; right: 0; top: 78px; text-align: center; font-size: 104px; font-weight: 700; line-height: 1; text-shadow: 8px 8px 0 #5d275d">Dm<span style="color: #ef7d57">7</span></div>
+  <div style="position: absolute; left: 18px; top: 212px; width: 444px; height: 188px">
+    <sc-for list="{{whites}}" as="w" hint-placeholder-count="16">
+      <div style="position: absolute; {{w.pos}} width: 24px; height: 180px; background: {{w.bg}}"></div>
+    </sc-for>
+    <sc-for list="{{blacks}}" as="b" hint-placeholder-count="11">
+      <div style="position: absolute; {{b.pos}} top: 0; width: 16px; height: 108px; background: {{b.bg}}; box-shadow: 0 0 0 4px #000000"></div>
+    </sc-for>
+  </div>
+  <div style="position: absolute; left: 20px; right: 20px; bottom: 16px; display: flex; justify-content: space-between">
+    <div class="px" style="padding: 8px 12px 6px; background: #333c57; font-size: 32px; font-weight: 700; line-height: 1">F3</div>
+    <div class="px" style="padding: 8px 12px 6px; background: #41a6f6; color: #000000; font-size: 32px; font-weight: 700; line-height: 1">OCT 0</div>
+    <div class="px" style="padding: 8px 12px 6px; background: #333c57; font-size: 32px; font-weight: 700; line-height: 1">G5</div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":480,"height":480}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const held = { 5: 1, 7: 1, 9: 1, 11: 1 };
+    const whites = [];
+    for (let i = 0; i < 16; i++) whites.push({ pos: 'left: ' + (i * 28) + 'px; top: ' + (held[i] ? 8 : 0) + 'px;', bg: held[i] ? '#ef7d57' : '#f4f4f4' });
+    const after = [0, 1, 2, 4, 5, 7, 8, 9, 11, 12, 14];
+    const blacks = after.map((i) => ({ pos: 'left: ' + (i * 28 + 18) + 'px;', bg: '#333c57' }));
+    return { whites, blacks };
+  }
+}
+</script>
+</body>
+</html>

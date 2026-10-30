@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Home: scope</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Jersey+10&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.px{clip-path:polygon(0 8px,4px 8px,4px 4px,8px 4px,8px 0,calc(100% - 8px) 0,calc(100% - 8px) 4px,calc(100% - 4px) 4px,calc(100% - 4px) 8px,100% 8px,100% calc(100% - 8px),calc(100% - 4px) calc(100% - 8px),calc(100% - 4px) calc(100% - 4px),calc(100% - 8px) calc(100% - 4px),calc(100% - 8px) 100%,8px 100%,8px calc(100% - 4px),4px calc(100% - 4px),4px calc(100% - 8px),0 calc(100% - 8px))}
+.lcd{position:absolute;left:0;top:0;width:480px;height:480px;pointer-events:none;background-image:linear-gradient(rgba(0,0,0,.2) 1px,transparent 1px),linear-gradient(90deg,rgba(0,0,0,.2) 1px,transparent 1px);background-size:4px 4px}
+@keyframes run{from{transform:translateX(0)}to{transform:translateX(-240px)}}
+.wave{animation:run 1.5s steps(30) infinite}
+</style>
+</helmet>
+<div style="width: 480px; height: 480px; position: relative; background: #000000; font-family: 'Jersey 10', monospace; color: #f4f4f4; overflow: hidden; -webkit-font-smoothing: none; font-synthesis: none">
+  <div style="position: absolute; left: 0; top: 238px; width: 480px; height: 4px; background: repeating-linear-gradient(90deg, #333c57 0 8px, transparent 8px 16px)"></div>
+  <div style="position: absolute; left: 118px; top: 72px; width: 4px; height: 336px; background: repeating-linear-gradient(180deg, #29366f 0 8px, transparent 8px 16px)"></div>
+  <div style="position: absolute; left: 238px; top: 72px; width: 4px; height: 336px; background: repeating-linear-gradient(180deg, #29366f 0 8px, transparent 8px 16px)"></div>
+  <div style="position: absolute; left: 358px; top: 72px; width: 4px; height: 336px; background: repeating-linear-gradient(180deg, #29366f 0 8px, transparent 8px 16px)"></div>
+  <svg width="480" height="480" viewBox="0 0 480 480" shape-rendering="crispEdges" style="position: absolute; left: 0; top: 0" aria-hidden="true">
+    <g class="wave">
+      <path d="{{wave}}" fill="#257179" transform="translate(8 8)"></path>
+      <path d="{{wave}}" fill="#a7f070"></path>
+    </g>
+  </svg>
+  <div class="px" style="position: absolute; left: 20px; top: 16px; padding: 8px 14px 6px; background: #73eff7; color: #000000; font-size: 32px; font-weight: 700; line-height: 1">CH 01</div>
+  <div class="px" style="position: absolute; right: 20px; top: 16px; padding: 8px 14px 6px; background: #333c57; font-size: 32px; font-weight: 700; line-height: 1">E.PIANO 1</div>
+  <div class="px" style="position: absolute; left: 20px; bottom: 16px; padding: 8px 14px 6px; background: #f4f4f4; color: #000000; font-size: 28px; font-weight: 700; line-height: 1">Dm7</div>
+  <div style="position: absolute; right: 20px; bottom: 22px; display: flex; gap: 4px">
+    <sc-for list="{{level}}" as="l" hint-placeholder-count="8">
+      <div style="width: 12px; height: 28px; background: {{l.bg}}"></div>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":480,"height":480}}'>
+class Component extends DCLogic {
+  renderVals() {
+    let d = '', prev = null;
+    for (let x = 0; x < 960; x += 8) {
+      const p = (2 * Math.PI * x) / 240;
+      let y = 236 - 112 * (0.62 * Math.sin(p) + 0.38 * Math.sin(3 * p + 1.4 * Math.sin(p)));
+      y = Math.round(y / 8) * 8;
+      const top = prev === null ? y : Math.min(prev, y), bot = prev === null ? y + 8 : Math.max(prev, y) + 8;
+      d += 'M' + x + ' ' + top + 'h8v' + (bot - top) + 'h-8z';
+      prev = y;
+    }
+    const level = [];
+    for (let i = 0; i < 8; i++) level.push({ bg: i < 6 ? (i < 4 ? '#a7f070' : '#ffcd75') : '#333c57' });
+    return { wave: d, level };
+  }
+}
+</script>
+</body>
+</html>

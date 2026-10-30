@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>16 loops</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Jersey+10&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.px{clip-path:polygon(0 8px,4px 8px,4px 4px,8px 4px,8px 0,calc(100% - 8px) 0,calc(100% - 8px) 4px,calc(100% - 4px) 4px,calc(100% - 4px) 8px,100% 8px,100% calc(100% - 8px),calc(100% - 4px) calc(100% - 8px),calc(100% - 4px) calc(100% - 4px),calc(100% - 8px) calc(100% - 4px),calc(100% - 8px) 100%,8px 100%,8px calc(100% - 4px),4px calc(100% - 4px),4px calc(100% - 8px),0 calc(100% - 8px))}
+.lcd{position:absolute;left:0;top:0;width:480px;height:480px;pointer-events:none;background-image:linear-gradient(rgba(0,0,0,.2) 1px,transparent 1px),linear-gradient(90deg,rgba(0,0,0,.2) 1px,transparent 1px);background-size:4px 4px}
+@keyframes blink{0%,49%{opacity:1}50%,100%{opacity:.25}}
+.queued{animation:blink .5s steps(1) infinite}
+@keyframes fill{from{width:0}to{width:100%}}
+.prog{animation:fill 4.2s steps(10) infinite}
+@keyframes poke{0%,49%{transform:translate(0,0)}50%,100%{transform:translate(-4px,-4px)}}
+.cursor{animation:poke .5s steps(1) infinite}
+</style>
+</helmet>
+<div style="width: 480px; height: 480px; position: relative; background: #000000; font-family: 'Jersey 10', monospace; color: #f4f4f4; overflow: hidden; -webkit-font-smoothing: none; font-synthesis: none">
+  <div class="px" style="position: absolute; left: 20px; top: 16px; padding: 8px 14px 6px; background: #a7f070; color: #000000; font-size: 32px; font-weight: 700; line-height: 1">LOOPS</div>
+  <div class="px queued" style="position: absolute; right: 20px; top: 16px; padding: 8px 14px 6px; background: #ffcd75; color: #000000; font-size: 32px; font-weight: 700; line-height: 1">NEXT 7</div>
+  <div style="position: absolute; left: 30px; top: 72px; width: 420px; height: 380px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-rows: repeat(4, minmax(0, 1fr)); gap: 12px">
+    <sc-for list="{{slots}}" as="s" hint-placeholder-count="16">
+      <div class="px {{s.cls}}" style="position: relative; background: {{s.line}}">
+        <div class="px" style="position: absolute; left: 4px; top: 4px; right: 4px; bottom: 4px; background: {{s.bg}}; color: {{s.fg}}; display: flex; align-items: center; justify-content: center; font-size: 38px; font-weight: 700">{{s.n}}</div>
+        <sc-if value="{{s.playing}}" hint-placeholder-val="{{false}}">
+          <div style="position: absolute; left: 12px; right: 12px; bottom: 10px; height: 8px; background: #257179"><div class="prog" style="height: 8px; background: #000000"></div></div>
+        </sc-if>
+      </div>
+    </sc-for>
+  </div>
+  <svg class="cursor" width="28" height="40" viewBox="0 0 28 40" shape-rendering="crispEdges" style="position: absolute; left: 318px; top: 228px" aria-hidden="true">
+    <path d="{{cursor.a}}" fill="#000000"></path>
+    <path d="{{cursor.b}}" fill="#f4f4f4"></path>
+  </svg>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":480,"height":480}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const spr = (rows, s) => { const o = {}; rows.forEach((r, y) => { for (let x = 0; x < r.length; x++) { const c = r[x]; if (c === '.') continue; o[c] = (o[c] || '') + 'M' + x * s + ' ' + y * s + 'h' + s + 'v' + s + 'h-' + s + 'z'; } }); return o; };
+    const cursor = spr([
+      'a......',
+      'aa.....',
+      'aba....',
+      'abba...',
+      'abbba..',
+      'abbbba.',
+      'abbbbba',
+      'abbaaa.',
+      'aa.aba.',
+      '....aa.',
+    ], 4);
+    const filled = { 1: 1, 2: 1, 3: 1, 5: 1, 7: 1, 8: 1, 12: 1 };
+    const slots = [];
+    for (let n = 1; n <= 16; n++) {
+      if (n === 3) slots.push({ n, cls: '', line: '#a7f070', bg: '#a7f070', fg: '#000000', playing: true });
+      else if (n === 7) slots.push({ n, cls: 'queued', line: '#ffcd75', bg: '#000000', fg: '#ffcd75', playing: false });
+      else if (filled[n]) slots.push({ n, cls: '', line: '#333c57', bg: '#333c57', fg: '#f4f4f4', playing: false });
+      else slots.push({ n, cls: '', line: '#29366f', bg: '#000000', fg: '#566c86', playing: false });
+    }
+    return { slots, cursor };
+  }
+}
+</script>
+</body>
+</html>
