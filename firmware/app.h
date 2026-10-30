@@ -39,10 +39,15 @@
  * sectors are one object, OBJ_RF (an A/B pair: cut-safe), and the objects RemoteFM1 keeps are records in it
  * (APP_STORE_MUX: OBJ_BLE, fm1-base's Bluetooth address and bondings, and OBJ_SA, the standalone's settings; they
  * have no sectors of their own). Numbers: OBJ_PANEL 0 and OBJ_BLE 1 as in 0.2 (whose OBJ_BLE at 0xF2000 was never
- * written: outside felucca-bsp's FL_STORE_OK, every save refused); OBJ_RF's record header says 2, so 0.2 reads none. */
+ * written: outside felucca-bsp's FL_STORE_OK, every save refused); OBJ_RF's record header says 2, so 0.2 reads none.
+ * The standalone's user DX7 banks (sa/sa_ubank.c, STANDALONE-PLAN.md question 3 (b)) add XDATA0's four sectors,
+ * 0x93000..0x96FFF (ChoralRoot's and the stock firmware's code area, nobody's data: their install loses the banks,
+ * which are sent again), written only when a bank arrives and only through sa_ub_erase / sa_ub_write, which check
+ * APP_STORE_OK; the store's objects stay in 0xF2000..0xF3FFF and 0xFC000. */
 enum { OBJ_PANEL, OBJ_BLE, OBJ_RF, OBJ_SA, OBJ_NOBJ };
 #define APP_STORE_MAP {0xFC000u, 0u, 0xF2000u, 0u}
-#define APP_STORE_OK(off, n) (plat_in((off), (n), 0xF2000u, 0xF4000u) || plat_in((off), (n), 0xFC000u, 0xFE000u))
+#define APP_STORE_OK(off, n) (plat_in((off), (n), 0xF2000u, 0xF4000u) || plat_in((off), (n), 0xFC000u, 0xFE000u) || \
+                              plat_in((off), (n), 0x93000u, 0x97000u))
 #define APP_STORE_MUX
 #define APP_STORE_VIRTUAL(obj) ((obj) == OBJ_BLE || (obj) == OBJ_SA)   /* records in OBJ_RF */
 int plat_store_raw_load(uint32_t obj, void *dst, uint32_t max);   /* (fm1-base's, under APP_STORE_MUX) */

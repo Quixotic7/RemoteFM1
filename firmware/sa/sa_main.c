@@ -20,6 +20,12 @@
  * above 0, the other buttons at fm1-base's glow. The channel, octave, cartridge and voice are kept in the store
  * (OBJ_SA), a little after the last change, while nothing sounds.
  *
+ * After S1 (STANDALONE-PLAN.md S2..S5): FX SEL ENV LFO EDIT the CC bank and KN1..KN4 its CCs (sa_cc.c); REC, PLAY
+ * and their holds the looper (sa_loop.c); ARP and its hold the arp, SELECT the tempo, a computer's MIDI clock both
+ * (sa_arp.c); HOME the next view (Notes, Scope, Keys); SAVE the theme menu, held: save; a DX7 bank dump the user
+ * banks (sa_ubank.c); their screens in sa_screens.c. Menus (Loops, Rec options, Arp settings, Theme) stay up while
+ * used and take the knobs, SELECT and PRESETS.
+ *
  * The sound. The main loop never calls FM6's note functions: it queues them (sa_ev), and the render (app_render, the
  * audio interrupt) takes the queue at the start of each block. Voices are loaded from the main loop (sa_synth_load_vmem
  * only publishes the voice). The render's output: FM6's sum x SA_PART_GAIN (one DX7 voice at full velocity peaks at
@@ -75,7 +81,7 @@ static struct {
     uint32_t host_ms;                        /* its last message */
     uint8_t ch;                              /* the MIDI channel, 1..16 */
     int8_t oct;                              /* -3..+3 */
-    uint8_t bank, voice;                     /* 0..SA_NBANKS - 1, 0..SA_BANK_VOICES - 1 */
+    uint8_t bank, voice;                     /* 0..sa_nbanks() - 1 (the ROM's, then the user's), 0..31 */
     uint8_t theme;
     uint8_t ccbank;                          /* 0..4: A..E */
     uint8_t cc[5][4], ccv[5][4];             /* each bank's CCs (sa_cc.c) and their values */
@@ -111,6 +117,8 @@ static struct {
     uint32_t notes_out, notes_in, ev_drop, panics, saves, loads, cc_out, save_holds;   /* (the simulator's checks) */
 } sa;
 
+#include "sa_ubank.c"
+
 /* ------------------------------------------------------------------ the render's queue --- */
 enum { SA_EV_ON, SA_EV_OFF, SA_EV_CC, SA_EV_BEND, SA_EV_AT, SA_EV_ALLOFF, SA_EV_SOUNDOFF };
 #define SA_EVQ 256u
@@ -134,6 +142,9 @@ static int32_t sa_mono[APP_BLOCK] PLAT_POOL;
 static float sa_lim_g = 1.0f;
 static volatile uint32_t sa_peak_q15;        /* the output's peak since the screen last read it (Q15) */
 static uint32_t sa_clips;                    /* samples the soft knee had to bend (the simulator's checks) */
+#define SA_SCOPE_N 512u                      /* the Scope view's samples (every other one of the output) */
+static int8_t sa_scope[SA_SCOPE_N] PLAT_POOL;
+static volatile uint32_t sa_scope_w;
 
 static void sa_ev_apply(void)                /* (the render) */
 {
@@ -197,6 +208,8 @@ static void sa_render(int32_t *lr, uint32_t n, uint32_t gain_q12)
             int32_t v = (int32_t)(y * mg);
             peak_out = ay > peak_out ? ay : peak_out;
             lr[2u * (k + i)] = lr[2u * (k + i) + 1u] = v;
+            if (i & 1u)
+                sa_scope[sa_scope_w++ % SA_SCOPE_N] = (int8_t)(y * 127.0f);
         }
         sa_lim_g = g1;
     }
@@ -423,8 +436,8 @@ static void sa_settings_apply(const sa_store_t *s)   /* (each value checked: a r
     uint32_t b, k;
     sa.ch = (uint8_t)clamp(s->ch, 1, 16);
     sa.oct = (int8_t)clamp(s->oct, -3, 3);
-    sa.bank = (uint8_t)(s->bank < SA_NBANKS ? s->bank : 0u);
-    sa.voice = (uint8_t)(s->voice < SA_BANK_VOICES ? s->voice : 0u);
+    sa.bank = (uint8_t)(s->bank < sa_nbanks() ? s->bank : 0u);
+    sa.voice = (uint8_t)(s->voice < sa_bank_voices(sa.bank) ? s->voice : 0u);
     sa.theme = (uint8_t)(s->theme < SA_NTHEMES ? s->theme : SA_THEME_DEFAULT);
     sa.ccbank = (uint8_t)(s->ccbank < SA_NCCB ? s->ccbank : 0u);
     sa.view = (uint8_t)(s->view < 3u ? s->view : 0u);
@@ -546,7 +559,7 @@ static void sa_midi_in(uint32_t pkt)
     case 0xE0u: sa_ev(SA_EV_BEND, d1 | d2 << 7, 0); break;
     case 0xD0u: sa_ev(SA_EV_AT, d1, 0); break;
     case 0xC0u:                              /* a program change: the voice of the cartridge */
-        if (d1 < SA_BANK_VOICES && d1 != sa.voice) {
+        if (d1 < sa_bank_voices(sa.bank) && d1 != sa.voice) {
             sa.voice = (uint8_t)d1;
             sa_load_voice();
             sa_changed();
@@ -642,6 +655,10 @@ static int sa_menu_knob(uint32_t k, int32_t d)   /* a menu takes KN1..KN4 (k 0..
         else
             sa.mfocus = (uint8_t)clamp((int32_t)sa.mfocus + d, 0, 3);
         break;
+    case SA_SCR_THEME:                       /* the theme, shown at once (the whole screen in it) */
+        sa.theme = (uint8_t)(((int32_t)sa.theme + d % (int32_t)SA_NTHEMES + (int32_t)SA_NTHEMES) % (int32_t)SA_NTHEMES);
+        sa_changed();
+        break;
     default:
         return 0;
     }
@@ -659,7 +676,9 @@ static void sa_select(int32_t d)             /* SELECT: the tempo; in a menu, it
     } else if (sa.menu && sa.ov == SA_SCR_ARPSET) {
         sa_arpopt(sa.mfocus, d);
         sa_menu_touch();
-    } else if (!sa.menu || sa.ov != SA_SCR_THEME) {   /* the tempo (faster when turned fast) */
+    } else if (sa.menu && sa.ov == SA_SCR_THEME) {
+        sa_menu_knob(4u, d);
+    } else {                                 /* the tempo (faster when turned fast) */
         uint32_t now = plat_ms(), dt = now - sa.sel_ms;
         int32_t b = clamp((int32_t)sa.bpm + d * (dt < 40u ? 4 : 1), SA_BPM_MIN, SA_BPM_MAX);
         sa.sel_ms = now;
@@ -673,7 +692,12 @@ static void sa_select(int32_t d)             /* SELECT: the tempo; in a menu, it
 
 static void sa_tap(uint32_t b)               /* SAVE, ARP, PLAY, REC let go before SA_HOLD_MS */
 {
-    if (b == B_PLAY) {
+    if (b == B_SAVE) {                       /* the theme menu; SAVE again closes it (the theme kept) */
+        if (sa.menu && sa.ov == SA_SCR_THEME)
+            sa_close();
+        else
+            sa_overlay_menu(SA_SCR_THEME);
+    } else if (b == B_PLAY) {
         if (sa.menu && sa.ov == SA_SCR_LOOPS) {   /* the loop under the cursor: next, or now */
             sl_pick(sl.cursor);
             sa_overlay(SA_SCR_LOOP);
@@ -721,8 +745,12 @@ static void sa_press(uint32_t b)             /* any other button down */
 {
     if (b <= B_EDIT) {                       /* FX SEL ENV LFO EDIT: the CC bank */
         sa_cc_bank(b - B_FX);
-    } else if (b == B_HOME) {
-        sa_close();                          /* the HOME view at once */
+    } else if (b == B_HOME) {                /* the HOME view at once; at it, the next one: Notes, Scope, Keys */
+        if (sa.ov == SA_SCR_HOME && !sl_recording()) {
+            sa.view = (uint8_t)((sa.view + 1u) % 3u);
+            sa_changed();
+        }
+        sa_close();
     } else if (b == B_GLO) {
         sa.poke = 1;
     }
@@ -777,14 +805,16 @@ static void sa_encoders(const int32_t *steps)   /* detents by plat.h's role (EN_
         s = 0;
     if (s) {
         if (sa.btns >> B_GLO & 1u) {
-            int32_t b = clamp((int32_t)sa.bank + s, 0, (int32_t)SA_NBANKS - 1);
+            int32_t b = clamp((int32_t)sa.bank + s, 0, (int32_t)sa_nbanks() - 1);
             if (b != sa.bank) {
                 sa.bank = (uint8_t)b;
+                if (sa.voice >= sa_bank_voices(sa.bank))
+                    sa.voice = 0;
                 sa_load_voice();
                 sa_changed();
             }
         } else {
-            int32_t v = clamp((int32_t)sa.voice + s, 0, (int32_t)SA_BANK_VOICES - 1);
+            int32_t v = clamp((int32_t)sa.voice + s, 0, (int32_t)sa_bank_voices(sa.bank) - 1);
             if (v != sa.voice) {
                 sa.voice = (uint8_t)v;
                 sa_load_voice();
@@ -828,6 +858,16 @@ static void sa_ms(uint32_t btns, const int32_t *steps)
     sa_encoders(steps);
     sar_ms(now);
     sl_step(now);
+    {
+        int32_t u = sa_ub_take();            /* a DX7 bank arrived: kept, and its first voice played */
+        if (u >= 0) {
+            sa.bank = (uint8_t)sa_bank_of_slot((uint32_t)u);
+            sa.voice = 0;
+            sa_load_voice();
+            sa_changed();
+            sa_overlay(SA_SCR_PRESET);
+        }
+    }
     if (sa.ov != SA_SCR_HOME && (int32_t)(now - sa.ov_until) >= 0) {
         sa.ov = SA_SCR_HOME;
         sa.poke = 1;
@@ -842,6 +882,8 @@ static void sa_init(void)
     uint32_t k;
     memset(&sa, 0, sizeof sa);               /* (the simulator's reboot runs this again) */
     sa_settings_defaults();
+    memset(&ub, 0, sizeof ub);
+    sa_ub_scan();
     sl_init();
     sar_init();
     for (k = 0; k < NKEYS; k++)

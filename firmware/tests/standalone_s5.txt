@@ -1,0 +1,110 @@
+# SPDX-License-Identifier: MPL-2.0
+# RemoteFM1 standalone, S5 (STANDALONE-PLAN.md): HOME cycles the views (Notes, Scope, Keys); SAVE opens the theme menu
+# (9 themes: Pixel and the mockup's 8, the screen in each at once, kept across a power cycle); the user's DX7 banks: a
+# 32-voice bulk dump over USB or Bluetooth MIDI kept in XDATA0 (USER1..3 after the ROM cartridges, the oldest replaced
+# by a fourth, a bad checksum refused, nothing written outside APP_STORE_OK), there after a power cycle. Both builds.
+wait 400
+expect sa_view 0
+# a chord held: the Scope view (HOME), the Keys view (HOME again), back to Notes
+key 9 down 100
+key 12 down 100
+key 16 down 100
+key 19 down 100
+wait 200
+tap HOME
+expect sa_view 1
+wait 60
+shot sa_scope.png
+tap HOME
+expect sa_view 2
+wait 60
+shot sa_keys.png
+key 9 up
+key 12 up
+key 16 up
+key 19 up
+tap HOME
+expect sa_view 0
+# HOME with an overlay up closes it, the view stays
+turn ALGO 1
+expect sa_screen 2
+tap HOME
+expect sa_screen 0
+expect sa_view 0
+turn ALGO -1
+# the theme menu: SAVE; SELECT steps through the 9; the screen is in it at once; SAVE closes it, the theme kept
+tap SAVE
+expect sa_screen 16
+expect sa_menu 1
+wait 60
+shot sa_theme_pixel.png
+turn SELECT 4 100
+expect sa_theme 4
+wait 60
+shot sa_theme_c64.png
+turn SELECT 1 100
+wait 60
+shot sa_theme_c64im.png
+turn SELECT 2 100
+expect sa_theme 7
+wait 60
+shot sa_theme_gameboy.png
+turn K1 2 100
+expect sa_theme 0
+turn K1 -1 100
+expect sa_theme 8
+wait 60
+shot sa_theme_synthwave.png
+tap SAVE
+expect sa_screen 0
+expect sa_theme 8
+wait 60
+shot sa_notes_synthwave.png
+tap SAVE
+turn SELECT -6 100
+tap SAVE
+expect sa_theme 2
+# a DX7 bank over USB: USER1, its first voice now (the Preset screen), after the ROM cartridges
+sa dx7bank 1 usb
+expect sa_ub_got 1
+expect sa_ubanks 1
+expect sa_ub_slot 0
+expect sa_screen 1
+sa name USR1 V01
+wait 300
+shot sa_user_bank.png
+turn PRESET 3
+sa name USR1 V04
+# over Bluetooth: USER2; a bad checksum: refused
+sa dx7bank 2 ble
+expect sa_ubanks 2
+expect sa_ub_slot 1
+sa name USR2 V01
+sa dx7bank 9 usb bad
+expect sa_ub_bad 1
+expect sa_ubanks 2
+# GLO + PRESETS: the banks go on past the ROM's to the user's, and back
+press GLO
+turn PRESET -40
+expect sa_bank 0
+expect sa_ub_slot -1
+turn PRESET 40
+expect sa_ub_slot 1
+release GLO
+# a third, then a fourth: the oldest (USER1) replaced
+sa dx7bank 3 usb
+sa dx7bank 4 usb
+expect sa_ubanks 3
+expect sa_ub_slot 0
+sa name USR4 V01
+expect sa_ub_refused 0
+expect store_outside 0
+# kept across a power cycle (the voice and the theme too, saved a little after)
+wait 3000
+reboot
+wait 300
+expect sa_ubanks 3
+expect sa_ub_slot 0
+sa name USR4 V01
+expect sa_theme 2
+expect sa_view 0

@@ -159,3 +159,10 @@ RemoteFM1 unit, and the owner trying it.
    recommended: claiming the data area (0x97000..0xDFFFF) behind an owner tag, as ChoralRoot's st_owner_check does:
    it would hold all 16 loops but destroy ChoralRoot's or FIZZ's user data on the first save. The owner decides
    before S3.
+
+   **Done as recommended (2026-10-30, S2..S5).** (a) One OBJ_SA record (version 2, ~90 B) with the CC map and values,
+   theme, view, arp, tempo and recording options, saved a little after a change and at once on SAVE held. (b) Three
+   user banks in XDATA0: 0x93000..0x95FFF one sector each (bytes stored | 0x80, so no "AT" at 0xF06), their headers in
+   0x96000; APP_STORE_OK widened to exactly 0x93000..0x96FFF, the only writers sa_ubank.c's two checked ones
+   (tests/store_window_test.c, tests/run_tests.sh). (c) The loops in the pool (3,584 events + a 512-event take),
+   saved and loaded over SysEx: SA_LOOP, docs/PROTOCOL.md section 8, tools/sa_loops.py; nothing of them in flash.

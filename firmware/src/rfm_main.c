@@ -138,6 +138,8 @@ static inline void rf_mrx_put(uint32_t b)
 static int rf_sx_tap(uint32_t b)
 {
     static const uint8_t ID[3] = {RF_SX_ID0, RF_SX_ID1, RF_SX_ID2};
+    if (sa_standalone())
+        sa_ub_byte(b);                              /* a DX7 bank dump (sa/sa_ubank.c) */
     if (b == 0xF0u) {
         if (rfh_st == 4u)
             rf_mrx_put(0xF0u);                      /* ours, cut off: the parser counts it */
@@ -972,8 +974,11 @@ static void rf_rx_step(void)
         }
         if (cin >= 4u && cin <= 7u) {               /* SysEx: 3 bytes going on, or the last 1 / 2 / 3 */
             uint32_t nb = cin == 4u || cin == 7u ? 3u : cin == 6u ? 2u : 1u, j;
-            for (j = 0; j < nb; j++)
+            for (j = 0; j < nb; j++) {
                 rf_sx_byte(&rf_sx[1], (pkt >> (8u * (j + 1u))) & 0xFFu);
+                if (sa_standalone())
+                    sa_ub_byte((pkt >> (8u * (j + 1u))) & 0xFFu);   /* (a DX7 bank dump: sa/sa_ubank.c) */
+            }
             rf_raw_rx[RF_T_BLE] += nb;
             got += nb;
         } else {

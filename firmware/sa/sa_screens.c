@@ -3,6 +3,14 @@
 /* The standalone's screens after S1 (design/standalone-mockup, halved): the CC screens (CC-Bank, CC-Turn, CC-Assign)
  * and the save's note. Part of sa_ui.c (its snapshot, ui; sa_gfx.c's primitives). */
 
+static uint32_t sa_slen(const char *s)
+{
+    uint32_t n = 0;
+    while (s[n])
+        n++;
+    return n;
+}
+
 static uint16_t sa_kcol(uint32_t k)          /* the knobs' colours: KN1 blue, KN2 orange, KN3 yellow, KN4 green */
 {
     static const uint8_t T[4] = {SA_TK_A5, SA_TK_A1, SA_TK_A3, SA_TK_A4};
@@ -520,6 +528,201 @@ static void sa_paint_tempo(void)
     sa_steps(beat, 1);
 }
 
+/* ------------------------------------------------------------------ S5: HOME's Scope and Keys views --- */
+static void sa_ui_snap_views(void)
+{
+    uint32_t i, w = sa_scope_w, trig = 0, best = 0;
+    int8_t buf[SA_SCOPE_N];
+    for (i = 0; i < SA_SCOPE_N; i++)          /* the ring, oldest first */
+        buf[i] = sa_scope[(w + i) % SA_SCOPE_N];
+    for (i = 1; i + 240u < SA_SCOPE_N; i++)   /* a rising zero crossing, the steepest: the wave stands still */
+        if (buf[i - 1u] < 0 && buf[i] >= 0 && (uint32_t)(buf[i] - buf[i - 1u]) > best) {
+            best = (uint32_t)(buf[i] - buf[i - 1u]);
+            trig = i;
+        }
+    for (i = 0; i < 60u; i++)
+        ui.wave[i] = buf[trig + 4u * i];
+    ui.view = sa.view;
+    ui.theme = sa.theme;
+    ui.keyheld = 0;
+    for (i = 0; i < NKEYS; i++) {
+        int32_t n = (int32_t)SA_NOTE0 + (int32_t)i + 12 * sa.oct;
+        if ((sa.keys >> i & 1u) || (n >= 0 && n < 128 && sa.held[n]))
+            ui.keyheld |= 1u << i;
+    }
+    ui.lvl8 = (uint8_t)(uis.lvl * 8.0f + 0.5f);
+}
+
+static void sa_home_chips(void)
+{
+    int32_t w = sg_text_w(ui.name, 1) + 14;
+    sg_chip_text(10, 8, 0, 22, 7, ui.ch_txt, UC(A2), UC(ON));
+    sg_chip_text(230 - w, 8, w, 22, 7, ui.name, UC(PANEL), UC(INK));
+}
+
+static void sa_chord_txt(int32_t y, int32_t n, uint16_t sh)   /* the chord (its extension in the accent), centred */
+{
+    int32_t w = sg_text_w(ui.chord.main, n) + sg_text_w(ui.chord.ext, n) + sg_text_w(ui.chord.bass, n), x;
+    while (n > 2 && w > 224) {
+        n--;
+        w = sg_text_w(ui.chord.main, n) + sg_text_w(ui.chord.ext, n) + sg_text_w(ui.chord.bass, n);
+    }
+    x = (SG_W - w) / 2;
+    if (!ui.ghost) {
+        int32_t xs = sg_text(x + 4, y + 4, n, ui.chord.main, sh);
+        xs = sg_text(xs, y + 4, n, ui.chord.ext, sh);
+        sg_text(xs, y + 4, n, ui.chord.bass, sh);
+    }
+    x = sg_text(x, y, n, ui.chord.main, ui.ghost ? UC(MID) : UC(INK));
+    x = sg_text(x, y, n, ui.chord.ext, ui.ghost ? UC(MID) : UC(A1));
+    sg_text(x, y, n, ui.chord.bass, ui.ghost ? UC(MID) : UC(INK));
+}
+
+static void sa_paint_scope(void)
+{
+    int32_t i, prev = -1;
+    char ch[16];
+    for (i = 0; i < SG_W; i += 8)            /* the grid: the zero line, three verticals, dashed */
+        sg_rect(i, 119, 4, 2, UC(PANEL));
+    for (i = 36; i < 204; i += 8) {
+        sg_rect(59, i, 2, 4, UC(D5));
+        sg_rect(119, i, 2, 4, UC(D5));
+        sg_rect(179, i, 2, 4, UC(D5));
+    }
+    for (int32_t pass = 0; pass < 2; pass++) {   /* the wave in 4-pixel steps, its shadow first */
+        prev = -1;
+        for (i = 0; i < 60; i++) {
+            int32_t y = 116 - ((int32_t)ui.wave[i] * 56 / 127) / 4 * 4, top = prev < 0 ? y : (prev < y ? prev : y),
+                    bot = prev < 0 ? y + 4 : (prev > y ? prev : y) + 4;
+            sg_rect(4 * i + (pass ? 0 : 4), top + (pass ? 0 : 4), 4, bot - top, pass ? UC(A4) : UC(D2));
+            prev = y;
+        }
+    }
+    sa_home_chips();
+    sa_cpy(ch, ui.chord.main);
+    sa_cpy(ch + sa_slen(ch), ui.chord.ext);
+    if (ui.ghost && !uis.n && !ui.chord.main[0])
+        ch[0] = 0;
+    if (ch[0])
+        sg_chip_text(10, 210, 0, 22, 7, ch, ui.ghost ? UC(PANEL) : UC(INK), ui.ghost ? UC(MID) : UC(ON));
+    for (i = 0; i < 8; i++)                  /* the level, 8 segments */
+        sg_rect(166 + 8 * i, 217, 6, 14, i < ui.lvl8 ? (i < 4 ? UC(A4) : i < 6 ? UC(A3) : UC(A1)) : UC(PANEL));
+}
+
+static void sa_paint_keys(void)
+{
+    static const uint8_t BLACK_AFTER[11] = {0, 1, 2, 4, 5, 7, 8, 9, 11, 12, 14};
+    static const uint8_t WKEY[16] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26};   /* F G A B C ..*/
+    static const uint8_t BKEY[11] = {1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25};
+    char lo[6], hi[6], oc[8];
+    int32_t i, w;
+    sa_home_chips();
+    sa_chord_txt(42, 5, UC(SHADOW));
+    for (i = 0; i < 16; i++) {               /* 16 white keys, 12 wide, 2 apart; a held one drops and lights */
+        int on = ui.keyheld >> WKEY[i] & 1u;
+        sg_rect(9 + 14 * i, 106 + (on ? 4 : 0), 12, 90, on ? UC(A1) : UC(INK));
+    }
+    for (i = 0; i < 11; i++) {               /* 11 black keys, 8 wide, outlined */
+        int on = ui.keyheld >> BKEY[i] & 1u;
+        int32_t x = 9 + 14 * BLACK_AFTER[i] + 9;
+        sg_rect(x - 2, 106, 12, 56, UC(BG));
+        sg_rect(x, 106, 8, 54, on ? UC(A1) : UC(PANEL));
+    }
+    sa_note_name((uint32_t)clamp((int32_t)SA_NOTE0 + 12 * ui.oct, 0, 127), lo);
+    sa_note_name((uint32_t)clamp((int32_t)SA_NOTE0 + 26 + 12 * ui.oct, 0, 127), hi);
+    sa_cpy(oc, "OCT ");
+    sa_num(oc + 4, ui.oct, 1);
+    sg_chip_text(10, 210, 0, 22, 6, lo, UC(PANEL), UC(INK));
+    w = sg_text_w(oc, 1) + 12;
+    sg_chip_text((SG_W - w) / 2, 210, w, 22, 6, oc, UC(A5), UC(ON));
+    w = sg_text_w(hi, 1) + 12;
+    sg_chip_text(230 - w, 210, w, 22, 6, hi, UC(PANEL), UC(INK));
+}
+
+/* ------------------------------------------------------------------ S5: the theme menu (SAVE) --- */
+static void sa_paint_theme(void)
+{
+    static const uint8_t SW[6] = {SA_TK_PANEL, SA_TK_A1, SA_TK_A2, SA_TK_A3, SA_TK_A4, SA_TK_INK};
+    const char *name = SA_THEMES[ui.theme].name;
+    char pos[8];
+    int32_t i, w, n = 5, nudge = ui.now % 600u < 300u ? 0 : 2;
+    sa_txt_num(pos, ui.theme + 1u);
+    sa_cpy(pos + sa_slen(pos), "/");
+    sa_txt_num(pos + sa_slen(pos), SA_NTHEMES);
+    if (UC(BORDER) != UC(BG)) {              /* the theme's border, 8 wide (the screens' is 4) */
+        sg_rect(0, 0, SG_W, 8, UC(BORDER));
+        sg_rect(0, SG_H - 8, SG_W, 8, UC(BORDER));
+        sg_rect(0, 0, 8, SG_H, UC(BORDER));
+        sg_rect(SG_W - 8, 0, 8, SG_H, UC(BORDER));
+    }
+    sg_chip_text(14, 14, 0, 22, 7, "THEME", UC(A1), UC(ON));
+    w = sg_text_w(pos, 1) + 14;
+    sg_chip_text(226 - w, 14, w, 22, 7, pos, UC(PANEL), UC(INK));
+    sa_arrow_c = UC(A1);
+    sg_sprite(12 - nudge, 66, 3, SA_ARROW_L, 9, sa_arrow_col);
+    sg_sprite(213 + nudge, 66, 3, SA_ARROW, 9, sa_arrow_col);
+    n = 5;                                   /* the name: one line at 5..3 if it fits, else wrapped at 3..1 */
+    while (n > 3 && sg_text_w(name, n) > 180)
+        n--;
+    if (sg_text_w(name, n) > 180)
+        n = 3;
+    for (; n >= 1; n--) {
+        const char *ln[4];
+        int32_t nl = 0, lw[4], k, y;
+        char buf[4][24];
+        const char *p = name;
+        while (*p && nl < 4) {               /* greedy: words onto a line while it fits */
+            int32_t m = 0;
+            buf[nl][0] = 0;
+            while (*p) {
+                char word[24];
+                int32_t wl = 0, cw;
+                while (p[wl] && p[wl] != ' ' && wl < 23)
+                    word[wl] = p[wl], wl++;
+                word[wl] = 0;
+                if (m) {
+                    char t[24];
+                    sa_cpy(sa_cpy(sa_cpy(t, buf[nl]), " "), word);
+                    cw = sg_text_w(t, n);
+                    if (cw > 180)
+                        break;
+                    sa_cpy(buf[nl], t);
+                } else {
+                    sa_cpy(buf[nl], word);
+                }
+                m++;
+                p += wl;
+                while (*p == ' ')
+                    p++;
+            }
+            ln[nl] = buf[nl];
+            lw[nl] = sg_text_w(buf[nl], n);
+            nl++;
+        }
+        for (k = 0; k < nl && lw[k] <= 180; k++)
+            ;
+        if ((k < nl || *p || nl * (12 * n + 2) > 80) && n > 1)
+            continue;
+        y = 40 + (80 - nl * (12 * n + 2)) / 2 + 2 * n;
+        for (k = 0; k < nl; k++)
+            sg_text_sh((SG_W - lw[k]) / 2, y + k * (12 * n + 2), n, ln[k], UC(INK), 3, UC(SHADOW));
+        break;
+    }
+    for (i = 0; i < 6; i++) {                /* the swatches */
+        sg_chip(27 + 32 * i, 118, 26, 26, UC(BG));
+        sg_chip(29 + 32 * i, 120, 22, 22, ui.c[SW[i]]);
+    }
+    {                                        /* a chord in the theme */
+        int32_t x = (SG_W - sg_text_w("Dm7", 5)) / 2;
+        sg_text(x + 4, 158 + 4, 5, "Dm", UC(SHADOW));
+        sg_text(x + 4 + sg_text_w("Dm", 5), 162, 5, "7", UC(SHADOW));
+        x = sg_text(x, 158, 5, "Dm", UC(INK));
+        sg_text(x, 158, 5, "7", UC(A1));
+    }
+    for (i = 0; i < (int32_t)SA_NTHEMES; i++)   /* where it is among them */
+        sg_rect(48 + 16 * i, 222, 10, 6, i == ui.theme ? UC(A1) : UC(PANEL));
+}
+
 /* ------------------------------------------------------------------ the dispatch --- */
 static void sa_ui_snap_more(void)
 {
@@ -531,11 +734,19 @@ static void sa_ui_snap_more(void)
     ui.arp_step = (uint8_t)(sar.step ? sar.step - 1u : 0u);
     ui.clk = (uint8_t)sl_clock_on();
     ui.bpm = sl_bpm_now();
+    sa_ui_snap_views();
 }
 
 static int sa_paint_more(void)               /* 1: painted (a screen after S1) */
 {
     switch (ui.scr) {
+    case SA_SCR_HOME:
+        if (ui.view == 1u)
+            sa_paint_scope();
+        else if (ui.view == 2u)
+            sa_paint_keys();
+        return ui.view == 1u || ui.view == 2u;
+    case SA_SCR_THEME: sa_paint_theme(); return 1;
     case SA_SCR_CCBANK: sa_paint_ccbank(); return 1;
     case SA_SCR_CCTURN: sa_paint_ccturn(); return 1;
     case SA_SCR_CCASSIGN: sa_paint_ccassign(); return 1;

@@ -349,6 +349,32 @@ int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, c
             snprintf(w, sizeof w, "%s", want);
             w[strcspn(w, "\r\n")] = 0;
             sa_host_check("name", sa.name, w);
+        } else if (!strcmp(a, "dx7bank")) {     /* sa dx7bank N [usb|ble] [bad]: a DX7 32-voice dump, its voices
+                                                 * the INIT VOICE named "USRn Vvv", over USB or Bluetooth MIDI */
+            static uint8_t dx[4104];
+            uint32_t v, i, sum = 0, ble = !strcmp(c, "ble");
+            dx[0] = 0xF0, dx[1] = 0x43, dx[2] = 0x00, dx[3] = 0x09, dx[4] = 0x20, dx[5] = 0x00;
+            for (v = 0; v < 32u; v++) {
+                char nm[16];
+                memcpy(dx + 6 + 128u * v, sa_synth_init_vmem(), 128);
+                snprintf(nm, sizeof nm, "USR%d V%02u  ", atoi(b), v + 1u);
+                memcpy(dx + 6 + 128u * v + 118u, nm, 10);
+                dx[6 + 128u * v + 110u] = (uint8_t)(v & 31u);    /* (each its own algorithm) */
+            }
+            for (i = 6; i < 4102u; i++)
+                sum += dx[i];
+            dx[4102] = (uint8_t)((0u - sum) & 0x7Fu) ^ (!strcmp(d, "bad") ? 1u : 0u);
+            dx[4103] = 0xF7;
+            if (ble)
+                for (i = 0; i < 4104u; i += 300u) {
+                    while (hb_ble_in(dx + i, 4104u - i < 300u ? 4104u - i : 300u) < 0)
+                        run_ms(1);
+                    run_ms(1);
+                }
+            else
+                for (i = 0; i < 4104u; i++)
+                    hu_byte(dx[i]);
+            run_ms(5);
         } else if (!strcmp(a, "clock")) {       /* sa clock BPM MS: a computer's MIDI clock for MS ms (USB MIDI in) */
             double iv = 60000.0 / (atof(b) * 24.0), next = 0.0;
             int ms = atoi(c), i;
@@ -752,6 +778,22 @@ int app_expect(const char *what, int *got)
         *got = (int)sl_bpm_now();
     else if (!strcmp(what, "sa_clock"))
         *got = sl_clock_on();
+    else if (!strcmp(what, "sa_view"))             /* S5: HOME's view; the user banks there, arrived, refused, bad */
+        *got = sa.view;
+    else if (!strcmp(what, "sa_ubanks"))
+        *got = (int)sa_ub_count();
+    else if (!strcmp(what, "sa_ub_got"))
+        *got = (int)ub.got;
+    else if (!strcmp(what, "sa_ub_bad"))
+        *got = (int)ub.bad;
+    else if (!strcmp(what, "sa_ub_refused"))
+        *got = (int)ub.refused;
+    else if (!strcmp(what, "sa_ub_slot"))          /* the user slot of the bank shown, -1 a ROM one */
+        *got = sa.bank >= SA_NBANKS ? sa_ub_slot(sa.bank - SA_NBANKS) : -1;
+    else if (!strcmp(what, "sa_nbanks"))
+        *got = (int)sa_nbanks();
+    else if (!strcmp(what, "sa_rom_banks"))
+        *got = (int)SA_NBANKS;
     else if (!strcmp(what, "rf_store_saves"))      /* records saved into OBJ_RF (src/rfm_store.c); unchanged ones */
         *got = (int)rs_saves;
     else if (!strcmp(what, "rf_store_same"))

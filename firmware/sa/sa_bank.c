@@ -3,7 +3,7 @@
 /* The standalone instrument's voices: Yamaha's eight DX7 ROM cartridges, ROM1A..ROM4B, 32 voices each, packed as the
  * DX7 stores them (VMEM, 128 bytes), compiled in from build/gen/dx7_rom.h (firmware/tools/gen_dx7_rom.py reads the
  * owner's .syx files at build time; neither those nor the header are ever committed: the data is Yamaha's). A build
- * without them has one "bank" of one voice, the DX7's INIT VOICE. The user banks (DX7 SysEx in) come in S5. */
+ * without them has one "bank" of one voice, the DX7's INIT VOICE. The user banks after them: sa_ubank.c. */
 #include "dx7_rom.h"                     /* build/gen */
 
 #if SA_ROM_NBANKS
@@ -14,7 +14,7 @@
 #define SA_BANK_VOICES 1u
 #endif
 
-static const uint8_t *sa_bank_vmem(uint32_t bank, uint32_t voice)   /* bank 0.., voice 0..; clamped */
+static const uint8_t *sa_rom_vmem(uint32_t bank, uint32_t voice)   /* bank 0.., voice 0..; clamped */
 {
 #if SA_ROM_NBANKS
     return SA_ROM[bank < SA_NBANKS ? bank : 0u][voice < 32u ? voice : 0u];
@@ -25,7 +25,7 @@ static const uint8_t *sa_bank_vmem(uint32_t bank, uint32_t voice)   /* bank 0..,
 #endif
 }
 
-static const char *sa_bank_name(uint32_t bank)   /* "ROM1A"; "INIT" without the cartridges */
+static const char *sa_rom_name(uint32_t bank)   /* "ROM1A"; "INIT" without the cartridges */
 {
 #if SA_ROM_NBANKS
     return SA_ROM_BANK[bank < SA_NBANKS ? bank : 0u];
