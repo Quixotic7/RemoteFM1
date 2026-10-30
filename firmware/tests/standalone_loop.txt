@@ -74,12 +74,12 @@ turn K4 -1
 expect sa_rec_opts 1200
 wait 50
 shot sa_rec_options.png
-turn SELECT -1
-expect sa_rec_opts 1200
 turn PRESET -3
-turn SELECT 1
+turn PRESET 3
+expect sa_rec_opts 1200
+turn K1 1
 expect sa_rec_opts 2200
-turn SELECT -1
+turn K1 -1
 tap REC
 expect sa_screen 0
 expect sa_lstate 1
@@ -88,7 +88,7 @@ press PLAY
 wait 600
 expect sa_screen 11
 release PLAY
-turn SELECT 1
+turn K1 1
 wait 50
 shot sa_loops.png
 tap PLAY
@@ -113,7 +113,7 @@ expect sa_ln 2
 press PLAY
 wait 600
 release PLAY
-turn SELECT -1
+turn K1 -1
 tap PLAY
 expect sa_lnext 0
 wait 2000
@@ -154,10 +154,12 @@ sa loopget 5
 press PLAY
 wait 600
 release PLAY
-turn SELECT 5
+turn K1 5
 tap PLAY
 wait 1200
 expect sa_lcur 5
+expect sa_screen 11
+tap HOME
 out
 wait 1000
 expect_out USB 90 3C 64

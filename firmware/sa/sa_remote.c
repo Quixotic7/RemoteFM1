@@ -47,7 +47,7 @@ static struct {
     uint32_t last_ms;
     /* FX first: what its bank change undoes */
     uint32_t fx_ms;
-    uint8_t fx_bank, fx_ov, fx_menu;
+    uint8_t fx_bank, fx_ov, fx_base, fx_menu;
     uint32_t fx_until;
 } rm;
 enum { SA_RM_SRC_NONE, SA_RM_SRC_KEY, SA_RM_SRC_BTN, SA_RM_SRC_ENC, SA_RM_SRC_MASTER };
@@ -88,8 +88,7 @@ static void sa_rm_enter(void)
     rm.master = -1;
     for (i = 0; i < NE; i++)
         rm.enc[i] = 64;
-    sa.ov = SA_SCR_HOME;
-    sa.menu = 0;
+    sa.ov = sa.base;                         /* (the screen open stays under MIDI REMOTE's: back to it after) */
     sa.led_b = sa.led_k = 0xFFFFFFFFu;
     sa.poke = 1;
 }
@@ -113,7 +112,6 @@ static void sa_rm_exit(int send)             /* send: 0 for the buttons held, th
     for (k = 0; k < NKEYS; k++)
         sa.key_note[k] = 0xFFu;
     rm.on = 0;
-    sa.ov = SA_SCR_HOME;
     sa.led_b = sa.led_k = 0xFFFFFFFFu;
     sa.poke = 1;
 }
@@ -129,6 +127,7 @@ static int sa_rm_combo(uint32_t down, uint32_t btns)
             return 0;
         sa.ccbank = rm.fx_bank;
         sa.ov = rm.fx_ov;
+        sa.base = rm.fx_base;
         sa.menu = rm.fx_menu;
         sa.ov_until = rm.fx_until;
     }
@@ -146,6 +145,7 @@ static void sa_rm_fx_note(void)              /* (FX down in the instrument: what
     rm.fx_ms = plat_ms();
     rm.fx_bank = sa.ccbank;
     rm.fx_ov = sa.ov;
+    rm.fx_base = sa.base;
     rm.fx_menu = sa.menu;
     rm.fx_until = sa.ov_until;
 }

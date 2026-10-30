@@ -30,8 +30,11 @@
  * After S1 (STANDALONE-PLAN.md S2..S5): FX SEL ENV LFO EDIT the CC bank and KN1..KN4 its CCs (sa_cc.c); REC, PLAY
  * and their holds the looper (sa_loop.c); ARP and its hold the arp, SELECT the tempo, a computer's MIDI clock both
  * (sa_arp.c); HOME the next view (Notes, Scope, Keys); SAVE the theme menu, held: save; a DX7 bank dump the user
- * banks (sa_ubank.c); their screens in sa_screens.c. Menus (Loops, Rec options, Arp settings, Theme) stay up, locked
- * on, until HOME, their own button or another screen, and take the knobs, SELECT and PRESETS.
+ * banks (sa_ubank.c); their screens in sa_screens.c. Menus (Loops, Rec options, Arp settings, Theme, the settings)
+ * and CC-Bank stay up until HOME, their own button or another of them (sa.base); a passing screen (tempo, preset,
+ * channel, octave, latch...) goes back to the one under it, never to HOME by itself (the owner, 2026-10-30). In a
+ * menu KN1..KN4 set its values directly; PRESETS is always the voice (past a cartridge's end the next one's), SELECT
+ * the tempo (in the settings the row, in the recording options the page).
  *
  * The sound. The main loop never calls FM6's note functions: it queues them (sa_ev), and the render (app_render, the
  * audio interrupt) takes the queue at the start of each block. Voices are loaded from the main loop (sa_synth_load_vmem
@@ -123,7 +126,10 @@ static struct {
     uint8_t lat_n, lat_note[32], lat_ch[32], lat_arp[32];   /* the notes latched (let go, still held) */
     uint32_t rheld[4];                       /* MIDI in's notes held (bit n) */
     int8_t oct_before;                       /* the octave before the first of OCT- / OCT+ went down */
-    uint8_t ov;                              /* the overlay shown (SA_SCR_*), SA_SCR_HOME none */
+    uint8_t ov;                              /* the screen shown (SA_SCR_*), SA_SCR_HOME none */
+    uint8_t base;                            /* the screen the user opened and that stays (a menu, CC-Bank) or
+                                              * SA_SCR_HOME: a passing screen (tempo, preset, channel, octave, latch..)
+                                              * goes back to it, never to HOME by itself (the owner, 2026-10-30) */
     uint32_t ov_t0, ov_until;
     uint8_t store_dirty;
     uint32_t store_ms;
@@ -457,6 +463,13 @@ static void sa_store_step(void)
     sa_save_now();
 }
 
+static int sa_is_menu(uint32_t scr)          /* the menus: they take KN1..KN4 */
+{
+    return scr == SA_SCR_RECOPT || scr == SA_SCR_LOOPS || scr == SA_SCR_ARPSET || scr == SA_SCR_SETTINGS ||
+           scr == SA_SCR_THEME;
+}
+
+/* a passing screen (a turn's, a press's): shown SA_OVERLAY_MS, then the screen under it (sa.base) again */
 static void sa_overlay(uint32_t scr)
 {
     uint32_t now = plat_ms();
@@ -464,21 +477,31 @@ static void sa_overlay(uint32_t scr)
         sa.ov_t0 = now;
     sa.ov = (uint8_t)scr;
     sa.ov_until = now + SA_OVERLAY_MS;
+    sa.poke = 1;
+}
+
+/* a screen that stays (a menu, CC-Bank): until HOME, its own button or another one that stays */
+static void sa_overlay_lock(uint32_t scr)
+{
+    if (sa.ov != scr)
+        sa.ov_t0 = plat_ms();
+    sa.ov = sa.base = (uint8_t)scr;
+    sa.menu = (uint8_t)sa_is_menu(scr);
+    sa.ov_until = plat_ms() + SA_MENU_MS;
+    sa.poke = 1;
+}
+#define sa_overlay_menu sa_overlay_lock
+
+static void sa_close(void)                   /* back to the HOME view (HOME, or a screen's own button) */
+{
+    sa.ov = sa.base = SA_SCR_HOME;
     sa.menu = 0;
     sa.poke = 1;
 }
 
-static void sa_overlay_menu(uint32_t scr)    /* a menu: stays (no timeout) until HOME, its button or another screen */
+static void sa_back(void)                    /* the passing screen gone: the one under it again, now */
 {
-    sa_overlay(scr);
-    sa.menu = 1;
-    sa.ov_until = plat_ms() + SA_MENU_MS;
-}
-
-static void sa_close(void)                   /* back to the HOME view */
-{
-    sa.ov = SA_SCR_HOME;
-    sa.menu = 0;
+    sa.ov = sa.base;
     sa.poke = 1;
 }
 
@@ -587,7 +610,8 @@ static void sa_enter_panel(uint32_t t)
     sa.keys = 0;
     touch_on(0);                             /* (the panel's keys are plat_keys again, as RemoteFM1 0.2 has them) */
     sa.panel = 1;
-    sa.ov = SA_SCR_HOME;
+    sa.ov = sa.base = SA_SCR_HOME;
+    sa.menu = 0;
     sg_abort();
     sg_invalidate();
     sa.poke = 1;
@@ -719,7 +743,7 @@ static void sa_press_early(uint32_t b)       /* SAVE, ARP, PLAY, REC down (most 
     if ((b == B_PLAY || b == B_REC) && (sl.state == SL_REC || sl.state == SL_DUB)) {
         sl_rec_stop(1);                      /* a recording ends on the press, in time; the loop plays */
         sa.hold_done |= 1u << b;             /* (its release does nothing more) */
-        sa_close();
+        sa_back();
     }
 }
 
@@ -765,57 +789,47 @@ static void sa_setopt(uint32_t o, int32_t d) /* the settings' rows: SCREEN KNOBS
     }
 }
 
-static int sa_menu_knob(uint32_t k, int32_t d)   /* a menu takes KN1..KN4 (k 0..3) or PRESETS (4): 1 taken */
+/* a menu takes KN1..KN4 (k 0..3), each its own value (the owner, 2026-10-30: no choosing a row first; PRESETS is
+ * always the voice, SELECT the tempo, but in the settings, SELECT the row, and in the recording options, the page):
+ * 1 taken. A passing screen over the menu goes; the menu shows the change */
+static int sa_menu_knob(uint32_t k, int32_t d)
 {
     if (!sa.menu)
         return 0;
-    switch (sa.ov) {
-    case SA_SCR_RECOPT:
-        if (k < 4u)
-            sa_recopt(k, d);
-        else
-            sa.mfocus = (uint8_t)clamp((int32_t)sa.mfocus + d, 0, 3);
-        break;
+    switch (sa.base) {
+    case SA_SCR_RECOPT: sa_recopt(k, d); break;
     case SA_SCR_LOOPS:
-        sl.cursor = (uint8_t)clamp((int32_t)sl.cursor + d, 0, (int32_t)SA_LOOPS - 1);
+        if (k == 0u)
+            sl.cursor = (uint8_t)clamp((int32_t)sl.cursor + d, 0, (int32_t)SA_LOOPS - 1);
         break;
-    case SA_SCR_ARPSET:
-        if (k < 4u)
-            sa_arpopt(k, d);
-        else
-            sa.mfocus = (uint8_t)clamp((int32_t)sa.mfocus + d, 0, 3);
+    case SA_SCR_ARPSET: sa_arpopt(k, d); break;
+    case SA_SCR_SETTINGS:                    /* KN1 the row's value (the others nothing: one value at a time) */
+        if (k == 0u)
+            sa_setopt(sa.mfocus, d);
         break;
-    case SA_SCR_SETTINGS:
-        if (k < 4u)
-            sa_setopt(k, d);
-        else
-            sa.mfocus = (uint8_t)clamp((int32_t)sa.mfocus + d, 0, (int32_t)SA_NSET - 1);
-        break;
-    case SA_SCR_THEME:                       /* the theme, shown at once (the whole screen in it) */
-        sa.theme = (uint8_t)(((int32_t)sa.theme + d % (int32_t)SA_NTHEMES + (int32_t)SA_NTHEMES) % (int32_t)SA_NTHEMES);
-        sa_changed();
+    case SA_SCR_THEME:                       /* KN1 the theme, KN2 the background (ALGORITHM too), shown at once */
+        if (k == 0u) {
+            sa.theme = (uint8_t)(((int32_t)sa.theme + d % (int32_t)SA_NTHEMES + (int32_t)SA_NTHEMES) %
+                                 (int32_t)SA_NTHEMES);
+            sa_changed();
+        } else if (k == 1u) {
+            sa.bg = (uint8_t)sa_bg_step(sa.theme, sa.bg, d);
+            sa_changed();
+        }
         break;
     default:
         return 0;
     }
+    sa_back();
     sa_menu_touch();
     return 1;
 }
 
-static void sa_select(int32_t d)             /* SELECT: the tempo; in a menu, its choice */
+static void sa_select(int32_t d)             /* SELECT: the tempo; in the settings the row */
 {
-    if (sa.menu && sa.ov == SA_SCR_RECOPT) {
-        sa_recopt(sa.mfocus, d);
-        sa_menu_touch();
-    } else if (sa.menu && sa.ov == SA_SCR_LOOPS) {
-        sa_menu_knob(4u, d);
-    } else if (sa.menu && sa.ov == SA_SCR_ARPSET) {
-        sa_arpopt(sa.mfocus, d);
-        sa_menu_touch();
-    } else if (sa.menu && sa.ov == SA_SCR_THEME) {
-        sa_menu_knob(4u, d);
-    } else if (sa.menu && sa.ov == SA_SCR_SETTINGS) {
-        sa_setopt(sa.mfocus, d);
+    if (sa.menu && sa.base == SA_SCR_SETTINGS) {
+        sa.mfocus = (uint8_t)clamp((int32_t)sa.mfocus + d, 0, (int32_t)SA_NSET - 1);
+        sa_back();
         sa_menu_touch();
     } else {                                 /* the tempo (faster when turned fast) */
         uint32_t now = plat_ms(), dt = now - sa.sel_ms;
@@ -825,28 +839,54 @@ static void sa_select(int32_t d)             /* SELECT: the tempo; in a menu, it
             sa.bpm = (uint16_t)b;
             sa_changed();
         }
-        sa_overlay(SA_SCR_TEMPO);
+        if (sa.ov == SA_SCR_ARPSET)
+            sa.poke = 1;                     /* (the Arp settings show the tempo: in place) */
+        else
+            sa_overlay(SA_SCR_TEMPO);
     }
+}
+
+/* PRESETS: the voice; past a cartridge's last voice the next cartridge's first, past the last cartridge the first
+ * one's (and back the same way) */
+static void sa_voice_step(int32_t s)
+{
+    int32_t dir = s > 0 ? 1 : -1, n = s > 0 ? s : -s, nb = (int32_t)sa_nbanks(), b = sa.bank, v = sa.voice;
+    while (n--) {
+        v += dir;
+        if (v >= (int32_t)sa_bank_voices((uint32_t)b)) {
+            b = (b + 1) % nb;
+            v = 0;
+        } else if (v < 0) {
+            b = (b + nb - 1) % nb;
+            v = (int32_t)sa_bank_voices((uint32_t)b) - 1;
+        }
+    }
+    if (b != sa.bank || v != sa.voice) {
+        sa.bank = (uint8_t)b;
+        sa.voice = (uint8_t)v;
+        sa_load_voice();
+        sa_changed();
+    }
+    sa_overlay(SA_SCR_PRESET);
 }
 
 static void sa_tap(uint32_t b)               /* SAVE, ARP, PLAY, REC let go before SA_HOLD_MS */
 {
     if (b == B_SAVE) {                       /* the theme menu; SAVE again closes it (the theme kept) */
-        if (sa.menu && sa.ov == SA_SCR_THEME)
+        if (sa.base == SA_SCR_THEME)
             sa_close();
         else
             sa_overlay_menu(SA_SCR_THEME);
     } else if (b == B_PLAY) {
-        if (sa.menu && sa.ov == SA_SCR_LOOPS) {   /* the loop under the cursor: next, or now */
+        if (sa.base == SA_SCR_LOOPS) {       /* the loop under the cursor: next, or now */
             sl_pick(sl.cursor);
-            sa_overlay(SA_SCR_LOOP);
         } else {
             sl_play_tap();
             if (sl.state != SL_PLAY && sa.ov == SA_SCR_LOOP)
-                sa_close();
+                sa_back();
         }
     } else if (b == B_ARP) {
-        if (sa.menu && sa.ov == SA_SCR_ARPSET) {
+        if (sa.base == SA_SCR_ARPSET) {
             sa_close();
         } else {
             sa_latch_release();              /* (the latched notes go: the arp's or not, as they were) */
@@ -862,14 +902,12 @@ static void sa_tap(uint32_t b)               /* SAVE, ARP, PLAY, REC let go befo
     } else if (b == B_LFO) {                 /* (tapped: CC bank D, as the other bank buttons) */
         sa_cc_bank(B_LFO - B_FX);
     } else if (b == B_REC) {
-        if (sa.menu && sa.ov == SA_SCR_RECOPT)
+        if (sa.base == SA_SCR_RECOPT)
             sa_close();
         else if (sl.state == SL_COUNT)
             sl_rec_stop(1);                  /* (the count called off) */
-        else {
-            sl_rec_start();
-            sa_close();
-        }
+        else
+            sl_rec_start();                  /* (the screen open stays: HOME's view is the Rec screen) */
     }
 }
 
@@ -887,7 +925,7 @@ static void sa_hold(uint32_t b)              /* ... held SA_HOLD_MS */
     } else if (b == B_REC && !sl_recording()) {   /* the recording options */
         sa_overlay_menu(SA_SCR_RECOPT);
     } else if (b == B_HOME) {                /* the settings page; held again: closed */
-        if (sa.menu && sa.ov == SA_SCR_SETTINGS) {
+        if (sa.base == SA_SCR_SETTINGS) {
             sa_close();
         } else {
             sa.mfocus = 0;
@@ -978,20 +1016,12 @@ static void sa_encoders(const int32_t *steps)   /* detents by plat.h's role (EN_
         sa_overlay(SA_SCR_SCALE);
         s = c = 0;
     }
-    if (s && sa_menu_knob(4u, s))
-        s = 0;
-    if (s) {
-        int32_t v = clamp((int32_t)sa.voice + s, 0, (int32_t)sa_bank_voices(sa.bank) - 1);
-        if (v != sa.voice) {
-            sa.voice = (uint8_t)v;
-            sa_load_voice();
-            sa_changed();
-        }
-        sa_overlay(SA_SCR_PRESET);
-    }
-    if (c && sa.menu && sa.ov == SA_SCR_THEME) {   /* the theme menu: ALGORITHM the background */
+    if (s)                                   /* PRESETS: the voice, in every screen */
+        sa_voice_step(s);
+    if (c && sa.base == SA_SCR_THEME) {      /* the theme menu: ALGORITHM the background (as KN2) */
         sa.bg = (uint8_t)sa_bg_step(sa.theme, sa.bg, c);
         sa_changed();
+        sa_back();
         sa_menu_touch();
         c = 0;
     }
@@ -1061,9 +1091,8 @@ static void sa_ms(uint32_t btns, const int32_t *steps)
             sa_overlay(SA_SCR_PRESET);
         }
     }
-    if (sa.ov != SA_SCR_HOME && sa.ov != SA_SCR_CCBANK && !sa.menu && (int32_t)(now - sa.ov_until) >= 0) {
-        /* (CC-Bank and the menus stay: until HOME or another screen) */
-        sa.ov = SA_SCR_HOME;
+    if (sa.ov != sa.base && (int32_t)(now - sa.ov_until) >= 0) {
+        sa.ov = sa.base;                     /* a passing screen: back to the one under it (a menu, CC-Bank, HOME) */
         sa.poke = 1;
     }
     sa_leds();

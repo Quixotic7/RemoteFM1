@@ -24,7 +24,7 @@ expect sa_screen 14
 tap ARP
 expect sa_screen 0
 expect sa_arp 0
-# Rec options: stay; another screen (the octave) replaces them, and that one times out as before
+# Rec options: stay; another screen (the octave) passes over them and goes back to them, never to HOME by itself
 press REC
 wait 600
 release REC
@@ -34,9 +34,10 @@ expect sa_screen 12
 tap OCT+
 expect sa_screen 3
 wait 1100
-expect sa_screen 0
+expect sa_screen 12
 tap OCT-
 wait 1100
+tap HOME
 # the 16 loops: stay; HOME closes
 press PLAY
 wait 600
@@ -74,7 +75,7 @@ key 7 up
 key 10 up
 key 14 up
 tap SAVE
-turn PRESET 8
+turn K1 8
 turn ALGO -1
 expect sa_bg 7
 wait 40
@@ -91,7 +92,7 @@ wait 1100
 tap OCT-
 wait 1100
 tap SAVE
-turn PRESET -8
+turn K1 -8
 turn ALGO 2
 expect sa_bg 0
 tap SAVE

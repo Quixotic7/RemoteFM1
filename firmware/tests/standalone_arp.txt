@@ -49,11 +49,12 @@ expect sa_arp_opts 1120
 wait 30
 shot sa_arp_settings.png
 turn PRESET -3
-turn SELECT 2
+turn K1 2
 expect sa_arp_opts 3120
 wait 30
 shot sa_arp_settings_mode.png
-turn SELECT -2
+turn K1 -2
+turn PRESET 3
 tap ARP
 expect sa_screen 0
 expect sa_arp 1

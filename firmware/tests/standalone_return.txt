@@ -1,0 +1,100 @@
+# SPDX-License-Identifier: MPL-2.0
+# RemoteFM1 standalone: the user decides which screen is open (the owner, 2026-10-30: "The user should be in full
+# control of which menu they want to be on"). A passing screen (tempo, preset, channel, octave, latch) goes back to
+# the menu or CC-Bank screen that was open, never to HOME by itself; in a menu KN1..KN4 set its four values, PRESETS is
+# the voice and SELECT the tempo (in place on the Arp settings, which show it). tests/run_tests.sh runs it (both
+# builds).
+wait 400
+# Arp settings (ARP held)
+press ARP
+wait 600
+release ARP
+expect sa_screen 14
+# SELECT: the tempo, the Arp settings stay (their BPM chip)
+turn SELECT 3
+expect sa_screen 14
+wait 30
+shot sa_arp_settings_tempo.png
+# PRESETS: the voice, the Preset screen a moment, then the Arp settings again
+turn PRESET 1
+expect sa_screen 1
+expect sa_menu 1
+wait 1100
+expect sa_screen 14
+turn PRESET -1
+wait 1100
+# ALGORITHM: the channel, then back
+turn ALGO 1
+expect sa_screen 2
+expect sa_ch 2
+wait 1100
+expect sa_screen 14
+turn ALGO -1
+wait 1100
+expect sa_screen 14
+# LATCH (LFO held), then back; LATCH off again, back
+press LFO
+wait 600
+release LFO
+expect sa_latch 1
+expect sa_screen 18
+wait 1100
+expect sa_screen 14
+press LFO
+wait 600
+release LFO
+expect sa_latch 0
+wait 1100
+expect sa_screen 14
+# OCT+: the octave, then back
+tap OCT+
+expect sa_screen 3
+wait 1100
+expect sa_screen 14
+tap OCT-
+wait 1100
+# a knob over a passing screen: the menu at once, its value changed (KN1 the mode)
+turn PRESET 1
+expect sa_screen 1
+turn K1 1
+expect sa_screen 14
+expect sa_arp_opts 1316
+turn K1 -1
+turn PRESET -1
+# still there after a long while
+wait 10000
+expect sa_screen 14
+tap HOME
+expect sa_screen 0
+# the theme menu: SELECT the tempo, the Tempo screen, then the menu again
+tap SAVE
+expect sa_screen 16
+turn SELECT -3
+expect sa_screen 15
+wait 1100
+expect sa_screen 16
+tap SAVE
+expect sa_screen 0
+# CC-Bank: the tempo, the voice: back to it
+tap ENV
+expect sa_screen 5
+turn PRESET 1
+expect sa_screen 1
+wait 1100
+expect sa_screen 5
+turn PRESET -1
+wait 1100
+expect sa_screen 5
+turn K2 2
+expect sa_screen 5
+wait 5000
+expect sa_screen 5
+tap HOME
+expect sa_screen 0
+# HOME's view: a passing screen goes back to it
+turn ALGO 1
+wait 1100
+expect sa_screen 0
+turn ALGO -1
+wait 1100
+expect sa_screen 0

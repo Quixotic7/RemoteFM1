@@ -322,7 +322,8 @@ static void sl_fire(void)
                 sl.state = SL_STOP;
                 return;
             }
-            sa_overlay(SA_SCR_LOOP);
+            if (sa.base != SA_SCR_LOOPS)     /* (the 16 loops open: they show it) */
+                sa_overlay(SA_SCR_LOOP);
         }
         sa.poke = 1;
     }
@@ -368,7 +369,8 @@ static void sl_play_tap(void)                /* PLAY: play / stop the current lo
     } else if (sl.len[sl.cur]) {
         sl_restart();
         sl.state = SL_PLAY;
-        sa_overlay(SA_SCR_LOOP);
+        if (sa.base != SA_SCR_LOOPS)
+            sa_overlay(SA_SCR_LOOP);
         sl_fire();
     }
     sa.poke = 1;

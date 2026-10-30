@@ -75,8 +75,8 @@ static void sa_cc_knob(uint32_t k, int32_t d)
             sa.cc[b][k] = (uint8_t)c;
             sa_changed();
         }
-        if (sa.ov == SA_SCR_CCBANK)
-            sa.poke = 1;                     /* (the CC-Bank screen stays: in place) */
+        if (sa.base == SA_SCR_CCBANK)
+            sa_back();                       /* (the CC-Bank screen stays: in place) */
         else
             sa_overlay(SA_SCR_CCASSIGN);
         return;
@@ -87,8 +87,8 @@ static void sa_cc_knob(uint32_t k, int32_t d)
         sa_cc_send(sa.cc[b][k], (uint32_t)v);
         sa_changed();
     }
-    if (sa.ov == SA_SCR_CCBANK)
-        sa.poke = 1;
+    if (sa.base == SA_SCR_CCBANK)
+        sa_back();
     else
         sa_overlay(SA_SCR_CCTURN);
 }
@@ -99,5 +99,5 @@ static void sa_cc_bank(uint32_t b)           /* FX SEL ENV LFO EDIT */
         sa.ccbank = (uint8_t)b;
         sa_changed();
     }
-    sa_overlay(SA_SCR_CCBANK);
+    sa_overlay_lock(SA_SCR_CCBANK);          /* (it stays, as a menu does) */
 }

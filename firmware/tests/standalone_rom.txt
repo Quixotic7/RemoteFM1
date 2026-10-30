@@ -66,11 +66,24 @@ press GLO
 turn SELECT -20 5
 release GLO
 expect sa_bank 0
-# PRESETS clamped at 32 and 1
-turn PRESET 40 5
+# PRESETS past a cartridge's end: the next cartridge's first voice; past the last cartridge's last, the first's first
+# (and back the same way; the owner, 2026-10-30)
+turn PRESET 21 5
 expect sa_voice 31
 sa name TAKE OFF
-turn PRESET -40 5
+turn PRESET 1 5
+expect sa_bank 1
+expect sa_voice 0
+turn PRESET -1 5
+expect sa_bank 0
+expect sa_voice 31
+turn PRESET -31 5
+expect sa_voice 0
+turn PRESET -1 5
+expect sa_bank 7
+expect sa_voice 31
+turn PRESET 1 5
+expect sa_bank 0
 expect sa_voice 0
 # a program change on the channel: voice 6
 midi USB C0 05
@@ -91,7 +104,7 @@ peakreset
 press GLO
 turn SELECT 7 5
 release GLO
-turn PRESET -40 5
+turn PRESET -5 5
 turn PRESET 1 5
 key 0 down 127
 key 4 down 127
