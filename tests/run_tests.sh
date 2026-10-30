@@ -46,6 +46,9 @@ echo "== the same, the USB-only build (--no-ble)"
 env -u CC ./build.sh --host --no-ble >/dev/null
 sim "$SIM/remotefm1-usb_host" firmware/tests/session.txt firmware/tests/bulk_ota.txt firmware/tests/hold.txt \
     firmware/tests/sa_bench.txt
+echo "== the bench build (SA_BENCH=1): the standalone DX7's bench at boot, up to 16 voices"
+SA_BENCH=1 env -u CC ./build.sh --host >/dev/null
+sim "$SIM/remotefm1_host" firmware/tests/sa_bench_boot.txt
 echo "== without the shadow frame buffer (RFM_SHADOW 0: rectangles straight to the panel, no COPY)"
 CC="$PWD/firmware/tests/cc_noshadow.sh" ./build.sh --host >/dev/null
 sim "$SIM/remotefm1_host" firmware/tests/noshadow.txt

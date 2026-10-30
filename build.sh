@@ -21,7 +21,8 @@ for a in "$@"; do
     shift
     if [ "$a" = --bench ]; then BENCH=1; else set -- "$@" "$a"; fi
 done
-export SA_BENCH=$BENCH                                  # (firmware/tools/gen_sa_config.py)
+[ $BENCH = 0 ] || export SA_BENCH=1                     # (firmware/tools/gen_sa_config.py; SA_BENCH=1 ./build.sh
+                                                        # --host: the simulator with the bench at boot)
 export JIELI_TOOLCHAIN="${JIELI_TOOLCHAIN:-$HOME/.jieli/toolchain}"
 export AC79_SDK="${AC79_SDK:-$HOME/fw-AC79_AIoT_SDK}"
 if [ -z "${DYLD_LIBRARY_PATH:-}" ] && [ -d /opt/homebrew/lib ]; then

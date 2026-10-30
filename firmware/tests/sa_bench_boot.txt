@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: MPL-2.0
+# The bench build (SA_BENCH=1: SA_POLY 16, the bench at boot; firmware/sa/sa_bench.c) in the host simulator: it
+# waits 3 s, then 1, 8, 12 and 16 voices, 3 s of audio each, every voice sounding throughout. tests/run_tests.sh.
+wait 2900
+expect sa_bench_state 1
+wait 200
+expect sa_bench_state 2
+wait 12000
+expect sa_bench_state 3
+expect sa_bench_n 4
+expect sa_bench_sounding0 1
+expect sa_bench_sounding1 8
+expect sa_bench_sounding2 12
+expect sa_bench_sounding3 16
+expect sa_bench_blocks3 516
+rf send usb 09
+expect rf_n_usb_49 1
