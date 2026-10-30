@@ -251,6 +251,7 @@ void sa_synth_load_vmem(const uint8_t *b)
     fm6_put_patch(0, s, 1);
 }
 
+const uint8_t *sa_synth_init_vmem(void) { return FM6_INIT; }
 void sa_synth_voice(uint8_t *v) { memcpy(v, fm6_patch[0], FP_SIZE); }
 void sa_synth_function(uint32_t fn, int32_t value) { fm6_fn_set(0, fn, value); }
 

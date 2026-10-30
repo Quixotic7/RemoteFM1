@@ -1,7 +1,8 @@
 /* SPDX-License-Identifier: MPL-2.0
  * Copyright (C) 2026 RemoteFM1 contributors */
-/* RemoteFM1's app on fm1-base (app.c): its transports, the panel, the LEDs, the waiting screen, M0's diagnostics and
- * the contract with the platform, around the protocol layer (rfm_app.c, docs/PROTOCOL.md). What only the FM-1 has
+/* RemoteFM1's app on fm1-base (app.c): its transports, the panel, the LEDs, M0's diagnostics and the contract with the
+ * platform, around the protocol layer (rfm_app.c, docs/PROTOCOL.md) and the standalone instrument (sa/sa_main.c:
+ * standalone at boot, panel mode from a host's HELLO to its session's end). What only the FM-1 has
  * (felucca-bsp usb.c's rings, the panel's DMA) is rfm_dev.c; the host simulator's stand-ins are rfm_host.c.
  *
  * Transports. A message comes in on one of three, and its answer goes back on the same one:
@@ -16,8 +17,9 @@
  *             the computer's link, a whole message only when plat_midi_out_room has room for it, else held in a short
  *             queue (rf_bp) and sent when there is, never waited for: a slow link never stops the loop.
  * A session lives on the transport it started on (rfm_app.c rfa.st): its PANEL_Rs go there, and the panel's events go
- * to that port as plain MIDI (USB-MIDI for SysEx and bulk sessions, Bluetooth for a Bluetooth one); with no session,
- * to USB and to a Bluetooth computer that listens. A USB reset or unplug ends a USB session, a Bluetooth disconnect a
+ * to that port as plain MIDI (USB-MIDI for SysEx and bulk sessions, Bluetooth for a Bluetooth one); in panel mode with
+ * no session, to USB and to a Bluetooth computer that listens. Standalone, the panel's events are not sent: the queue
+ * carries the instrument's notes instead (sa_main.c), to USB and Bluetooth, and MIDI coming in plays it. A USB reset or unplug ends a USB session, a Bluetooth disconnect a
  * Bluetooth one. Another transport is a transport like this one: its parser (rf_sx_t), a case in rf_try, a bit in
  * rfa_hello_dev (an RTP-MIDI one for the WiFi build: rf_sx_t on its SysEx, rf_try's encoder into its packets).
  *
@@ -30,8 +32,9 @@
  * while an update session keeps the main loop away.
  *
  * Screen. The push (rfm_push.c) never waits: it blits a piece only when lcd_idle() says the last DMA is over. With
- * RFM_SHADOW 0 (no 115,200 B shadow) rectangles go to the panel row by row as they are decoded (rf_row). The waiting
- * screen draws a line at a time, only while no session or push owns the panel. A session that holds frames (TILES'
+ * RFM_SHADOW 0 (no 115,200 B shadow) rectangles go to the panel row by row as they are decoded (rf_row). The standalone
+ * screens and the hand-over screen (sa/sa_ui.c, a band at a time, never waiting either) draw only while no session or
+ * push owns the panel (rf_panel_ours). A session that holds frames (TILES'
  * HOLD, 0.2.2) has its transport's input left in its ring while a push runs or is due (rfm_app_rx_wait): a byte at a
  * time on USB SysEx, a packet at a time on Bluetooth, a 256-byte piece at a time on bulk. */
 
@@ -166,13 +169,14 @@ static int rf_sx_tap(uint32_t b)
 }
 
 #ifndef PLAT_HOST
-/* before an EP1 OUT packet is taken (usb_poll's context): the MIDI-in ring emptied (nothing here plays USB MIDI in:
- * a DAW's clock never fills it, so EP1, the updater's way in, is never held for it); room for a packet's SysEx (48
- * bytes) in rf_mrx, unless the main loop has been away for 20 ms (an update session): then what does not fit is
- * dropped (counted) and the updater's SysEx goes on */
+/* before an EP1 OUT packet is taken (usb_poll's context): in panel mode the MIDI-in ring emptied (a panel plays no USB
+ * MIDI in: a DAW's clock never fills it, so EP1, the updater's way in, is never held for it); standalone, the ring is
+ * the instrument's (rf_rx_step reads it every turn of the main loop), emptied only when the main loop has been away for
+ * 20 ms (an update session). Room for a packet's SysEx (48 bytes) in rf_mrx, unless the main loop has been away for
+ * 20 ms: then what does not fit is dropped (counted) and the updater's SysEx goes on */
 static int rf_ep1_room(void)
 {
-    if (mi_w != mi_r) {
+    if (mi_w != mi_r && (!sa_standalone() || (uint32_t)(rf_ticks() - rf_drain_t) > 20000u * PLAT_TICKS_PER_US)) {
         rf_midi_drop += mi_w - mi_r;
         mi_r = mi_w;
     }
@@ -395,14 +399,20 @@ static int rfa_tx(uint32_t t, uint32_t cmd, const uint8_t *body, uint32_t n)
  * port, or with no session to USB and a Bluetooth computer that listens */
 #define RF_EVQ 256u
 static uint32_t rf_evq[RF_EVQ], rf_ev_w, rf_ev_r, rf_ev_drop;
-static void rfa_midi(uint32_t st, uint32_t d1, uint32_t d2)
+static void rf_ev_put(uint32_t pkt)                     /* (the standalone instrument's notes too: sa_main.c) */
 {
     if (rf_ev_w - rf_ev_r >= RF_EVQ) {
         rf_ev_drop++;
         return;
     }
-    rf_evq[rf_ev_w % RF_EVQ] = (st >> 4) | st << 8 | d1 << 16 | d2 << 24;     /* cable 0, CIN = the status */
+    rf_evq[rf_ev_w % RF_EVQ] = pkt;
     rf_ev_w++;
+}
+static void rfa_midi(uint32_t st, uint32_t d1, uint32_t d2)
+{
+    if (sa_standalone())
+        return;                                         /* (standalone: the keys are the instrument's) */
+    rf_ev_put((st >> 4) | st << 8 | d1 << 16 | d2 << 24);   /* cable 0, CIN = the status */
 }
 static void rf_ev_flush(void)
 {
@@ -483,6 +493,22 @@ static void rfa_session_changed(uint32_t on)
         rf_scr_full = 1;
         rf_scr_hold = plat_ms();
     }
+    sa_session(on, rfa.st);                             /* panel mode, or standalone again (sa_main.c) */
+}
+
+static int rf_session_on(void) { return rfa.session; }
+
+/* the screen is the standalone's (or the hand-over's): no session, no push, nobody holding it (M0's tiles, the blit
+ * bench); after somebody else drew on it, all of it again */
+static int rf_panel_ours(void)
+{
+    if (rfa.session || rfm_app_pushing() || (int32_t)(plat_ms() - rf_scr_hold) < 0)
+        return 0;
+    if (rf_scr_full) {
+        rf_scr_full = 0;
+        sa_ui_lost();
+    }
+    return 1;
 }
 
 static int rf_flash_ok(void) { return plat_data(PLAT_DATA_LO) != 0; }   /* the expected flash part: updates work */
@@ -873,6 +899,7 @@ static void rf_on_msg(void *ctx, uint32_t cmd, const uint8_t *body, uint32_t len
 {
     uint32_t t = (uint32_t)(uintptr_t)ctx;
     rf_heard |= (uint8_t)(1u << t);
+    sa_host_msg(t, cmd, body, len);                 /* a HELLO hands the FM-1 to the host (sa_main.c) */
     if (cmd == RF_HELLO && rf_src.on)
         rf_src_done(1);                             /* HELLO stops a SOURCE (M0) */
     rfm_app_msg(t, cmd, body, len);
@@ -919,8 +946,11 @@ static void rf_rx_step(void)
         if (!have)
             break;
         cin = pkt & 15u;
-        if (port != PORT_BLE) {
-            rf_midi_drop++;
+        if (port != PORT_BLE) {                     /* USB MIDI in: the instrument's, standalone */
+            if (sa_standalone())
+                sa_midi_in(pkt);
+            else
+                rf_midi_drop++;
             continue;
         }
         if (cin >= 4u && cin <= 7u) {               /* SysEx: 3 bytes going on, or the last 1 / 2 / 3 */
@@ -933,6 +963,8 @@ static void rf_rx_step(void)
             uint32_t st = (pkt >> 8) & 0xFFu;
             if (st < 0xF8u)
                 rf_sx_byte(&rf_sx[1], st);          /* (a status ends a SysEx cut short; real time does not) */
+            if (sa_standalone())
+                sa_midi_in(pkt);                    /* (Bluetooth MIDI in: the instrument's, standalone) */
             rf_ble_other++;
         }
     }
@@ -946,12 +978,15 @@ static uint8_t rf_ble_was;
 static void rf_ms_step(void)
 {
     static uint32_t adc_ms;
-    int32_t steps[RFM_NENC], master = -1;
+    int32_t steps[RFM_NENC], roles[NE], master = -1;
     uint32_t e, keys = plat_keys(), lb = plat_buttons(), btns = 0, i;
     for (e = 0; e < RFM_NENC; e++)
         steps[e] = 0;
-    for (e = 0; e < NE; e++)
-        steps[RF_ENC_OF_ROLE[e]] += plat_enc((int)e);
+    for (e = 0; e < NE; e++) {
+        roles[e] = plat_enc((int)e);
+        steps[RF_ENC_OF_ROLE[e]] += roles[e];
+    }
+    sa_ms(lb, roles);                               /* standalone: the instrument; panel mode: its timeout */
     for (i = 0; i < RFM_NBTN; i++)
         if (lb >> RF_LABEL_OF_BTN[i] & 1u)
             btns |= 1u << i;
@@ -960,7 +995,9 @@ static void rf_ms_step(void)
         adc_ms = plat_ms();
         master = (int32_t)(m > 1023u ? 1023u : m);
     }
-    if (!rfa.session)
+    if (!rfa.session && sa_standalone())
+        rf_wait_btns = 0xFFFFFFFFu;                 /* (sa_main.c's LEDs; the waiting ones again in panel mode) */
+    else if (!rfa.session)
         rf_waiting_leds(lb & ((1u << NB) - 1u), keys & ((1u << NKEYS) - 1u));
     rfm_app_panel(keys, btns, steps, master);
     if (rfa.session && rfa.st != RF_T_BLE && (rp_usb_resets() != rf_usb_resets_seen || !rp_usb_live()))
@@ -975,10 +1012,10 @@ static void rf_ms_step(void)
     rf_ble_was = (uint8_t)plat_ble_connected();
 }
 
-/* ------------------------------------------------------------------ the waiting screen --- */
+/* ------------------------------------------------------------------ the waiting screen's lines --- */
+/* (0.2's waiting screen: now the lines of sa_ui.c's hand-over screen, panel mode before the host's session) */
 #define RF_NL 10u
-static char rf_line[RF_NL][32], rf_want[RF_NL][32];
-static const uint8_t RF_LINE_Y[RF_NL] = {12, 52, 80, 108, 126, 144, 172, 188, 204, 220};
+static char rf_want[RF_NL][32];
 
 static char *s_put(char *d, const char *s)
 {
@@ -1067,50 +1104,21 @@ static void rf_lines(void)
     s_put(rf_want[9], rf_flash_ok() ? "" : "UNKNOWN FLASH: NO UPDATES");
 }
 
-static void rf_screen_step(void)
+/* the hand-over screen's lines: the version and identity, USB's state, Bluetooth's, the errors (or the flash's
+ * warning); warn bit i: line i in the warning colour */
+static void rf_info(char out[4][32], uint8_t *warn)
 {
-    static uint32_t next_ms;
+    static const uint8_t L[4] = {1, 3, 4, 8};
     uint32_t i;
-    if (rfa.session || rfm_app_pushing() || (int32_t)(plat_ms() - rf_scr_hold) < 0)
-        return;                                     /* the host's screen, M0 tiles or the blit bench */
-    if (!lcd_idle())
-        return;
-    if (rf_scr_full) {
-        rf_scr_full = 0;
-        rf_pass_slow = 1;
-        lcd_fill(0, 0, 240, 240, C_BLACK);
-        for (i = 0; i < RF_NL; i++)
-            rf_line[i][0] = 0;
-        rf_lines();
-        return;
-    }
-    if (plat_ms() - next_ms >= 250u || !next_ms) {
-        next_ms = plat_ms() | 1u;
-        rf_lines();
-    }
-    for (i = 0; i < RF_NL; i++) {
-        uint16_t c = i == 0u ? C_HI : i == 1u || i >= 6u ? C_GRAY : C_WHITE;
-        const felucca_font_t *f = i ? &FONT_S : &APP_BIG_FONT;
-        uint32_t h = i ? 16u : 32u;
-        uint32_t k;
-        for (k = 0; rf_line[i][k] && rf_line[i][k] == rf_want[i][k]; k++)
-            ;
-        if (rf_line[i][k] == rf_want[i][k])
-            continue;                               /* (the same) */
-        if (i == 8u && (rf_errs(RF_T_SX) || rf_errs(RF_T_BK) || rf_errs(RF_T_BLE)))
-            c = RGB(255, 90, 60);
-        if (i == 9u)
-            c = RGB(255, 90, 60);
-        if ((i == 3u && rp_usb_live()) || (i == 4u && plat_ble_connected()))
-            c = RGB(120, 230, 140);
-        if (i == 5u && plat_battery() == 0)
-            c = RGB(255, 90, 60);
-        for (k = 0; (rf_line[i][k] = rf_want[i][k]) != 0; k++)
-            ;
-        cv_begin(240, h, C_BLACK);
-        cv_text((240 - text_w(f, rf_line[i])) / 2, 0, f, rf_line[i], c);
-        cv_blit(0, RF_LINE_Y[i]);                   /* left running */
-        return;                                     /* one line a turn */
+    rf_lines();
+    *warn = 0;
+    for (i = 0; i < 4u; i++)
+        memcpy(out[i], rf_want[L[i]], 32);
+    if (rf_errs(RF_T_SX) || rf_errs(RF_T_BK) || rf_errs(RF_T_BLE))
+        *warn |= 8u;
+    if (!rf_flash_ok()) {
+        memcpy(out[3], rf_want[9], 32);
+        *warn |= 8u;
     }
 }
 
@@ -1212,42 +1220,39 @@ void app_init(void)
                                                      * before the sound; one core after a failed start or while barred */
 #endif
     sa_bench_init();
+    sa_init();                                      /* the standalone instrument (sa_main.c), after the bench's synth */
 #ifdef PLAT_HOST
     hs_init();                                      /* (the simulated host's parsers: rfm_host.c) */
 #endif
 }
 
-void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)   /* a panel plays nothing */
-{
-    uint32_t i;
-    (void)master_q12;
-    for (i = 0; i < 2u * n; i++)
-        lr[i] = 0;
-}
+void app_render(int32_t *lr, uint32_t n, uint32_t master_q12) { sa_render(lr, n, master_q12); }
 
-void app_panic(void) {}
+void app_panic(void) { sa_ev(SA_EV_SOUNDOFF, 0, 0); }   /* (before an update: the render runs on) */
 
-/* the first screen, and again after the platform drew its own (the update's): the waiting screen whole, and in a
- * session the host's screen repainted from the shadow */
+/* the first screen, and again after the platform drew its own (the update's): the standalone's (or the hand-over's)
+ * whole, and in a session the host's screen repainted from the shadow */
 void app_ui_init(void)
 {
     rfm_app_lcd_lost();
     rf_scr_full = 1;
     rf_scr_hold = plat_ms();
     rf_wait_btns = 0xFFFFFFFFu;
+    sa_ui_init();                                   /* the keys' velocity sensing on, standalone (sa_main.c) */
+    sa_ui_lost();
 }
 
 void app_frame(void)
 {
     rf_run();
-    if (lcd_idle())
-        rf_screen_step();
+    sa_frame();                                     /* the standalone screens, or the hand-over (sa_ui.c) */
     sa_bench_step();
 }
 
 void app_input_only(void)
 {
     rf_run();
+    sa_frame();
     sa_bench_step();
 }
 

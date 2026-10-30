@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: MPL-2.0
  * Copyright (C) 2026 RemoteFM1 contributors */
-/* RemoteFM1: an FM-1 that is only a panel for a firmware running on a computer (docs/PROTOCOL.md). Part of fm1-base's
+/* RemoteFM1: an FM-1 that plays DX7 voices on its own, and is the panel of a firmware running on a computer when a
+ * host says HELLO (docs/PROTOCOL.md, STANDALONE-PLAN.md). Part of fm1-base's
  * unity build (device/unity.c on the FM-1, host/plat_host.c in the simulator), after the platform: gfx.c, the panel,
  * MIDI and the store are in scope, and on the FM-1 felucca-bsp's usb.c with the vendor interface (app.h).
  *
@@ -10,12 +11,15 @@
  *   src/rfm_app.c        the protocol layer: session, HELLO_R, LEDS, TILES, FRAME_ACK, PANEL_R, the panel as MIDI
  *   sa/sa_bench.c        the standalone DX7's bench (STANDALONE-PLAN.md S0): FM6 (sa/sa_synth.c, its own unit:
  *                        fm1.toml o2) timed block by block, asked for over SysEx (SA_BENCH)
+ *   sa/sa_main.c         the standalone instrument (STANDALONE-PLAN.md S1): the mode switch, the keys on FM6, the
+ *                        controls, MIDI in and out, the screens (sa_ui.c, sa_gfx.c), the ROM voices (sa_bank.c)
  *   src/rfm_main.c       the app: its transports (USB SysEx, USB bulk, Bluetooth SysEx), the LEDs, the panel, the
- *                        waiting screen, M0's diagnostics, the contract with the platform
+ *                        hand-over screen's lines, M0's diagnostics, the contract with the platform
  *   src/rfm_dev.c        what only the FM-1 has (usb.c's rings, the panel's DMA), or
  *   src/rfm_host.c       the host simulator's stand-ins for those, and its commands and checks (tests/) */
 #include "remote_proto.h"
 #include "rfm_draw.c"
 #include "rfm_push.c"
 #include "sa/sa_bench.c"
+#include "sa/sa_main.c"
 #include "rfm_main.c"

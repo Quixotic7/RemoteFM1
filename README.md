@@ -160,7 +160,9 @@ git submodule update --init --recursive
 git clone --depth 1 --branch AC79NN_SDK_V1.2.1_2023-12-13 https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK.git ~/fw-AC79_AIoT_SDK
 ./build.sh --release 0.2.3           # -> firmware/build/remotefm1-0.2.3.fwsc (USB + Bluetooth MIDI), FM-1_52000203
 ./build.sh --release 0.2.3 --no-ble  # -> firmware/build/remotefm1-usb-0.2.3.fwsc (USB only: no Bluetooth library)
-./build.sh                           # a development build, FM-1_5200
+./build.sh                           # a development build, FM-1_5200 (the standalone's DX7 voices: Yamaha's ROM
+                                     # cartridges from DX7_ROM_DIR, default Presets/DX7-ROM beside the checkout;
+                                     # without them the INIT VOICE only)
 ./build.sh --bench [--no-ble]        # the standalone DX7's bench at boot (firmware/build/remotefm1[-usb]-bench.fwsc);
                                      # firmware/tools/sa_bench.py reads it over USB-MIDI (--hash: the render hash)
 FM1B_CPU2=0 ./build.sh [...]         # one core (the packages start the second core: fm1.toml cpu2, FIZZ's settings)
@@ -174,14 +176,17 @@ host/run_tests.sh                    # the host library's tests, with the cross 
 
 ```
 firmware/app.h, app.c, fm1.toml    the app's contract with fm1-base, its build settings (fm1-base tools/build.py)
-firmware/src/rfm_main.c     the app: transports (USB SysEx, USB bulk, Bluetooth SysEx), panel, LEDs, waiting screen
+firmware/src/rfm_main.c     the app: transports (USB SysEx, USB bulk, Bluetooth SysEx), panel, LEDs, hand-over lines
 firmware/src/rfm_dev.c      what only the FM-1 has (felucca-bsp usb.c's rings, the panel's DMA); rfm_host.c: the
                             host simulator's stand-ins, commands and checks (firmware/tests/*.txt)
 firmware/src/rfm_app.c      the protocol layer (no hardware; also compiled into the host tests)
 firmware/src/rfm_draw.c     the TILES decoder;  rfm_push.c: the screen push, which never blocks USB
-firmware/sa/                the standalone instrument (STANDALONE-PLAN.md): sa_synth.c, the DX7 on saadet's FM6
+firmware/sa/                the standalone instrument (STANDALONE-PLAN.md): sa_synth.c, the DX7 on saadet's FM6;
+                            sa_main.c, the mode switch, the keys, MIDI, the controls; sa_ui.c / sa_gfx.c, the screens
+firmware/third_party/jersey10/     the screens' pixel font (Jersey 10, OFL)
 firmware/third_party/saadet-fm6/   saadet's FM6 (Kerem Kilic; MSFA), pinned: PROVENANCE.md
-firmware/tools/             gen_fm6_tables.py (FM6's tables from MSFA's formulas), sa_bench.py
+firmware/tools/             gen_fm6_tables.py (FM6's tables from MSFA's formulas), gen_pixfont.py (the font),
+                            gen_dx7_rom.py (Yamaha's ROM cartridges from DX7_ROM_DIR, never committed), sa_bench.py
 firmware/patches/           RemoteFM1's changes to fm1-base and felucca-bsp (MPL-2.0), applied by build.sh
 base/                       fm1-base (git submodule), felucca-bsp in base/bsp
 proto/, docs/PROTOCOL.md    the protocol

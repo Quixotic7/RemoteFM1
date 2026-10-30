@@ -40,6 +40,7 @@ void sa_synth_load_vmem(const uint8_t *b);             /* the same from a packed
 void sa_synth_edit_vced(const uint8_t *v);             /* an edit of the voice: the sounding notes follow it */
 void sa_synth_voice(uint8_t *v);                       /* the voice now (155 bytes, sanitized) */
 void sa_synth_vced_of_vmem(const uint8_t *b, uint8_t *v);   /* unpack a record (VMEM 128 -> VCED 155) */
+const uint8_t *sa_synth_init_vmem(void);               /* the DX7's INIT VOICE, packed (128 bytes) */
 void sa_synth_function(uint32_t fn, int32_t value);    /* SA_FN_*, clamped to its range */
 
 void sa_synth_note_on(uint32_t note, uint32_t vel);    /* vel 0: a note off */

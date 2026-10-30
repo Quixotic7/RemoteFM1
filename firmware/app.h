@@ -8,11 +8,12 @@
 
 #define APP_NAME "REMOTE FM1"
 #define APP_SPLASH_RGB RGB(120, 200, 255)
-#define APP_TAGLINE "WAITING FOR A HOST"
+#define APP_TAGLINE "DX7 VOICES AND A HOST'S PANEL"
 #define APP_PALETTE 2u                   /* gfx.c's CYAN */
-#define APP_BLOCK 256u                   /* (the render plays silence) */
-#define APP_CANVAS_PX (240u * 32u)       /* the waiting screen draws a line at a time */
-#define FM1B_TRS 0                       /* no MIDI in on the TRS jack: a panel has nothing to play */
+#define APP_BLOCK 256u                   /* the standalone DX7 (sa/sa_main.c sa_render): 8 of FM6's 32-frame blocks */
+#define APP_CANVAS_PX (240u * 32u)       /* the standalone screens' two 16-row bands (sa/sa_gfx.c) */
+#define FM1B_TRS 0                       /* no MIDI in on the TRS jack (yet): the standalone plays USB and Bluetooth MIDI */
+#define APP_TOUCH                        /* the keys' velocity (fm1-base lib/touch): standalone only (sa_main.c) */
 
 /* RFM_SHADOW 1: the 240 x 240 shadow frame buffer (115,200 B of the pool): TILES are decoded into it and pushed to
  * the panel at each END, COPY works, the panel is repainted from it after the update screen. 0 (a build short of
@@ -35,8 +36,11 @@
  * map, below the stock firmware's resources at 0xF4000, above felucca-bsp's staging at 0xE0000..0xE4FFF and Felucca's
  * store); the calibration at 0xFC000 as fm1-base's template has it (Felucca's globals: only on a calibration).
  * Not 0xDC000..0xDFFFF (the template's): ChoralRoot's loop slots are 0xD2000..0xE5FFF. */
-enum { OBJ_PANEL, OBJ_BLE, OBJ_NOBJ };
-#define APP_STORE_MAP {0xFC000u, 0xF2000u}
+/* The standalone's settings (OBJ_SA: the channel, octave, cartridge and voice; sa/sa_main.c) in Felucca's autosave pair
+ * at 0xE5000..0xE6FFF (felucca-bsp FL_AUTO: inside FL_STORE_OK, where fm1-base's storage may write; FIZZ keeps its
+ * Bluetooth object there, so a unit going between FIZZ and RemoteFM1 loses that pairing, not data). */
+enum { OBJ_PANEL, OBJ_BLE, OBJ_SA, OBJ_NOBJ };
+#define APP_STORE_MAP {0xFC000u, 0xF2000u, 0xE5000u}
 
 /* the contract: the platform calls these */
 void app_init(void);
@@ -71,6 +75,8 @@ static uint32_t rf_cinf;
 /* the host simulator's checks and commands (src/rfm_host.c) */
 #define APP_HOST_EXPECT
 #define APP_HOST_CMD
+#define APP_HOST_FAILS
 int app_expect(const char *what, int *got);
 int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, const char *d);
+int app_host_fails(void);
 #endif

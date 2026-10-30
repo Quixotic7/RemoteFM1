@@ -313,10 +313,48 @@ static const char *hb_word(const char *line, int k)  /* the k-th word of the lin
 }
 static void hb_run(void) { run_ms(2); }
 
+/* the standalone's checks by text: sa chord NAME (the Notes view's chord of the notes held now, "-" none), sa name
+ * TEXT (the voice's name); a mismatch is a failure (app_host_fails) */
+static int sa_host_fails;
+static void sa_host_check(const char *what, const char *got, const char *want)
+{
+    if (strcmp(got, want)) {
+        printf("FAIL sa %s: \"%s\", wanted \"%s\"\n", what, got, want);
+        sa_host_fails++;
+    } else {
+        printf("  ok sa %s \"%s\"\n", what, got);
+    }
+}
+int app_host_fails(void) { return sa_host_fails; }
+
 int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, const char *d)
 {
     int t = hb_t(b);
     uint8_t body[64];
+    if (!strcmp(cmd, "sa")) {
+        char got[40];
+        if (!strcmp(a, "chord")) {
+            uint8_t held[128];
+            uint32_t n = 0, i;
+            sa_chord_t ch;
+            for (i = 0; i < 128u; i++)
+                if (sa.held[i])
+                    held[n++] = (uint8_t)i;
+            sa_chord_name(held, n, &ch);
+            snprintf(got, sizeof got, "%s%s%s", ch.main, ch.ext, ch.bass);
+            sa_host_check("chord", n ? got : "-", b);
+        } else if (!strcmp(a, "name")) {
+            const char *want = hb_word(plat_host_line, 2);
+            char w[40];
+            snprintf(w, sizeof w, "%s", want);
+            w[strcspn(w, "\r\n")] = 0;
+            sa_host_check("name", sa.name, w);
+        } else {
+            printf("sa %s: no such check\n", a);
+            exit(2);
+        }
+        return 1;
+    }
     if (strcmp(cmd, "rf"))
         return 0;
     if (!strcmp(a, "usb")) {
@@ -566,6 +604,49 @@ int app_expect(const char *what, int *got)
         *got = (int)sab.hash[0];
     else if (!strcmp(what, "sa_hash_two"))
         *got = (int)sab.hash[1];
+    else if (!strcmp(what, "sa_panel"))            /* the standalone instrument (sa/sa_main.c): panel mode */
+        *got = sa.panel;
+    else if (!strcmp(what, "sa_ch"))
+        *got = sa.ch;
+    else if (!strcmp(what, "sa_oct"))
+        *got = sa.oct;
+    else if (!strcmp(what, "sa_bank"))
+        *got = sa.bank;
+    else if (!strcmp(what, "sa_voice"))            /* (0..31: the screen's 1..32) */
+        *got = sa.voice;
+    else if (!strcmp(what, "sa_screen"))           /* 0 HOME, 1 preset, 2 channel, 3 octave, 4 the hand-over */
+        *got = sa.panel ? SA_SCR_HOST : sa.ov;
+    else if (!strcmp(what, "sa_sounding"))         /* FM6's voices sounding */
+        *got = (int)sa_synth_voices();
+    else if (!strcmp(what, "sa_held")) {           /* notes held (keys and MIDI in) */
+        uint32_t i;
+        *got = 0;
+        for (i = 0; i < 128u; i++)
+            *got += sa.held[i] != 0;
+    } else if (!strcmp(what, "sa_notes_out"))
+        *got = (int)sa.notes_out;
+    else if (!strcmp(what, "sa_notes_in"))
+        *got = (int)sa.notes_in;
+    else if (!strcmp(what, "sa_panics"))
+        *got = (int)sa.panics;
+    else if (!strcmp(what, "sa_saves"))
+        *got = (int)sa.saves;
+    else if (!strcmp(what, "sa_loads"))
+        *got = (int)sa.loads;
+    else if (!strcmp(what, "sa_clips"))            /* samples the limiter's soft knee bent */
+        *got = (int)sa_clips;
+    else if (!strcmp(what, "sa_ev_drop"))
+        *got = (int)sa.ev_drop;
+    else if (!strcmp(what, "sa_frames"))
+        *got = (int)sg.frames;
+    else if (!strcmp(what, "sa_bands"))            /* bands sent to the panel */
+        *got = (int)sg.bands_sent;
+    else if (!strcmp(what, "sa_lit_keys"))
+        *got = (int)sa.led_k;
+    else if (!strcmp(what, "sa_lit_btns"))
+        *got = (int)sa.led_b;
+    else if (!strcmp(what, "sa_touch"))            /* the keys' velocity sensing on */
+        *got = touch_is_on();
     else
         return 0;
     return 1;
