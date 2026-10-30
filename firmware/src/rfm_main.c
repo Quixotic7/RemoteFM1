@@ -138,8 +138,7 @@ static inline void rf_mrx_put(uint32_t b)
 static int rf_sx_tap(uint32_t b)
 {
     static const uint8_t ID[3] = {RF_SX_ID0, RF_SX_ID1, RF_SX_ID2};
-    if (sa_standalone())
-        sa_ub_byte(b);                              /* a DX7 bank dump (sa/sa_ubank.c) */
+    sa_ub_byte(b, RF_T_SX, sa_standalone());        /* a DX7 bank dump (sa/sa_ubank.c; in a session: refused) */
     if (b == 0xF0u) {
         if (rfh_st == 4u)
             rf_mrx_put(0xF0u);                      /* ours, cut off: the parser counts it */
@@ -956,7 +955,9 @@ static void rfa_diag(uint32_t t, uint32_t cmd, const uint8_t *body, uint32_t len
     }
     case RF_SA_INFO: {                              /* the standalone's user banks (sa/sa_ubank.c) */
         static uint8_t b[SA_INFO_REPLY] PLAT_POOL;
-        rf_send(t, RF_SA_INFO_R, b, sa_info_cmd(body, len, b));
+        uint32_t n = sa_info_cmd(body, len, b, t, sa_standalone());
+        if (n)                                      /* (DELETE's comes when written: sa_ub_ack) */
+            rf_send(t, RF_SA_INFO_R, b, n);
         break;
     }
     case RF_TILE:
@@ -1042,8 +1043,7 @@ static void rf_rx_step(void)
             uint32_t nb = cin == 4u || cin == 7u ? 3u : cin == 6u ? 2u : 1u, j;
             for (j = 0; j < nb; j++) {
                 rf_sx_byte(&rf_sx[1], (pkt >> (8u * (j + 1u))) & 0xFFu);
-                if (sa_standalone())
-                    sa_ub_byte((pkt >> (8u * (j + 1u))) & 0xFFu);   /* (a DX7 bank dump: sa/sa_ubank.c) */
+                sa_ub_byte((pkt >> (8u * (j + 1u))) & 0xFFu, RF_T_BLE, sa_standalone());   /* (a DX7 bank dump) */
             }
             rf_raw_rx[RF_T_BLE] += nb;
             got += nb;
@@ -1075,6 +1075,12 @@ static void rf_ms_step(void)
         steps[RF_ENC_OF_ROLE[e]] += roles[e];
     }
     sa_ms(lb, roles);                               /* standalone: the instrument; panel mode: its timeout */
+    {
+        uint8_t ab[3];
+        uint32_t at;
+        while (sa_ub_ack(&at, ab))                  /* SA_INFO STORED / DELETE, on the transport the dump came on */
+            rf_send(at, RF_SA_INFO_R, ab, 3);
+    }
     for (i = 0; i < RFM_NBTN; i++)
         if (lb >> RF_LABEL_OF_BTN[i] & 1u)
             btns |= 1u << i;

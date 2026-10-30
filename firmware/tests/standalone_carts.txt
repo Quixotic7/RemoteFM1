@@ -1,0 +1,84 @@
+# SPDX-License-Identifier: MPL-2.0
+# RemoteFM1 standalone, 0.3.1 (docs/CART-UPLOAD.md, firmware/sa/sa_ubank.c): a host's cartridges. SA_INFO TARGET sends
+# the next dump into a chosen slot (replacing it, or an empty one), DELETE removes a bank (the bank played found again;
+# a power cut in the middle leaves it), STORED answers every DX7 dump (kept, a bad checksum, in a session).
+# tests/run_tests.sh runs it (both builds).
+wait 400
+sa dx7bank 1 usb
+sa ack 4 0 0
+sa dx7bank 2 usb
+sa dx7bank 3 usb
+sa ack 4 2 0
+sa slots 0,1,2
+# TARGET slot 1: the next dump replaces it
+sa target 1
+sa dx7bank 9 usb
+sa ack 4 1 0
+sa slots 0,1,2
+sa info 3 1 USR9 V01
+expect sa_ub_slot 1
+# TARGET an empty slot: it keeps its number (USER8)
+sa target 7
+sa dx7bank 7 usb
+sa ack 4 7 0
+sa slots 0,1,2,7
+# one TARGET, one dump: the next goes to the first free slot again
+sa dx7bank 4 usb
+sa ack 4 3 0
+sa slots 0,1,2,3,7
+# a bad checksum: STORED 1, nothing written, the TARGET used up
+sa target 0
+sa dx7bank 5 usb bad
+sa ack 4 0 1
+sa info 5 0 USR1 V01
+sa dx7bank 6 usb
+sa ack 4 4 0
+sa slots 0,1,2,3,4,7
+# bad requests
+sa target 16 2
+sa delete 16 2
+sa delete 5 2
+# DELETE the bank played (slot 4): the next user bank in slot order (slot 7) plays
+expect sa_ub_slot 4
+sa delete 4
+sa slots 0,1,2,3,7
+expect sa_ub_slot 7
+sa name USR7 V01
+# DELETE the last user bank while it plays: the bank before it (slot 3)
+sa delete 7
+sa slots 0,1,2,3
+expect sa_ub_slot 3
+# DELETE another: the bank played stays (its number in the list moved)
+sa delete 0
+sa slots 1,2,3
+expect sa_ub_slot 3
+sa name USR4 V01
+# the power gone at the directory's erase, then at its write: the bank still there
+sa cut 1
+sa delete 1 5
+reboot
+wait 400
+sa slots 1,2,3
+sa cut 2
+sa delete 1 5
+reboot
+wait 400
+sa slots 1,2,3
+sa delete 1
+reboot
+wait 400
+sa slots 2,3
+expect sa_ub_refused 0
+expect store_outside 0
+# in a session: no dump kept (STORED 4), TARGET and DELETE refused
+rf session usb 1 0
+wait 20
+expect sa_panel 1
+sa dx7bank 8 usb
+sa ack 4 0 4
+sa target 0 4
+sa delete 2 4
+sa slots 2,3
+rf session usb 0
+wait 20
+expect sa_panel 0

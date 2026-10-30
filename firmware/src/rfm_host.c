@@ -488,7 +488,7 @@ int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, c
                                                  * name NAME */
             static uint8_t out[SA_INFO_REPLY];
             uint8_t q[1] = {0};
-            uint32_t n = sa_info_cmd(q, 1, out), want = (uint32_t)atoi(b), bad = 0;
+            uint32_t n = sa_info_cmd(q, 1, out, 0, sa_standalone()), want = (uint32_t)atoi(b), bad = 0;
             char nm[12] = {0};
             if (n != 6u + 19u * out[2] || out[1] != 16u || out[2] != want || out[5] != 16u)
                 bad = 1;
@@ -504,12 +504,48 @@ int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, c
                     sa_host_fails++;
             else
                 printf("  ok sa info: %u of %u banks, next to slot %u%s%s\n", out[2], out[1], out[4], *c ? ", " : "", nm);
+        } else if (!strcmp(a, "target") || !strcmp(a, "delete")) {   /* sa target|delete SLOT [ST]: SA_INFO TARGET /
+                                                 * DELETE over USB, its reply's status ST (0 if not given); DELETE's
+                                                 * comes when written (a moment after) */
+            static uint8_t out[8];
+            uint8_t q[2] = {(uint8_t)(!strcmp(a, "target") ? 2 : 3), (uint8_t)atoi(b)};
+            uint32_t n = sa_info_cmd(q, 2, out, 0, sa_standalone()), st = (uint32_t)atoi(c), a0 = ub.acks;
+            if (!n) {
+                run_ms(200);
+                memcpy(out, ub.last_ack, 3);
+                if (ub.acks == a0)
+                    out[0] = 0xEE;
+            }
+            if (out[0] != q[0] || out[1] != q[1] || out[2] != st)
+                printf("FAIL sa %s %u: reply %02X %u %u (%s), wanted status %u\n", a, q[1], out[0], out[1], out[2],
+                       n ? "at once" : "later", st), sa_host_fails++;
+            else
+                printf("  ok sa %s %u: status %u\n", a, q[1], st);
+        } else if (!strcmp(a, "ack")) {         /* sa ack OP SLOT ST: the last reply sent later (STORED, DELETE) */
+            if (ub.last_ack[0] != (uint8_t)atoi(b) || ub.last_ack[1] != (uint8_t)atoi(c) || ub.last_ack[2] != (uint8_t)atoi(d))
+                printf("FAIL sa ack: %u %u %u, wanted %s %s %s\n", ub.last_ack[0], ub.last_ack[1], ub.last_ack[2], b, c, d),
+                    sa_host_fails++;
+            else
+                printf("  ok sa ack %s %s %s\n", b, c, d);
+            memset(ub.last_ack, 0xEE, 3);
+        } else if (!strcmp(a, "slots")) {       /* sa slots A,B,..: SA_INFO BANKS lists exactly these slots (- none) */
+            static uint8_t out[SA_INFO_REPLY];
+            uint8_t q[1] = {0};
+            char got[64] = "", *w = got;
+            uint32_t i;
+            sa_info_cmd(q, 1, out, 0, sa_standalone());
+            for (i = 0; i < out[2]; i++)
+                w += sprintf(w, "%s%u", i ? "," : "", out[6u + 19u * i]);
+            if (strcmp(got, *b == '-' ? "" : b))
+                printf("FAIL sa slots: %s, wanted %s\n", got, b), sa_host_fails++;
+            else
+                printf("  ok sa slots %s\n", b);
         } else if (!strcmp(a, "bankname")) {    /* sa bankname SLOT NAME: SA_INFO NAME */
             static uint8_t out[8];
             uint8_t q[12] = {1, (uint8_t)atoi(b)};
             uint32_t l = (uint32_t)strlen(c) < 10u ? (uint32_t)strlen(c) : 10u;
             memcpy(q + 2, c, l);
-            sa_info_cmd(q, 2u + l, out);
+            sa_info_cmd(q, 2u + l, out, 0, sa_standalone());
             if (out[2] != 0)
                 printf("FAIL sa bankname: status %u\n", out[2]), sa_host_fails++;
             run_ms(100);

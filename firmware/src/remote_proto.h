@@ -24,7 +24,8 @@
  *                                             layout; firmware/tools/sa_bench.py reads it)
  *   SA_LOOP     op8 ...                    -> SA_LOOP_R   the standalone's loops (firmware/sa/sa_loop.c; docs/PROTOCOL.md
  *                                             section 8; tools/sa_loops.py)
- *   SA_INFO     op8 ...                    -> SA_INFO_R   0.3.1: the user DX7 banks kept (max, names), a name
+ *   SA_INFO     op8 ...                    -> SA_INFO_R   0.3.1: the user DX7 banks kept (max, names), a name,
+ *                                             TARGET a slot, DELETE one; STORED after each dump
  *                                             (firmware/sa/sa_ubank.c; docs/PROTOCOL.md section 8)
  * Protocol 2 (M1) keeps all of these as diagnostics and adds the session, LED, screen and panel messages:
  * docs/PROTOCOL.md, proto/rfm1.h.

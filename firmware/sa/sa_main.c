@@ -1162,6 +1162,7 @@ static void sa_loops_key(uint32_t k)
 static void sa_ms(uint32_t btns, const int32_t *steps)
 {
     uint32_t now = plat_ms(), keys, ch, k;
+    int32_t cur;
     int busy = sa_bench_busy();
     if (sa.bench_was && !busy) {             /* the bench gave the synth back (sa_synth_init'ed): our voice again */
         sa_synth_cores(sab_cores_max());
@@ -1171,12 +1172,29 @@ static void sa_ms(uint32_t btns, const int32_t *steps)
     sa_ub_poll();                            /* the flash (sa_store.c): a bank that came in, a name, 0.3.0's banks */
     if (sf.loops_req && !sf_busy() && sf_loops_begin() == 0)
         sf.loops_req = 0;                    /* ... the loops (SAVE held) */
+    cur = sa.bank >= SA_NBANKS ? sa_ub_slot(sa.bank - SA_NBANKS) : -1;
     if (sf_ms(now) && !sa.panel && ub.valid[sf.slot]) {   /* a DX7 bank arrived: kept, and its first voice played */
         sa.bank = (uint8_t)sa_bank_of_slot(sf.slot);
         sa.voice = 0;
         sa_load_voice();
         sa_changed();
         sa_overlay(SA_SCR_PRESET);
+    } else if (ub.moved) {                   /* a bank deleted (SA_INFO DELETE): the bank played found again by its
+                                              * slot; it was the one deleted: the bank now in its place (the next user
+                                              * bank, else the last bank), its first voice */
+        ub.moved = 0;
+        if (cur >= 0 && ub.valid[cur]) {
+            sa.bank = (uint8_t)sa_bank_of_slot((uint32_t)cur);
+        } else if (cur >= 0) {
+            if (sa.bank >= sa_nbanks())
+                sa.bank = (uint8_t)(sa_nbanks() - 1u);
+            sa.voice = 0;
+            if (!sa.panel) {
+                sa_load_voice();
+                sa_changed();
+                sa_overlay(SA_SCR_PRESET);
+            }
+        }
     }
     if (sa.panel) {
         if (!rf_session_on() && now - sa.host_ms >= SA_HOST_MS)
@@ -1246,7 +1264,7 @@ static void sa_init(void)
     sa_settings_defaults();
     sf_init();                               /* the data area's directory (sa_store.c) */
     memset(&ub, 0, sizeof ub);
-    ub.name_slot = SF_NONE;
+    ub.name_slot = ub.tgt = ub.del_slot = SF_NONE;
     sa_ub_scan();
     sa_ub_mig_scan();
     sl_init();

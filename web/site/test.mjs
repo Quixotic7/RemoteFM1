@@ -1289,6 +1289,55 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
      "cart: the whole 4104-byte dump in one send to the USB port; anything else refused");
   ok((await C.queryUserBanks()) === null && /up to 3 on RemoteFM1 0.3.0, 16 from 0.3.1/.test(C.banksText(null)) && /2 of 16 USER/.test(C.banksText({ max: 16, names: ["A", "B"] })),
      "cart: no bank query yet (0.3.0): the limits as text; a query's answer shown when there is one");
+
+  // a fake 0.3.1 FM-1 (firmware/sa/sa_ubank.c as docs/CART-UPLOAD.md says): BANKS, TARGET, DELETE, STORED
+  const fake = ({ answers = true, session = false } = {}) => {
+    const slots = new Map([[0, "BANK A"], [4, "BANK E"]]), ls = new Set(), log = [];
+    let tgt = null;
+    const reply = (body) => { const d = Uint8Array.from([0xF0, 0x7D, 0x52, 0x46, 0x4B, ...C.pack7(body), 0xF7]); setTimeout(() => ls.forEach((f) => f({ data: d })), 5); };
+    const free = () => { for (let k = 0; k < 16; k++) if (!slots.has(k)) return k; return 0; };
+    const inp = { name: "FM-1", addEventListener: (_, f) => ls.add(f), removeEventListener: (_, f) => ls.delete(f) };
+    const o = { name: "FM-1", send: (m) => {
+      m = [...m]; log.push(m);
+      if (!answers) return;
+      if (m[1] === 0x43) {                         // a DX7 dump: STORED
+        const k = tgt ?? free(); tgt = null;
+        if (!session) slots.set(k, String.fromCharCode(...m.slice(6 + 118, 6 + 128)).trimEnd());
+        return reply([4, k, session ? 4 : 0]);
+      }
+      const b = C.unpack7(m.slice(5, -1));
+      if (b[0] === 0) {
+        const ks = [...slots.keys()].sort((x, y) => x - y), r = [0, 16, ks.length, 0, free(), 16];
+        ks.forEach((k) => r.push(k, k, 0, 0, 0, 1, 2, 3, 4, ...[...slots.get(k).padEnd(10)].map((c) => c.charCodeAt(0))));
+        reply(r);
+      } else if (b[0] === 2) { if (!session) tgt = b[1]; reply([2, b[1], session ? 4 : b[1] < 16 ? 0 : 2]); }
+      else if (b[0] === 3) reply([3, b[1], session ? 4 : slots.delete(b[1]) ? 0 : 2]);
+    } };
+    return { access: { inputs: new Map([["i", inp]]), outputs: new Map([["o", o]]) }, out: o, slots, log };
+  };
+  {
+    const f = fake();
+    const info = await C.queryUserBanks(f.access, f.out, { wait: 50 });
+    ok(info && info.max === 16 && info.banks.map((b) => `${b.slot}:${b.name}`).join() === "0:BANK A,4:BANK E" && info.next === 1 && info.banks[1].crc === 0x04030201,
+       "cart: BANKS lists the stored banks by slot (gaps kept), their names and CRCs, the next free slot");
+    const r1 = await C.sendCartTo(f.access, f.out, one[0].bytes);
+    ok(r1 && r1.slot === 1 && r1.status === 0 && f.slots.get(1) === "VOICE 01" && f.log.at(-1).length === 4104,
+       "cart: a plain send (no TARGET) goes where the unit puts it; STORED confirms it");
+    const r2 = await C.sendCartTo(f.access, f.out, one[0].bytes, 4);
+    const t = C.unpack7(f.log.at(-2).slice(5, -1));
+    ok(r2 && r2.slot === 4 && r2.status === 0 && f.slots.get(4) === "VOICE 01" && t[0] === 2 && t[1] === 4 && f.log.at(-2)[4] === 0x0B,
+       "cart: Replace: TARGET 4, then the dump; STORED says slot 4");
+    const d = await C.deleteBank(f.access, f.out, 0), d2 = await C.deleteBank(f.access, f.out, 9);
+    ok(d && d.status === 0 && !f.slots.has(0) && d2 && d2.status === 2 && /bad request/.test(C.STATUS[2]),
+       "cart: Delete: DELETE's reply 0 (gone); an empty slot: 2");
+    const s = fake({ session: true }), r3 = await C.sendCartTo(s.access, s.out, one[0].bytes, 3);
+    ok(r3 && r3.status === 4 && !s.slots.has(3) && s.log.length === 1, "cart: in a session TARGET is refused (4) and the dump not sent");
+    const old = fake({ answers: false });
+    const q = await C.queryUserBanks(old.access, old.out, { wait: 20 }), r4 = await C.sendCartTo(old.access, old.out, one[0].bytes, null, { ms: 30 });
+    let thr = false; try { await C.sendCartTo(old.access, old.out, one[0].bytes, 2); } catch (_) { thr = true; }
+    ok(q === null && r4 === null && old.log.at(-2).length === 4104 && thr && (await C.deleteBank(old.access, old.out, 0, { ms: 20 })) === null,
+       "cart: 0.3.0 (no replies): no list, a plain send still goes out (null: the screen confirms), Replace refused before the dump, Delete null");
+  }
 }
 
 console.log(fails ? `site: ${fails} of ${checks} FAILED` : `site tests passed (${checks})`);

@@ -567,3 +567,6 @@ body.learning #device { cursor: crosshair; }
 .cart-drop.over { border-color: var(--green); }
 .cart-bank { margin-top: 10px; }
 .cart-names { columns: 2; font-size: 12px; margin: 6px 0 8px; padding-left: 22px; }
+.cart-stored { margin: 10px 0; }
+.cart-slot { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 13px; }
+.cart-slot > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

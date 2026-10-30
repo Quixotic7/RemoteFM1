@@ -269,6 +269,7 @@ static uint32_t sl_store_meta(uint32_t k, sf_loop_t *e);   /* loop k's length, t
 static const uint8_t *sl_store_bytes(uint32_t k);          /* loop k's events as they are now */
 static uint32_t sl_store_cur(void);
 static void sa_ub_done(uint32_t from, int ok);
+static void sa_ub_dir_done(int ok);
 static int sf_mig_left(void);
 
 static int sf_loop_same(const sf_loop_t *a, const sf_loop_t *b)
@@ -278,11 +279,13 @@ static int sf_loop_same(const sf_loop_t *a, const sf_loop_t *b)
 
 static void sf_abort(void)
 {
-    uint32_t from = sf.job == SF_BANK ? sf.from : 0u;
+    uint32_t from = sf.job == SF_BANK ? sf.from : 0u, dir = sf.job == SF_DIRJOB;
     sf.aborted++;
     sf.job = SF_IDLE;
     if (from)
         sa_ub_done(from, 0);
+    if (dir)
+        sa_ub_dir_done(0);
 }
 
 /* the main loop, every millisecond: one step of the job, when one runs; 1: a bank was just put in charge */
@@ -407,6 +410,8 @@ static int sf_step(uint32_t now)
             sa_ub_done(from, 1);
             return from == 1u;
         }
+        if (job == SF_DIRJOB)
+            sa_ub_dir_done(1);
     }
     return 0;
 }
