@@ -52,7 +52,39 @@ export function sendCart(out, bytes) {
 // and the stored banks' names (docs/PROTOCOL.md section 8 on that branch): plug it in here, returning
 // { max, names: [...] } or null when the unit does not answer. The UI then shows the real numbers.
 export const BANKS_DEFAULT = "up to 3 on RemoteFM1 0.3.0, 16 from 0.3.1";
-export async function queryUserBanks(/* access, out */) { return null; }
+// SA_INFO (0x0B, op 0 BANKS) -> SA_INFO_R (0x4B): "00 max count busy next loops", then per stored bank
+// "slot8 arrival32 crc32 name[10]" (little endian), the body 7-in-8 packed as every RemoteFM1 SysEx (PROTOCOL.md 2, 8).
+// Polled while busy (a bank still being written); null when the unit doesn't answer (0.3.0: up to 3)
+const SX = [0xF0, 0x7D, 0x52, 0x46];
+export const pack7 = (b) => { const o = []; for (let i = 0; i < b.length; i += 7) { const g = b.slice(i, i + 7); o.push(g.reduce((m, x, k) => m | ((x >> 7) & 1) << k, 0), ...g.map((x) => x & 0x7F)); } return o; };
+export const unpack7 = (b) => { const o = []; for (let i = 0; i < b.length; i += 8) { const g = b.slice(i, i + 8); for (let k = 1; k < g.length; k++) o.push(g[k] | (((g[0] >> (k - 1)) & 1) << 7)); } return o; };
+export function parseBanksReply(body) {
+  if (body.length < 6 || body[0] !== 0) return null;
+  const [, max, count, busy, next, loops] = body, names = [];
+  for (let i = 0, p = 6; i < count && p + 19 <= body.length; i++, p += 19)
+    names.push(String.fromCharCode(...body.slice(p + 9, p + 19)).replace(/[\0 ]+$/, ""));
+  return { max, count, busy: !!busy, next, loops, names };
+}
+export async function queryUserBanks(access, out, { tries = 15, wait = 200 } = {}) {
+  if (!access || !out) return null;
+  const inp = [...access.inputs.values()].find((i) => i.name === out.name);
+  if (!inp) return null;
+  let got = null;
+  const on = (e) => {
+    const d = [...e.data];
+    if (d.length > 6 && SX.every((x, i) => d[i] === x) && d[4] === 0x4B) got = parseBanksReply(unpack7(d.slice(5, -1)));
+  };
+  inp.addEventListener("midimessage", on);
+  try {
+    for (let t = 0; t < tries; t++) {
+      got = null;
+      out.send([...SX, 0x0B, ...pack7([0]), 0xF7]);
+      await new Promise((r) => setTimeout(r, wait));
+      if (got && !got.busy) return got;
+    }
+    return got;
+  } finally { inp.removeEventListener("midimessage", on); }
+}
 export const banksText = (info) => info && info.max
   ? `${info.names ? info.names.length : "?"} of ${info.max} USER banks stored; one more replaces the oldest.`
   : `USER banks: ${BANKS_DEFAULT}; one more replaces the oldest.`;
