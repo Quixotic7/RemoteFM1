@@ -747,14 +747,24 @@ static void sa_paint_theme(void)
         sg_chip(29 + 32 * i, 120, 22, 22, ui.c[SW[i]]);
     }
     {                                        /* a chord in the theme */
-        int32_t x = (SG_W - sg_text_w("Dm7", 5)) / 2;
-        sg_text(x + 4, 158 + 4, 5, "Dm", UC(SHADOW));
-        sg_text(x + 4 + sg_text_w("Dm", 5), 162, 5, "7", UC(SHADOW));
-        x = sg_text(x, 158, 5, "Dm", UC(INK));
-        sg_text(x, 158, 5, "7", UC(A1));
+        int32_t x = (SG_W - sg_text_w("Dm7", 4)) / 2;
+        sg_text(x + 3, 150 + 3, 4, "Dm", UC(SHADOW));
+        sg_text(x + 3 + sg_text_w("Dm", 4), 153, 4, "7", UC(SHADOW));
+        x = sg_text(x, 150, 4, "Dm", UC(INK));
+        sg_text(x, 150, 4, "7", UC(A1));
+    }
+    {                                        /* the background (ALGORITHM): its name in a chip, a swatch of it */
+        char bg[16];
+        sa_cpy(sa_cpy(bg, "BG "), sa_bg_name(ui.theme, ui.bg));
+        int32_t x;
+        w = sg_text_w(bg, 1) + 14;
+        x = (SG_W - w - 20) / 2;
+        sg_chip_text(x, 195, w, 22, 7, bg, UC(PANEL), UC(INK));
+        sg_rect(x + w + 6, 199, 14, 14, UC(INK));
+        sg_rect(x + w + 8, 201, 10, 10, UC(BG));
     }
     for (i = 0; i < (int32_t)SA_NTHEMES; i++)   /* where it is among them */
-        sg_rect(48 + 16 * i, 222, 10, 6, i == ui.theme ? UC(A1) : UC(PANEL));
+        sg_rect(48 + 16 * i, 224, 10, 6, i == ui.theme ? UC(A1) : UC(PANEL));
 }
 
 /* ------------------------------------------------------------------ the dispatch --- */

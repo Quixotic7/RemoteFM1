@@ -82,7 +82,7 @@ static struct {
     uint8_t ch;                              /* the MIDI channel, 1..16 */
     int8_t oct;                              /* -3..+3 */
     uint8_t bank, voice;                     /* 0..sa_nbanks() - 1 (the ROM's, then the user's), 0..31 */
-    uint8_t theme;
+    uint8_t theme, bg;                       /* the theme, its background (sa_theme.h SA_BGS) */
     uint8_t ccbank;                          /* 0..4: A..E */
     uint8_t cc[5][4], ccv[5][4];             /* each bank's CCs (sa_cc.c) and their values */
     uint8_t knob;                            /* the knob last turned */
@@ -333,7 +333,7 @@ typedef struct {
     uint8_t arp_mode, arp_rate, arp_oct, arp_gate;
     uint16_t bpm;
     uint8_t rec_len, rec_quant, rec_count, rec_layer;
-    uint8_t ubank_seq, rsv[7];
+    uint8_t ubank_seq, bg, rsv[6];           /* (bg: 0, black, in records before it) */
 } sa_store_t;
 
 static void sa_settings_apply(const sa_store_t *s);
@@ -418,6 +418,7 @@ static void sa_settings_fill(sa_store_t *s)
     s->bank = sa.bank;
     s->voice = sa.voice;
     s->theme = sa.theme;
+    s->bg = sa.bg;
     s->ccbank = sa.ccbank;
     s->view = sa.view;
     memcpy(s->cc, sa.cc, sizeof s->cc);
@@ -442,6 +443,7 @@ static void sa_settings_apply(const sa_store_t *s)   /* (each value checked: a r
     sa.bank = (uint8_t)(s->bank < sa_nbanks() ? s->bank : 0u);
     sa.voice = (uint8_t)(s->voice < sa_bank_voices(sa.bank) ? s->voice : 0u);
     sa.theme = (uint8_t)(s->theme < SA_NTHEMES ? s->theme : SA_THEME_DEFAULT);
+    sa.bg = (uint8_t)(s->bg < SA_NBG ? s->bg : 0u);   /* (CLASSIC kept: black where a theme has none) */
     sa.ccbank = (uint8_t)(s->ccbank < SA_NCCB ? s->ccbank : 0u);
     sa.view = (uint8_t)(s->view < 3u ? s->view : 0u);
     for (b = 0; b < SA_NCCB; b++)
@@ -825,6 +827,12 @@ static void sa_encoders(const int32_t *steps)   /* detents by plat.h's role (EN_
             }
         }
         sa_overlay(SA_SCR_PRESET);
+    }
+    if (c && sa.menu && sa.ov == SA_SCR_THEME) {   /* the theme menu: ALGORITHM the background */
+        sa.bg = (uint8_t)sa_bg_step(sa.theme, sa.bg, c);
+        sa_changed();
+        sa_menu_touch();
+        c = 0;
     }
     if (c) {
         int32_t ch = clamp((int32_t)sa.ch + c, 1, 16);

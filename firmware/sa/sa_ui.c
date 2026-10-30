@@ -20,7 +20,9 @@
 static struct {
     uint8_t scr;
     uint32_t now, t;                         /* ms; since the overlay came */
-    const uint16_t *c;                       /* the theme's colours (SA_TK_*) */
+    const uint16_t *c;                       /* the theme's colours (SA_TK_*) over its background: cbuf */
+    uint16_t cbuf[SA_NTK];
+    uint8_t bg;
     /* HOME: Notes */
     char ch_txt[8], name[12];
     sa_chord_t chord;
@@ -161,7 +163,9 @@ static void sa_ui_snap_more(void);
 static void sa_ui_snap(void)
 {
     ui.now = plat_ms();
-    ui.c = SA_THEMES[sa.theme < SA_NTHEMES ? sa.theme : 0u].c;
+    sa_theme_build(sa.theme, sa.bg, ui.cbuf);
+    ui.c = ui.cbuf;
+    ui.bg = sa.bg;
     ui.scr = sa.panel ? SA_SCR_HOST : sa.ov;
     ui.t = ui.now - sa.ov_t0;
     ui.ch_txt[0] = 'C', ui.ch_txt[1] = 'H', ui.ch_txt[2] = ' ';

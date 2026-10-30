@@ -74,8 +74,47 @@ expect sa_screen 0
 expect sa_theme 8
 wait 60
 shot sa_notes_synthwave.png
+# ALGORITHM in the theme menu: the background (black, five dark grounds, the theme's classic where its ink reads)
 tap SAVE
+turn SELECT -4 100
+expect sa_theme 4
+expect sa_bg 0
+turn ALGO 1 100
+expect sa_bg 1
+expect sa_ch 1
+wait 60
+shot sa_theme_c64_midnight.png
+turn ALGO 5 100
+expect sa_bg 6
+wait 60
+shot sa_theme_c64_classic.png
+tap SAVE
+wait 60
+shot sa_notes_c64_classic.png
+tap SAVE
+turn SELECT 3 100
+expect sa_theme 7
+expect sa_bg 6
+wait 60
+shot sa_theme_gameboy_classic.png
+turn ALGO 1 100
+expect sa_bg 0
+turn ALGO -1 100
+expect sa_bg 6
+turn SELECT 1 100
+wait 60
+shot sa_theme_synthwave_classic.png
 turn SELECT -6 100
+expect sa_theme 2
+expect sa_bg 6
+wait 60
+shot sa_theme_fizz_classic_none.png
+turn ALGO -1 100
+expect sa_bg 5
+turn ALGO 2 100
+expect sa_bg 1
+wait 60
+shot sa_theme_fizz_midnight.png
 tap SAVE
 expect sa_theme 2
 # a DX7 bank over USB: USER1, its first voice now (the Preset screen), after the ROM cartridges
@@ -121,4 +160,5 @@ expect sa_ubanks 3
 expect sa_ub_slot 0
 sa name USR4 V01
 expect sa_theme 2
+expect sa_bg 1
 expect sa_view 0

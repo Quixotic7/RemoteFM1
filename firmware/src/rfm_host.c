@@ -737,6 +737,8 @@ int app_expect(const char *what, int *got)
         *got = (int)sa.save_holds;
     else if (!strcmp(what, "sa_theme"))
         *got = sa.theme;
+    else if (!strcmp(what, "sa_bg"))               /* the theme's background (sa_theme.h SA_BGS, 6 CLASSIC) */
+        *got = sa.bg;
     else if (!strcmp(what, "sa_menu"))
         *got = sa.menu;
     else if (!strcmp(what, "sa_lstate"))           /* S3: the looper (sa/sa_loop.c SL_*: 0 stop, 1 play, 2 count, 3 rec,
