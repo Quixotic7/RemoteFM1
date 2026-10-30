@@ -78,7 +78,9 @@ One message = a command byte + a body (8-bit bytes, multi-byte fields **little e
   session's MIDI port.
 - A host may use both on USB: plain MIDI for the panel events and bulk for everything else. That is the recommended
   setup wherever bulk is available.
-- Plain MIDI sent to the device (notes, clock) is ignored, over USB and over Bluetooth: RemoteFM1 plays nothing.
+- Plain MIDI sent to the device during a session is ignored: the host plays the firmware. Outside a session (from
+  the standalone build, STANDALONE-PLAN.md) the unit is an instrument of its own: notes, bend, CC 1/64/120/123,
+  aftertouch and program change on its MIDI channel, from USB and Bluetooth, play its DX7. 0.2 played nothing.
 
 ## 2. Session
 
@@ -121,7 +123,8 @@ One message = a command byte + a body (8-bit bytes, multi-byte fields **little e
   - `start = 1`: the host takes over. The device clears its screen and shadow to black (0x0000), turns all LEDs
     off, resets the frame numbering, sends **PANEL_R**, and from then on shows only what the host sends.
   - A SESSION body shorter than 3 bytes means keepalive 0; an empty body is ignored.
-  - `start = 0`: the session ends; the device goes back to its waiting screen.
+  - `start = 0`: the session ends; the device goes back to its waiting screen (the standalone build: back to the
+    instrument, its state kept).
   - A SESSION start during a running session (a host retrying after a lost ACK) restarts the session: black
     shadow, LEDs off, frame numbering reset.
   - `keepalive_ms`: if no RemoteFM1 message of any kind (SINK included) arrives from the host for this long, the device ends the session by
@@ -138,7 +141,9 @@ One message = a command byte + a body (8-bit bytes, multi-byte fields **little e
   starting, failed, off), the battery level or "powered over USB", the transports' rates and errors, and "UNKNOWN
   FLASH: NO UPDATES" when the flash chip is not the expected one (0.1: a red line when its loader wasn't staged). The
   key LEDs glow dim so the panel can be found, and a key or button lights while it is held. The device runs no other
-  UI.
+  UI. **The standalone build has no waiting screen:** with no session it is the DX7 instrument (its own screens and
+  LEDs); a HELLO on any transport shows a hand-over screen ("PANEL MODE", the transport, and the waiting screen's
+  status lines) until the SESSION start, or for 3 s if none comes.
 
 ## 3. Host → device: LEDs and screen
 
@@ -197,11 +202,13 @@ what differs.
 
 ## 4. Device → host
 
-### Panel events: plain MIDI, always (in a session or not)
+### Panel events: plain MIDI (0.2: always; the standalone build: only in a session)
 
 They go to the session's MIDI port: USB-MIDI (EP1) for a session over USB SysEx or bulk, Bluetooth MIDI for a session
-over Bluetooth. With no session they go to USB (when configured) and to a connected Bluetooth computer. They wait in
-a short queue (256 events) when a port has no room, and are dropped when nobody is connected.
+over Bluetooth. 0.2 also sends them with no session, to USB (when configured) and to a connected Bluetooth computer.
+**The standalone build sends them only during a session**: without one, its keys send the instrument's notes (on its
+MIDI channel, with velocity, to USB and Bluetooth at once) and its knobs its CCs, not these events. They wait in a
+short queue (256 events) when a port has no room, and are dropped when nobody is connected.
 
 | what | message |
 |---|---|
