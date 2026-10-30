@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: MPL-2.0
+# RemoteFM1 standalone: the Scale screen in the mockup's style, one octave big (the owner's pick, 2026-10-30):
+# D DORIAN, A MIN PENTA, CHROMATIC (off), and D DORIAN in the C64 theme (sa_scale_*.png). tests/run_tests.sh runs it
+# (both builds).
+wait 400
+press GLO
+turn PRESET 2
+turn ALGO 3
+release GLO
+expect sa_scale 203
+wait 40
+shot sa_scale_ddorian.png
+press GLO
+turn PRESET 7
+turn ALGO 8
+release GLO
+expect sa_scale 911
+wait 40
+shot sa_scale_aminpenta.png
+press GLO
+turn ALGO 4
+release GLO
+expect sa_scale 900
+wait 40
+shot sa_scale_chromatic.png
+wait 1100
+expect sa_screen 0
+tap SAVE
+turn K1 4
+tap SAVE
+press GLO
+turn PRESET -7
+turn ALGO 3
+release GLO
+expect sa_scale 203
+wait 40
+shot sa_scale_ddorian_c64.png
