@@ -868,7 +868,7 @@ static void sa_ms(uint32_t btns, const int32_t *steps)
             sa_overlay(SA_SCR_PRESET);
         }
     }
-    if (sa.ov != SA_SCR_HOME && (int32_t)(now - sa.ov_until) >= 0) {
+    if (sa.ov != SA_SCR_HOME && sa.ov != SA_SCR_CCBANK && (int32_t)(now - sa.ov_until) >= 0) {   /* (CC-Bank stays) */
         sa.ov = SA_SCR_HOME;
         sa.poke = 1;
     }

@@ -13,14 +13,29 @@ expect sa_screen 5
 expect sa_cc_k1 74
 wait 60
 shot sa_cc_bank.png
-# KN2 turned slowly up 5 detents: CC 74 on channel 1, values 1..5
+# the CC-Bank screen stays (no timeout); KN2 turned on it changes it in place
+wait 2500
+expect sa_screen 5
+turn K2 1 100
+expect sa_screen 5
+expect sa_ccv_k1 1
+turn K2 -1 100
+press GLO
+turn K2 1 100
+expect sa_screen 5
+expect sa_cc_k1 75
+turn K2 -1 100
+release GLO
+# HOME leaves it; from HOME, KN2 turned slowly up 5 detents: CC-Turn, CC 74 on channel 1, values 1..5
+tap HOME
+expect sa_screen 0
 out
 turn K2 5 100
 expect sa_ccv_k1 5
 expect sa_screen 6
 expect_out USB B0 4A 01
 expect_out USB B0 4A 05
-expect sa_cc_out 5
+expect sa_cc_out 7
 # fast: 10 detents 10 ms apart move it 4 a detent (after the first)
 turn K2 10 10
 expect sa_ccv_k1 >30
@@ -35,6 +50,7 @@ expect sa_ccv_k1 96
 wait 60
 shot sa_cc_turn96.png
 # GLO + KN2: its CC, 74 -> 76 (VIB RATE), clamped 0..119; no CC sent while picking
+wait 1100
 out
 press GLO
 turn K2 2 100
@@ -54,6 +70,10 @@ expect_out USB B0 49 61
 # the other banks keep theirs: E (EDIT) KN4 sends CC 19; back on A, KN1 the wheel
 tap EDIT
 expect sa_ccbank 4
+# another screen (the channel) leaves CC-Bank
+turn ALGO 1 5
+expect sa_screen 2
+turn ALGO -1 5
 out
 turn K4 3 100
 expect_out USB B0 13 03

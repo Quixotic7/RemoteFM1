@@ -4,7 +4,9 @@
  * for each of KN1..KN4. A knob's detents move its CC's value 0..127 (faster when turned fast) and send it on the MIDI
  * channel, to USB and Bluetooth, and to the DX7 itself (which hears 1, 2, 4, 5, 64, 65). GLO held + a knob picks
  * which CC that knob sends in the bank shown (0..119: the channel mode messages 120..127 are never a knob's). The
- * map and the values are kept with the settings (sa_main.c's store record). Part of sa_main.c (its state, sa). */
+ * map and the values are kept with the settings (sa_main.c's store record). The CC-Bank screen a bank button opens stays
+ * (no timeout) until HOME or another screen: the knobs turned there (and GLO + a knob) change it in place; turned
+ * from elsewhere they show CC-Turn / CC-Assign for a second. Part of sa_main.c (its state, sa). */
 
 #define SA_NCCB 5u                           /* banks A..E */
 #define SA_CC_MAX 119u                       /* the highest CC a knob may send */
@@ -73,7 +75,10 @@ static void sa_cc_knob(uint32_t k, int32_t d)
             sa.cc[b][k] = (uint8_t)c;
             sa_changed();
         }
-        sa_overlay(SA_SCR_CCASSIGN);
+        if (sa.ov == SA_SCR_CCBANK)
+            sa.poke = 1;                     /* (the CC-Bank screen stays: in place) */
+        else
+            sa_overlay(SA_SCR_CCASSIGN);
         return;
     }
     v = clamp((int32_t)sa.ccv[b][k] + d * mul, 0, 127);
@@ -82,7 +87,10 @@ static void sa_cc_knob(uint32_t k, int32_t d)
         sa_cc_send(sa.cc[b][k], (uint32_t)v);
         sa_changed();
     }
-    sa_overlay(SA_SCR_CCTURN);
+    if (sa.ov == SA_SCR_CCBANK)
+        sa.poke = 1;
+    else
+        sa_overlay(SA_SCR_CCTURN);
 }
 
 static void sa_cc_bank(uint32_t b)           /* FX SEL ENV LFO EDIT */
