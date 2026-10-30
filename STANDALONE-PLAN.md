@@ -34,7 +34,7 @@ and its `melodee_fm6.h` (Felucca's factory voices), and anything under saadet's 
 
 | Control | Tap / turn | Hold / with GLO |
 |---|---|---|
-| Keys (27) | play the DX7 voice and send notes on the channel, with velocity (fm1-base's key sensing) | |
+| Keys (27) | play the DX7 voice and send notes on the channel, with velocity (fm1-base's key sensing) | GLO + a black key: the octave (left to right -3 -3 -3 -2 -1 0 +1 +2 +3 +3 +3) |
 | MASTER | volume | |
 | SELECT | tempo; in menus: choose | |
 | PRESETS | DX7 voice 1..32 | GLO + PRESETS: bank (ROM1A..ROM4B, then the user banks) |
@@ -42,7 +42,7 @@ and its `melodee_fm6.h` (Felucca's factory voices), and anything under saadet's 
 | KN1..KN4 | send the 4 CCs of the current bank | GLO + knob: pick which CC that knob sends |
 | FX SEL ENV LFO EDIT | CC bank A..E (its screen stays until HOME or another screen; the knobs change it in place; LFO acts when let go) | GLO + FX: MIDI REMOTE on / off (docs/PROTOCOL.md section 8); LFO held: LATCH on / off (the notes stay after the keys are let go, a new chord replaces them, the arp steps them; LFO blinks, a LATCH chip on HOME; off lets them go) |
 | GLO | shift (held) | |
-| HOME | next view: Notes, Scope, Keys | |
+| HOME | next view: Notes, Scope, Keys (when let go) | hold: the settings page (MIDI REMOTE's screen, knobs, channels, keys; docs/PROTOCOL.md section 8) |
 | SAVE | the theme menu (ALGORITHM there: the background: black, five dark grounds, the theme's classic, ORANGE, HOT PINK; on the bright two the theme turns to black ink) | hold: save everything (CC map, loops, theme, settings) |
 | ARP | arp on / off | hold: arp settings (mode, rate, octaves, gate) |
 | SEQ | spare | |

@@ -58,6 +58,10 @@ static struct {
     /* MIDI REMOTE (sa_remote.c) */
     uint8_t rm_last[3], rm_src, rm_src_i, rm_any;
     uint8_t latch;
+    uint8_t set[7], blank;                   /* the settings' values (sa_setopt's rows); MIDI REMOTE's screen off */
+    uint8_t rm_info, rm_oct, rm_keych, rm_kbd;
+    int8_t rm_rel;
+    uint32_t rm_info_age;
     uint32_t rm_age;
     /* the hand-over */
     uint8_t host_t, warn;
@@ -354,6 +358,8 @@ static void sa_paint_host(void)
 
 static void sa_paint(void)
 {
+    if (ui.blank)                            /* MIDI REMOTE's screen VOID / SOLID / KNOBS idle: the ground only */
+        return;
     if (!sa_paint_more())
         switch (ui.scr) {
     case SA_SCR_PRESET: sa_paint_preset(); break;

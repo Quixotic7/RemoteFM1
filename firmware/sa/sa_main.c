@@ -72,8 +72,13 @@ static void rf_sa_leds(uint32_t btns, uint32_t keys);   /* the LEDs, a host's mi
 
 enum { SA_SCR_HOME, SA_SCR_PRESET, SA_SCR_CHANNEL, SA_SCR_OCTAVE, SA_SCR_HOST, SA_SCR_CCBANK, SA_SCR_CCTURN,
        SA_SCR_CCASSIGN, SA_SCR_SAVED, SA_SCR_REC, SA_SCR_LOOP, SA_SCR_LOOPS, SA_SCR_RECOPT, SA_SCR_ARP, SA_SCR_ARPSET,
-       SA_SCR_TEMPO, SA_SCR_THEME, SA_SCR_REMOTE, SA_SCR_LATCH, SA_NSCR };
-#define SA_HOLD_MS 500u                      /* SAVE, ARP, PLAY, REC, LFO: held this long is a hold, else a tap */
+       SA_SCR_TEMPO, SA_SCR_THEME, SA_SCR_REMOTE, SA_SCR_LATCH, SA_SCR_SETTINGS, SA_NSCR };
+#define SA_HOLD_MS 500u                      /* SAVE, ARP, PLAY, REC, LFO, HOME: held this long is a hold, else a tap */
+/* the settings (HOME held): MIDI REMOTE's display, knobs, channels, keys */
+enum { SA_RMD_VOID, SA_RMD_SOLID, SA_RMD_ALL, SA_RMD_KNOBS, SA_RMD_N };   /* the screen in MIDI REMOTE */
+enum { SA_RMR_ABS, SA_RMR_2C, SA_RMR_OFS, SA_RMR_N };   /* its encoders: absolute; relative 1..63 / 127..65; 65 / 63 */
+enum { SA_RMK_FIXED, SA_RMK_PLAY, SA_RMK_N };           /* its keys: fixed (as 0.3); MIDI KEYBOARD */
+#define SA_NSET 6u                           /* the settings' rows */
 #define SA_MENU_MS 6000u                     /* (a menu's ov_until: unused since menus stay; kept for the touch) */
 enum { SA_LE_ON, SA_LE_OFF, SA_LE_CC };      /* a loop's events (sa_loop.c) */
 static void sa_rec_ev(uint32_t type, uint32_t d1, uint32_t d2);   /* (sa_loop.c: what is played, recorded) */
@@ -108,6 +113,10 @@ static struct {
     uint8_t key_arp[NKEYS];                  /* ... given to the arp */
     uint8_t held[128];                       /* the notes sounding from the keys and MIDI in, counted: the screen */
     uint8_t latch;                           /* LATCH (LFO held): the keys' notes held after they are let go */
+    uint8_t rm_disp, rm_rel, rm_cc_ch, rm_key_ch, rm_keys, rm_octk;   /* the settings (SA_RMD_*, SA_RMR_*, 1..16,
+                                              * 1..16, SA_RMK_*, the OCT buttons shift MIDI KEYBOARD's octave) */
+    uint8_t scale_root, scale, rm_scl;       /* the scale (sa_scale.c): root 0..11 (C..B), SA_SC_*; its GLO
+                                              * shortcuts in MIDI KEYBOARD */
     uint8_t lat_n, lat_note[32], lat_ch[32], lat_arp[32];   /* the notes latched (let go, still held) */
     uint32_t rheld[4];                       /* MIDI in's notes held (bit n) */
     int8_t oct_before;                       /* the octave before the first of OCT- / OCT+ went down */
@@ -390,8 +399,11 @@ typedef struct {
     uint8_t arp_mode, arp_rate, arp_oct, arp_gate;
     uint16_t bpm;
     uint8_t rec_len, rec_quant, rec_count, rec_layer;
-    uint8_t ubank_seq, bg, rsv[6];           /* (bg: 0, black, in records before it) */
+    uint8_t ubank_seq, bg;                   /* (bg: 0, black, in records before it) */
+    /* version 3 (2026-10-30): the settings page and the scale */
+    uint8_t scale_root, scale, rm_disp, rm_rel, rm_cc_ch, rm_key_ch, rm_keys, rm_octk, rm_scl, rsv[7];
 } sa_store_t;
+#define SA_STORE_V2_HEAD ((int)__builtin_offsetof(sa_store_t, scale_root))   /* (version 2: the bytes before it) */
 
 static void sa_settings_apply(const sa_store_t *s);
 static void sa_settings_fill(sa_store_t *s);
@@ -402,13 +414,15 @@ static void sa_load(void)
     int n;
     memset(&s, 0, sizeof s);
     n = plat_store_load(OBJ_SA, &s, sizeof s);
-    if (n < 12 || s.magic != SA_OBJ_MAGIC || (s.ver != 1u && s.ver != 2u))
+    if (n < 12 || s.magic != SA_OBJ_MAGIC || s.ver < 1u || s.ver > 3u)
         return;
-    if (s.ver == 1u || n != (int)sizeof s) {  /* (S1's: the CC map and the rest at their defaults) */
+    if (s.ver != 3u || n != (int)sizeof s) {  /* (S1's: the CC map and the rest at their defaults; version 2's: the
+                                              * settings page and the scale at theirs) */
         sa_store_t d;
+        int keep = s.ver == 2u && n >= SA_STORE_V2_HEAD ? SA_STORE_V2_HEAD : 12;
         memset(&d, 0, sizeof d);
         sa_settings_fill(&d);
-        memcpy(&d, &s, 12);
+        memcpy(&d, &s, (uint32_t)keep);
         s = d;
     }
     sa_settings_apply(&s);
@@ -421,7 +435,7 @@ static int sa_save_now(void)
     memset(&s, 0, sizeof s);
     sa_settings_fill(&s);
     s.magic = SA_OBJ_MAGIC;
-    s.ver = 2;
+    s.ver = 3;
     sa.store_dirty = 0;
     if (plat_store_save(OBJ_SA, &s, sizeof s) != 0)
         return -1;
@@ -464,6 +478,7 @@ static void sa_close(void)                   /* back to the HOME view */
     sa.poke = 1;
 }
 
+#include "sa_scale.c"
 #include "sa_loop.c"
 #include "sa_arp.c"
 #include "sa_cc.c"
@@ -491,6 +506,15 @@ static void sa_settings_fill(sa_store_t *s)
     s->rec_count = sa.rec_count;
     s->rec_layer = sa.rec_layer;
     s->ubank_seq = sa.ubank_seq;
+    s->scale_root = sa.scale_root;
+    s->scale = sa.scale;
+    s->rm_disp = sa.rm_disp;
+    s->rm_rel = sa.rm_rel;
+    s->rm_cc_ch = sa.rm_cc_ch;
+    s->rm_key_ch = sa.rm_key_ch;
+    s->rm_keys = sa.rm_keys;
+    s->rm_octk = sa.rm_octk;
+    s->rm_scl = sa.rm_scl;
 }
 
 static void sa_settings_apply(const sa_store_t *s)   /* (each value checked: a record from another build) */
@@ -519,6 +543,15 @@ static void sa_settings_apply(const sa_store_t *s)   /* (each value checked: a r
     sa.rec_count = (uint8_t)(s->rec_count < 2u ? s->rec_count : 0u);
     sa.rec_layer = (uint8_t)(s->rec_layer < 2u ? s->rec_layer : 0u);
     sa.ubank_seq = s->ubank_seq;
+    sa.scale_root = (uint8_t)(s->scale_root < 12u ? s->scale_root : 0u);
+    sa.scale = (uint8_t)(s->scale < SA_NSCALES ? s->scale : 0u);
+    sa.rm_disp = (uint8_t)(s->rm_disp < SA_RMD_N ? s->rm_disp : SA_RMD_ALL);
+    sa.rm_rel = (uint8_t)(s->rm_rel < SA_RMR_N ? s->rm_rel : 0u);
+    sa.rm_cc_ch = (uint8_t)clamp(s->rm_cc_ch, 1, 16);
+    sa.rm_key_ch = (uint8_t)clamp(s->rm_key_ch, 1, 16);
+    sa.rm_keys = (uint8_t)(s->rm_keys < SA_RMK_N ? s->rm_keys : 0u);
+    sa.rm_octk = (uint8_t)(s->rm_octk != 0u);
+    sa.rm_scl = (uint8_t)(s->rm_scl != 0u);
 }
 
 static void sa_settings_defaults(void)
@@ -531,6 +564,10 @@ static void sa_settings_defaults(void)
     sa.arp_gate = 6;
     sa.bpm = 120;
     sa.rec_layer = 1;                        /* DUB: REC on a loop adds to it */
+    sa.rm_disp = SA_RMD_ALL;
+    sa.rm_cc_ch = sa.rm_key_ch = 1;
+    sa.rm_octk = 1;
+    sa.rm_scl = 1;
 }
 
 /* ------------------------------------------------------------------ the modes --- */
@@ -706,6 +743,22 @@ static void sa_arpopt(uint32_t o, int32_t d) /* the arp's settings: MODE, RATE, 
     }
 }
 
+static void sa_setopt(uint32_t o, int32_t d) /* the settings' rows: SCREEN KNOBS CC-CH KEY-CH KEYS OCT-KEYS SCALES */
+{
+    static const uint8_t LO[SA_NSET + 1u] = {0, 0, 1, 1, 0, 0, 0},
+                         HI[SA_NSET + 1u] = {SA_RMD_N - 1u, SA_RMR_N - 1u, 16, 16, SA_RMK_N - 1u, 1, 1};
+    uint8_t *v[SA_NSET + 1u] = {&sa.rm_disp, &sa.rm_rel, &sa.rm_cc_ch, &sa.rm_key_ch, &sa.rm_keys, &sa.rm_octk,
+                                &sa.rm_scl};
+    int32_t x;
+    o = o < SA_NSET ? o : SA_NSET - 1u;
+    x = clamp((int32_t)*v[o] + d, LO[o], HI[o]);
+    sa.mfocus = (uint8_t)o;
+    if (x != *v[o]) {
+        *v[o] = (uint8_t)x;
+        sa_changed();
+    }
+}
+
 static int sa_menu_knob(uint32_t k, int32_t d)   /* a menu takes KN1..KN4 (k 0..3) or PRESETS (4): 1 taken */
 {
     if (!sa.menu)
@@ -725,6 +778,12 @@ static int sa_menu_knob(uint32_t k, int32_t d)   /* a menu takes KN1..KN4 (k 0..
             sa_arpopt(k, d);
         else
             sa.mfocus = (uint8_t)clamp((int32_t)sa.mfocus + d, 0, 3);
+        break;
+    case SA_SCR_SETTINGS:
+        if (k < 4u)
+            sa_setopt(k, d);
+        else
+            sa.mfocus = (uint8_t)clamp((int32_t)sa.mfocus + d, 0, (int32_t)SA_NSET - 1);
         break;
     case SA_SCR_THEME:                       /* the theme, shown at once (the whole screen in it) */
         sa.theme = (uint8_t)(((int32_t)sa.theme + d % (int32_t)SA_NTHEMES + (int32_t)SA_NTHEMES) % (int32_t)SA_NTHEMES);
@@ -749,6 +808,9 @@ static void sa_select(int32_t d)             /* SELECT: the tempo; in a menu, it
         sa_menu_touch();
     } else if (sa.menu && sa.ov == SA_SCR_THEME) {
         sa_menu_knob(4u, d);
+    } else if (sa.menu && sa.ov == SA_SCR_SETTINGS) {
+        sa_setopt(sa.mfocus, d);
+        sa_menu_touch();
     } else {                                 /* the tempo (faster when turned fast) */
         uint32_t now = plat_ms(), dt = now - sa.sel_ms;
         int32_t b = clamp((int32_t)sa.bpm + d * (dt < 40u ? 4 : 1), SA_BPM_MIN, SA_BPM_MAX);
@@ -785,6 +847,12 @@ static void sa_tap(uint32_t b)               /* SAVE, ARP, PLAY, REC let go befo
             sar_set(!sar.on);
             sa_overlay(SA_SCR_ARP);
         }
+    } else if (b == B_HOME) {                /* the HOME view at once; at it, the next one: Notes, Scope, Keys */
+        if (sa.ov == SA_SCR_HOME && !sl_recording()) {
+            sa.view = (uint8_t)((sa.view + 1u) % 3u);
+            sa_changed();
+        }
+        sa_close();
     } else if (b == B_LFO) {                 /* (tapped: CC bank D, as the other bank buttons) */
         sa_cc_bank(B_LFO - B_FX);
     } else if (b == B_REC) {
@@ -812,6 +880,13 @@ static void sa_hold(uint32_t b)              /* ... held SA_HOLD_MS */
         sa_overlay_menu(SA_SCR_ARPSET);
     } else if (b == B_REC && !sl_recording()) {   /* the recording options */
         sa_overlay_menu(SA_SCR_RECOPT);
+    } else if (b == B_HOME) {                /* the settings page; held again: closed */
+        if (sa.menu && sa.ov == SA_SCR_SETTINGS) {
+            sa_close();
+        } else {
+            sa.mfocus = 0;
+            sa_overlay_menu(SA_SCR_SETTINGS);
+        }
     } else if (b == B_LFO) {                 /* LATCH on / off */
         sa_latch_set(!sa.latch);
         sa_overlay(SA_SCR_LATCH);
@@ -822,18 +897,12 @@ static void sa_press(uint32_t b)             /* any other button down */
 {
     if (b <= B_EDIT) {                       /* FX SEL ENV LFO EDIT: the CC bank */
         sa_cc_bank(b - B_FX);
-    } else if (b == B_HOME) {                /* the HOME view at once; at it, the next one: Notes, Scope, Keys */
-        if (sa.ov == SA_SCR_HOME && !sl_recording()) {
-            sa.view = (uint8_t)((sa.view + 1u) % 3u);
-            sa_changed();
-        }
-        sa_close();
     } else if (b == B_GLO) {
         sa.poke = 1;
     }
 }
 
-#define SA_HOLDABLE (1u << B_SAVE | 1u << B_ARP | 1u << B_PLAY | 1u << B_REC | 1u << B_LFO)
+#define SA_HOLDABLE (1u << B_SAVE | 1u << B_ARP | 1u << B_PLAY | 1u << B_REC | 1u << B_LFO | 1u << B_HOME)
 static void sa_buttons(uint32_t btns)
 {
     const uint32_t OD = 1u << B_OCTDN, OU = 1u << B_OCTUP;
@@ -949,9 +1018,20 @@ static void sa_ms(uint32_t btns, const int32_t *steps)
         sa.keys = keys;
         return;
     }
-    for (ch = keys ^ sa.keys, k = 0; ch; ch >>= 1, k++)
-        if (ch & 1u)
-            sa_key(k, (keys >> k & 1u) ? touch_vel(k) : 0u);
+    for (ch = keys ^ sa.keys, k = 0; ch; ch >>= 1, k++) {
+        if (!(ch & 1u))
+            continue;
+        if ((keys >> k & 1u) && (btns >> B_GLO & 1u) && sa_key_black(k) >= 0) {   /* GLO + a black key: the octave */
+            int8_t o = (int8_t)sa_black_oct((uint32_t)sa_key_black(k));
+            if (o != sa.oct) {
+                sa.oct = o;
+                sa_changed();
+            }
+            sa_overlay(SA_SCR_OCTAVE);
+            continue;
+        }
+        sa_key(k, (keys >> k & 1u) ? touch_vel(k) : 0u);
+    }
     sa.keys = keys;
     sa_buttons(btns & ((1u << NB) - 1u));
     sa_encoders(steps);

@@ -780,9 +780,29 @@ static void sa_paint_remote(void)
     uint32_t st = ui.rm_last[0] & 0xF0u, v = ui.rm_last[2];
     int32_t i, w, lit;
     uint16_t acc = UC(A2);
-    sg_chip_text(10, 8, 0, 22, 7, "REMOTE MIDI", UC(A2), UC(ON));
-    w = sg_text_w(ui.ch_txt, 1) + 14;
-    sg_chip_text(230 - w, 8, w, 22, 7, ui.ch_txt, UC(PANEL), UC(INK));
+    char cht[16];
+    sg_chip_text(10, 8, 0, 22, 7, ui.rm_kbd ? "REMOTE KEYS" : "REMOTE MIDI", UC(A2), UC(ON));
+    sa_cpy(cht, "CC ");                      /* the channels: CC 1 KEY 2, or CH 01 when the same */
+    sa_txt_num(cht + 3, ui.set[2]);
+    sa_cpy(cht + sa_slen(cht), " KEY ");
+    sa_txt_num(cht + sa_slen(cht), ui.set[3]);
+    if (ui.set[2] == ui.set[3])
+        sa_cpy(cht, ui.set[2] < 10u ? "CH 0" : "CH "), sa_txt_num(cht + sa_slen(cht), ui.set[2]);
+    w = sg_text_w(cht, 1) + 14;
+    sg_chip_text(230 - w, 8, w, 22, 7, cht, UC(PANEL), UC(INK));
+    if ((ui.rm_info == SA_RM_INFO_OCT || ui.rm_info == SA_RM_INFO_KEYCH) && ui.rm_info_age < SA_RM_INFO_MS) {
+        int oct = ui.rm_info == SA_RM_INFO_OCT;   /* MIDI KEYBOARD's shortcuts: the octave, the keys' channel */
+        sa_num(big, oct ? (int32_t)ui.rm_oct - 3 : (int32_t)ui.rm_keych, oct);
+        w = sg_text_w(oct ? "OCTAVE" : "KEY CHANNEL", 1) + 16;
+        sg_chip_text((SG_W - w) / 2, 44, w, 22, 7, oct ? "OCTAVE" : "KEY CHANNEL", oct ? UC(A5) : UC(A2), UC(ON));
+        sg_text_sh((SG_W - sg_text_w(big, 7)) / 2, 90, 7, big, oct ? UC(A5) : UC(A2), 4, UC(SHADOW));
+        for (i = 0; i < (oct ? 7 : 16); i++) {   /* where it is: 7 octaves, or 16 channels */
+            int32_t n = oct ? 7 : 16, cw = oct ? 26 : 11, x = (SG_W - n * (cw + 2)) / 2 + i * (cw + 2);
+            int on = oct ? i == (int32_t)ui.rm_oct : i + 1 == (int32_t)ui.rm_keych;
+            sg_rect(x, 200, cw, 14, on ? (oct ? UC(A5) : UC(A2)) : UC(PANEL));
+        }
+        return;
+    }
     if (!ui.rm_any) {                        /* nothing sent yet */
         sg_text_sh((SG_W - sg_text_w("MIDI", 5)) / 2, 90, 5, "MIDI", UC(MID), 4, UC(SHADOW));
         return;
@@ -798,10 +818,15 @@ static void sa_paint_remote(void)
     if (st == 0x90u || st == 0x80u) {        /* a note: its name big, the velocity */
         sa_cpy(what, st == 0x90u ? "NOTE ON" : "NOTE OFF");
         sa_note_name(ui.rm_last[1], big);
-    } else {                                 /* a CC: its number, the value big */
+    } else {                                 /* a CC: its number, the value big (relative: the step, signed) */
         sa_cpy(what, "CC ");
         sa_txt_num(what + 3, ui.rm_last[1]);
-        sa_txt_num(big, v);
+        if (ui.rm_src == SA_RM_SRC_ENC && ui.set[1] != SA_RMR_ABS) {
+            sa_num(big, ui.rm_rel, 1);
+            v = (uint32_t)clamp(64 + 8 * ui.rm_rel, 0, 127);
+        } else {
+            sa_txt_num(big, v);
+        }
     }
     sg_text_c(78, 2, what, UC(SOFT));
     sg_text_sh((SG_W - sg_text_w(big, 5)) / 2, 106, 5, big, acc, 4, UC(SHADOW));
@@ -835,11 +860,74 @@ static void sa_paint_latch(void)
         sg_rect(18 + 26 * i, 224, 22, 6, ui.latch ? UC(A3) : UC(PANEL));
 }
 
+/* ------------------------------------------------------------------ the settings (HOME held) --- */
+static void sa_paint_settings(void)
+{
+    static const char *const LAB[7] = {"SCREEN", "KNOBS", "CC CH", "KEY CH", "KEYS", "OCT KEYS", "SCALES"};
+    static const char *const DISP[SA_RMD_N] = {"VOID", "SOLID", "ALL", "KNOBS ONLY"};
+    static const char *const REL[SA_RMR_N] = {"ABSOLUTE", "REL 1/127", "REL 65/63"};
+    static const char *const KEYS[SA_RMK_N] = {"FIXED", "MIDI KEYS"};
+    static const char *const OCTK[2] = {"CC 85/86", "OCTAVE"};
+    static const uint8_t COL[7] = {SA_TK_A5, SA_TK_A1, SA_TK_A3, SA_TK_A4, SA_TK_A2, SA_TK_A5, SA_TK_A1};
+    int32_t i, nudge = ui.now % 600u < 300u ? 0 : 2, f = ui.mfocus < SA_NSET ? ui.mfocus : 0;
+    sg_chip_text(10, 8, 0, 22, 7, "SETTINGS", UC(A2), UC(ON));
+    sg_chip_text(166, 8, 64, 22, 0, "REMOTE", UC(PANEL), UC(INK));
+    for (i = 0; i < (int32_t)SA_NSET; i++) {   /* a row each: its name, its value in a chip; the focused one lit */
+        char num[4];
+        const char *v = num;
+        int32_t y = 38 + 27 * i, w, on = i == f;
+        uint16_t c = ui.c[COL[i]];
+        switch (i) {
+        case 0: v = DISP[ui.set[0] % SA_RMD_N]; break;
+        case 1: v = REL[ui.set[1] % SA_RMR_N]; break;
+        case 4: v = KEYS[ui.set[4] % SA_RMK_N]; break;
+        case 5: v = OCTK[ui.set[5] & 1u]; break;
+        case 6: v = SA_ONOFF[ui.set[6] & 1u]; break;
+        default: sa_txt_num(num, ui.set[i]); break;
+        }
+        if (!sg_hits(y, 24))
+            continue;
+        if (on) {
+            sg_chip(8, y, 224, 24, c);
+            sa_arrow_c = UC(ON);
+        }
+        sg_text(18 - (on ? nudge : 0), y + 7, 1, LAB[i], on ? UC(ON) : UC(SOFT));
+        w = sg_text_w(v, 1) + 14;
+        sg_chip_text(226 - w, y + 2, w, 20, 6, v, on ? UC(BG) : UC(PANEL), on ? c : UC(INK));
+        if (!on)
+            sg_rect(10, y + 10, 4, 4, c);
+    }
+}
+
 /* ------------------------------------------------------------------ the dispatch --- */
 static void sa_ui_snap_more(void)
 {
-    if (rm.on && !sa.panel)
+    ui.blank = 0;
+    ui.set[0] = sa.rm_disp, ui.set[1] = sa.rm_rel, ui.set[2] = sa.rm_cc_ch, ui.set[3] = sa.rm_key_ch;
+    ui.set[4] = sa.rm_keys, ui.set[5] = sa.rm_octk, ui.set[6] = sa.rm_scl;
+    ui.rm_info = rm.info;
+    ui.rm_info_age = ui.now - rm.info_ms;
+    ui.rm_oct = (uint8_t)(rm.oct + 3);
+    ui.rm_keych = sa.rm_key_ch;
+    ui.rm_kbd = sa.rm_keys == SA_RMK_PLAY;
+    ui.rm_rel = rm.rel;
+    if (rm.on && !sa.panel) {
         ui.scr = SA_SCR_REMOTE;
+        if (sa.rm_disp == SA_RMD_VOID) {      /* nothing: black, whatever the theme */
+            ui.cbuf[SA_TK_BG] = 0;
+            ui.blank = 1;
+        } else if (sa.rm_disp == SA_RMD_SOLID) {
+            ui.blank = 1;
+        } else if (sa.rm_disp == SA_RMD_KNOBS) {   /* the encoders' and MASTER's values a moment, else black */
+            int knob = rm.n && (rm.src == SA_RM_SRC_ENC || rm.src == SA_RM_SRC_MASTER) &&
+                       ui.now - rm.last_ms < SA_RM_KNOB_MS;
+            int info = rm.info == SA_RM_INFO_SCALE && ui.rm_info_age < SA_RM_KNOB_MS;
+            if (!knob && !info) {
+                ui.cbuf[SA_TK_BG] = 0;
+                ui.blank = 1;
+            }
+        }
+    }
     memcpy(ui.rm_last, rm.last, 3);
     ui.rm_src = rm.src;
     ui.rm_src_i = rm.src_i;
@@ -879,6 +967,7 @@ static int sa_paint_more(void)               /* 1: painted (a screen after S1) *
     case SA_SCR_ARPSET: sa_paint_arpset(); return 1;
     case SA_SCR_TEMPO: sa_paint_tempo(); return 1;
     case SA_SCR_LATCH: sa_paint_latch(); return 1;
+    case SA_SCR_SETTINGS: sa_paint_settings(); return 1;
     default: return 0;
     }
 }

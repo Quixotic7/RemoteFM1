@@ -82,18 +82,32 @@ MIDI controller (CC banks on FX..EDIT and KN1..KN4: the CC-Bank screen a bank bu
 screen), loops and arps. SAVE opens the theme menu: SELECT or the knobs pick the theme, ALGORITHM its background
 (black, five dark grounds, or the theme's classic colour, such as the C64's blue, where its text keeps 4.5:1).
 **MIDI REMOTE**: GLO + FX turns the whole panel into a plain MIDI controller (GLO + FX again leaves; not kept across a
-power cycle); the DX7 is silent and every control sends MIDI on the current channel:
+power cycle); the DX7 is silent and every control sends MIDI on the channels of the settings page (HOME held):
 
-| Control | Message (on the current MIDI channel) |
+| Control | Message (CC CH: the settings' channel for buttons, encoders and MASTER; KEY CH: the keys') |
 |---|---|
-| Keys (27) | notes F3..G5, shifted by the octave as it was when the mode came on, with velocity; note off velocity 64 |
-| FX SEL ENV LFO EDIT | CC 20, 21, 22, 23, 24: 127 pressed, 0 let go |
-| GLO HOME SAVE | CC 25, 26, 27 (127 / 0) |
+| Keys (27) | notes on KEY CH, F3..G5 shifted by the octave as it was when the mode came on, with velocity; note off velocity 64 |
+| FX SEL ENV LFO EDIT | CC 20, 21, 22, 23, 24 on CC CH: 127 pressed, 0 let go |
+| GLO HOME SAVE | CC 25, 26, 27 (127 / 0); GLO none in MIDI KEYS (it is the shift there) |
 | ARP SEQ PLAY REC | CC 28, 29, 30, 31 (127 / 0) |
-| OCT- OCT+ | CC 85, 86 (127 / 0) |
-| SELECT ALGORITHM PRESETS | CC 102, 103, 104: absolute 0..127, each from 64 when the mode comes on (x2 / x4 when turned fast) |
+| OCT- OCT+ | CC 85, 86 (127 / 0); in MIDI KEYS with OCT KEYS on: the keys' octave -3..+3 instead, nothing sent |
+| SELECT ALGORITHM PRESETS | CC 102, 103, 104: absolute 0..127, each from 64 when the mode comes on (x2 / x4 when turned fast); or relative (below) |
 | KN1 KN2 KN3 KN4 | CC 105, 106, 107, 108: the same |
-| MASTER | CC 109, 0..127, sent when it moves |
+| MASTER | CC 109, 0..127, sent when it moves (always absolute) |
+| GLO + a white key (MIDI KEYS) | KEY CH: the white keys left to right are channels 1..16; no note |
+| GLO + a black key (MIDI KEYS) | the octave: the 11 black keys left to right -3 -3 -3 -2 -1 0 +1 +2 +3 +3 +3 (the sixth, F#4, is 0); no note |
+
+**The settings page** (HOME held in the instrument, not in the mode; KN1..KN4 the first four rows, PRESETS the row,
+SELECT its value; HOME closes; kept with the settings):
+
+| Row | Values |
+|---|---|
+| SCREEN | VOID (black), SOLID (the theme's background), ALL (the REMOTE MIDI screen), KNOBS ONLY (an encoder's or MASTER's value for 1.5 s, else black) |
+| KNOBS | ABSOLUTE; REL 1/127 (two's complement: +n sends n, -n sends 128-n, n up to 63); REL 65/63 (offset: 64+n); each detent group sent as it turns (x2 / x4 when fast) |
+| CC CH | 1..16: buttons, encoders, MASTER |
+| KEY CH | 1..16: the keys (GLO + a white key sets it in MIDI KEYS) |
+| KEYS | FIXED (the keys send their notes, every button its CC, as before); MIDI KEYS (a keyboard: GLO is a shift, the shortcuts above) |
+| OCT KEYS | OCTAVE (in MIDI KEYS, OCT- / OCT+ shift the keys' octave) or CC 85/86 (they send their CCs) |
 
 docs/PROTOCOL.md section 8 has the details.
 

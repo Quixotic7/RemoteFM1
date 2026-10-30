@@ -41,7 +41,7 @@ sim() {   # sim BINARY SCRIPT...
     done
 }
 
-SA_TESTS="firmware/tests/standalone_cc.txt firmware/tests/standalone_loop.txt firmware/tests/standalone_arp.txt firmware/tests/standalone_s5.txt firmware/tests/standalone_remote.txt firmware/tests/standalone_menus.txt firmware/tests/standalone_latch.txt"   # S2.. (the standalone's milestones)
+SA_TESTS="firmware/tests/standalone_cc.txt firmware/tests/standalone_loop.txt firmware/tests/standalone_arp.txt firmware/tests/standalone_s5.txt firmware/tests/standalone_remote.txt firmware/tests/standalone_menus.txt firmware/tests/standalone_latch.txt firmware/tests/standalone_settings.txt"   # S2.. (the standalone's milestones)
 echo "== the app in fm1-base's host simulator: USB SysEx, bulk, Bluetooth, the update's SysEx beside (firmware/tests)"
 env -u CC ./build.sh --host >/dev/null
 sim "$SIM/remotefm1_host" firmware/tests/session.txt firmware/tests/bulk_ota.txt firmware/tests/ble.txt \

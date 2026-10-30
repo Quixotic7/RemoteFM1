@@ -1,0 +1,170 @@
+# SPDX-License-Identifier: MPL-2.0
+# RemoteFM1 standalone: the settings page (HOME held; the owner, 2026-10-30) for MIDI REMOTE: SCREEN (VOID, SOLID,
+# ALL, KNOBS ONLY), KNOBS (ABSOLUTE, relative 1/127, relative 65/63), CC CH (buttons, encoders, MASTER), KEY CH,
+# KEYS (FIXED, MIDI KEYS: the octave on OCT- / OCT+ when OCT KEYS is on, GLO + a white key the keys' channel, GLO + a
+# black key the octave, GLO sends nothing), kept across a power cycle. KN1..KN4 the first four rows, PRESETS the row,
+# SELECT its value; HOME (or HOME held) closes. And GLO + a black key in the instrument: the octave.
+# tests/run_tests.sh runs it (both builds).
+wait 400
+expect sa_set0 2
+expect sa_set2 1
+press HOME
+wait 600
+release HOME
+expect sa_screen 19
+expect sa_view 0
+wait 30
+shot sa_settings.png
+turn K1 -2
+expect sa_set0 0
+turn K2 1
+expect sa_set1 1
+turn K3 1
+expect sa_set2 2
+turn K4 2
+expect sa_set3 3
+turn PRESET 1
+turn SELECT 1
+expect sa_set4 1
+turn PRESET 1
+turn SELECT -1
+expect sa_set5 0
+turn SELECT 1
+expect sa_set5 1
+wait 30
+shot sa_settings_keys.png
+wait 7000
+expect sa_screen 19
+tap HOME
+expect sa_screen 0
+expect sa_view 0
+# MIDI REMOTE with these: the screen VOID, the keys on channel 3, the encoders relative 1/127 on channel 2
+press GLO
+press FX
+wait 20
+release FX
+release GLO
+expect sa_remote 1
+wait 40
+expect sa_blank 1
+shot sa_remote_void.png
+out
+key 9 down 100
+wait 20
+expect_out USB 92 3E 64
+key 9 up
+wait 20
+expect_out USB 82 3E 40
+turn K2 1
+expect_out USB B1 6A 01
+turn K2 -1
+expect_out USB B1 6A 7F
+# OCT+ in MIDI KEYS: the octave, no CC
+out
+tap OCT+
+expect sa_rm_oct 1
+expect_no_out USB B1 56 7F
+key 9 down 100
+wait 20
+expect_out USB 92 4A 64
+key 9 up
+wait 20
+# GLO + a white key: the keys' channel (the first: 1); GLO + a black key: the octave (the sixth: 0, the first: -3)
+out
+press GLO
+wait 20
+key 0 down 100
+wait 20
+key 0 up
+expect sa_set3 1
+key 13 down 100
+wait 20
+key 13 up
+expect sa_rm_oct 0
+key 1 down 100
+wait 20
+key 1 up
+expect sa_rm_oct -3
+release GLO
+wait 20
+expect_no_out USB B1 19 7F
+expect_no_out USB 92 35 64
+key 9 down 100
+wait 20
+expect_out USB 90 1A 64
+key 9 up
+wait 20
+# out; the screen KNOBS ONLY, relative 65/63, the keys FIXED (OCT+ its CC again)
+press GLO
+press FX
+wait 20
+release FX
+release GLO
+expect sa_remote 0
+expect_no_out USB B1 19 00
+press HOME
+wait 600
+release HOME
+turn K1 3
+turn K2 1
+turn PRESET 3
+turn SELECT -1
+expect sa_set0 3
+expect sa_set1 2
+expect sa_set4 0
+press HOME
+wait 600
+release HOME
+expect sa_screen 0
+press GLO
+press FX
+wait 20
+release FX
+release GLO
+wait 40
+expect sa_blank 1
+out
+turn K1 1
+expect_out USB B1 69 41
+turn K1 -1 100
+expect_out USB B1 69 3F
+wait 40
+expect sa_blank 0
+shot sa_remote_knobs.png
+wait 1600
+expect sa_blank 1
+tap OCT+
+expect_out USB B1 56 7F
+press GLO
+press FX
+wait 20
+release FX
+release GLO
+# kept
+wait 2500
+reboot
+wait 400
+expect sa_set0 3
+expect sa_set1 2
+expect sa_set2 2
+expect sa_set3 1
+expect sa_set4 0
+expect sa_set5 1
+# the instrument: GLO + a black key, the octave (no note)
+expect sa_oct 0
+press GLO
+key 25 down 100
+wait 20
+expect sa_oct 3
+expect sa_screen 3
+expect sa_held 0
+key 25 up
+key 8 down 100
+wait 20
+key 8 up
+release GLO
+expect sa_oct -2
+wait 1100
+tap OCT+
+tap OCT+
+expect sa_oct 0
