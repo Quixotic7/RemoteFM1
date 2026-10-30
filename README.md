@@ -79,8 +79,16 @@ emulator exists for the FM-1's CPU.
 
 **Standalone** (the `standalone` branch; STANDALONE-PLAN.md): with no host, the FM-1 plays DX7 voices, works as a
 MIDI controller (CC banks on FX..EDIT and KN1..KN4: the CC-Bank screen a bank button opens stays until HOME or another
-screen), loops and arps. SAVE opens the theme menu: SELECT or the knobs pick the theme, ALGORITHM its background
-(black, five dark grounds, or the theme's classic colour, such as the C64's blue, where its text keeps 4.5:1).
+screen), loops and arps. SAVE opens the theme menu: KN1 picks the theme, KN2 or ALGORITHM its background (black, five
+dark grounds, or the theme's classic colour, such as the C64's blue, where its text keeps 4.5:1). The user decides
+which screen is open: a menu or the CC-Bank screen stays until HOME or its own button, and a passing screen (tempo,
+voice, channel, octave, latch) goes back to it, never to HOME by itself. In a menu KN1..KN4 set its values; PRESETS
+is always the voice (past a cartridge's end, the next cartridge's), SELECT the tempo (the settings: the row; the
+recording options: the page). REC arms a take (it starts with the first note played); the recording options (REC
+held) have a count-in of 1, 2 or 4 bars and a metronome on the audio out; a loop holds the keys as played and the arp
+steps them on playback. SEQ opens the 16 loops: the white keys pick one, the black keys (F# G# A#) or KN1 when it
+comes in (INSTANT, AT BAR, AT END). GLO + a white key sets the MIDI channel, GLO + a black key the octave; GLO held
+shows both on the keys' LEDs.
 **MIDI REMOTE**: GLO + FX turns the whole panel into a plain MIDI controller (GLO + FX again leaves; not kept across a
 power cycle); the DX7 is silent and every control sends MIDI on the channels of the settings page (HOME held):
 
@@ -97,10 +105,13 @@ power cycle); the DX7 is silent and every control sends MIDI on the channels of 
 | GLO + a white key (MIDI KEYS) | KEY CH: the white keys left to right are channels 1..16; no note |
 | GLO + a black key (MIDI KEYS) | the octave: the 11 black keys left to right -3 -3 -3 -2 -1 0 +1 +2 +3 +3 +3 (the sixth, F#4, is 0); no note |
 | GLO + PRESETS / ALGORITHM (MIDI KEYS, SCALES on) | the scale's root / the scale (the instrument's, shared and kept; the Scale screen a moment); no CC. With SCALES off they send their CCs 104 / 103 (GLO itself still sends none) |
-| The keys in MIDI KEYS | snapped to the scale (SNAP: a note out of it moves to the nearest in it, a tie down); the scale's keys glow dim |
+| The keys in MIDI KEYS | snapped to the scale (SNAP: a note out of it moves to the nearest in it, a tie down); the keys' LEDs: the root at 75 %, the scale's other notes at 40 % (3/8), held keys lit |
+| The keys' LEDs with the screen off | an encoder turned in ABSOLUTE, or MASTER moved: its value on the 16 white keys for 1.5 s (0 the first, 127 all 16); in MIDI KEYS, GLO held: the keys' channel (its white key) and octave (its black key) lit |
 
-**The settings page** (HOME held in the instrument, not in the mode; KN1..KN4 the first four rows, PRESETS the row,
-SELECT its value; HOME closes; kept with the settings):
+**The settings page** ("REMOTE MODE SETTINGS": HOME held or GLO + HOME in the instrument, not in the mode; one row
+big at a time, its value bigger, the rows before and after peeking; SELECT the row, KN1 its value, KN2..KN4 nothing;
+HOME, HOME held or GLO + HOME closes; GLO + FX from it goes into MIDI REMOTE and comes back to it; kept with the
+settings):
 
 | Row | Values |
 |---|---|

@@ -34,25 +34,27 @@ and its `melodee_fm6.h` (Felucca's factory voices), and anything under saadet's 
 
 | Control | Tap / turn | Hold / with GLO |
 |---|---|---|
-| Keys (27) | play the DX7 voice and send notes on the channel, with velocity (fm1-base's key sensing) | GLO + a black key: the octave (left to right -3 -3 -3 -2 -1 0 +1 +2 +3 +3 +3) |
+| Keys (27) | play the DX7 voice and send notes on the channel, with velocity (fm1-base's key sensing). LEDs: played keys lit (100 %); with a scale its root at 75 %, its other notes at 40 % (3/8 of the time: felucca-bsp patch 0004, fm1-base 0007) | GLO + a white key: the MIDI channel 1..16; GLO + a black key: the octave (left to right -3 -3 -3 -2 -1 0 +1 +2 +3 +3 +3) |
 | MASTER | volume | |
-| SELECT | tempo; in menus: choose | GLO + SELECT: bank (ROM1A..ROM4B, then the user banks) |
-| PRESETS | DX7 voice 1..32 | GLO + PRESETS: the scale's root C..B (the Scale screen) |
-| ALGORITHM | MIDI channel 1..16 | GLO + ALGORITHM: the scale: CHROMATIC (off), MAJOR, MINOR, DORIAN, PHRYGIAN, LYDIAN, MIXOLYDIAN, LOCRIAN, HARM MINOR, MEL MINOR, MAJ PENTA, MIN PENTA, BLUES, WHOLE TONE, DIMINISHED. SNAP: every key plays, a note out of the scale moves to the nearest in it (a tie: down); the arp and loops get the snapped notes; the scale's keys glow dim; kept; MIDI REMOTE's MIDI KEYS too |
-| KN1..KN4 | send the 4 CCs of the current bank | GLO + knob: pick which CC that knob sends |
+| SELECT | tempo; in the settings page the row, in the recording options the page | GLO + SELECT: bank (ROM1A..ROM4B, then the user banks) |
+| PRESETS | DX7 voice 1..32 in every screen; past a cartridge's last voice the next cartridge's first, past the last cartridge's last the first's first (and back) | GLO + PRESETS: the scale's root C..B (the Scale screen) |
+| ALGORITHM | MIDI channel 1..16 | GLO + ALGORITHM: the scale: CHROMATIC (off), MAJOR, MINOR, DORIAN, PHRYGIAN, LYDIAN, MIXOLYDIAN, LOCRIAN, HARM MINOR, MEL MINOR, MAJ PENTA, MIN PENTA, BLUES, WHOLE TONE, DIMINISHED. SNAP: every key plays, a note out of the scale moves to the nearest in it (a tie: down); the arp and loops get the snapped notes; the keys' LEDs show the root at 75 % and the scale at 40 %; kept; MIDI REMOTE's MIDI KEYS too |
+| KN1..KN4 | send the 4 CCs of the current bank; in a menu, its four values | GLO + knob: pick which CC that knob sends |
 | FX SEL ENV LFO EDIT | CC bank A..E (its screen stays until HOME or another screen; the knobs change it in place; LFO acts when let go) | GLO + FX: MIDI REMOTE on / off (docs/PROTOCOL.md section 8); LFO held: LATCH on / off (the notes stay after the keys are let go, a new chord replaces them, the arp steps them; LFO blinks, a LATCH chip on HOME; off lets them go) |
-| GLO | shift (held) | |
-| HOME | next view: Notes, Scope, Keys (when let go) | hold: the settings page (MIDI REMOTE's screen, knobs, channels, keys; docs/PROTOCOL.md section 8) |
-| SAVE | the theme menu (ALGORITHM there: the background: black, five dark grounds, the theme's classic, ORANGE, HOT PINK; on the bright two the theme turns to black ink) | hold: save everything (CC map, loops, theme, settings) |
-| ARP | arp on / off | hold: arp settings (mode, rate, octaves, gate) |
-| SEQ | spare | |
-| PLAY | play / stop the current loop; stops a recording and plays it | hold: the 16 loops; a picked loop queues in at the end of the current one |
-| REC | record a loop exactly as played (free length by default) | hold: recording options (length, quantize, count-in, layer) |
+| GLO | shift (held); held, the keys' LEDs show the MIDI channel (its white key) and the octave (its black key) | |
+| HOME | next view: Notes, Scope, Keys (when let go); closes a menu | hold, or GLO + HOME: the settings page (REMOTE MODE SETTINGS: SELECT the row, KN1 the value; docs/PROTOCOL.md section 8) |
+| SAVE | the theme menu (KN1 the theme; KN2 or ALGORITHM the background: black, five dark grounds, the theme's classic, ORANGE, HOT PINK; on the bright two the theme turns to black ink) | hold: save everything (CC map, loops, theme, settings) |
+| ARP | arp on / off (a playing loop's notes move into or out of it) | hold: arp settings (MODE, RATE, OCTAVES, GATE on KN1..KN4) |
+| SEQ | the 16 loops (SEQ again closes): the white keys pick loops 1..16 (no notes there), the black keys each octave's F# G# A# or KN1 the launch: INSTANT, AT BAR, AT END (kept); the current loop lit | |
+| PLAY | on its press: play / stop the current loop; stops a recording and plays it | (held: nothing more) |
+| REC | arms a take: its time starts with the first note played (REC again calls it off); with a count-in, the take starts after it at the bar; on a playing loop with LAYER DUB, an overdub at once. A loop records the keys as played (not the arp's notes) | hold: the recording options, two pages (SELECT): TAKE (LENGTH, QUANTIZE, LAYER), COUNT (COUNT-IN none / 1 / 2 / 4 bars, METRONOME on the audio out, CLICK VOL) on KN1..KN3 |
 | OCT- / OCT+ | octave -3..+3 | both: panic |
 
-Every turn or press shows its screen from the mockup for about a second, then returns to the current HOME view. The
-CC-Bank screen and the menus (Arp settings, Rec options, the 16 loops, the theme menu) stay locked on, untouched, until
-HOME, their own button or another screen (the owner, 2026-10-30).
+Every turn or press shows its screen from the mockup for about a second, then returns to the screen under it. The
+CC-Bank screen and the menus (Arp settings, Rec options, the 16 loops, the theme menu, the settings page) stay locked
+on until HOME, their own button or another of them; nothing goes back to HOME by itself (the owner, 2026-10-30: "The
+user should be in full control of which menu they want to be on"). MIDI REMOTE (GLO + FX) leaves the screen as it
+was: GLO + FX again comes back to it.
 
 ## 4. Architecture
 

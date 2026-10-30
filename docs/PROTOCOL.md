@@ -332,10 +332,13 @@ CC is one General MIDI leaves undefined, free for a DAW's MIDI learn:
 | GLO + a white key (MIDI KEYS) | KEY CH: the white keys left to right are channels 1..16; no note |
 | GLO + a black key (MIDI KEYS) | the octave: the 11 black keys left to right -3 -3 -3 -2 -1 0 +1 +2 +3 +3 +3 (the sixth, F#4, is 0); no note |
 | GLO + PRESETS / ALGORITHM (MIDI KEYS, SCALES on) | the scale's root / the scale (the instrument's, shared and kept; the Scale screen a moment); no CC. With SCALES off they send their CCs 104 / 103 (GLO itself still sends none) |
-| The keys in MIDI KEYS | snapped to the scale (SNAP: a note out of it moves to the nearest in it, a tie down); the scale's keys glow dim |
+| The keys in MIDI KEYS | snapped to the scale (SNAP: a note out of it moves to the nearest in it, a tie down); the keys' LEDs: the root at 75 %, the scale's other notes at 40 % (3/8), held keys lit |
+| The keys' LEDs with the screen off | an encoder turned in ABSOLUTE, or MASTER moved: its value on the 16 white keys for 1.5 s (0 the first, 127 all 16); in MIDI KEYS, GLO held: the keys' channel (its white key) and octave (its black key) lit |
 
-**The settings page** (HOME held in the instrument, not in the mode; KN1..KN4 the first four rows, PRESETS the row,
-SELECT its value; HOME closes; kept with the settings):
+**The settings page** ("REMOTE MODE SETTINGS": HOME held or GLO + HOME in the instrument, not in the mode; one row
+big at a time, its value bigger, the rows before and after peeking; SELECT the row, KN1 its value, KN2..KN4 nothing;
+HOME, HOME held or GLO + HOME closes; GLO + FX from it goes into MIDI REMOTE and comes back to it; kept with the
+settings):
 
 | Row | Values |
 |---|---|
@@ -355,10 +358,12 @@ that had sent 127, and the note offs of the keys held.
 The loops live in RAM only (never in the unit's flash, where other firmwares keep their data): a computer saves and
 loads them with these. An event is 8 bytes: `t32` (ms from the loop's start), `type8` (0 note on, 1 note off, 2 CC),
 `d1` (note / CC number), `d2` (velocity / value), `0`. `slot` is 0..15. Every reply starts with the request's `op`.
+Since 2026-10-30 a loop's notes are the keys as played (an arp running while it was recorded is not in it: the arp
+steps the loop's notes on playback when it is on).
 
 | op | request body | reply body |
 |---|---|---|
-| 0 INFO | `00` | `00 state8 cur8 16` then per loop `n16 ms32 bpm16 bars8` (state: 0 stopped, 1 playing, 2 counting in, 3 recording, 4 overdubbing; `ms` 0 = empty; `bars` 0 = free length) |
+| 0 INFO | `00` | `00 state8 cur8 16` then per loop `n16 ms32 bpm16 bars8` (state: 0 stopped, 1 playing, 2 counting in, 3 recording, 4 overdubbing, 5 armed: waiting for the first note; `ms` 0 = empty; `bars` 0 = free length) |
 | 1 GET | `01 slot first16 max8` | `01 slot first16 total16 ms32 bpm16 bars8 count8 events[count]` (at most 126 events a reply) |
 | 2 BEGIN | `02 slot ms32 bpm16 bars8` | `02 slot status8`: the loop emptied, its length, tempo and bars set |
 | 3 EVENTS | `03 slot first16 n8 events[n]` | `03 slot status8`: appended; `first` must be the loop's count so far |
@@ -366,4 +371,4 @@ loads them with these. An event is 8 bytes: `t32` (ms from the loop's start), `t
 | 5 CLEAR | `05 slot` | `05 slot status8` |
 
 `status`: 0 done, 1 the pool is full (3,584 events for all 16 loops), 2 a bad request, 3 busy (a recording or a
-count-in runs: nothing is written). Writing the loop that plays stops it. A loop being written is not played until END.
+count-in runs, or a take is armed: nothing is written). Writing the loop that plays stops it. A loop being written is not played until END.
