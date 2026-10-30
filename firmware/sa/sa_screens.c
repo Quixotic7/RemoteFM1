@@ -176,9 +176,11 @@ static void sa_ui_snap_loop(void)
         ui.lfilled[i] = sl.len[i] != 0u;
     ui.llen = sl.state == SL_REC ? sl.rec_target : sl.len[k];
     ui.lpos = sl_pos();
-    ui.lrec_ms = sl.state == SL_REC ? ui.now - sl.rec_t0 : ui.lpos;
+    ui.lrec_ms = sl.state == SL_REC ? ui.now - sl.rec_t0 : sl.state == SL_ARM ? 0u : ui.lpos;
     ui.count_left = (uint8_t)(sl.state == SL_COUNT ? (sl.count_end - ui.now) * 4u / sl_bar_ms() + 1u : 0u);
-    ui.ropt[0] = sa.rec_len, ui.ropt[1] = sa.rec_quant, ui.ropt[2] = sa.rec_count, ui.ropt[3] = sa.rec_layer;
+    ui.ropt[0] = sa.rec_len, ui.ropt[1] = sa.rec_quant, ui.ropt[2] = sa.rec_layer, ui.ropt[3] = 0;
+    ui.ropt[4] = sa.rec_count, ui.ropt[5] = sa.rec_metro, ui.ropt[6] = sa.rec_click, ui.ropt[7] = 0;
+    ui.rpage = sa.rpage;
     ui.mfocus = sa.mfocus;
     ui.nbars = 0;
     if (ui.scr == SA_SCR_REC) {
@@ -219,7 +221,8 @@ static void sa_paint_rec(void)
 {
     char big[12];
     int32_t i, w, blink = ui.now % 1000u < 500u;
-    const char *lab = ui.lstate == SL_DUB ? "DUB" : ui.lstate == SL_COUNT ? "COUNT" : ui.lfull ? "FULL" : "REC";
+    const char *lab = ui.lstate == SL_DUB ? "DUB" : ui.lstate == SL_COUNT ? "COUNT" : ui.lstate == SL_ARM ? "ARMED" :
+                      ui.lfull ? "FULL" : "REC";
     w = sg_text_w(lab, 1) + 14 + 13;
     sg_chip(10, 8, w, 22, UC(D1));
     if (blink)
@@ -406,34 +409,44 @@ static const char *const SA_RQ[3] = {"OFF", "1/8", "1/16"};
 static const char *const SA_ONOFF[2] = {"OFF", "ON"};
 static const char *const SA_LAYER[2] = {"REPLACE", "DUB"};
 static const char *const SA_LAYER_S[2] = {"NEW", "DUB"};
+static const char *const SA_RCOUNT[SA_REC_NCOUNTS] = {"NONE", "1 BAR", "2 BARS", "4 BARS"};
+static const char *const SA_RCOUNT_S[SA_REC_NCOUNTS] = {"NONE", "1 BAR", "2 BAR", "4 BAR"};
+static const char *const SA_CLICK[10] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"};
 
+/* the recording options: two pages (SELECT), TAKE (LENGTH, QUANTIZE, LAYER) and COUNT (COUNT-IN, METRONOME, its
+ * volume), a knob each; the knob last turned big in the middle */
 static void sa_paint_recopt(void)
 {
-    static const char *const *const BIG[4] = {SA_RLEN, SA_RQ, SA_ONOFF, SA_LAYER};
-    static const uint8_t N[4] = {SA_REC_NLENS, 3, 2, 2};
-    sa_optmenu_t m = {"REC", 0, 0, 0, {"LENGTH", "QUANTIZE", "COUNT-IN", "LAYER"}, {"LEN", "QUANT", "COUNT", "LAYER"},
-                      {0}, 0, 0, {SA_TK_A5, SA_TK_A1, SA_TK_A3, SA_TK_A4}, ui.mfocus & 3u};
-    uint32_t f = m.focus, v = ui.ropt[f];
+    static const char *const *const BIG[8] = {SA_RLEN, SA_RQ, SA_LAYER, 0, SA_RCOUNT, SA_ONOFF, SA_CLICK, 0};
+    static const char *const *const SMALL[8] = {SA_RLEN_S, SA_RQ, SA_LAYER_S, 0, SA_RCOUNT_S, SA_ONOFF, SA_CLICK, 0};
+    static const uint8_t N[8] = {SA_REC_NLENS, 3, 2, 0, SA_REC_NCOUNTS, 2, 10, 0}, LO[8] = {0, 0, 0, 0, 0, 0, 1, 0};
+    static const char *const NAME[8] = {"LENGTH", "QUANTIZE", "LAYER", 0, "COUNT-IN", "METRONOME", "CLICK VOL", 0};
+    static const char *const LAB[8] = {"LEN", "QUANT", "LAYER", "", "COUNT", "METRO", "CLICK", ""};
+    uint32_t p = ui.rpage & 1u, f = ui.mfocus < 3u ? ui.mfocus : 0u, o = p * 4u + f, v = ui.ropt[o] - LO[o], i;
+    sa_optmenu_t m = {"REC", p ? "COUNT 2/2" : "TAKE 1/2", 0, 0, {0}, {0}, {0}, 0, 0,
+                      {SA_TK_A5, SA_TK_A1, SA_TK_A3, SA_TK_PANEL}, (uint8_t)f};
     m.title_bg = UC(D1);
     m.title_fg = UC(INK);
-    m.val[0] = SA_RLEN_S[ui.ropt[0]];
-    m.val[1] = SA_RQ[ui.ropt[1]];
-    m.val[2] = SA_ONOFF[ui.ropt[2]];
-    m.val[3] = SA_LAYER_S[ui.ropt[3]];
-    m.prev = v > 0u ? BIG[f][v - 1u] : 0;
-    m.next = v + 1u < N[f] ? BIG[f][v + 1u] : 0;
+    for (i = 0; i < 4u; i++) {
+        uint32_t q = p * 4u + i;
+        m.name[i] = NAME[q] ? NAME[q] : "";
+        m.label[i] = LAB[q];
+        m.val[i] = SMALL[q] ? SMALL[q][ui.ropt[q] - LO[q]] : "";
+    }
+    m.prev = v > 0u ? BIG[o][v - 1u] : 0;
+    m.next = v + 1u < N[o] ? BIG[o][v + 1u] : 0;
     {
-        sa_optmenu_t big = m;               /* (the centre shows the long name: "2 BARS", "REPLACE") */
-        const char *vals[4] = {m.val[0], m.val[1], m.val[2], m.val[3]};
-        vals[f] = BIG[f][v];
-        big.val[f] = vals[f];
+        sa_optmenu_t big = m;                /* (the centre shows the long name: "2 BARS", "REPLACE") */
+        big.val[f] = BIG[o][v];
         sa_paint_optmenu(&big);
-        if (sg_hits(186, 46)) {              /* (the cells keep the short ones) */
+        if (sg_hits(186, 46)) {              /* (the cells keep the short ones; the fourth, empty, dark) */
             int32_t x = 8 + 57 * (int32_t)f;
             uint16_t c = ui.c[m.col[f]];
             sg_chip(x + 2, 188, 49, 42, c);
             sg_text(x + (53 - sg_text_w(m.label[f], 1)) / 2, 195, 1, m.label[f], UC(ON));
             sg_text(x + (53 - sg_text_w(m.val[f], 1)) / 2, 213, 1, m.val[f], UC(ON));
+            sg_chip(8 + 57 * 3, 186, 53, 46, UC(D5));
+            sg_chip(10 + 57 * 3, 188, 49, 42, UC(BG));
         }
     }
 }

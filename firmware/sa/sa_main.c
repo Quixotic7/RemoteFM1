@@ -76,6 +76,8 @@ static void rf_sa_leds(uint32_t btns, uint32_t keys, uint32_t keys_mid);   /* th
 #define SA_ARP_NRATES 6u                     /* 1/4, 1/8, 1/8T, 1/16, 1/16T, 1/32 */
 #define SA_ARP_RATE_DEFAULT 3u               /* 1/16 */
 #define SA_REC_NLENS 5u                      /* sa_loop.c: free, 1, 2, 4, 8 bars */
+#define SA_REC_NCOUNTS 4u                    /* the count-in: none, 1, 2, 4 bars */
+#define SA_CLICK_DEFAULT 6u                  /* the metronome's volume, 1..10 */
 
 enum { SA_SCR_HOME, SA_SCR_PRESET, SA_SCR_CHANNEL, SA_SCR_OCTAVE, SA_SCR_HOST, SA_SCR_CCBANK, SA_SCR_CCTURN,
        SA_SCR_CCASSIGN, SA_SCR_SAVED, SA_SCR_REC, SA_SCR_LOOP, SA_SCR_LOOPS, SA_SCR_RECOPT, SA_SCR_ARP, SA_SCR_ARPSET,
@@ -111,7 +113,9 @@ static struct {
     uint32_t sel_ms;                         /* SELECT's last detent */
     uint8_t arp_mode, arp_rate, arp_oct, arp_gate;   /* sa_arp.c's settings */
     uint16_t bpm;                            /* the tempo (SELECT), 40..240 */
-    uint8_t rec_len, rec_quant, rec_count, rec_layer;   /* sa_loop.c's recording options */
+    uint8_t rec_len, rec_quant, rec_count, rec_layer;   /* sa_loop.c's recording options (rec_count: SA_REC_NCOUNTS) */
+    uint8_t rec_metro, rec_click;            /* the metronome on (count-in and recording), its volume 1..10 */
+    uint8_t rpage;                           /* the recording options' page (SELECT) */
     uint8_t ubank_seq;                       /* the user banks' count of arrivals (sa_ubank.c) */
     char name[12];                           /* the voice's */
     uint32_t keys;                           /* keys held (as played: lib/touch) */
@@ -145,7 +149,7 @@ static struct {
 #include "sa_ubank.c"
 
 /* ------------------------------------------------------------------ the render's queue --- */
-enum { SA_EV_ON, SA_EV_OFF, SA_EV_CC, SA_EV_BEND, SA_EV_AT, SA_EV_ALLOFF, SA_EV_SOUNDOFF };
+enum { SA_EV_ON, SA_EV_OFF, SA_EV_CC, SA_EV_BEND, SA_EV_AT, SA_EV_ALLOFF, SA_EV_SOUNDOFF, SA_EV_CLICK };
 #define SA_EVQ 256u
 static uint32_t sa_evq[SA_EVQ] PLAT_POOL;
 static volatile uint32_t sa_ev_w, sa_ev_r;
@@ -172,6 +176,22 @@ static uint32_t sa_clips;                    /* samples the soft knee had to ben
 static int16_t sa_scope[SA_SCOPE_N] PLAT_POOL;
 static volatile uint32_t sa_scope_w;
 
+/* the metronome's click (sa_loop.c): a short decaying sine (a two-pole resonator), 1.6 kHz on a bar's first beat,
+ * 1 kHz on the others, ~25 ms, mixed into the output after the limiter (only the audio out: not MIDI) */
+static struct {
+    float y1, y2, a1;
+    uint32_t left;
+} sa_ck;
+#define SA_CK_R 0.99909f                     /* the decay a sample (44.1 kHz): exp(-1 / (25 ms x 44100)) */
+static void sa_click_start(uint32_t accent, uint32_t vol)   /* (the render) vol 1..10 */
+{
+    float amp = (float)vol * 0.05f;          /* (10: half full scale) */
+    sa_ck.a1 = 2.0f * SA_CK_R * (accent ? 0.97413f : 0.98987f);   /* 2 r cos(w): 1600 / 1000 Hz */
+    sa_ck.y1 = amp * (accent ? 0.22599f : 0.14200f);              /* sin(w) */
+    sa_ck.y2 = 0.0f;
+    sa_ck.left = 4000u;                      /* (~90 ms: under 3 % left) */
+}
+
 static void sa_ev_apply(void)                /* (the render) */
 {
     uint32_t r = sa_ev_r;
@@ -187,6 +207,7 @@ static void sa_ev_apply(void)                /* (the render) */
         case SA_EV_AT: sa_synth_aftertouch(a); break;
         case SA_EV_ALLOFF: sa_synth_all_notes_off(); break;
         case SA_EV_SOUNDOFF: sa_synth_all_sound_off(); break;
+        case SA_EV_CLICK: sa_click_start(a & 1u, b); break;
         default: break;
         }
     }
@@ -230,8 +251,18 @@ static void sa_render(int32_t *lr, uint32_t n, uint32_t gain_q12)
         g1 = target < g0 ? target : g0 + (target - g0) * SA_LIM_REL;
         for (i = 0; i < SA_CTL; i++) {
             float g = g0 + (g1 - g0) * (float)(i + 1u) * (1.0f / (float)SA_CTL);
-            float y = sa_knee((float)sa_mono[k + i] * pg * g), ay = y < 0.0f ? -y : y;
-            int32_t v = (int32_t)(y * mg);
+            float y = (float)sa_mono[k + i] * pg * g, ay;
+            int32_t v;
+            if (sa_ck.left) {                /* the metronome */
+                float c = sa_ck.a1 * sa_ck.y1 - SA_CK_R * SA_CK_R * sa_ck.y2;
+                sa_ck.y2 = sa_ck.y1;
+                sa_ck.y1 = c;
+                sa_ck.left--;
+                y += c;
+            }
+            y = sa_knee(y);
+            ay = y < 0.0f ? -y : y;
+            v = (int32_t)(y * mg);
             peak_out = ay > peak_out ? ay : peak_out;
             lr[2u * (k + i)] = lr[2u * (k + i) + 1u] = v;
             if (i & 1u) {
@@ -276,6 +307,7 @@ static void sa_latch_off1(uint32_t i)       /* latched note i let go now */
 {
     if (sa.lat_arp[i]) {
         sar_key(sa.lat_note[i], 0);
+        sa_rec_ev(SA_LE_OFF, sa.lat_note[i], 0x40u);
     } else {
         sa_note(sa.lat_note[i], 0);
         sa_midi3(0x80u | sa.lat_ch[i], sa.lat_note[i], 0x40u);
@@ -317,8 +349,9 @@ static void sa_key(uint32_t k, uint32_t vel)       /* a key down (vel) or up (0)
         sa.key_ch[k] = (uint8_t)(sa.ch - 1u);
         sa.key_arp[k] = (uint8_t)sar_is_on();
         sa.notes_out++;
-        if (sa.key_arp[k]) {                 /* the arp plays it (sa_arp.c) */
+        if (sa.key_arp[k]) {                 /* the arp plays it (sa_arp.c); the loop records the key */
             sar_key((uint32_t)n, vel);
+            sa_rec_ev(SA_LE_ON, (uint32_t)n, vel);
             sa.poke = 1;
             return;
         }
@@ -334,6 +367,7 @@ static void sa_key(uint32_t k, uint32_t vel)       /* a key down (vel) or up (0)
     } else if (sa.key_note[k] != 0xFFu) {
         if (sa.key_arp[k]) {
             sar_key(sa.key_note[k], 0);
+            sa_rec_ev(SA_LE_OFF, sa.key_note[k], 0x40u);
         } else {
             sa_note(sa.key_note[k], 0);
             sa_midi3(0x80u | sa.key_ch[k], sa.key_note[k], 0x40u);
@@ -412,7 +446,9 @@ typedef struct {
     uint8_t rec_len, rec_quant, rec_count, rec_layer;
     uint8_t ubank_seq, bg;                   /* (bg: 0, black, in records before it) */
     /* version 3 (2026-10-30): the settings page and the scale */
-    uint8_t scale_root, scale, rm_disp, rm_rel, rm_cc_ch, rm_key_ch, rm_keys, rm_octk, rm_scl, rsv[7];
+    uint8_t scale_root, scale, rm_disp, rm_rel, rm_cc_ch, rm_key_ch, rm_keys, rm_octk, rm_scl;
+    uint8_t rec_metro, rec_click;            /* (2026-10-30, in what were spare bytes: 0, 0 before: off, the default) */
+    uint8_t rsv[5];
 } sa_store_t;
 #define SA_STORE_V2_HEAD ((int)__builtin_offsetof(sa_store_t, scale_root))   /* (version 2: the bytes before it) */
 
@@ -543,6 +579,8 @@ static void sa_settings_fill(sa_store_t *s)
     s->rm_keys = sa.rm_keys;
     s->rm_octk = sa.rm_octk;
     s->rm_scl = sa.rm_scl;
+    s->rec_metro = sa.rec_metro;
+    s->rec_click = sa.rec_click;
 }
 
 static void sa_settings_apply(const sa_store_t *s)   /* (each value checked: a record from another build) */
@@ -568,7 +606,9 @@ static void sa_settings_apply(const sa_store_t *s)   /* (each value checked: a r
     sa.bpm = (uint16_t)clamp(s->bpm, SA_BPM_MIN, SA_BPM_MAX);
     sa.rec_len = (uint8_t)(s->rec_len < SA_REC_NLENS ? s->rec_len : 0u);
     sa.rec_quant = (uint8_t)(s->rec_quant < 3u ? s->rec_quant : 0u);
-    sa.rec_count = (uint8_t)(s->rec_count < 2u ? s->rec_count : 0u);
+    sa.rec_count = (uint8_t)(s->rec_count < SA_REC_NCOUNTS ? s->rec_count : 0u);   /* (1 was "on": one bar still) */
+    sa.rec_metro = (uint8_t)(s->rec_metro != 0u);
+    sa.rec_click = (uint8_t)(s->rec_click >= 1u && s->rec_click <= 10u ? s->rec_click : SA_CLICK_DEFAULT);
     sa.rec_layer = (uint8_t)(s->rec_layer < 2u ? s->rec_layer : 0u);
     sa.ubank_seq = s->ubank_seq;
     sa.scale_root = (uint8_t)(s->scale_root < 12u ? s->scale_root : 0u);
@@ -592,6 +632,7 @@ static void sa_settings_defaults(void)
     sa.arp_gate = 6;
     sa.bpm = 120;
     sa.rec_layer = 1;                        /* DUB: REC on a loop adds to it */
+    sa.rec_click = SA_CLICK_DEFAULT;
     sa.rm_disp = SA_RMD_ALL;
     sa.rm_cc_ch = sa.rm_key_ch = 1;
     sa.rm_octk = 1;
@@ -711,8 +752,9 @@ static void sa_leds(void)
     b |= 1u << (B_FX + sa.ccbank);           /* the CC bank's button */
     if (sl.state == SL_PLAY || sl.state == SL_DUB || (sl.state == SL_COUNT && sl.count_play))
         b |= 1u << B_PLAY;                   /* a loop plays */
-    if (sl.state == SL_REC || sl.state == SL_DUB || (sl.state == SL_COUNT && plat_ms() % 500u < 250u))
-        b |= 1u << B_REC;                    /* recording (blinking: the count) */
+    if (sl.state == SL_REC || sl.state == SL_DUB ||
+        ((sl.state == SL_COUNT || sl.state == SL_ARM) && plat_ms() % 500u < 250u))
+        b |= 1u << B_REC;                    /* recording (blinking: the count, armed) */
     if (sar.on)
         b |= 1u << B_ARP;
     if (sa.latch) {                          /* LATCH: LFO blinks (lit 600 ms of each second) */
@@ -756,14 +798,21 @@ static void sa_press_early(uint32_t b)       /* SAVE, ARP, PLAY, REC, HOME down 
 
 static void sa_menu_touch(void) { sa.ov_until = plat_ms() + SA_MENU_MS; sa.poke = 1; }
 
-static void sa_recopt(uint32_t o, int32_t d) /* the recording options: LEN, QUANT, COUNT, LAYER */
+/* the recording options, two pages (SELECT) of up to four (KN1..KN4): TAKE: LENGTH, QUANTIZE, LAYER; COUNT: COUNT-IN,
+ * METRONOME, CLICK (its volume). o: page x 4 + knob */
+#define SA_REC_PAGES 2u
+static void sa_recopt(uint32_t o, int32_t d)
 {
-    static const uint8_t N[4] = {SA_REC_NLENS, 3, 2, 2};
-    uint8_t *v[4] = {&sa.rec_len, &sa.rec_quant, &sa.rec_count, &sa.rec_layer};
-    int32_t x = clamp((int32_t)*v[o & 3u] + d, 0, N[o & 3u] - 1);
+    static const uint8_t LO[8] = {0, 0, 0, 0, 0, 0, 1, 0}, HI[8] = {SA_REC_NLENS - 1u, 2, 1, 0, SA_REC_NCOUNTS - 1u, 1, 10, 0};
+    uint8_t *v[8] = {&sa.rec_len, &sa.rec_quant, &sa.rec_layer, 0, &sa.rec_count, &sa.rec_metro, &sa.rec_click, 0};
+    int32_t x;
+    o &= 7u;
+    if (!v[o])
+        return;
+    x = clamp((int32_t)*v[o] + d, LO[o], HI[o]);
     sa.mfocus = (uint8_t)(o & 3u);
-    if (x != *v[o & 3u]) {
-        *v[o & 3u] = (uint8_t)x;
+    if (x != *v[o]) {
+        *v[o] = (uint8_t)x;
         sa_changed();
     }
 }
@@ -804,7 +853,7 @@ static int sa_menu_knob(uint32_t k, int32_t d)
     if (!sa.menu)
         return 0;
     switch (sa.base) {
-    case SA_SCR_RECOPT: sa_recopt(k, d); break;
+    case SA_SCR_RECOPT: sa_recopt(sa.rpage * 4u + k, d); break;
     case SA_SCR_LOOPS:
         if (k == 0u)
             sl.cursor = (uint8_t)clamp((int32_t)sl.cursor + d, 0, (int32_t)SA_LOOPS - 1);
@@ -836,6 +885,14 @@ static void sa_select(int32_t d)             /* SELECT: the tempo; in the settin
 {
     if (sa.menu && sa.base == SA_SCR_SETTINGS) {
         sa.mfocus = (uint8_t)clamp((int32_t)sa.mfocus + d, 0, (int32_t)SA_NSET - 1);
+        sa_back();
+        sa_menu_touch();
+    } else if (sa.menu && sa.base == SA_SCR_RECOPT) {   /* the recording options: the page */
+        int32_t p = clamp((int32_t)sa.rpage + d, 0, (int32_t)SA_REC_PAGES - 1);
+        if (p != sa.rpage) {
+            sa.rpage = (uint8_t)p;
+            sa.mfocus = 0;
+        }
         sa_back();
         sa_menu_touch();
     } else {                                 /* the tempo (faster when turned fast) */
@@ -898,6 +955,7 @@ static void sa_tap(uint32_t b)               /* SAVE, ARP, PLAY, REC let go befo
         } else {
             sa_latch_release();              /* (the latched notes go: the arp's or not, as they were) */
             sar_set(!sar.on);
+            sl_arp_moved();                  /* (a playing loop's notes into the arp, or out of it) */
             sa_overlay(SA_SCR_ARP);
         }
     } else if (b == B_HOME) {                /* the HOME view at once; at it, the next one: Notes, Scope, Keys */
@@ -911,8 +969,8 @@ static void sa_tap(uint32_t b)               /* SAVE, ARP, PLAY, REC let go befo
     } else if (b == B_REC) {
         if (sa.base == SA_SCR_RECOPT)
             sa_close();
-        else if (sl.state == SL_COUNT)
-            sl_rec_stop(1);                  /* (the count called off) */
+        else if (sl.state == SL_COUNT || sl.state == SL_ARM)
+            sl_rec_stop(1);                  /* (the count, or the armed take, called off) */
         else
             sl_rec_start();                  /* (the screen open stays: HOME's view is the Rec screen) */
     }
@@ -930,6 +988,7 @@ static void sa_hold(uint32_t b)              /* ... held SA_HOLD_MS */
     } else if (b == B_ARP) {                 /* the arp's settings */
         sa_overlay_menu(SA_SCR_ARPSET);
     } else if (b == B_REC && !sl_recording()) {   /* the recording options */
+        sa.mfocus = 0;
         sa_overlay_menu(SA_SCR_RECOPT);
     } else if (b == B_HOME) {                /* the settings page; held again: closed */
         if (sa.base == SA_SCR_SETTINGS) {

@@ -2,7 +2,8 @@
 # RemoteFM1 standalone, S4 (STANDALONE-PLAN.md): the arp and the tempo. ARP turns it on (the Arp screen, ARP lit): the
 # keys held step at 1/16 of 120 BPM, up, each note 60 % of its step; ARP held: its settings (MODE, RATE, OCTAVES, GATE
 # on KN1..KN4); SELECT the tempo (the Tempo screen); a computer's MIDI clock sets the tempo and steps the arp, its
-# start restarts the pattern and the loop, its stop stops the loop; an arp recorded into a loop. Both builds.
+# start restarts the pattern and the loop, its stop stops the loop; a loop holds the keys, the arp steps them. Both
+# builds.
 wait 400
 expect sa_bpm 120
 tap ARP
@@ -96,18 +97,32 @@ wait 500
 expect sa_clock 0
 expect sa_bpm 121
 turn SELECT -1 100
-# an arp recorded into a loop: REC, a key held, REC: the loop holds the arp's notes
+# the arp and a loop (the owner, 2026-10-30): the loop records the key as played (its on and off), not the arp's
+# notes; on playback the arp steps the loop's note; ARP off while the loop plays: the note sounds as recorded, ARP on
+# again: the arp has it again
 tap ARP
 tap ARP
 expect sa_arp 1
 tap REC
+expect sa_lstate 5
 key 7 down 100
 wait 600
 key 7 up
 press REC
 release REC
 expect sa_lstate 1
-expect sa_ln >4
+expect sa_ln 2
+expect sa_lev_ty0 0
+expect sa_lev_t0 0
+expect sa_lev_ty1 1
+wait 100
+expect sa_larp 1
+tap ARP
+expect sa_arp 0
+expect sa_larp 0
+expect sa_held 1
+tap ARP
+expect sa_larp 1
 # MIDI start: the loop from its start; stop: it stops
 sa clock 120 300
 midi USB FA

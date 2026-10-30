@@ -1,18 +1,25 @@
 /* SPDX-License-Identifier: MPL-2.0
  * Copyright (C) 2026 RemoteFM1 contributors */
 /* The standalone's looper (STANDALONE-PLAN.md S3): 16 loops of events, recorded exactly as played (the keys' notes,
- * or the arp's, and the knobs' CCs, at the millisecond), kept in RAM (the pool) and saved to and loaded from a
- * computer over SysEx (SA_LOOP, docs/PROTOCOL.md section 8; tools/sa_loops.py), never in the unit's flash (the plan's
- * question 3, the owner's choice). Part of sa_main.c (its state, sa).
+ * as played even with the arp on, and the knobs' CCs, at the millisecond), kept in RAM (the pool) and saved to and
+ * loaded from a computer over SysEx (SA_LOOP, docs/PROTOCOL.md section 8; tools/sa_loops.py), never in the unit's
+ * flash (the plan's question 3, the owner's choice). Part of sa_main.c (its state, sa).
+ *
+ * What a loop holds (the owner, 2026-10-30): the notes the user plays, not the arp's; on playback they go through the
+ * arp when it is on (sl_note), so the arp can be turned on and off while a loop plays (sl_arp_moved). With LATCH a
+ * note is held until the latch lets it go, as heard.
  *
  * REC records into the current loop: a new take (the loop empty, or LAYER REPLACE) or an overdub (LAYER DUB: the loop
- * plays on and what is played joins it at each turn). A new take's length is free (from REC to the REC or PLAY that
- * ends it) or 1, 2, 4 or 8 bars at the tempo (it ends by itself, then plays). REC or PLAY during a recording ends it
- * at once (on the press, not the release) and plays the loop. COUNT ON counts a bar in first; QUANT 1/8 or 1/16 moves
- * each note to the grid at the tempo (its note off with it: the length stays). PLAY plays / stops the current loop;
- * PLAY held shows the 16 loops: one picked queues in at the end of the one playing (or starts, if none plays). A
- * loop of bars follows the tempo (SELECT, or a computer's MIDI clock: sa_arp.c), at the speed of its own tempo; a free
- * loop keeps its own time. A computer's MIDI start restarts the playing loop at its start; its stop stops it.
+ * plays on and what is played joins it at each turn). Without a count-in a take is armed (SL_ARM): its time starts
+ * with the first note played, and REC again calls it off; an overdub onto a playing loop starts at once (an armed one
+ * starts the loop with the first note). A new take's length is free (from its first note to the REC or PLAY that ends
+ * it) or 1, 2, 4 or 8 bars at the tempo (it ends by itself, then plays). REC or PLAY during a recording ends it at
+ * once (on the press, not the release) and plays the loop. COUNT-IN 1, 2 or 4 bars counts in first and the recording
+ * starts at the bar; METRONOME clicks each beat (a bar's first higher) through the count-in and the recording, on the
+ * audio out only (sa_main.c sa_click_start); QUANT 1/8 or 1/16 moves each note to the grid at the tempo (its note off
+ * with it: the length stays). PLAY plays / stops the current loop; the 16 loops' page picks another. A loop of bars
+ * follows the tempo (SELECT, or a computer's MIDI clock: sa_arp.c), at the speed of its own tempo; a free loop keeps
+ * its own time. A computer's MIDI start restarts the playing loop at its start; its stop stops it.
  *
  * Memory: one pool of events (SA_LPOOL), the loops one after the other in it (loop k from at[k], n[k] events, sorted
  * by time), and a take (SA_TAKE) where a recording goes, merged into its loop at the end of the recording, at each
@@ -22,8 +29,9 @@
 #define SA_LOOPS 16u
 #define SA_LPOOL 3584u                       /* events of all loops (8 B each: 28 KB of the pool) */
 #define SA_TAKE 512u                         /* a recording's events before they join their loop (4 KB) */
-enum { SL_STOP, SL_PLAY, SL_COUNT, SL_REC, SL_DUB };
+enum { SL_STOP, SL_PLAY, SL_COUNT, SL_REC, SL_DUB, SL_ARM };
 static const uint8_t SA_REC_BARS[SA_REC_NLENS] = {0, 1, 2, 4, 8};
+static const uint8_t SA_COUNT_BARS[SA_REC_NCOUNTS] = {0, 1, 2, 4};
 
 typedef struct {
     uint32_t t;                              /* ms from the loop's start */
@@ -44,8 +52,12 @@ static struct {
     uint32_t pos_q8, last_ms, idx;           /* where the loop is (ms x 256), when it moved, its next event */
     uint32_t take_n, rec_t0, rec_target, count_end;
     uint32_t lheld[4], ton[4];               /* notes the loop sounds; notes on in the take (not yet off) */
+    uint32_t larp[4];                        /* ... of the loop's notes, those given to the arp */
+    uint8_t lvel[128];                       /* the loop's notes' velocities (the arp turned on or off: sl_arp_moved) */
+    uint32_t count_t0;                       /* the count-in's start */
+    int32_t beat;                            /* the metronome's last beat (-1: none yet) */
     int16_t qsh[128];                        /* each note's quantize shift (its note off follows) */
-    uint32_t drops, wraps, takes;            /* (the simulator's checks) */
+    uint32_t drops, wraps, takes, clicks;    /* (the simulator's checks) */
 } sl;
 
 static int sl_clock_on(void);                /* (sa_arp.c: a computer's MIDI clock is running) */
@@ -126,21 +138,52 @@ static void sl_take_put(uint32_t t, uint32_t type, uint32_t d1, uint32_t d2)   /
 }
 
 /* ------------------------------------------------------------------ the sound --- */
-static void sl_note(uint32_t note, uint32_t vel)   /* a loop's note (vel 0: off): the DX7, MIDI out */
+/* a loop's note (vel 0: off): the DX7 and MIDI out, or the arp when it is on (a loop holds the keys as played: the
+ * arp steps them on playback as it would the keys) */
+static void sl_note(uint32_t note, uint32_t vel)
 {
-    uint32_t *w = &sl.lheld[note >> 5], bit = 1u << (note & 31u);
+    uint32_t *w = &sl.lheld[note >> 5], *a = &sl.larp[note >> 5], bit = 1u << (note & 31u);
     if (vel) {
-        if (*w & bit) {
+        if (*w & bit)
+            sl_note(note, 0);                /* (the same note again: off first) */
+        *w |= bit;
+        sl.lvel[note & 127u] = (uint8_t)vel;
+        if (sar_is_on()) {
+            *a |= bit;
+            sar_key(note, vel);
+        } else {
+            sa_note(note, vel);
+            sa_midi3(0x90u | (sa.ch - 1u), note, vel);
+        }
+    } else if (*w & bit) {
+        *w &= ~bit;
+        if (*a & bit) {
+            *a &= ~bit;
+            sar_key(note, 0);
+        } else {
             sa_note(note, 0);
             sa_midi3(0x80u | (sa.ch - 1u), note, 0x40u);
         }
-        *w |= bit;
-        sa_note(note, vel);
-        sa_midi3(0x90u | (sa.ch - 1u), note, vel);
-    } else if (*w & bit) {
-        *w &= ~bit;
-        sa_note(note, 0);
-        sa_midi3(0x80u | (sa.ch - 1u), note, 0x40u);
+    }
+}
+
+static void sl_arp_moved(void)               /* ARP turned on or off while the loop's notes sound: they move over */
+{
+    uint32_t n;
+    for (n = 0; n < 128u; n++) {
+        uint32_t bit = 1u << (n & 31u), *a = &sl.larp[n >> 5];
+        if (!(sl.lheld[n >> 5] & bit))
+            continue;
+        if (sar_is_on() && !(*a & bit)) {    /* sounding: into the arp */
+            sa_note(n, 0);
+            sa_midi3(0x80u | (sa.ch - 1u), n, 0x40u);
+            *a |= bit;
+            sar_key(n, sl.lvel[n]);
+        } else if (!sar_is_on() && (*a & bit)) {   /* the arp's (it let them go): sounding again */
+            *a &= ~bit;
+            sa_note(n, sl.lvel[n]);
+            sa_midi3(0x90u | (sa.ch - 1u), n, sl.lvel[n]);
+        }
     }
 }
 
@@ -167,12 +210,19 @@ static void sl_play_ev(const sa_lev_t *e)
 /* ------------------------------------------------------------------ recording --- */
 static uint32_t sl_pos(void) { return sl.pos_q8 >> 8; }
 
-static void sa_rec_ev(uint32_t type, uint32_t d1, uint32_t d2)   /* what is played (sa_main.c, sa_cc.c, sa_arp.c) */
+static void sl_begin(void);
+static void sa_rec_ev(uint32_t type, uint32_t d1, uint32_t d2)   /* what is played (sa_main.c's keys, sa_cc.c) */
 {
-    int32_t t, len = (int32_t)(sl.state == SL_REC ? sl.rec_target : sl.len[sl.cur]);
+    int32_t t, len;
     uint32_t *w = &sl.ton[(d1 & 127u) >> 5], bit = 1u << (d1 & 31u);
+    if (sl.state == SL_ARM) {                /* armed: the first note played starts the take, at its time 0 */
+        if (type != SA_LE_ON)
+            return;
+        sl_begin();
+    }
     if (sl.state != SL_REC && sl.state != SL_DUB)
         return;
+    len = (int32_t)(sl.state == SL_REC ? sl.rec_target : sl.len[sl.cur]);
     t = sl.state == SL_REC ? (int32_t)(plat_ms() - sl.rec_t0) : (int32_t)sl_pos();
     if (type == SA_LE_ON) {
         if (sa.rec_quant) {                  /* to the grid: 1/8 or 1/16 at the tempo */
@@ -218,8 +268,9 @@ static void sl_begin(void)                   /* the recording starts (after the 
     uint32_t k = sl.cur, bars = SA_REC_BARS[sa.rec_len];
     sl.take_n = 0;
     sl.ton[0] = sl.ton[1] = sl.ton[2] = sl.ton[3] = 0;
+    sl.beat = -1;
     if (sl.len[k] && sa.rec_layer == 1u) {   /* LAYER DUB onto a loop: it plays on */
-        if (sl.state == SL_STOP || (sl.state == SL_COUNT && !sl.count_play))
+        if (sl.state == SL_STOP || sl.state == SL_ARM || (sl.state == SL_COUNT && !sl.count_play))
             sl_restart();
         sl.state = SL_DUB;
     } else {                                 /* a new take */
@@ -235,11 +286,18 @@ static void sl_begin(void)                   /* the recording starts (after the 
     sa.poke = 1;
 }
 
-static void sl_rec_start(void)               /* REC tapped, nothing recording */
+/* REC tapped, nothing recording. With a count-in: its bars (the metronome's clicks if on), then the recording from
+ * the bar. Without: an overdub onto the playing loop at once; else armed: the take (and its time) starts with the
+ * first note played (the owner, 2026-10-30) */
+static void sl_rec_start(void)
 {
-    if (sa.rec_count) {
-        sl.count_end = plat_ms() + sl_bar_ms();
-        sl.count_play = (uint8_t)(sl.state == SL_PLAY && sl.len[sl.cur] && sa.rec_layer == 1u);
+    uint32_t bars = SA_COUNT_BARS[sa.rec_count < SA_REC_NCOUNTS ? sa.rec_count : 0u];
+    int dub_live = sl.state == SL_PLAY && sl.len[sl.cur] && sa.rec_layer == 1u;
+    sl.beat = -1;
+    if (bars) {
+        sl.count_t0 = plat_ms();
+        sl.count_end = sl.count_t0 + bars * sl_bar_ms();
+        sl.count_play = (uint8_t)dub_live;
         if (!sl.count_play) {                /* (an overdub's loop plays on through the count: sl_step) */
             sl_all_off();
             sl.next = 0xFFu;
@@ -248,7 +306,14 @@ static void sl_rec_start(void)               /* REC tapped, nothing recording */
         sa.poke = 1;
         return;
     }
-    sl_begin();
+    if (dub_live) {
+        sl_begin();
+        return;
+    }
+    sl_all_off();
+    sl.next = 0xFFu;
+    sl.state = SL_ARM;
+    sa.poke = 1;
 }
 
 static void sl_rec_stop(int play)            /* the recording ends; play: the loop plays (from its start, for a take) */
@@ -283,6 +348,8 @@ static void sl_rec_stop(int play)            /* the recording ends; play: the lo
         sl.state = sl.count_play ? SL_PLAY : SL_STOP;
         if (!sl.count_play)
             sl_all_off();
+    } else if (sl.state == SL_ARM) {         /* nothing played: nothing recorded */
+        sl.state = SL_STOP;
     }
     sa.poke = 1;
 }
@@ -329,6 +396,31 @@ static void sl_fire(void)
     }
 }
 
+/* the metronome (METRONOME on): a click a beat, the bar's first one higher, through the count-in and the recording
+ * (from the take's start, or the overdubbed loop's) */
+static void sl_metro(uint32_t now)
+{
+    uint32_t beat_ms = sl_bar_ms() / 4u, t;
+    int32_t b;
+    if (!sa.rec_metro || !beat_ms)
+        return;
+    if (sl.state == SL_COUNT)
+        t = now - sl.count_t0;
+    else if (sl.state == SL_REC)
+        t = now - sl.rec_t0;
+    else if (sl.state == SL_DUB)
+        t = sl_pos() * sl_bpm_now() / (sl.bars[sl.cur] && sl.bpm[sl.cur] ? sl.bpm[sl.cur] : sl_bpm_now());
+    else
+        return;
+    b = (int32_t)(t / beat_ms);
+    if (b != sl.beat) {
+        if (sl.beat >= 0 || t % beat_ms < 30u)   /* (a beat's click, not one late into it) */
+            sa_ev(SA_EV_CLICK, (uint32_t)(b % 4 == 0), sa.rec_click);
+        sl.beat = b;
+        sl.clicks++;
+    }
+}
+
 static void sl_step(uint32_t now)            /* sa_ms, every millisecond */
 {
     uint32_t dt = now - sl.last_ms, k = sl.cur;
@@ -337,6 +429,9 @@ static void sl_step(uint32_t now)            /* sa_ms, every millisecond */
         dt = 100u;
     if (sl.state == SL_COUNT && (int32_t)(now - sl.count_end) >= 0)
         sl_begin();
+    sl_metro(now);
+    if (sl.state == SL_ARM)
+        return;
     if (sl.state == SL_REC) {
         if (sl.rec_target && now - sl.rec_t0 >= sl.rec_target)
             sl_rec_stop(1);                  /* its bars are done: it plays */
@@ -356,7 +451,10 @@ static void sl_step(uint32_t now)            /* sa_ms, every millisecond */
 }
 
 /* ------------------------------------------------------------------ the buttons --- */
-static int sl_recording(void) { return sl.state == SL_REC || sl.state == SL_DUB || sl.state == SL_COUNT; }
+static int sl_recording(void)
+{
+    return sl.state == SL_REC || sl.state == SL_DUB || sl.state == SL_COUNT || sl.state == SL_ARM;
+}
 
 static void sl_play_tap(void)                /* PLAY: play / stop the current loop */
 {

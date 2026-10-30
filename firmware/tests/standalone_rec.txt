@@ -1,0 +1,96 @@
+# SPDX-License-Identifier: MPL-2.0
+# RemoteFM1 standalone: recording as the owner asked (2026-10-30). REC arms a take: its time starts with the first
+# note played (nothing else starts it), REC again calls it off. The recording options in two pages (SELECT): TAKE
+# (LENGTH, QUANTIZE, LAYER on KN1..KN3) and COUNT (COUNT-IN none / 1 / 2 / 4 bars, METRONOME, its volume on KN1..KN3);
+# PRESETS stays the voice there. A count-in of 2 bars with the metronome: 8 clicks through the audio out, then the
+# take from the bar, the metronome going on. tests/run_tests.sh runs it (both builds).
+wait 400
+master 4096
+# armed: nothing runs until a note
+tap REC
+expect sa_lstate 5
+wait 30
+shot sa_rec_armed.png
+wait 3000
+expect sa_lstate 5
+expect sa_llen 0
+turn K2 5
+expect sa_lstate 5
+# REC again: called off, nothing recorded
+tap REC
+expect sa_lstate 0
+expect sa_llen 0
+# the options: page 1 (TAKE), SELECT page 2 (COUNT); PRESETS the voice, not a row
+press REC
+wait 600
+release REC
+expect sa_screen 12
+expect sa_rpage 0
+wait 30
+shot sa_rec_options_take.png
+turn SELECT 1
+expect sa_rpage 1
+turn K1 2
+turn K2 1
+turn K3 3
+expect sa_rec_opts2 219
+turn K4 3
+expect sa_rec_opts2 219
+turn PRESET 1
+expect sa_screen 1
+wait 1100
+expect sa_screen 12
+turn PRESET -1
+wait 1100
+expect sa_screen 12
+wait 30
+shot sa_rec_options_count.png
+turn SELECT -1
+expect sa_rpage 0
+tap REC
+expect sa_screen 0
+# REC: two bars counted in (4000 ms at 120), clicking a beat (500 ms), the first of each bar higher; the click is
+# heard (the audio out); the take starts at the bar, the metronome going on
+expect sa_clicks 0
+peakreset
+tap REC
+expect sa_lstate 2
+wait 300
+expect peak_db_min -30
+wait 30
+shot sa_rec_countin.png
+wait 3600
+expect sa_lstate 2
+expect sa_clicks 8
+wait 150
+expect sa_lstate 3
+key 7 down 100
+wait 300
+key 7 up
+wait 700
+expect sa_clicks >9
+press REC
+release REC
+expect sa_lstate 1
+expect sa_ln 2
+expect sa_lev_t0 >60
+expect sa_lev_t0 <160
+# the metronome off, a bar's count-in: no clicks; then an overdub (LAYER DUB) from the loop's start
+tap PLAY
+press REC
+wait 600
+release REC
+turn SELECT 1
+turn K2 -1
+turn K1 -1
+expect sa_rec_opts2 109
+tap REC
+tap REC
+expect sa_lstate 2
+wait 2200
+expect sa_lstate 4
+expect sa_clicks <12
+tap REC
+expect sa_lstate 1
+tap PLAY
+expect sa_lstate 0

@@ -41,7 +41,7 @@ static struct {
     uint8_t lstate, lcur, lnext, lcursor, lfull, count_left, mfocus;
     uint8_t lfilled[16];
     uint32_t lpos, llen, lrec_ms;
-    uint8_t ropt[4];
+    uint8_t ropt[8], rpage;               /* the recording options (sa_recopt's order), the page */
     uint8_t nbars;
     /* S5: the views, the theme menu */
     uint8_t view, theme;

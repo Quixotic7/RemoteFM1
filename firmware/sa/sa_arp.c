@@ -9,8 +9,10 @@
  *
  * The arp (ARP: on / off): the keys held (in the order pressed) are not played but stepped through, one note a step
  * at the rate (1/4 .. 1/32, triplets), over 1..4 octaves, up, down, up-down (the ends once), random, or as played,
- * each note sounding for its gate (10..100 % of the step). Its notes go out like the keys' (the DX7, MIDI out) and
- * are what a loop records. The first key down starts the pattern at once; the last key up ends it. */
+ * each note sounding for its gate (10..100 % of the step). Its notes go out like the keys' (the DX7, MIDI out). A
+ * loop records the keys as played, not the arp's notes (the owner, 2026-10-30), and its notes go through the arp when
+ * it is on (sa_loop.c sl_note): the arp can be turned on and off while a loop plays. The first key down starts the
+ * pattern at once; the last key up ends it. */
 
 #define SA_PPQ 24u
 #define SA_CLK_LOST_MS 400u                  /* no MIDI clock for this long: the tempo's own again */
@@ -49,17 +51,16 @@ static uint32_t sl_bpm_now(void)             /* the tempo: a computer's clock's,
     return sa.bpm;
 }
 
-static void sar_out(uint32_t note, uint32_t vel)   /* the arp's note on / off: the DX7, MIDI out, the loop */
+static void sar_out(uint32_t note, uint32_t vel)   /* the arp's note on / off: the DX7, MIDI out (a loop records the
+                                                      * keys played, not these: sa_main.c sa_key) */
 {
     if (vel) {
         sa_note(note, vel);
         sa_midi3(0x90u | (sa.ch - 1u), note, vel);
-        sa_rec_ev(SA_LE_ON, note, vel);
         sar.notes++;
     } else {
         sa_note(note, 0);
         sa_midi3(0x80u | (sa.ch - 1u), note, 0x40u);
-        sa_rec_ev(SA_LE_OFF, note, 0x40u);
     }
 }
 

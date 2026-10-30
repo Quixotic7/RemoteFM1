@@ -1,15 +1,16 @@
 # SPDX-License-Identifier: MPL-2.0
 # RemoteFM1 standalone, S3 (STANDALONE-PLAN.md): the looper. A free take recorded as played (REC, notes, REC: it plays
 # from its start, its notes at their times); an overdub (LAYER DUB); the recording options (REC held: LENGTH, QUANTIZE,
-# COUNT-IN, LAYER on KN1..KN4); a take of one bar at 120 BPM, quantized to 1/16, that ends by itself; the 16 loops
+# LAYER on KN1..KN3; SELECT the second page: COUNT-IN, METRONOME, its volume); a take of one bar at 120 BPM, quantized to 1/16, that ends by itself; the 16 loops
 # (PLAY held), a loop queued at the end of the one playing; a count-in; the loops over SysEx (SA_LOOP: INFO, GET,
 # BEGIN / EVENTS / END, CLEAR); a host's HELLO stops them. tests/run_tests.sh runs it (both builds).
 wait 400
 expect sa_lstate 0
 expect sa_rec_opts 1
-# a free take: REC (on its release), F3 for 200 ms, A3 for 100 ms, REC (on its press): ~860 ms, playing
+# a free take: REC arms it (on its release; the owner, 2026-10-30: the time starts with the first note played), F3
+# for 200 ms, A3 for 100 ms, REC (on its press): ~1000 ms from the first note, playing
 tap REC
-expect sa_lstate 3
+expect sa_lstate 5
 wait 100
 key 0 down 100
 wait 200
@@ -18,28 +19,26 @@ wait 100
 key 4 down 90
 wait 100
 key 4 up
-wait 300
+wait 600
 shot sa_rec.png
 press REC
 expect sa_lstate 1
 release REC
 expect sa_lstate 1
 expect sa_ln 4
-expect sa_llen >820
-expect sa_llen <900
+expect sa_llen >980
+expect sa_llen <1030
 expect sa_lev_ty0 0
-expect sa_lev_t0 >130
-expect sa_lev_t0 <160
+expect sa_lev_t0 0
 expect sa_lev_ty1 1
-expect sa_lev_t1 >330
-expect sa_lev_t1 <360
+expect sa_lev_t1 >190
+expect sa_lev_t1 <215
 expect sa_lev_ty3 1
 # it plays: F3 at its time, out on the channel too, then again each turn
 out
-wait 400
+wait 1100
 expect_out USB 90 35 64
 expect_out USB 80 35 40
-wait 900
 expect sa_lwraps 1
 # an overdub (LAYER DUB): C4 joins it; REC's press ends it, the loop plays on
 tap REC
@@ -70,7 +69,7 @@ expect sa_menu 1
 release REC
 turn K1 1
 turn K2 2
-turn K4 -1
+turn K3 -1
 expect sa_rec_opts 1200
 wait 50
 shot sa_rec_options.png
@@ -97,18 +96,26 @@ expect sa_lcur 0
 wait 900
 expect sa_lcur 1
 expect sa_lstate 0
-# a take of one bar (2000 ms at 120): the note 140 ms in lands on 125 (1/16); it ends by itself and plays
+# a take of one bar (2000 ms at 120) from the first note: the note 140 ms in lands on 125 (1/16); it ends by itself
+# and plays
 tap REC
-expect sa_lstate 3
+expect sa_lstate 5
 wait 100
 key 2 down 100
 wait 100
 key 2 up
-wait 1850
+wait 40
+key 4 down 100
+wait 60
+key 4 up
+wait 1750
+expect sa_lstate 3
+wait 100
 expect sa_lstate 1
 expect sa_llen 2000
-expect sa_lev_t0 125
-expect sa_ln 2
+expect sa_lev_t0 0
+expect sa_lev_t2 125
+expect sa_ln 4
 # loop 1 queued while loop 2 plays: it comes at loop 2's end
 press PLAY
 wait 600
@@ -120,12 +127,16 @@ wait 2000
 expect sa_lcur 0
 expect sa_lnext -1
 expect sa_lstate 1
-# a count-in (KN3): a bar counted (COUNT), then recording (a new take: REPLACE), PLAY ends it
+# a count-in (the second page, SELECT: KN1): a bar counted (COUNT), then recording (a new take: REPLACE), PLAY ends it
 press REC
 wait 600
 release REC
-turn K3 1
 turn K1 -1
+turn SELECT 1
+expect sa_rpage 1
+turn K1 1
+expect sa_rec_opts 210
+turn SELECT -1
 tap REC
 tap PLAY
 tap REC

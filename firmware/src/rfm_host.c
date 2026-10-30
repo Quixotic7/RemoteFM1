@@ -790,6 +790,17 @@ int app_expect(const char *what, int *got)
         *got = sa_lpool[sl.at[sl.cur] + (uint32_t)atoi(what + 9) % SA_LPOOL].type;
     else if (!strncmp(what, "sa_lev_t", 8))
         *got = (int)sa_lpool[sl.at[sl.cur] + (uint32_t)atoi(what + 8) % SA_LPOOL].t;
+    else if (!strcmp(what, "sa_larp")) {           /* the loop's notes the arp has (sa_loop.c sl_note) */
+        uint32_t i;
+        *got = 0;
+        for (i = 0; i < 128u; i++)
+            *got += (int)(sl.larp[i >> 5] >> (i & 31u) & 1u);
+    } else if (!strcmp(what, "sa_clicks"))         /* the metronome's clicks; the recording options' second page */
+        *got = (int)sl.clicks;
+    else if (!strcmp(what, "sa_rec_opts2"))        /* count-in metronome click, a digit each (click 10: 0) */
+        *got = sa.rec_count * 100 + sa.rec_metro * 10 + sa.rec_click % 10;
+    else if (!strcmp(what, "sa_rpage"))
+        *got = sa.rpage;
     else if (!strcmp(what, "sa_rec_opts"))         /* len quant count layer, a decimal digit each */
         *got = sa.rec_len * 1000 + sa.rec_quant * 100 + sa.rec_count * 10 + sa.rec_layer;
     else if (!strcmp(what, "sa_arp"))              /* S4: the arp on, its notes, the tempo (a clock's if one runs) */
