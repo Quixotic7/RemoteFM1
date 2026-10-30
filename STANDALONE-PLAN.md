@@ -88,6 +88,19 @@ firmware/
   80 KB. Loops are in the pool (16 loops x 2,048 events x 8 B = 256 KB at most; less if the pool is short); user
   banks and saved loops go in the data region. To measure in S0.
 
+### Measured on the unit (2026-10-30, Bluetooth bench package, 256-frame blocks of 5,805 us)
+
+| FM6 voices | one core (S0, code in flash) | one core (S0b, hot code in RAM) | two cores (S0b, FIZZ's settings) |
+|---|---|---|---|
+| 1 | 7.6 % avg / 9.9 % worst | 7.8 / 9.1 | 8.2 / 8.5 |
+| 8 | 47.5 / 49.8 | 48.6 / 50.9 | **28.3 / 29.5** |
+| 12 | 70.3 / 73.4 | 71.9 / 75.0 | 41.4 / 43.0 |
+| 16 | 93.1 / 97.0 | 95.2 / 99.0 | 54.6 / 56.4 |
+
+RAM code alone does not help (the FPU, not flash, is the limit); two cores halve the cost. The unit's render hash
+equals the computer's on one and two cores (3073bc34), so the FPU gives the same samples. **Polyphony: 8 voices on
+two cores.** The unit went back to RemoteFM1 0.2.3 after each bench.
+
 ## 5. Milestones
 
 Each milestone ends with the host simulator's tests, a build of both packages (Bluetooth, USB-only), a flash of the
