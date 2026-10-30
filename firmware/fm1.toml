@@ -10,7 +10,11 @@ usb_product = "FM-1"           # the USB product name as RemoteFM1 0.1 had it (t
 include = ["src"]              # the protocol layer, the decoder and the push (src/: host/ compiles them too)
 o2 = ["sa/sa_synth.c"]         # the standalone DX7 (saadet's FM6 in third_party/saadet-fm6, STANDALONE-PLAN.md), -O2
 gen = ["tools/gen_fm6_tables.py --out {gen}/fm6_tables.h",   # FM6's tables, from MSFA's formulas
-       "tools/gen_sa_config.py --out {gen}/sa_config.h"]     # SA_BENCH=1 (./build.sh --bench): the bench build
+       "tools/gen_sa_config.py --out {gen}/sa_config.h",     # SA_BENCH=1 (./build.sh --bench): the bench build
+       "tools/gen_pixfont.py --out {gen}/sa_font.h",         # the screens' pixel font (Jersey 10, OFL: third_party/)
+       "tools/gen_dx7_rom.py --out {gen}/dx7_rom.h"]         # Yamaha's ROM cartridges from the owner's .syx files
+                               # (DX7_ROM_DIR, else Presets/DX7-ROM beside the checkout; never committed: without them
+                               # the INIT VOICE only)
 vendored = ["third_party/"]    # (other people's code: the register check leaves it)
 # the second core (fm1-base's cpu2: felucca-bsp's chip/fm1_cpu1.*), FIZZ's settings (FIZZ firmware/fm1.toml, P2.14):
 # started in app_init, core 1 renders about half the DX7's voices each control block (sa/sa_synth.c, the batch); a
@@ -30,7 +34,7 @@ usb_audio_out = true           # its speaker / headphones, MASTER its volume (fm
                                # input: the FM-1 is recordable too). Interfaces: 0 audio control, 1 MIDI, 2 audio in,
                                # 3 audio out, 4 the vendor bulk pair (src/rfm_dev.c; 2 in 0.1 / 0.2.0); bcdDevice 4.50
 # the site (fm1-base's make_site.py is not used: RemoteFM1 has its own, web/)
-tagline = "the FM-1 as the panel of a firmware on a computer"
+tagline = "the FM-1 as a DX7 of its own, and as the panel of a firmware on a computer"
 repo = "https://github.com/Quixotic7/RemoteFM1"
 licence = "MPL-2.0"
 credits = "Built on fm1-base (Charles Vestal) and felucca-bsp (Leo Kuroshita, Hügelton Instruments)."
