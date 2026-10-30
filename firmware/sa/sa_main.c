@@ -20,6 +20,10 @@
  * above 0, the other buttons at fm1-base's glow. The channel, octave, cartridge and voice are kept in the store
  * (OBJ_SA), a little after the last change, while nothing sounds.
  *
+ * LATCH (LFO held; tapped it is CC bank D): the keys' notes stay after they are let go; a new chord (a key down while
+ * none is held) replaces them; with the arp on, the arp keeps stepping the latched keys; LFO blinks while it is on;
+ * off lets the notes go. Not kept across a power cycle.
+ *
  * After S1 (STANDALONE-PLAN.md S2..S5): FX SEL ENV LFO EDIT the CC bank and KN1..KN4 its CCs (sa_cc.c); REC, PLAY
  * and their holds the looper (sa_loop.c); ARP and its hold the arp, SELECT the tempo, a computer's MIDI clock both
  * (sa_arp.c); HOME the next view (Notes, Scope, Keys); SAVE the theme menu, held: save; a DX7 bank dump the user
@@ -68,8 +72,8 @@ static void rf_sa_leds(uint32_t btns, uint32_t keys);   /* the LEDs, a host's mi
 
 enum { SA_SCR_HOME, SA_SCR_PRESET, SA_SCR_CHANNEL, SA_SCR_OCTAVE, SA_SCR_HOST, SA_SCR_CCBANK, SA_SCR_CCTURN,
        SA_SCR_CCASSIGN, SA_SCR_SAVED, SA_SCR_REC, SA_SCR_LOOP, SA_SCR_LOOPS, SA_SCR_RECOPT, SA_SCR_ARP, SA_SCR_ARPSET,
-       SA_SCR_TEMPO, SA_SCR_THEME, SA_SCR_REMOTE, SA_NSCR };
-#define SA_HOLD_MS 500u                      /* SAVE, ARP, PLAY, REC: held this long is a hold, else a tap */
+       SA_SCR_TEMPO, SA_SCR_THEME, SA_SCR_REMOTE, SA_SCR_LATCH, SA_NSCR };
+#define SA_HOLD_MS 500u                      /* SAVE, ARP, PLAY, REC, LFO: held this long is a hold, else a tap */
 #define SA_MENU_MS 6000u                     /* (a menu's ov_until: unused since menus stay; kept for the touch) */
 enum { SA_LE_ON, SA_LE_OFF, SA_LE_CC };      /* a loop's events (sa_loop.c) */
 static void sa_rec_ev(uint32_t type, uint32_t d1, uint32_t d2);   /* (sa_loop.c: what is played, recorded) */
@@ -103,6 +107,8 @@ static struct {
     uint8_t key_note[NKEYS], key_ch[NKEYS];  /* what each held key started (0xFF: nothing, after a panic) */
     uint8_t key_arp[NKEYS];                  /* ... given to the arp */
     uint8_t held[128];                       /* the notes sounding from the keys and MIDI in, counted: the screen */
+    uint8_t latch;                           /* LATCH (LFO held): the keys' notes held after they are let go */
+    uint8_t lat_n, lat_note[32], lat_ch[32], lat_arp[32];   /* the notes latched (let go, still held) */
     uint32_t rheld[4];                       /* MIDI in's notes held (bit n) */
     int8_t oct_before;                       /* the octave before the first of OCT- / OCT+ went down */
     uint8_t ov;                              /* the overlay shown (SA_SCR_*), SA_SCR_HOME none */
@@ -246,11 +252,47 @@ static void sa_note(uint32_t note, uint32_t vel)   /* the screen's count and the
 static void sar_key(uint32_t note, uint32_t vel);   /* (sa_arp.c) */
 static int sar_is_on(void);
 
+static void sa_latch_off1(uint32_t i)       /* latched note i let go now */
+{
+    if (sa.lat_arp[i]) {
+        sar_key(sa.lat_note[i], 0);
+    } else {
+        sa_note(sa.lat_note[i], 0);
+        sa_midi3(0x80u | sa.lat_ch[i], sa.lat_note[i], 0x40u);
+        sa_rec_ev(SA_LE_OFF, sa.lat_note[i], 0x40u);
+    }
+}
+
+static void sa_latch_release(void)           /* every latched note let go */
+{
+    uint32_t i;
+    for (i = 0; i < sa.lat_n; i++)
+        sa_latch_off1(i);
+    sa.lat_n = 0;
+}
+
 static void sa_key(uint32_t k, uint32_t vel)       /* a key down (vel) or up (0) */
 {
     if (vel) {
         int32_t n = (int32_t)SA_NOTE0 + (int32_t)k + 12 * sa.oct;
         n = clamp(n, 0, 127);
+        if (sa.latch && sa.lat_n) {          /* LATCH: a new chord (no key held) replaces the one held; the same
+                                              * note again is let go first */
+            if (!sa.keys) {
+                sa_latch_release();
+            } else {
+                uint32_t i, j;
+                for (i = 0; i < sa.lat_n; i++)
+                    if (sa.lat_note[i] == (uint32_t)n) {
+                        sa_latch_off1(i);
+                        for (j = i; j + 1u < sa.lat_n; j++)
+                            sa.lat_note[j] = sa.lat_note[j + 1u], sa.lat_ch[j] = sa.lat_ch[j + 1u],
+                            sa.lat_arp[j] = sa.lat_arp[j + 1u];
+                        sa.lat_n--;
+                        break;
+                    }
+            }
+        }
         sa.key_note[k] = (uint8_t)n;
         sa.key_ch[k] = (uint8_t)(sa.ch - 1u);
         sa.key_arp[k] = (uint8_t)sar_is_on();
@@ -263,6 +305,12 @@ static void sa_key(uint32_t k, uint32_t vel)       /* a key down (vel) or up (0)
         sa_note((uint32_t)n, vel);
         sa_midi3(0x90u | sa.key_ch[k], (uint32_t)n, vel);
         sa_rec_ev(SA_LE_ON, (uint32_t)n, vel);
+    } else if (sa.key_note[k] != 0xFFu && sa.latch && sa.lat_n < 32u) {   /* LATCH: it stays */
+        sa.lat_note[sa.lat_n] = sa.key_note[k];
+        sa.lat_ch[sa.lat_n] = sa.key_ch[k];
+        sa.lat_arp[sa.lat_n] = sa.key_arp[k];
+        sa.lat_n++;
+        sa.key_note[k] = 0xFFu;
     } else if (sa.key_note[k] != 0xFFu) {
         if (sa.key_arp[k]) {
             sar_key(sa.key_note[k], 0);
@@ -292,10 +340,19 @@ static void sa_all_off(int now)
     for (k = 0; k < NKEYS; k++)
         if (sa.keys >> k & 1u)
             sa_key(k, 0);
+    sa_latch_release();
     sa_remote_off_all();
     for (k = 0; k < 128u; k++)
         sa.held[k] = 0;
     sa_ev(now ? SA_EV_SOUNDOFF : SA_EV_ALLOFF, 0, 0);
+}
+
+static void sa_latch_set(int on)             /* LFO held: LATCH on / off (off lets its notes go) */
+{
+    sa.latch = (uint8_t)(on != 0);
+    if (!on)
+        sa_latch_release();
+    sa.poke = 1;
 }
 
 static void sa_panic(void)
@@ -592,6 +649,11 @@ static void sa_leds(void)
         b |= 1u << B_REC;                    /* recording (blinking: the count) */
     if (sar.on)
         b |= 1u << B_ARP;
+    if (sa.latch) {                          /* LATCH: LFO blinks (lit 600 ms of each second) */
+        b &= ~(1u << B_LFO);
+        if (plat_ms() % 1000u < 600u)
+            b |= 1u << B_LFO;
+    }
     if (sa.oct < 0)
         b |= 1u << B_OCTDN;
     if (sa.oct > 0)
@@ -719,9 +781,12 @@ static void sa_tap(uint32_t b)               /* SAVE, ARP, PLAY, REC let go befo
         if (sa.menu && sa.ov == SA_SCR_ARPSET) {
             sa_close();
         } else {
+            sa_latch_release();              /* (the latched notes go: the arp's or not, as they were) */
             sar_set(!sar.on);
             sa_overlay(SA_SCR_ARP);
         }
+    } else if (b == B_LFO) {                 /* (tapped: CC bank D, as the other bank buttons) */
+        sa_cc_bank(B_LFO - B_FX);
     } else if (b == B_REC) {
         if (sa.menu && sa.ov == SA_SCR_RECOPT)
             sa_close();
@@ -747,6 +812,9 @@ static void sa_hold(uint32_t b)              /* ... held SA_HOLD_MS */
         sa_overlay_menu(SA_SCR_ARPSET);
     } else if (b == B_REC && !sl_recording()) {   /* the recording options */
         sa_overlay_menu(SA_SCR_RECOPT);
+    } else if (b == B_LFO) {                 /* LATCH on / off */
+        sa_latch_set(!sa.latch);
+        sa_overlay(SA_SCR_LATCH);
     }
 }
 
@@ -765,7 +833,7 @@ static void sa_press(uint32_t b)             /* any other button down */
     }
 }
 
-#define SA_HOLDABLE (1u << B_SAVE | 1u << B_ARP | 1u << B_PLAY | 1u << B_REC)
+#define SA_HOLDABLE (1u << B_SAVE | 1u << B_ARP | 1u << B_PLAY | 1u << B_REC | 1u << B_LFO)
 static void sa_buttons(uint32_t btns)
 {
     const uint32_t OD = 1u << B_OCTDN, OU = 1u << B_OCTUP;

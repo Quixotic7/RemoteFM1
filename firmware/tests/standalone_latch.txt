@@ -1,0 +1,89 @@
+# SPDX-License-Identifier: MPL-2.0
+# RemoteFM1 standalone: LATCH (the owner, 2026-10-30). LFO held toggles it (tapped, LFO is still CC bank D); the notes
+# played stay after the keys are let go; keys added while one is held join the chord; a key down when none is held
+# replaces the chord; with the arp, the arp keeps stepping the latched keys; LATCH off lets the notes go; LFO blinks,
+# the HOME views show a LATCH chip. tests/run_tests.sh runs it (both builds).
+wait 400
+tap LFO
+expect sa_ccbank 3
+expect sa_latch 0
+tap HOME
+press LFO
+wait 600
+expect sa_latch 1
+expect sa_screen 18
+release LFO
+expect sa_ccbank 3
+wait 30
+shot sa_latch_on.png
+wait 1100
+# C E G, let go: still held (and no note off out)
+out
+key 7 down 100
+key 11 down 100
+key 14 down 100
+wait 20
+key 7 up
+key 11 up
+key 14 up
+wait 50
+expect sa_held 3
+expect sa_lat_n 3
+expect_no_out USB 80 3C 40
+wait 30
+shot sa_latch_notes.png
+# a new chord, D F A: the old one goes
+out
+key 9 down 100
+wait 10
+expect_out USB 80 3C 40
+expect_out USB 80 40 40
+expect_out USB 80 43 40
+key 12 down 100
+key 16 down 100
+wait 10
+expect sa_held 3
+# while D is held, F let go then added again: one F
+key 12 up
+wait 10
+key 12 down 100
+wait 10
+expect sa_held 3
+key 9 up
+key 12 up
+key 16 up
+wait 20
+expect sa_held 3
+# the arp with LATCH: the latched keys step on
+tap ARP
+expect sa_held 0
+key 7 down 100
+key 11 down 100
+wait 20
+key 7 up
+key 11 up
+wait 500
+expect sa_arp_notes >3
+expect sa_lat_n 2
+wait 300
+expect sa_arp_notes >5
+tap ARP
+# LATCH off: the notes go
+key 7 down 100
+wait 20
+key 7 up
+wait 20
+expect sa_held 1
+press LFO
+wait 600
+release LFO
+expect sa_latch 0
+expect sa_held 0
+expect sa_lat_n 0
+wait 30
+shot sa_latch_off.png
+key 7 down 100
+wait 20
+key 7 up
+wait 20
+expect sa_held 0

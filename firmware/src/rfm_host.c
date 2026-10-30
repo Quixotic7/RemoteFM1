@@ -692,7 +692,7 @@ int app_expect(const char *what, int *got)
     else if (!strcmp(what, "sa_screen"))           /* sa_main.c SA_SCR_*: 0 HOME, 1 preset, 2 channel, 3 octave, 4 the
                                                     * hand-over, 5 CC bank, 6 CC turn, 7 CC assign, 8 saved, 9 rec,
                                                     * 10 loop, 11 loops, 12 rec options, 13 arp, 14 arp settings,
-                                                    * 15 tempo, 16 theme, 17 MIDI REMOTE */
+                                                    * 15 tempo, 16 theme, 17 MIDI REMOTE, 18 latch */
         *got = sa.panel ? SA_SCR_HOST : rm.on ? SA_SCR_REMOTE : sa.ov;
     else if (!strcmp(what, "sa_sounding"))         /* FM6's voices sounding */
         *got = (int)sa_synth_voices();
@@ -746,6 +746,10 @@ int app_expect(const char *what, int *got)
         *got = rm.last[0] << 16 | rm.last[1] << 8 | rm.last[2];
     else if (!strcmp(what, "sa_bg"))               /* the theme's background (sa_theme.h SA_BGS, 6 CLASSIC) */
         *got = sa.bg;
+    else if (!strcmp(what, "sa_latch"))            /* LATCH (LFO held); the notes it holds */
+        *got = sa.latch;
+    else if (!strcmp(what, "sa_lat_n"))
+        *got = sa.lat_n;
     else if (!strcmp(what, "sa_menu"))
         *got = sa.menu;
     else if (!strcmp(what, "sa_lstate"))           /* S3: the looper (sa/sa_loop.c SL_*: 0 stop, 1 play, 2 count, 3 rec,

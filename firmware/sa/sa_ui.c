@@ -57,6 +57,7 @@ static struct {
     } bar[32];
     /* MIDI REMOTE (sa_remote.c) */
     uint8_t rm_last[3], rm_src, rm_src_i, rm_any;
+    uint8_t latch;
     uint32_t rm_age;
     /* the hand-over */
     uint8_t host_t, warn;
@@ -184,6 +185,7 @@ static void sa_ui_snap(void)
     memcpy(ui.cc, sa.cc[sa.ccbank], 4);
     memcpy(ui.ccv, sa.ccv[sa.ccbank], 4);
     ui.knob = sa.knob;
+    ui.latch = sa.latch;
     sa_ui_snap_more();
     ui.host_t = sa.host_t;
     if (sa.panel)
@@ -215,12 +217,11 @@ static int32_t sa_fuzz_col(char ch)
 }
 
 /* ------------------------------------------------------------------ the screens --- */
+static void sa_home_chips(void);
 static void sa_paint_home(void)
 {
     int32_t w, x, n = ui.chord_n, y, d, i;
-    sg_chip_text(10, 8, 0, 22, 7, ui.ch_txt, UC(A2), UC(ON));
-    w = sg_text_w(ui.name, 1) + 14;
-    sg_chip_text(230 - w, 8, w, 22, 7, ui.name, UC(PANEL), UC(INK));
+    sa_home_chips();
     /* the chord: its baseline at 98 (the mockup's 68 px line at 46), the pop one scale up for 100 ms */
     if (!ui.ghost && ui.now - uis.pop_ms < 100u)
         n++;

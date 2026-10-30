@@ -586,10 +586,12 @@ static void sa_ui_snap_views(void)
     ui.lvl8 = (uint8_t)(uis.lvl * 8.0f + 0.5f);
 }
 
-static void sa_home_chips(void)
+static void sa_home_chips(void)              /* the channel, LATCH when on, the voice */
 {
     int32_t w = sg_text_w(ui.name, 1) + 14;
     sg_chip_text(10, 8, 0, 22, 7, ui.ch_txt, UC(A2), UC(ON));
+    if (ui.latch)
+        sg_chip_text(16 + sg_text_w(ui.ch_txt, 1) + 14, 8, 0, 22, 7, "LATCH", UC(A3), UC(ON));
     sg_chip_text(230 - w, 8, w, 22, 7, ui.name, UC(PANEL), UC(INK));
 }
 
@@ -815,6 +817,24 @@ static void sa_paint_remote(void)
     sg_chip_text((SG_W - w) / 2, 206, w, 22, 7, raw, UC(PANEL), UC(INK));
 }
 
+/* ------------------------------------------------------------------ LATCH (LFO held) --- */
+static void sa_paint_latch(void)
+{
+    static const char *const LOCK[] = {"..aaaa..", ".a....a.", ".a....a.", "aaaaaaaa", "aaaabaaa", "aaabbbaa",
+                                       "aaaabaaa", "aaaaaaaa"};
+    const char *v = ui.latch ? "ON" : "OFF";
+    int32_t i;
+    sg_chip_text(10, 8, 0, 22, 7, "LFO HOLD", UC(PANEL), UC(INK));
+    sa_arrow_c = ui.latch ? UC(A3) : UC(MID);
+    sg_sprite(96, 36, 6, LOCK, 8, sa_arrow_col);
+    if (!ui.latch)                           /* (open: the shackle lifted) */
+        sg_rect(96 + 6 * 6, 36 + 6, 6, 12, UC(BG));
+    sg_text_sh((SG_W - sg_text_w("LATCH", 4)) / 2, 100, 4, "LATCH", UC(INK), 4, UC(SHADOW));
+    sg_text_sh((SG_W - sg_text_w(v, 5)) / 2, 150, 5, v, ui.latch ? UC(A3) : UC(MID), 4, UC(D1));
+    for (i = 0; i < 8; i++)
+        sg_rect(18 + 26 * i, 224, 22, 6, ui.latch ? UC(A3) : UC(PANEL));
+}
+
 /* ------------------------------------------------------------------ the dispatch --- */
 static void sa_ui_snap_more(void)
 {
@@ -858,6 +878,7 @@ static int sa_paint_more(void)               /* 1: painted (a screen after S1) *
     case SA_SCR_ARP: sa_paint_arp(); return 1;
     case SA_SCR_ARPSET: sa_paint_arpset(); return 1;
     case SA_SCR_TEMPO: sa_paint_tempo(); return 1;
+    case SA_SCR_LATCH: sa_paint_latch(); return 1;
     default: return 0;
     }
 }
