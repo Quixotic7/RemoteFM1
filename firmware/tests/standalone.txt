@@ -242,10 +242,17 @@ out
 tapkey 2
 expect_out USB 99 37 64
 # a session: panel mode; its keepalive ends it: standalone again, as it was
+# (the host's LEDs: keys 3 and 7 at its mid level, 5 lit; none of them stays lit once the FM-1 is standalone again:
+# the owner's "some of the key LEDs randomly lit", S1)
 rf hello usb
 rf session usb 1 300
 expect rf_session 1
 expect sa_panel 1
+rf led usb 3 mid
+rf led usb 7 mid
+rf led usb 5 lit
+expect rf_mid_keys 136
+expect rf_lit_keys 32
 wait 50
 expect rf_screen_black 1
 wait 400
@@ -253,6 +260,9 @@ expect rf_session 0
 expect sa_panel 0
 expect sa_ch 10
 wait 100
+expect rf_mid_keys 0
+expect rf_glow_keys 0
+expect rf_lit_keys 0
 expect sa_screen 0
 expect sa_touch 1
 # a SESSION start without a HELLO hands it over too; SESSION 0 gives it back at once

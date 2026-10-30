@@ -41,10 +41,12 @@ static void rf_ev_put(uint32_t pkt);        /* a MIDI event packet out (USB, and
 static int rf_panel_ours(void);             /* no session, no push, no hold: the screen is the standalone's */
 static int rf_session_on(void);
 static void rf_info(char out[4][32], uint8_t *warn);   /* the hand-over screen's lines (the waiting screen's) */
+static void rf_sa_leds(uint32_t btns, uint32_t keys);   /* the LEDs, a host's mid level cleared */
 
 #define SA_NOTE0 53u                         /* key 0 at octave 0: F3 */
 #define SA_HOST_MS 3000u                     /* a HELLO without a session: panel mode this long after its last message */
 #define SA_OVERLAY_MS 1000u
+#define SA_LED_REFRESH_MS 500u                /* the LEDs written again this often, changed or not */
 #define SA_STORE_MS 2000u                    /* the settings saved this long after the last change, when silent */
 #define SA_STORE_FORCE_MS 15000u             /* ... or this long after it anyway */
 #define SA_PART_GAIN 0.3f
@@ -77,7 +79,7 @@ static struct {
     uint8_t poke;                            /* the picture changed: a frame soon */
     uint8_t lost;                            /* the panel was someone else's since the last frame */
     uint32_t frame_ms;
-    uint32_t led_b, led_k;
+    uint32_t led_b, led_k, led_ms;
     uint32_t notes_out, notes_in, ev_drop, panics, saves, loads;   /* (the simulator's checks) */
 } sa;
 
@@ -420,12 +422,12 @@ static void sa_leds(void)
         if ((sa.keys >> i & 1u) || (n >= 0 && n < 128 && sa.held[n]))
             k |= 1u << i;
     }
-    if (b == sa.led_b && k == sa.led_k)
+    if (b == sa.led_b && k == sa.led_k && plat_ms() - sa.led_ms < SA_LED_REFRESH_MS)
         return;
     sa.led_b = b;
     sa.led_k = k;
-    plat_glow(1);
-    plat_leds(b, k);
+    sa.led_ms = plat_ms();
+    rf_sa_leds(b, k);                        /* (rewritten now and then too: nothing else's LEDs stay) */
 }
 
 static void sa_buttons(uint32_t btns)
