@@ -65,6 +65,30 @@ sa chord F5
 key 0 up
 key 7 up
 wait 20
+# a cluster of nine (no chord: the bass's name), its chips as many as fit and "+N"
+key 1 down
+key 2 down
+key 3 down
+key 4 down
+key 5 down
+key 6 down
+key 8 down
+key 10 down
+key 13 down
+wait 60
+sa chord F#
+expect sa_held 9
+shot sa_notes_cluster.png
+key 1 up
+key 2 up
+key 3 up
+key 4 up
+key 5 up
+key 6 up
+key 8 up
+key 10 up
+key 13 up
+wait 20
 # the sound: eight notes at full velocity, MASTER full: loud, and never past full scale (the limiter, its knee)
 master 4096
 peakreset

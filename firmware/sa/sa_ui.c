@@ -14,7 +14,7 @@
 
 #define SA_UI_FRAME_MS 33u                   /* ~30 frames a second while anything moves */
 #define SA_NBARS 14u
-#define SA_CHIPS_MAX 6u
+#define SA_CHIPS_MAX 8u                      /* note chips at most (as many as fit the width: sa_ui_chips) */
 
 static struct {
     uint8_t scr;
@@ -25,7 +25,9 @@ static struct {
     sa_chord_t chord;
     uint8_t ghost;                           /* nothing held: the last chord, dim */
     int32_t chord_n;                         /* its scale */
-    uint8_t nn, more, notes[SA_CHIPS_MAX];
+    uint8_t nn, more, notes[SA_CHIPS_MAX];   /* the chips: the lowest notes held, and how many more */
+    char nm[SA_CHIPS_MAX][6];
+    int32_t cw[SA_CHIPS_MAX + 1u], cx0;      /* their widths ("+N" last), the first's x */
     uint8_t eq[SA_NBARS];
     /* overlays */
     uint8_t bank, voice, ch;
@@ -36,7 +38,10 @@ static struct {
 } ui;
 
 static struct {                              /* across frames */
-    sa_chord_t last;
+    sa_chord_t last;                         /* the chord of the last frame with notes held */
+    sa_chord_t peak, ghost;                  /* the chord when the most notes were held since the last silence; the
+                                              * one shown dim after it */
+    uint32_t n, peak_n;                      /* notes held at the last frame; at the peak */
     uint32_t pop_ms;
     float lvl;
     uint32_t lvl_ms;
@@ -62,11 +67,22 @@ static void sa_ui_chord(void)
             held[n++] = (uint8_t)i;
     sa_chord_name(held, n, &c);
     if (n) {
-        if (!sa_streq(c.main, uis.last.main) || !sa_streq(c.ext, uis.last.ext) || !sa_streq(c.bass, uis.last.bass))
-            uis.pop_ms = ui.now;             /* a new chord pops */
+        if (n >= uis.n && (!sa_streq(c.main, uis.last.main) || !sa_streq(c.ext, uis.last.ext) ||
+                           !sa_streq(c.bass, uis.last.bass)))
+            uis.pop_ms = ui.now;             /* a new chord pops (not one left by lifted fingers) */
         uis.last = c;
+        if (n >= uis.peak_n) {
+            uis.peak = c;
+            uis.peak_n = n;
+        }
+        ui.chord = c;
+    } else {
+        if (uis.n)
+            uis.ghost = uis.peak;            /* all lifted: the chord as it was at its fullest stays, dim */
+        uis.peak_n = 0;
+        ui.chord = uis.ghost;
     }
-    ui.chord = uis.last;
+    uis.n = n;
     ui.ghost = n == 0u;
     if (!ui.chord.main[0]) {
         sa_cpy(ui.chord.main, "--");         /* (nothing played since the start) */
@@ -79,12 +95,23 @@ static void sa_ui_chord(void)
                                       sg_text_w(ui.chord.bass, ui.chord_n)) > 228)
             ui.chord_n--;
     }
-    ui.nn = ui.more = 0;
-    for (i = 0; i < n; i++) {
-        if (ui.nn < SA_CHIPS_MAX - 1u || n == SA_CHIPS_MAX)
-            ui.notes[ui.nn++] = held[i];
-        else
-            ui.more++;
+    /* the chips, lowest first, 6 apart, as many as fit 236 pixels; the rest a "+N" chip */
+    for (ui.nn = (uint8_t)(n < SA_CHIPS_MAX ? n : SA_CHIPS_MAX);; ui.nn--) {
+        int32_t tot = 0;
+        ui.more = (uint8_t)(n - ui.nn);
+        for (i = 0; i < ui.nn; i++) {
+            ui.notes[i] = held[i];
+            sa_note_name(held[i], ui.nm[i]);
+            ui.cw[i] = sg_text_w(ui.nm[i], 1) + 12;
+            tot += ui.cw[i] + (i ? 6 : 0);
+        }
+        if (ui.more) {
+            ui.cw[ui.nn] = sg_text_w("+9", 1) + 12;
+            tot += ui.cw[ui.nn] + 6;
+        }
+        ui.cx0 = (SG_W - tot) / 2;
+        if (tot <= 236 || ui.nn <= 1u)
+            break;
     }
 }
 
@@ -177,30 +204,17 @@ static void sa_paint_home(void)
         sg_text(x, y, n, ui.chord.bass, ui.ghost ? UC(MID) : UC(INK));
     }
     /* the note chips (the extensions in the accent), centred, 6 apart */
-    if (ui.nn && sg_hits(131, 22)) {
-        char nm[SA_CHIPS_MAX][6];
-        int32_t cw[SA_CHIPS_MAX + 1u], tot = 0, k = 0;
-        for (i = 0; i < ui.nn; i++) {
-            sa_note_name(ui.notes[i], nm[i]);
-            cw[i] = sg_text_w(nm[i], 1) + 12;
-            tot += cw[i] + (i ? 6 : 0);
-        }
-        if (ui.more) {
-            nm[0][5] = 0;
-            cw[ui.nn] = sg_text_w("+9", 1) + 12;
-            tot += cw[ui.nn] + 6;
-        }
-        x = (SG_W - tot) / 2;
+    if (!ui.ghost && sg_hits(131, 22)) {
+        x = ui.cx0;
         for (i = 0; i < ui.nn; i++) {
             int ext = !(ui.chord.core >> (ui.notes[i] % 12u) & 1u);
-            sg_chip_text(x, 131, cw[i], 22, 6, nm[i], ext ? UC(A1) : UC(PANEL), ext ? UC(ON) : UC(INK));
-            x += cw[i] + 6;
+            sg_chip_text(x, 131, ui.cw[i], 22, 6, ui.nm[i], ext ? UC(A1) : UC(PANEL), ext ? UC(ON) : UC(INK));
+            x += ui.cw[i] + 6;
         }
         if (ui.more) {
             char m[4] = {'+', (char)('0' + (ui.more > 9u ? 9u : ui.more)), 0, 0};
-            sg_chip_text(x, 131, cw[ui.nn], 22, 6, m, UC(PANEL), UC(INK));
+            sg_chip_text(x, 131, ui.cw[ui.nn], 22, 6, m, UC(PANEL), UC(INK));
         }
-        (void)k;
     }
     /* the bars: 14 from x 10 to 230, 12 wide, 4 apart, standing on y 230 */
     for (i = 0; i < (int32_t)SA_NBARS; i++)
