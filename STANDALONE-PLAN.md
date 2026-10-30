@@ -36,9 +36,9 @@ and its `melodee_fm6.h` (Felucca's factory voices), and anything under saadet's 
 |---|---|---|
 | Keys (27) | play the DX7 voice and send notes on the channel, with velocity (fm1-base's key sensing) | GLO + a black key: the octave (left to right -3 -3 -3 -2 -1 0 +1 +2 +3 +3 +3) |
 | MASTER | volume | |
-| SELECT | tempo; in menus: choose | |
-| PRESETS | DX7 voice 1..32 | GLO + PRESETS: bank (ROM1A..ROM4B, then the user banks) |
-| ALGORITHM | MIDI channel 1..16 | |
+| SELECT | tempo; in menus: choose | GLO + SELECT: bank (ROM1A..ROM4B, then the user banks) |
+| PRESETS | DX7 voice 1..32 | GLO + PRESETS: the scale's root C..B (the Scale screen) |
+| ALGORITHM | MIDI channel 1..16 | GLO + ALGORITHM: the scale: CHROMATIC (off), MAJOR, MINOR, DORIAN, PHRYGIAN, LYDIAN, MIXOLYDIAN, LOCRIAN, HARM MINOR, MEL MINOR, MAJ PENTA, MIN PENTA, BLUES, WHOLE TONE, DIMINISHED. SNAP: every key plays, a note out of the scale moves to the nearest in it (a tie: down); the arp and loops get the snapped notes; the scale's keys glow dim; kept; MIDI REMOTE's MIDI KEYS too |
 | KN1..KN4 | send the 4 CCs of the current bank | GLO + knob: pick which CC that knob sends |
 | FX SEL ENV LFO EDIT | CC bank A..E (its screen stays until HOME or another screen; the knobs change it in place; LFO acts when let go) | GLO + FX: MIDI REMOTE on / off (docs/PROTOCOL.md section 8); LFO held: LATCH on / off (the notes stay after the keys are let go, a new chord replaces them, the arp steps them; LFO blinks, a LATCH chip on HOME; off lets them go) |
 | GLO | shift (held) | |

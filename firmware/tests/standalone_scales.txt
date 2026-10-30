@@ -1,0 +1,130 @@
+# SPDX-License-Identifier: MPL-2.0
+# RemoteFM1 standalone: the scales (the owner, 2026-10-30). GLO + PRESETS the root, GLO + ALGORITHM the scale (the
+# Scale screen); SNAP: every key plays, a note out of the scale moves to the nearest one in it (a tie: down); the arp
+# plays the snapped notes; the scale's keys dim on the LEDs; the cartridge moved to GLO + SELECT (SELECT alone the
+# tempo). In MIDI REMOTE's MIDI KEYS the scale applies too, and GLO + PRESETS / ALGORITHM set it unless SCALES is off
+# in the settings (then they send their CCs; GLO itself still none). Kept across a power cycle.
+# tests/run_tests.sh runs it (both builds).
+wait 400
+expect sa_scale 0
+press GLO
+turn PRESET 2
+turn ALGO 3
+release GLO
+expect sa_scale 203
+expect sa_screen 20
+expect sa_ch 1
+expect sa_voice 0
+wait 40
+shot sa_scale.png
+wait 100
+expect rf_mid_keys >0
+# D dorian: C4 stays, C#4 snaps down to C4 (a tie), D#4 to D4, F#4 to F4 (a tie), G#4 to G4 (a tie)
+out
+key 7 down 100
+wait 20
+expect_out USB 90 3C 64
+key 7 up
+key 8 down 100
+wait 20
+expect_out USB 90 3C 64
+key 8 up
+key 10 down 100
+wait 20
+expect_out USB 90 3E 64
+key 10 up
+key 13 down 100
+wait 20
+expect_out USB 90 41 64
+key 13 up
+wait 20
+expect sa_held 0
+# GLO + SELECT: the cartridge (not the tempo, not the scale)
+press GLO
+turn SELECT 1
+release GLO
+expect sa_screen 1
+expect sa_bpm 120
+expect sa_scale 203
+wait 1100
+# the arp: the snapped notes
+tap ARP
+out
+key 10 down 100
+wait 20
+expect_out USB 90 3E 64
+key 10 up
+wait 100
+tap ARP
+# MIDI REMOTE in MIDI KEYS: the scale on the keys; GLO + ALGORITHM the scale, no CC
+press HOME
+wait 600
+release HOME
+turn PRESET 4
+turn SELECT 1
+expect sa_set4 1
+tap HOME
+press GLO
+press FX
+wait 20
+release FX
+release GLO
+expect sa_remote 1
+out
+key 10 down 100
+wait 20
+expect_out USB 90 3E 64
+key 10 up
+wait 20
+press GLO
+turn ALGO -3
+release GLO
+expect sa_scale 200
+expect_no_out USB B0 67 3D
+wait 40
+expect sa_screen 17
+shot sa_remote_scale.png
+key 10 down 100
+wait 20
+expect_out USB 90 3F 64
+key 10 up
+press GLO
+turn ALGO 1
+release GLO
+expect sa_scale 201
+press GLO
+press FX
+wait 20
+release FX
+release GLO
+# SCALES off: GLO + ALGORITHM sends its CC, the scale stays
+press HOME
+wait 600
+release HOME
+turn PRESET 6
+turn SELECT -1
+expect sa_set6 0
+tap HOME
+press GLO
+press FX
+wait 20
+release FX
+release GLO
+out
+press GLO
+turn ALGO 1 100
+release GLO
+expect sa_scale 201
+expect_out USB B0 67 41
+expect_no_out USB B0 19 7F
+press GLO
+press FX
+wait 20
+release FX
+release GLO
+# kept
+wait 2500
+reboot
+wait 400
+expect sa_scale 201
+expect sa_set6 0

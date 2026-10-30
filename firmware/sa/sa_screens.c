@@ -860,6 +860,28 @@ static void sa_paint_latch(void)
         sg_rect(18 + 26 * i, 224, 22, 6, ui.latch ? UC(A3) : UC(PANEL));
 }
 
+/* ------------------------------------------------------------------ the scale (GLO + PRESETS / ALGORITHM) --- */
+static void sa_paint_scale(void)
+{
+    const char *root = SA_ROOTS[ui.sc_root % 12u], *name = SA_SCALES[ui.sc % SA_NSCALES].name;
+    uint32_t mask = SA_SCALES[ui.sc % SA_NSCALES].mask;
+    int32_t i, n = 3, w;
+    sg_chip_text(10, 8, 0, 22, 7, "SCALE", UC(A4), UC(ON));
+    sg_chip_text(186, 8, 44, 22, 0, "GLO", UC(A3), UC(ON));
+    w = sg_text_w(root, 7);
+    sg_text_sh((SG_W - w) / 2, 40, 7, root, ui.sc ? UC(A4) : UC(MID), 4, UC(D2));
+    while (n > 1 && sg_text_w(name, n) > 224)
+        n--;
+    sg_text_sh((SG_W - sg_text_w(name, n)) / 2, 128, n, name, UC(INK), 3, UC(SHADOW));
+    for (i = 0; i < 12; i++) {               /* C..B: the scale's notes lit, the root in the accent, the black ones low */
+        static const uint8_t BLK[12] = {0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0};
+        uint32_t pc = ((uint32_t)i + 12u - ui.sc_root) % 12u;
+        int on = mask >> pc & 1u, rt = pc == 0u;
+        int32_t x = 12 + 18 * i, y = BLK[i] ? 176 : 196;
+        sg_chip(x, y, 16, 30, rt ? UC(A1) : on ? UC(A4) : UC(PANEL));
+    }
+}
+
 /* ------------------------------------------------------------------ the settings (HOME held) --- */
 static void sa_paint_settings(void)
 {
@@ -927,7 +949,11 @@ static void sa_ui_snap_more(void)
                 ui.blank = 1;
             }
         }
+        if (!ui.blank && rm.info == SA_RM_INFO_SCALE && ui.rm_info_age < SA_RM_INFO_MS)
+            ui.scr = SA_SCR_SCALE;           /* (GLO + PRESETS / ALGORITHM in MIDI KEYS: the scale a moment) */
     }
+    ui.sc_root = sa.scale_root;
+    ui.sc = sa.scale;
     memcpy(ui.rm_last, rm.last, 3);
     ui.rm_src = rm.src;
     ui.rm_src_i = rm.src_i;
@@ -968,6 +994,7 @@ static int sa_paint_more(void)               /* 1: painted (a screen after S1) *
     case SA_SCR_TEMPO: sa_paint_tempo(); return 1;
     case SA_SCR_LATCH: sa_paint_latch(); return 1;
     case SA_SCR_SETTINGS: sa_paint_settings(); return 1;
+    case SA_SCR_SCALE: sa_paint_scale(); return 1;
     default: return 0;
     }
 }

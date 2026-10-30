@@ -331,6 +331,8 @@ CC is one General MIDI leaves undefined, free for a DAW's MIDI learn:
 | MASTER | CC 109, 0..127, sent when it moves (always absolute) |
 | GLO + a white key (MIDI KEYS) | KEY CH: the white keys left to right are channels 1..16; no note |
 | GLO + a black key (MIDI KEYS) | the octave: the 11 black keys left to right -3 -3 -3 -2 -1 0 +1 +2 +3 +3 +3 (the sixth, F#4, is 0); no note |
+| GLO + PRESETS / ALGORITHM (MIDI KEYS, SCALES on) | the scale's root / the scale (the instrument's, shared and kept; the Scale screen a moment); no CC. With SCALES off they send their CCs 104 / 103 (GLO itself still sends none) |
+| The keys in MIDI KEYS | snapped to the scale (SNAP: a note out of it moves to the nearest in it, a tie down); the scale's keys glow dim |
 
 **The settings page** (HOME held in the instrument, not in the mode; KN1..KN4 the first four rows, PRESETS the row,
 SELECT its value; HOME closes; kept with the settings):
@@ -343,6 +345,7 @@ SELECT its value; HOME closes; kept with the settings):
 | KEY CH | 1..16: the keys (GLO + a white key sets it in MIDI KEYS) |
 | KEYS | FIXED (the keys send their notes, every button its CC, as before); MIDI KEYS (a keyboard: GLO is a shift, the shortcuts above) |
 | OCT KEYS | OCTAVE (in MIDI KEYS, OCT- / OCT+ shift the keys' octave) or CC 85/86 (they send their CCs) |
+| SCALES | ON (in MIDI KEYS, GLO + PRESETS / ALGORITHM set the scale) or OFF |
 
 GLO + FX itself sends nothing for the button pressed second; turning the mode off sends 0 for every button still held
 that had sent 127, and the note offs of the keys held.

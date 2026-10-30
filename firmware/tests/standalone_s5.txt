@@ -141,12 +141,12 @@ sa name USR2 V01
 sa dx7bank 9 usb bad
 expect sa_ub_bad 1
 expect sa_ubanks 2
-# GLO + PRESETS: the banks go on past the ROM's to the user's, and back
+# GLO + SELECT: the banks go on past the ROM's to the user's, and back
 press GLO
-turn PRESET -40
+turn SELECT -40
 expect sa_bank 0
 expect sa_ub_slot -1
-turn PRESET 40
+turn SELECT 40
 expect sa_ub_slot 1
 release GLO
 # a third, then a fourth: the oldest (USER1) replaced

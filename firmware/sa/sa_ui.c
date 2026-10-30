@@ -60,6 +60,7 @@ static struct {
     uint8_t latch;
     uint8_t set[7], blank;                   /* the settings' values (sa_setopt's rows); MIDI REMOTE's screen off */
     uint8_t rm_info, rm_oct, rm_keych, rm_kbd;
+    uint8_t sc_root, sc;                     /* the scale */
     int8_t rm_rel;
     uint32_t rm_info_age;
     uint32_t rm_age;

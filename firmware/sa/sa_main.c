@@ -13,7 +13,7 @@
  * sensed, the top row probed) and send their notes on the MIDI channel over USB and Bluetooth at once (src/rfm_main.c's
  * MIDI queue). Notes, pitch bend, the wheel, sustain, aftertouch and program changes coming in on that channel, over USB
  * or Bluetooth, play it too. The controls (STANDALONE-PLAN.md section 3; S1's part): MASTER the volume (fm1-base's
- * gain), PRESETS the voice 1..32, GLO held + PRESETS the cartridge (ROM1A..ROM4B), ALGORITHM the channel 1..16, OCT- /
+ * gain), PRESETS the voice 1..32, GLO held + SELECT the cartridge (ROM1A..ROM4B), ALGORITHM the channel 1..16, OCT- /
  * OCT+ the octave -3..+3 (keys F3..G5 at 0), both at once a panic, HOME back to the Notes view at once. Each turn or
  * press shows its screen (Preset, Channel, Octave) for SA_OVERLAY_MS, then the HOME view: Notes (sa_ui.c). LEDs: the
  * keys whose notes sound from the keys or MIDI in lit, GLO lit while held, OCT- / OCT+ lit while the octave is below /
@@ -23,6 +23,9 @@
  * LATCH (LFO held; tapped it is CC bank D): the keys' notes stay after they are let go; a new chord (a key down while
  * none is held) replaces them; with the arp on, the arp keeps stepping the latched keys; LFO blinks while it is on;
  * off lets the notes go. Not kept across a power cycle.
+ *
+ * The scale (sa_scale.c): GLO + PRESETS its root, GLO + ALGORITHM the scale; the keys' notes snap onto it. GLO + a
+ * black key the octave. HOME held: the settings page (MIDI REMOTE's screen, knobs, channels, keys; sa_remote.c).
  *
  * After S1 (STANDALONE-PLAN.md S2..S5): FX SEL ENV LFO EDIT the CC bank and KN1..KN4 its CCs (sa_cc.c); REC, PLAY
  * and their holds the looper (sa_loop.c); ARP and its hold the arp, SELECT the tempo, a computer's MIDI clock both
@@ -51,7 +54,7 @@ static void rf_ev_put(uint32_t pkt);        /* a MIDI event packet out (USB, and
 static int rf_panel_ours(void);             /* no session, no push, no hold: the screen is the standalone's */
 static int rf_session_on(void);
 static void rf_info(char out[4][32], uint8_t *warn);   /* the hand-over screen's lines (the waiting screen's) */
-static void rf_sa_leds(uint32_t btns, uint32_t keys);   /* the LEDs, a host's mid level cleared */
+static void rf_sa_leds(uint32_t btns, uint32_t keys, uint32_t keys_mid);   /* the LEDs (keys_mid: dim) */
 
 #define SA_NOTE0 53u                         /* key 0 at octave 0: F3 */
 #define SA_HOST_MS 3000u                     /* a HELLO without a session: panel mode this long after its last message */
@@ -72,13 +75,13 @@ static void rf_sa_leds(uint32_t btns, uint32_t keys);   /* the LEDs, a host's mi
 
 enum { SA_SCR_HOME, SA_SCR_PRESET, SA_SCR_CHANNEL, SA_SCR_OCTAVE, SA_SCR_HOST, SA_SCR_CCBANK, SA_SCR_CCTURN,
        SA_SCR_CCASSIGN, SA_SCR_SAVED, SA_SCR_REC, SA_SCR_LOOP, SA_SCR_LOOPS, SA_SCR_RECOPT, SA_SCR_ARP, SA_SCR_ARPSET,
-       SA_SCR_TEMPO, SA_SCR_THEME, SA_SCR_REMOTE, SA_SCR_LATCH, SA_SCR_SETTINGS, SA_NSCR };
+       SA_SCR_TEMPO, SA_SCR_THEME, SA_SCR_REMOTE, SA_SCR_LATCH, SA_SCR_SETTINGS, SA_SCR_SCALE, SA_NSCR };
 #define SA_HOLD_MS 500u                      /* SAVE, ARP, PLAY, REC, LFO, HOME: held this long is a hold, else a tap */
 /* the settings (HOME held): MIDI REMOTE's display, knobs, channels, keys */
 enum { SA_RMD_VOID, SA_RMD_SOLID, SA_RMD_ALL, SA_RMD_KNOBS, SA_RMD_N };   /* the screen in MIDI REMOTE */
 enum { SA_RMR_ABS, SA_RMR_2C, SA_RMR_OFS, SA_RMR_N };   /* its encoders: absolute; relative 1..63 / 127..65; 65 / 63 */
 enum { SA_RMK_FIXED, SA_RMK_PLAY, SA_RMK_N };           /* its keys: fixed (as 0.3); MIDI KEYBOARD */
-#define SA_NSET 6u                           /* the settings' rows */
+#define SA_NSET 7u                           /* the settings' rows */
 #define SA_MENU_MS 6000u                     /* (a menu's ov_until: unused since menus stay; kept for the touch) */
 enum { SA_LE_ON, SA_LE_OFF, SA_LE_CC };      /* a loop's events (sa_loop.c) */
 static void sa_rec_ev(uint32_t type, uint32_t d1, uint32_t d2);   /* (sa_loop.c: what is played, recorded) */
@@ -128,7 +131,7 @@ static struct {
     uint8_t poke;                            /* the picture changed: a frame soon */
     uint8_t lost;                            /* the panel was someone else's since the last frame */
     uint32_t frame_ms;
-    uint32_t led_b, led_k, led_ms;
+    uint32_t led_b, led_k, led_km, led_ms;
     uint32_t notes_out, notes_in, ev_drop, panics, saves, loads, cc_out, save_holds;   /* (the simulator's checks) */
 } sa;
 
@@ -259,6 +262,7 @@ static void sa_note(uint32_t note, uint32_t vel)   /* the screen's count and the
 }
 
 static void sar_key(uint32_t note, uint32_t vel);   /* (sa_arp.c) */
+static uint32_t sa_snap(uint32_t n);                /* (sa_scale.c) */
 static int sar_is_on(void);
 
 static void sa_latch_off1(uint32_t i)       /* latched note i let go now */
@@ -284,7 +288,7 @@ static void sa_key(uint32_t k, uint32_t vel)       /* a key down (vel) or up (0)
 {
     if (vel) {
         int32_t n = (int32_t)SA_NOTE0 + (int32_t)k + 12 * sa.oct;
-        n = clamp(n, 0, 127);
+        n = (int32_t)sa_snap((uint32_t)clamp(n, 0, 127));   /* (the scale: SNAP) */
         if (sa.latch && sa.lat_n) {          /* LATCH: a new chord (no key held) replaces the one held; the same
                                               * note again is let go first */
             if (!sa.keys) {
@@ -676,7 +680,7 @@ static void sa_midi_in(uint32_t pkt)
 /* ------------------------------------------------------------------ the panel, once a millisecond --- */
 static void sa_leds(void)
 {
-    uint32_t b = 0, k = 0, i;
+    uint32_t b = 0, k = 0, i, km;
     if (sa.btns >> B_GLO & 1u)
         b |= 1u << B_GLO;
     b |= 1u << (B_FX + sa.ccbank);           /* the CC bank's button */
@@ -700,12 +704,14 @@ static void sa_leds(void)
         if ((sa.keys >> i & 1u) || (n >= 0 && n < 128 && sa.held[n]))
             k |= 1u << i;
     }
-    if (b == sa.led_b && k == sa.led_k && plat_ms() - sa.led_ms < SA_LED_REFRESH_MS)
+    km = sa_scale_keys(sa.oct) & ~k;         /* the scale's notes, dim */
+    if (b == sa.led_b && k == sa.led_k && km == sa.led_km && plat_ms() - sa.led_ms < SA_LED_REFRESH_MS)
         return;
     sa.led_b = b;
     sa.led_k = k;
+    sa.led_km = km;
     sa.led_ms = plat_ms();
-    rf_sa_leds(b, k);                        /* (rewritten now and then too: nothing else's LEDs stay) */
+    rf_sa_leds(b, k, km);                    /* (rewritten now and then too: nothing else's LEDs stay) */
 }
 
 static void sa_press_early(uint32_t b)       /* SAVE, ARP, PLAY, REC down (most act when let go: sa_tap) */
@@ -951,27 +957,35 @@ static void sa_encoders(const int32_t *steps)   /* detents by plat.h's role (EN_
     for (k = 0; k < 4; k++)
         if (steps[EN_K1 + k] && !sa_menu_knob((uint32_t)k, steps[EN_K1 + k]))
             sa_cc_knob((uint32_t)k, steps[EN_K1 + k]);
-    if (steps[EN_SELECT])
+    if (steps[EN_SELECT] && (sa.btns >> B_GLO & 1u)) {   /* GLO + SELECT: the cartridge */
+        int32_t b = clamp((int32_t)sa.bank + steps[EN_SELECT], 0, (int32_t)sa_nbanks() - 1);
+        if (b != sa.bank) {
+            sa.bank = (uint8_t)b;
+            if (sa.voice >= sa_bank_voices(sa.bank))
+                sa.voice = 0;
+            sa_load_voice();
+            sa_changed();
+        }
+        sa_overlay(SA_SCR_PRESET);
+    } else if (steps[EN_SELECT]) {
         sa_select(steps[EN_SELECT]);
+    }
+    if ((s || c) && (sa.btns >> B_GLO & 1u)) {   /* GLO + PRESETS: the scale's root; GLO + ALGORITHM: the scale */
+        if (s)
+            sa_scale_turn(EN_PRESET, s);
+        if (c)
+            sa_scale_turn(EN_ALGO, c);
+        sa_overlay(SA_SCR_SCALE);
+        s = c = 0;
+    }
     if (s && sa_menu_knob(4u, s))
         s = 0;
     if (s) {
-        if (sa.btns >> B_GLO & 1u) {
-            int32_t b = clamp((int32_t)sa.bank + s, 0, (int32_t)sa_nbanks() - 1);
-            if (b != sa.bank) {
-                sa.bank = (uint8_t)b;
-                if (sa.voice >= sa_bank_voices(sa.bank))
-                    sa.voice = 0;
-                sa_load_voice();
-                sa_changed();
-            }
-        } else {
-            int32_t v = clamp((int32_t)sa.voice + s, 0, (int32_t)sa_bank_voices(sa.bank) - 1);
-            if (v != sa.voice) {
-                sa.voice = (uint8_t)v;
-                sa_load_voice();
-                sa_changed();
-            }
+        int32_t v = clamp((int32_t)sa.voice + s, 0, (int32_t)sa_bank_voices(sa.bank) - 1);
+        if (v != sa.voice) {
+            sa.voice = (uint8_t)v;
+            sa_load_voice();
+            sa_changed();
         }
         sa_overlay(SA_SCR_PRESET);
     }

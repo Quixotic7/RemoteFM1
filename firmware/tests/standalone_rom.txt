@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MPL-2.0
 # RemoteFM1 standalone with Yamaha's ROM cartridges built in (tests/run_tests.sh runs it only when build/gen/dx7_rom.h
-# has them): PRESETS the voice, GLO + PRESETS the cartridge, a program change, the names from the data; and the S1
+# has them): PRESETS the voice, GLO + SELECT the cartridge, a program change, the names from the data; and the S1
 # screens as the mockup has them (design/standalone-mockup at half size), shot to PNGs: Notes (Dm7 on E.PIANO 1),
 # Preset (11), Channel (10), Octave (+1).
 wait 400
@@ -49,21 +49,21 @@ shot sa_octave.png
 tap OCT-
 expect sa_oct 0
 wait 1100
-# GLO + PRESETS: the cartridges, the voice number kept; clamped at both ends
+# GLO + SELECT: the cartridges, the voice number kept; clamped at both ends
 press GLO
-turn PRESET 1
+turn SELECT 1
 release GLO
 expect sa_bank 1
 expect sa_voice 10
 sa name CLAV 2
 press GLO
-turn PRESET 20 5
+turn SELECT 20 5
 release GLO
 expect sa_bank 7
 sa name ORCHESTRA
 shot sa_preset_rom4b.png
 press GLO
-turn PRESET -20 5
+turn SELECT -20 5
 release GLO
 expect sa_bank 0
 # PRESETS clamped at 32 and 1
@@ -89,7 +89,7 @@ sa name STRINGS 3
 master 4096
 peakreset
 press GLO
-turn PRESET 7 5
+turn SELECT 7 5
 release GLO
 turn PRESET -40 5
 turn PRESET 1 5

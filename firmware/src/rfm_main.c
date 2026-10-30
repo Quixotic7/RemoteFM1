@@ -490,14 +490,15 @@ static void rf_waiting_leds(uint32_t btns, uint32_t keys)
 
 /* standalone (sa_main.c sa_leds): the lit buttons and keys, the unlit buttons at the glow; the mid level a host's
  * LEDS left (plat_lights_mid holds it until it is called again) cleared, or its keys would stay lit at ~12 % */
-static void rf_sa_leds(uint32_t btns, uint32_t keys)
+static void rf_sa_leds(uint32_t btns, uint32_t keys, uint32_t keys_mid)
 {
     plat_glow(1);
     plat_leds(btns, keys);
-    plat_lights_mid(0, 0);
+    plat_lights_mid(0, keys_mid);
     rf_led_lit_b = btns;
     rf_led_lit_k = keys;
-    rf_led_mid_k = rf_led_glow_k = 0;
+    rf_led_mid_k = keys_mid;
+    rf_led_glow_k = 0;
 }
 
 static void rfa_session_changed(uint32_t on)

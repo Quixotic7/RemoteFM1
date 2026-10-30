@@ -16,7 +16,9 @@
  *   MASTER         CC 109 on CC CH, 0..127 (sent when it moves)
  *   MIDI KEYS      (KEYS in the settings) GLO is a shift and sends nothing: GLO + a white key the keys' channel (1..16
  *                  left to right), GLO + a black key the octave (sa_black_oct); OCT- / OCT+ the octave when OCT KEYS
- *                  is on (else their CCs)
+ *                  is on (else their CCs); the scale applies to the keys (SNAP, sa_scale.c), and with SCALES on GLO +
+ *                  PRESETS / ALGORITHM set its root / scale (no CC; with SCALES off they send their CCs, GLO still
+ *                  sends none)
  * All of these CCs are undefined in General MIDI (20..31, 85, 86, 102..119): free for a DAW's MIDI learn. Coming out
  * sends 0 for every button still held that sent 127, so nothing is left on at the other end. Part of sa_main.c (its
  * state, sa). */
@@ -241,13 +243,14 @@ static void sa_rm_ms(uint32_t keys, uint32_t btns, const int32_t *steps)
     }
 }
 
-static void sa_rm_leds(void)                 /* the buttons and keys held, lit */
+static void sa_rm_leds(void)                 /* the buttons and keys held, lit; MIDI KEYS: the scale's keys dim */
 {
-    uint32_t b = sa.btns & ((1u << NB) - 1u), k = sa.keys;
-    if (b == sa.led_b && k == sa.led_k && plat_ms() - sa.led_ms < SA_LED_REFRESH_MS)
+    uint32_t b = sa.btns & ((1u << NB) - 1u), k = sa.keys, km = sa_rm_kbd() ? sa_scale_keys(rm.oct) & ~k : 0u;
+    if (b == sa.led_b && k == sa.led_k && km == sa.led_km && plat_ms() - sa.led_ms < SA_LED_REFRESH_MS)
         return;
     sa.led_b = b;
     sa.led_k = k;
+    sa.led_km = km;
     sa.led_ms = plat_ms();
-    rf_sa_leds(b, k);
+    rf_sa_leds(b, k, km);
 }

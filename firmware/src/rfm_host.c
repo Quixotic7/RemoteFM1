@@ -693,7 +693,7 @@ int app_expect(const char *what, int *got)
                                                     * hand-over, 5 CC bank, 6 CC turn, 7 CC assign, 8 saved, 9 rec,
                                                     * 10 loop, 11 loops, 12 rec options, 13 arp, 14 arp settings,
                                                     * 15 tempo, 16 theme, 17 MIDI REMOTE, 18 latch,
-                                                    * 19 settings */
+                                                    * 19 settings, 20 scale */
         *got = sa.panel ? SA_SCR_HOST : rm.on ? SA_SCR_REMOTE : sa.ov;
     else if (!strcmp(what, "sa_sounding"))         /* FM6's voices sounding */
         *got = (int)sa_synth_voices();
@@ -755,7 +755,9 @@ int app_expect(const char *what, int *got)
                                                     * knobs, CC channel, key channel, keys, OCT keys, scale shortcuts */
         const uint8_t v[7] = {sa.rm_disp, sa.rm_rel, sa.rm_cc_ch, sa.rm_key_ch, sa.rm_keys, sa.rm_octk, sa.rm_scl};
         *got = v[what[6] - '0'];
-    } else if (!strcmp(what, "sa_rm_oct"))         /* MIDI REMOTE's keys' octave; its screen blank */
+    } else if (!strcmp(what, "sa_scale"))          /* the scale: root * 100 + scale */
+        *got = sa.scale_root * 100 + sa.scale;
+    else if (!strcmp(what, "sa_rm_oct"))         /* MIDI REMOTE's keys' octave; its screen blank */
         *got = rm.oct;
     else if (!strcmp(what, "sa_blank"))
         *got = ui.blank;
