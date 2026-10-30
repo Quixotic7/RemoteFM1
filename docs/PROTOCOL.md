@@ -106,7 +106,7 @@ One message = a command byte + a body (8-bit bytes, multi-byte fields **little e
   | offset | field |
   |---|---|
   | 51 | `screen_w16` (240), `screen_h16` (240) |
-  | 55 | `caps16`: bit0 shadow frame buffer, bit1 COPY, bit2 RLE, bit3 PAL, bit4 battery reading, bit5 PLAY green LED, bit6 five LED levels (else: lit / dim / faint, mid shown as dim), bit7 TILES' HOLD flag (0.2.2, section 3), bit8 fast Bluetooth radio (0.2.2: 2M, long link packets, MTU 247; section 1) |
+  | 55 | `caps16`: bit0 shadow frame buffer, bit1 COPY, bit2 RLE, bit3 PAL, bit4 battery reading, bit5 PLAY green LED, bit6 five LED levels (else: lit / dim / faint, mid shown as dim), bit7 TILES' HOLD flag (0.2.2, section 3), bit8 fast Bluetooth radio (0.2.2: 2M, long link packets, MTU 247; section 1), bit9 MIDI_IN: the TRS jack's MIDI in comes to the host in a session (section 4) |
   | 57 | `max_frames_in_flight8` (2) |
   | 58 | `session8` (1 while a session is active) |
   | 59 | `fw_ver[8]` (the RemoteFM1 version string) |
@@ -259,6 +259,31 @@ Body: `frame16 status8 draw_us32 bytes32 pending8`.
 Idea for a later version, not in protocol 2: FRAME_ACK status bit2 "no session", so a host notices a lost session
 at once instead of through the heartbeat.
 
+### MIDI_IN (`0x54`): the TRS jack's MIDI in (units with `caps` bit9)
+
+What comes into the FM-1's TRS MIDI jack during a session goes to the host, which feeds it to the firmware it runs
+as that firmware's own MIDI in (as if it came from the computer's MIDI input). Body: 1..`RFM_MIDI_IN_MAX` (64) bytes
+of **whole MIDI messages, each with its status byte**, in the order they came:
+
+| status | bytes |
+|---|---|
+| `8n 9n An Bn En` | 3 |
+| `Cn Dn` | 2 |
+| `F8` clock, `FA` start, `FB` continue, `FC` stop | 1 |
+
+- No running status (the device writes every status), no SysEx, no other system messages (fm1-base's jack parser,
+  `device/midi_uart.c`, drops them; it keeps running status across real-time bytes and skips SysEx). A host takes
+  the body as raw MIDI bytes; one that wants messages splits it by status (`rfm_midi_msg_len` in libremotefm1).
+- Sent on the session's transport (USB SysEx, bulk or Bluetooth), only during a session, never waited for: the
+  device batches what came in since its last turn and sends it when the transport has room now, so FRAME_ACKs,
+  PANEL_Rs and the panel's events are never held up. What finds the 64-byte batch full (a burst while the link is
+  busy), or comes with no session, is dropped and counted (STATS_R's MIDI-in drops). At 31,250 baud the jack carries
+  at most ~1,000 three-byte messages a second, well within every transport.
+- A host that does not know the command ignores it (an unknown command); one that does checks `caps` bit9 only to
+  show the jack is there. USB and Bluetooth MIDI from the computer are not forwarded (the computer has them already).
+- Outside a session the standalone build plays the jack's MIDI itself (section 8); panel mode with no session drops
+  it.
+
 ## 5. Kept from M0 (diagnostics)
 
 ECHO `0x04` / ECHO_R `0x44`, STATS `0x05` / STATS_R `0x45`, STATS_RESET `0x06`, BLIT_BENCH `0x07` / BLIT_R `0x47`,
@@ -302,12 +327,20 @@ RemoteFM1 message starts `F0 7D 52 46`.
   first; `caps` bit8 (`RFM_CAP_BLE_FAST`; 0x1AF in all): libremotefm1 then paces Bluetooth at 30000 B/s with 8 KB
   in flight and budgets up to 3000 B (measured with a Mac: ~35 KB/s of 1 KB frames, nothing lost at 14 KB in flight).
 - 0.2.3: no protocol change (the USB audio input fixed; `caps` still 0x1AF).
+- TRS MIDI (after 0.2.3): MIDI_IN (`0x54`, section 4), `caps` bit9 (`RFM_CAP_MIDI_IN`; 0x3AF in all, 0x22C without
+  the shadow). The standalone instrument plays the jack's MIDI (section 8).
 
 ## 8. The standalone build's own messages (STANDALONE-PLAN.md)
 
 Outside a session the standalone build is an instrument (section 1's last point). These messages do not need a HELLO,
 and do not hand the unit to a host: they work while it plays. They go over USB SysEx, vendor bulk or Bluetooth SysEx
 like any other; their replies are long, so a host uses USB (a Bluetooth reply that finds no room is dropped, section 1).
+
+**The TRS jack (MIDI in)**: outside a session the instrument plays what comes into it exactly as USB and Bluetooth
+MIDI in: notes, pitch bend, CCs, channel aftertouch and program change on its MIDI channel; clock, start, continue
+and stop for the tempo, the arp and the loops. In MIDI REMOTE it is ignored like the other MIDI in (the DX7 does not
+listen there; the jack has no out to pass it to, and a host already hears REMOTE's own messages). In a session it goes
+to the host (MIDI_IN, section 4).
 
 ### MIDI REMOTE: the whole panel as plain MIDI (firmware `sa/sa_remote.c`)
 

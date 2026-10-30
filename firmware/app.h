@@ -12,7 +12,10 @@
 #define APP_PALETTE 2u                   /* gfx.c's CYAN */
 #define APP_BLOCK 256u                   /* the standalone DX7 (sa/sa_main.c sa_render): 8 of FM6's 32-frame blocks */
 #define APP_CANVAS_PX (240u * 32u)       /* the standalone screens' two 16-row bands (sa/sa_gfx.c) */
-#define FM1B_TRS 0                       /* no MIDI in on the TRS jack (yet): the standalone plays USB and Bluetooth MIDI */
+#ifndef FM1B_TRS
+#define FM1B_TRS 1                       /* MIDI in on the TRS jack (fm1-base device/midi_uart.c): standalone, it plays the
+                                         * DX7 as USB and Bluetooth MIDI do; in a session it goes to the host (MIDI_IN) */
+#endif
 #define APP_TOUCH                        /* the keys' velocity (fm1-base lib/touch): standalone only (sa_main.c) */
 
 /* RFM_SHADOW 1: the 240 x 240 shadow frame buffer (115,200 B of the pool): TILES are decoded into it and pushed to

@@ -84,6 +84,11 @@ typedef struct {
 uint32_t rfm_build_panel_r(uint8_t *body, const rfm_panel_r_t *p);
 int rfm_parse_panel_r(const uint8_t *b, uint32_t n, rfm_panel_r_t *p);
 
+/* MIDI_IN (RFM_CAP_MIDI_IN, docs/PROTOCOL.md section 4): the TRS jack's MIDI, whole messages with their status */
+uint32_t rfm_midi_msg_len(uint8_t status);              /* 1..3; 0 for a byte no MIDI_IN message starts with */
+int rfm_parse_midi_in(const uint8_t *b, uint32_t n);    /* 0: 1..RFM_MIDI_IN_MAX bytes of whole messages; else -1 */
+uint32_t rfm_build_midi_in(uint8_t *body, const uint8_t *msgs, uint32_t n);   /* (the fake): n bytes, as they are */
+
 /* TILES header: frame16 flags8 nrects8 */
 void rfm_tiles_header(uint8_t *body, uint16_t frame, uint8_t flags, uint8_t nrects);
 

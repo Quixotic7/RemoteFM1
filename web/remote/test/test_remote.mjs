@@ -94,6 +94,18 @@ async function setup(opts = {}, build = () => {}, start = 3) {
     await run(100);
     check(samePlanes(world.leds(u), expectedPlanes(new Uint8Array(44), 0)), 'LEDs off again');
 
+    // the TRS jack's MIDI (MIDI_IN): whole messages to onMidiIn, in order
+    {
+        const got = [], off = remote.onMidiIn(b => got.push(...b));
+        check(((remote.status.unit && remote.status.unit.caps) & 0x200) !== 0, 'HELLO_R caps bit 9: MIDI_IN');
+        const m = [0x90, 60, 100, 0xC0, 5, 0xF8, 0xB0, 7, 127];
+        world.trs(u, Uint8Array.from(m)); await run(5);
+        const burst = []; for (let i = 0; i < 40; i++) burst.push(0x91, i, 64);
+        world.trs(u, Uint8Array.from(burst)); await run(5);
+        check(got.length === m.length + burst.length && got.join() === m.concat(burst).join(), `TRS MIDI in -> onMidiIn: ${got.length} bytes, in order, a burst split and joined`);
+        off();
+    }
+
     // panel events
     ev.panel.length = 0;
     world.key(u, 5, 1); await run(5);

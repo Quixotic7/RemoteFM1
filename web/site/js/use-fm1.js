@@ -5,7 +5,8 @@
 // The unit's panel goes into the page's input as source REMOTE (OR'ed with the page's own: keys and buttons held on
 // either are held; encoder deltas added once; the unit's MASTER wins once it has reported it); the engine's screen
 // and LEDs go out to the unit. Engine MIDI out never goes to the unit's port, and the page's own MIDI input skips the
-// unit's ports (input.js).
+// unit's ports (input.js). MIDI into the unit's TRS jack comes to the page (MIDI_IN) and goes to the firmware's MIDI
+// in, as the computer's MIDI input does.
 import { h } from "./sheet.js";
 import { Fm1Link } from "./fm1-link.js";
 
@@ -30,6 +31,8 @@ export function createFm1(site, mod, { onUnitPorts } = {}) {
     if (p.enc) for (let i = 0; i < 7; i++) if (p.enc[i]) site.panel.turn(i, p.enc[i]);
     if (p.master !== null && p.master !== undefined) site.panel.master(p.master);
   });
+  // the unit's TRS MIDI in (MIDI_IN) -> the firmware's MIDI in, as the computer's own MIDI input goes
+  if (typeof remote.onMidiIn === "function") remote.onMidiIn((bytes) => site.midiIn(bytes));
   // the engine's screen and LEDs -> the unit; until the engine draws, a screen that says what to do
   if (!site.screen().seq) { const w = waitingFrame(); if (w) remote.setFrame(-1, w); }
   site.on("frame", (px, seq) => remote.setFrame(seq, px));

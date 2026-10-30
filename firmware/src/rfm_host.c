@@ -25,7 +25,9 @@
  * rf_panel_keys, rf_panel_buttons, rf_panel_master, rf_panel_encN, rf_shadow_ok (the shadow is the reference),
  * rf_screen_ok (the panel is), rf_screen_snap (the panel is the screen of rf snap), rf_screen_black, rf_frames,
  * rf_decode_errs, rf_ota_frames, rf_bad_T, rf_drop_T, rf_lit_keys, rf_lit_btns (plat.h's labels), rf_mid_keys,
- * rf_glow_keys, rf_held (tiles drawn, not shown: HOLD), rf_held_frames, rf_hold_timeouts */
+ * rf_glow_keys, rf_held (tiles drawn, not shown: HOLD), rf_held_frames, rf_hold_timeouts, rf_mi_n (MIDI_IN bytes the
+ * host got, all transports), rf_mi_bK (byte K of them), rf_mi_msgs (MIDI_IN messages), rf_mi_bad (one not whole
+ * messages, or longer than RFM_MIDI_IN_MAX), rf_midi_drop */
 #include <stdlib.h>
 #include <string.h>
 static void run_ms(uint32_t ms);                    /* (plat_host.c's, below) */
@@ -48,10 +50,28 @@ static struct {
     uint32_t frame, status, pending, t;
 } hs_ack;
 static uint8_t hs_hello[RFM_HELLO_LEN], hs_panel[RFM_PANEL_LEN];
+static uint8_t hs_mi[1024];
+static uint32_t hs_mi_n, hs_mi_msgs, hs_mi_bad;
 static void hs_msg(void *ctx, uint32_t cmd, const uint8_t *b, uint32_t len)
 {
     uint32_t t = (uint32_t)(uintptr_t)ctx, i;
     hs_n[t][cmd & 127u]++;
+    if (cmd == RFM_MIDI_IN) {                       /* whole messages, each with its status */
+        uint32_t k = 0;
+        hs_mi_msgs++;
+        if (!len || len > RFM_MIDI_IN_MAX)
+            hs_mi_bad++;
+        while (k < len) {
+            uint32_t st = b[k], n = st >= 0xF8u ? 1u : (st & 0xE0u) == 0xC0u ? 2u : 3u;
+            if (st < 0x80u || (st >= 0xF0u && st < 0xF8u) || k + n > len) {
+                hs_mi_bad++;
+                break;
+            }
+            k += n;
+        }
+        for (i = 0; i < len; i++)
+            hs_mi[hs_mi_n++ % sizeof hs_mi] = b[i];
+    }
     if (cmd == RFM_FRAME_ACK && len >= RFM_ACK_LEN) {
         hs_ack.frame = rf_rd16(b);
         hs_ack.status = b[2];
@@ -591,7 +611,19 @@ int app_expect(const char *what, int *got)
         *got = (int16_t)rf_rd16(hs_panel + RFM_PANEL_ENC + 2u * ((uint32_t)atoi(what + 12) % RFM_NENC));
         return 1;
     }
-    if (!strcmp(what, "rf_session"))
+    if (!strncmp(what, "rf_mi_b", 7) && what[7] >= '0' && what[7] <= '9') {
+        *got = hs_mi[(uint32_t)atoi(what + 7) % sizeof hs_mi];
+        return 1;
+    }
+    if (!strcmp(what, "rf_mi_n"))
+        *got = (int)hs_mi_n;
+    else if (!strcmp(what, "rf_mi_msgs"))
+        *got = (int)hs_mi_msgs;
+    else if (!strcmp(what, "rf_mi_bad"))
+        *got = (int)hs_mi_bad;
+    else if (!strcmp(what, "rf_midi_drop"))
+        *got = (int)rf_midi_drop;
+    else if (!strcmp(what, "rf_session"))
         *got = rfa.session;
     else if (!strcmp(what, "rf_session_t"))
         *got = rfa.st;

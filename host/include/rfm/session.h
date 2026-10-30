@@ -96,6 +96,10 @@ typedef struct {
     void (*state)(void *ctx, int state, const char *why);
     void (*rescan)(void *ctx);                          /* discovery found no unit: refresh the links */
     void (*log)(void *ctx, const char *msg);
+    /* the unit's TRS MIDI in (MIDI_IN, units with RFM_CAP_MIDI_IN): 1..64 bytes of whole MIDI messages, each with
+     * its status (channel messages and real time F8 FA FB FC), in order, while a session is active. Feed them to
+     * the running firmware's MIDI input as if they came from its own MIDI in. NULL: dropped */
+    void (*midi_in)(void *ctx, const uint8_t *msgs, uint32_t n);
 } rfm_session_cb_t;
 
 typedef struct {
@@ -114,6 +118,7 @@ typedef struct {
     uint32_t lossy;                                     /* the colours a tile is reduced to now; 0 lossless */
     uint32_t hold;                                      /* 1: screen changes go whole (HOLD) on this link now */
     uint32_t held;                                      /* frames sent with HOLD */
+    uint32_t midi_in, midi_in_bytes, midi_in_bad;       /* MIDI_IN messages delivered, their bytes, malformed */
 } rfm_session_stats_t;
 
 typedef struct rfm_session rfm_session_t;

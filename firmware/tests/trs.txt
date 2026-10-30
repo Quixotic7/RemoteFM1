@@ -1,0 +1,190 @@
+# SPDX-License-Identifier: MPL-2.0
+# RemoteFM1 and the TRS jack's MIDI in (fm1-base device/midi_uart.c; docs/PROTOCOL.md section 4 MIDI_IN):
+# standalone it plays the DX7 on its channel as USB and Bluetooth MIDI do, its clock drives the tempo; in a host's
+# session it goes to the host as MIDI_IN (whole messages, status always), the DX7 silent; MIDI REMOTE ignores it.
+wait 400
+expect sa_panel 0
+expect sa_ch 1
+midi TRS 90 3E 64
+midi TRS 90 41 50
+wait 10
+expect sa_held 2
+expect sa_notes_in 2
+midi TRS 80 3E 00
+midi TRS 90 41 00
+wait 10
+expect sa_held 0
+# another channel: not ours
+midi TRS 91 3E 64
+wait 10
+expect sa_held 0
+# a clock at 100 BPM (25 ms a tick) for 0.75 s: the tempo follows it
+midi TRS F8 00 00
+wait 23
+midi TRS F8 00 00
+wait 23
+midi TRS F8 00 00
+wait 23
+midi TRS F8 00 00
+wait 23
+midi TRS F8 00 00
+wait 23
+midi TRS F8 00 00
+wait 23
+midi TRS F8 00 00
+wait 23
+midi TRS F8 00 00
+wait 23
+midi TRS F8 00 00
+wait 23
+midi TRS F8 00 00
+wait 23
+midi TRS F8 00 00
+wait 23
+midi TRS F8 00 00
+wait 23
+midi TRS F8 00 00
+wait 23
+midi TRS F8 00 00
+wait 23
+midi TRS F8 00 00
+wait 23
+midi TRS F8 00 00
+wait 23
+midi TRS F8 00 00
+wait 23
+midi TRS F8 00 00
+wait 23
+midi TRS F8 00 00
+wait 23
+midi TRS F8 00 00
+wait 23
+midi TRS F8 00 00
+wait 23
+midi TRS F8 00 00
+wait 23
+midi TRS F8 00 00
+wait 23
+midi TRS F8 00 00
+wait 23
+midi TRS F8 00 00
+wait 23
+midi TRS F8 00 00
+wait 23
+midi TRS F8 00 00
+wait 23
+midi TRS F8 00 00
+wait 23
+midi TRS F8 00 00
+wait 23
+midi TRS F8 00 00
+wait 23
+expect sa_clock 1
+expect sa_bpm >97
+expect sa_bpm <103
+expect rf_mi_n 0
+# a host's session over USB: the jack's MIDI goes to it, the DX7 does not play it
+rf hello usb
+rf session usb 1 3000
+wait 20
+expect rf_session 1
+expect rf_hello_caps >511
+midi TRS 90 3C 64
+midi TRS C0 05 00
+midi TRS F8 00 00
+midi TRS B0 07 7F
+wait 10
+expect sa_held 0
+expect rf_mi_n 9
+expect rf_mi_bad 0
+expect rf_mi_b0 144
+expect rf_mi_b1 60
+expect rf_mi_b2 100
+expect rf_mi_b3 192
+expect rf_mi_b4 5
+expect rf_mi_b5 248
+expect rf_mi_b6 176
+expect rf_mi_b7 7
+expect rf_mi_b8 127
+expect rf_n_usb_54 >0
+# USB MIDI in during a session: not forwarded (the host has it already)
+midi USB 90 3C 64
+wait 10
+expect rf_mi_n 9
+# a burst bigger than one message: split, nothing lost
+midi TRS 90 30 40
+midi TRS 90 31 40
+midi TRS 90 32 40
+midi TRS 90 33 40
+midi TRS 90 34 40
+midi TRS 90 35 40
+midi TRS 90 36 40
+midi TRS 90 37 40
+midi TRS 90 38 40
+midi TRS 90 39 40
+midi TRS 90 3A 40
+midi TRS 90 3B 40
+midi TRS 90 3C 40
+midi TRS 90 3D 40
+midi TRS 90 3E 40
+midi TRS 90 3F 40
+midi TRS 90 40 40
+midi TRS 90 41 40
+midi TRS 90 42 40
+midi TRS 90 43 40
+midi TRS 90 44 40
+midi TRS 90 45 40
+midi TRS 90 46 40
+midi TRS 90 47 40
+midi TRS 90 48 40
+midi TRS 90 49 40
+midi TRS 90 4A 40
+midi TRS 90 4B 40
+midi TRS 90 4C 40
+midi TRS 90 4D 40
+midi TRS 90 4E 40
+midi TRS 90 4F 40
+midi TRS 90 50 40
+midi TRS 90 51 40
+midi TRS 90 52 40
+midi TRS 90 53 40
+midi TRS 90 54 40
+midi TRS 90 55 40
+midi TRS 90 56 40
+midi TRS 90 57 40
+wait 10
+expect rf_mi_n 129
+expect rf_mi_bad 0
+expect rf_mi_b9 144
+expect rf_mi_b10 48
+expect rf_mi_b128 64
+# the session ends: standalone again, the jack plays it
+rf session usb 0
+wait 50
+expect sa_panel 0
+midi TRS 90 3E 64
+wait 10
+expect sa_held 1
+midi TRS 80 3E 00
+wait 10
+expect sa_held 0
+expect rf_mi_n 129
+# MIDI REMOTE: the DX7 does not listen to the jack either
+press GLO
+press FX
+wait 20
+expect sa_remote 1
+release FX
+release GLO
+wait 20
+midi TRS 90 3E 64
+wait 10
+expect sa_held 0
+expect rf_mi_n 129
+press GLO
+press FX
+wait 20
+expect sa_remote 0
+release FX
+release GLO
+wait 20

@@ -480,7 +480,7 @@ int main(int argc, char **argv)
     sc.budget = a.o.budget;
     sc.sx_body_max = a.o.sx_body;
     sc.transport = a.o.transport;
-    rfm_session_cb_t cb{&a, cb_event, cb_state, cb_rescan, cb_log};
+    rfm_session_cb_t cb{&a, cb_event, cb_state, cb_rescan, cb_log, nullptr};   /* (MIDI_IN: no MIDI in path into the core here yet) */
     a.s = rfm_session_new(&sc, &cb);
     a.loops[0] = {&a, RFM_LINK_SX, -1};
     a.loops[1] = {&a, RFM_LINK_BK, -1};

@@ -425,6 +425,18 @@ static void on_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
             on_frame_ack(s, &a);
         break;
     }
+    case RFM_MIDI_IN:                                   /* the TRS jack's MIDI: to the firmware's MIDI in */
+        if (!ours || s->state != RFM_S_ACTIVE)
+            return;
+        if (rfm_parse_midi_in(b, n)) {
+            s->st.midi_in_bad++;
+            return;
+        }
+        s->st.midi_in++;
+        s->st.midi_in_bytes += n;
+        if (s->cb.midi_in)
+            s->cb.midi_in(s->cb.ctx, b, n);
+        break;
     case RFM_PANEL_R: {
         rfm_panel_r_t p;
         if (!ours || rfm_parse_panel_r(b, n, &p))

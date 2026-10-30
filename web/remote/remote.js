@@ -92,7 +92,7 @@ export class RemoteFM1 {
         this._nav = opts.navigator || globalThis.navigator;
         this._now = opts.now || (() => Math.floor(performance.now()));
         this._match = opts.portMatch || isCandidatePortName;
-        this._ls = { status: new Set(), panel: new Set(), log: new Set() };
+        this._ls = { status: new Set(), panel: new Set(), log: new Set(), midi: new Set() };
         this._links = new Map();             // tag -> link
         this._nextTag = 1;
         this._M = null;
@@ -153,6 +153,9 @@ export class RemoteFM1 {
     onStatus(cb) { return this.on('status', cb); }
     onPanel(cb) { return this.on('panel', cb); }
     onLog(cb) { return this.on('log', cb); }
+    // the unit's TRS MIDI in during a session (MIDI_IN, a unit whose HELLO_R caps has bit 9): a Uint8Array of whole
+    // MIDI messages, each with its status (channel messages, real time F8 FA FB FC). Feed it to the firmware's MIDI in
+    onMidiIn(cb) { return this.on('midi', cb); }
     get status() { return { ...this._status }; }
 
     // Start looking for the unit and keep a session with it (reconnecting by itself) until stop() / disconnect().
@@ -199,6 +202,7 @@ export class RemoteFM1 {
             M.rfmState = (st, why) => this._state(st, why);
             M.rfmRescan = () => this._rescan();
             M.rfmLog = msg => this._log(msg);
+            M.rfmMidiIn = bytes => { for (const cb of this._ls.midi) cb(bytes); };
             M._rw_set_ble_colors(this.opts.bleColors == null ? -1 : this.opts.bleColors | 0);
             M._rw_set_ble_hold(this.opts.bleHold == null ? -1 : this.opts.bleHold ? 1 : 0);
             if (M._rw_init(this.opts.fps | 0, TRANSPORTS[this.opts.transport] ?? 0, this.opts.keepaliveMs | 0,

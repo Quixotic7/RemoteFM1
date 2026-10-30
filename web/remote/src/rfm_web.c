@@ -10,6 +10,7 @@
  *   Module.rfmState(state, why)                                          (RFM_S_*)
  *   Module.rfmRescan()
  *   Module.rfmLog(msg)
+ *   Module.rfmMidiIn(Uint8Array)                                         (the unit's TRS MIDI: MIDI_IN, whole messages)
  *
  * Everything runs inside the calls JS makes (rw_rx, rw_poll, ..), single-threaded, on the page's main thread or a
  * Worker: never in the AudioWorklet. */
@@ -30,6 +31,9 @@ EM_JS(void, js_state, (int state, const char *why), {
 });
 EM_JS(void, js_rescan, (void), {
     if (Module.rfmRescan) Module.rfmRescan();
+});
+EM_JS(void, js_midi_in, (const uint8_t *p, uint32_t n), {
+    if (Module.rfmMidiIn) Module.rfmMidiIn(HEAPU8.slice(p, p + n));
 });
 EM_JS(void, js_log, (const char *msg), {
     if (Module.rfmLog) Module.rfmLog(UTF8ToString(msg));
@@ -60,6 +64,11 @@ static void cb_rescan(void *ctx)
 {
     (void)ctx;
     js_rescan();
+}
+static void cb_midi_in(void *ctx, const uint8_t *m, uint32_t n)
+{
+    (void)ctx;
+    js_midi_in(m, n);
 }
 static void cb_log(void *ctx, const char *m)
 {
@@ -96,6 +105,7 @@ EMSCRIPTEN_KEEPALIVE int rw_init(int fps, int transport, int keepalive_ms, int b
     cb.state = cb_state;
     cb.rescan = cb_rescan;
     cb.log = cb_log;
+    cb.midi_in = cb_midi_in;
     S = rfm_session_new(&c, &cb);
     return S ? 0 : -1;
 }

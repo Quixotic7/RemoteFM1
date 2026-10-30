@@ -29,7 +29,8 @@ enum {
     RFM_SESSION = 0x10, RFM_LEDS = 0x11, RFM_TILES = 0x12, RFM_PANEL_REQ = 0x13,
     RFM_HELLO_R = 0x41, RFM_DATA = 0x43, RFM_ECHO_R = 0x44, RFM_STATS_R = 0x45, RFM_ACK = 0x46, RFM_BLIT_R = 0x47,
     RFM_SA_BENCH_R = 0x49,
-    RFM_SOURCE_DONE = 0x50, RFM_FRAME_ACK = 0x52, RFM_PANEL_R = 0x53
+    RFM_SOURCE_DONE = 0x50, RFM_FRAME_ACK = 0x52, RFM_PANEL_R = 0x53,
+    RFM_MIDI_IN = 0x54                  /* 0.3: the TRS jack's MIDI in, forwarded in a session (RFM_CAP_MIDI_IN) */
 };
 
 /* HELLO_R: M0's 51 bytes (firmware/src/remote_proto.h), of which: */
@@ -55,7 +56,8 @@ enum {
     RFM_CAP_SHADOW = 1u << 0, RFM_CAP_COPY = 1u << 1, RFM_CAP_RLE = 1u << 2, RFM_CAP_PAL = 1u << 3,
     RFM_CAP_BATTERY = 1u << 4, RFM_CAP_PLAY_GREEN = 1u << 5, RFM_CAP_LED5 = 1u << 6,
     RFM_CAP_HOLD = 1u << 7,             /* 0.2.2: TILES' HOLD flag (a frame drawn into the shadow, shown later) */
-    RFM_CAP_BLE_FAST = 1u << 8          /* 0.2.2: Bluetooth at 2M, long link packets, MTU 247: ~35 KB/s, ~9 KB in flight clean */
+    RFM_CAP_BLE_FAST = 1u << 8,         /* 0.2.2: Bluetooth at 2M, long link packets, MTU 247: ~35 KB/s, ~9 KB in flight clean */
+    RFM_CAP_MIDI_IN = 1u << 9           /* 0.3: the TRS jack's MIDI in comes to the host in a session (MIDI_IN) */
 };
 
 /* SESSION body: start8 keepalive_ms16 */
@@ -96,6 +98,10 @@ enum { RFM_ACK_DECODE_ERR = 1u << 0, RFM_ACK_SHADOW_RESET = 1u << 1 };
 #define RFM_PANEL_FLAGS 24u
 #define RFM_PANEL_LEN 25u
 #define RFM_PANEL_F_SESSION 1u
+
+/* MIDI_IN body (device -> host, in a session): whole MIDI messages, each with its status byte (no running status, no
+ * SysEx): channel messages (2 or 3 bytes) and real time (F8 FA FB FC: 1 byte), in the order they came; 1..64 bytes */
+#define RFM_MIDI_IN_MAX 64u
 
 /* panel events as plain MIDI (docs/PROTOCOL.md section 4) */
 #define RFM_MIDI_KEY_CH 15u             /* channel 16, zero-based */

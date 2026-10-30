@@ -64,6 +64,7 @@ void rfm_fake_cfg_default(rfm_fake_cfg_t *c)
     c->bk_body_max = RFM_BK_BODY_MAX;
     c->tiles_outside_session = 1;
     c->hold = 1;
+    c->midi_in = 1;
 }
 
 static void show(rfm_fake_t *f)
@@ -187,7 +188,7 @@ static void on_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
         h.screen_w = RFM_W;
         h.screen_h = RFM_H;
         h.caps = RFM_CAP_SHADOW | RFM_CAP_COPY | RFM_CAP_RLE | RFM_CAP_PAL | RFM_CAP_BATTERY | RFM_CAP_PLAY_GREEN |
-                 RFM_CAP_LED5 | (f->cfg.hold ? RFM_CAP_HOLD : 0u);
+                 RFM_CAP_LED5 | (f->cfg.hold ? RFM_CAP_HOLD : 0u) | (f->cfg.midi_in ? RFM_CAP_MIDI_IN : 0u);
         h.max_in_flight = RFM_FRAMES_IN_FLIGHT;
         h.session = f->session ? 1 : 0;
         strncpy(h.fw_ver, "m1-fake", 8);
@@ -464,6 +465,28 @@ void rfm_fake_deaf(rfm_fake_t *f, int on) { f->deaf = on; }
 void rfm_fake_drop_acks(rfm_fake_t *f, uint32_t n) { f->drop_acks = n; }
 void rfm_fake_drop_midi(rfm_fake_t *f, uint32_t n) { f->drop_midi = n; }
 void rfm_fake_decode_error(rfm_fake_t *f) { f->decode_err_next = 1; }
+
+void rfm_fake_trs(rfm_fake_t *f, const uint8_t *msgs, uint32_t n)
+{
+    uint8_t b[RFM_MIDI_IN_MAX];
+    uint32_t k = 0, len = 0;
+    if (!f->session || !f->cfg.midi_in)
+        return;
+    while (k < n) {
+        uint32_t m = rfm_midi_msg_len(msgs[k]);
+        if (!m || k + m > n)
+            break;
+        if (len + m > RFM_MIDI_IN_MAX) {
+            reply(f, f->session - 1, RFM_MIDI_IN, b, len);
+            len = 0;
+        }
+        memcpy(b + len, msgs + k, m);
+        len += m;
+        k += m;
+    }
+    if (len)
+        reply(f, f->session - 1, RFM_MIDI_IN, b, len);
+}
 int rfm_fake_session(const rfm_fake_t *f) { return f->session; }
 const uint8_t *rfm_fake_shadow(const rfm_fake_t *f) { return f->shadow; }
 const uint8_t *rfm_fake_panel(const rfm_fake_t *f) { return f->panel; }

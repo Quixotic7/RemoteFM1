@@ -59,9 +59,9 @@
 #define RFA_IDENTITY FELUCCA_ID
 #if RFM_SHADOW
 #define RFA_CAPS (RFM_CAP_SHADOW | RFM_CAP_COPY | RFM_CAP_RLE | RFM_CAP_PAL | RFM_CAP_PLAY_GREEN | RFM_CAP_HOLD | \
-                  RFM_CAP_BLE_FAST)        /* (the radio's settings: fm1.toml ble_dle, ble_2m, ble_rx_bufs) */
+                  RFM_CAP_BLE_FAST | RFM_CAP_MIDI_IN)  /* (the radio's settings: fm1.toml ble_dle, ble_2m, ble_rx_bufs) */
 #else
-#define RFA_CAPS (RFM_CAP_RLE | RFM_CAP_PAL | RFM_CAP_PLAY_GREEN)
+#define RFA_CAPS (RFM_CAP_RLE | RFM_CAP_PAL | RFM_CAP_PLAY_GREEN | RFM_CAP_MIDI_IN)
 #endif
 #include "rfm_app.c"
 
@@ -178,9 +178,20 @@ static int rf_sx_tap(uint32_t b)
  * 20 ms: then what does not fit is dropped (counted) and the updater's SysEx goes on */
 static int rf_ep1_room(void)
 {
-    if (mi_w != mi_r && (!sa_standalone() || (uint32_t)(rf_ticks() - rf_drain_t) > 20000u * PLAT_TICKS_PER_US)) {
+    if (mi_w != mi_r && (uint32_t)(rf_ticks() - rf_drain_t) > 20000u * PLAT_TICKS_PER_US) {
         rf_midi_drop += mi_w - mi_r;
         mi_r = mi_w;
+    } else if (mi_w != mi_r && !sa_standalone()) {  /* panel mode: USB's packets out, the TRS jack's (cable 1) kept */
+        uint32_t i = mi_w, k = mi_w;                /* for MIDI_IN (the jack writes from this same context) */
+        while (i != mi_r) {
+            uint32_t p = midi_in_q[--i % MQ];
+            if ((p >> 4 & 0xFu) == 1u)
+                midi_in_q[--k % MQ] = p;
+            else
+                rf_midi_drop++;
+        }
+        RING_PUBLISH();
+        mi_r = k;
     }
     if (RF_MRX_N - (mrx_w - mrx_r) >= 64u)
         return 1;
@@ -433,6 +444,43 @@ static void rf_ev_flush(void)
         plat_midi_send(rf_evq[rf_ev_r % RF_EVQ], to);
         rf_ev_r++;
     }
+}
+
+/* the TRS jack's MIDI in a session: whole messages, each with its status (no running status), batched into MIDI_IN
+ * (docs/PROTOCOL.md section 4) on the session's transport when it has room now; never waited for, so frames and
+ * their acknowledgements go on as before. What finds the batch full, or comes with no session, is dropped (counted:
+ * STATS_R's MIDI-in drops) */
+static uint8_t rf_mi[RFM_MIDI_IN_MAX];
+static uint32_t rf_mi_n, rf_mi_msgs;
+static void rf_trs_in(uint32_t pkt)
+{
+    uint32_t st = (pkt >> 8) & 0xFFu, n = st >= 0xF8u ? 1u : (st & 0xE0u) == 0xC0u ? 2u : 3u, i;
+    if (!rfa.session || st < 0x80u || (st >= 0xF0u && st < 0xF8u) || rf_mi_n + n > RFM_MIDI_IN_MAX) {
+        rf_midi_drop++;
+        return;
+    }
+    for (i = 0; i < n; i++)
+        rf_mi[rf_mi_n++] = (uint8_t)(pkt >> (8u * (i + 1u)) & (i ? 0x7Fu : 0xFFu));
+}
+static void rf_trs_flush(void)
+{
+    int r;
+    if (!rf_mi_n)
+        return;
+    if (!rfa.session) {
+        rf_midi_drop++;
+        rf_mi_n = 0;
+        return;
+    }
+    if (rfa.st == RF_T_BLE && rf_bp_n)
+        return;                                         /* (Bluetooth's waiting replies first) */
+    r = rf_try(rfa.st, RFM_MIDI_IN, rf_mi, rf_mi_n);
+    if (r < 0)
+        rf_midi_drop++;
+    if (r > 0)
+        rf_mi_msgs++;
+    if (r)
+        rf_mi_n = 0;
 }
 
 /* LEDS (rfm_app.c: lit; mid and dim; faint, the matrix's packed rows) onto fm1-base's three levels: lit; mid, the
@@ -974,7 +1022,11 @@ static void rf_rx_step(void)
         if (!have)
             break;
         cin = pkt & 15u;
-        if (port != PORT_BLE) {                     /* USB MIDI in: the instrument's, standalone */
+        if (port == PORT_TRS && !sa_standalone()) { /* the TRS jack in panel mode: to the host (MIDI_IN) */
+            rf_trs_in(pkt);
+            continue;
+        }
+        if (port != PORT_BLE) {                     /* USB and TRS MIDI in: the instrument's, standalone */
             if (sa_standalone())
                 sa_midi_in(pkt);
             else
@@ -1206,6 +1258,7 @@ static void rf_turn(void)                           /* one turn: USB, the rings,
     rf_src_step();
     rf_bp_flush();
     rf_ev_flush();
+    rf_trs_flush();
     rf_loops++;
     t0 = rf_ticks() - t0;
     if (!rf_pass_slow && t0 > rf_loop_max)

@@ -35,6 +35,8 @@ typedef struct {
                                                          * Bluetooth computer is connected (the bits, sxq 960) */
     int hold;                                           /* 1 (default): HELLO_R caps has RFM_CAP_HOLD, and HOLD
                                                          * holds; 0: a unit before 0.2.2 */
+    int midi_in;                                        /* 1 (default): HELLO_R caps has RFM_CAP_MIDI_IN, and
+                                                         * rfm_fake_trs sends MIDI_IN in a session */
     int tiles_outside_session;                          /* 1 (default): TILES / LEDS outside a session are still
                                                          * drawn and acknowledged (FRAME_ACK says shadow reset after
                                                          * a reboot); 0: ignored, no FRAME_ACK */
@@ -71,7 +73,10 @@ void rfm_fake_reboot(rfm_fake_t *f);
 void rfm_fake_deaf(rfm_fake_t *f, int on);              /* host -> device messages vanish */
 void rfm_fake_drop_acks(rfm_fake_t *f, uint32_t n);     /* the next n FRAME_ACKs are not sent */
 void rfm_fake_drop_midi(rfm_fake_t *f, uint32_t n);     /* the next n panel events are not sent */
-void rfm_fake_decode_error(rfm_fake_t *f);              /* the next TILES body is rejected */
+void rfm_fake_decode_error(rfm_fake_t *f);
+/* MIDI into the unit's TRS jack: whole messages with their status; in a session (cfg.midi_in), MIDI_IN to the host
+ * on the session's link, at most RFM_MIDI_IN_MAX bytes a message (split at message boundaries); else dropped */
+void rfm_fake_trs(rfm_fake_t *f, const uint8_t *msgs, uint32_t n);              /* the next TILES body is rejected */
 
 int rfm_fake_session(const rfm_fake_t *f);              /* 0 none, 1 on SysEx, 2 on bulk */
 const uint8_t *rfm_fake_shadow(const rfm_fake_t *f);    /* 240 x 240 x 2 bytes, BE: emu_hal_t.lcd's layout */
