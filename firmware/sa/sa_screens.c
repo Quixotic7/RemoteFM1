@@ -529,19 +529,52 @@ static void sa_paint_tempo(void)
 }
 
 /* ------------------------------------------------------------------ S5: HOME's Scope and Keys views --- */
+/* the Scope: the last SA_SCOPE_N samples (2 output samples apart), from a rising zero crossing (with hysteresis: the
+ * wave below -1/8 of its peak before it), the first that leaves the window: the picture stands still. Auto gain: the
+ * window's peak fills SA_SCOPE_AMP pixels, the gain falling at once and rising ~25 % a frame, at most SA_SCOPE_GMAX
+ * (quieter than that: drawn as it is; silence: flat) */
+#define SA_SCOPE_AMP 80
+#define SA_SCOPE_GMAX (80.0f / 300.0f)       /* (a peak of ~1 % of full scale fills the screen) */
 static void sa_ui_snap_views(void)
 {
-    uint32_t i, w = sa_scope_w, trig = 0, best = 0;
-    int8_t buf[SA_SCOPE_N];
-    for (i = 0; i < SA_SCOPE_N; i++)          /* the ring, oldest first */
-        buf[i] = sa_scope[(w + i) % SA_SCOPE_N];
-    for (i = 1; i + 240u < SA_SCOPE_N; i++)   /* a rising zero crossing, the steepest: the wave stands still */
-        if (buf[i - 1u] < 0 && buf[i] >= 0 && (uint32_t)(buf[i] - buf[i - 1u]) > best) {
-            best = (uint32_t)(buf[i] - buf[i - 1u]);
+    static int16_t buf[SA_SCOPE_N];
+    uint32_t i, w = sa_scope_w, trig = 0, span = 2u * SA_WAVE_N;
+    int32_t pk = 0, thr, armed = 0;
+    float g;
+    for (i = 0; i < SA_SCOPE_N; i++) {        /* the ring, oldest first */
+        int32_t v = buf[i] = sa_scope[(w + i) % SA_SCOPE_N];
+        v = v < 0 ? -v : v;
+        pk = v > pk ? v : pk;
+    }
+    thr = pk / 8;
+    for (i = 1; i + span <= SA_SCOPE_N; i++) {
+        if (buf[i - 1u] < -thr)
+            armed = 1;
+        if (armed && buf[i - 1u] < 0 && buf[i] >= 0) {
             trig = i;
+            break;
         }
-    for (i = 0; i < 60u; i++)
-        ui.wave[i] = buf[trig + 4u * i];
+    }
+    if (i + span > SA_SCOPE_N)
+        trig = SA_SCOPE_N - span;            /* (no crossing: the newest) */
+    pk = 0;
+    for (i = 0; i < span; i++) {
+        int32_t v = buf[trig + i];
+        v = v < 0 ? -v : v;
+        pk = v > pk ? v : pk;
+    }
+    ui.wave_on = pk >= 8;
+    g = pk ? (float)SA_SCOPE_AMP / (float)pk : SA_SCOPE_GMAX;
+    if (g > SA_SCOPE_GMAX)
+        g = SA_SCOPE_GMAX;
+    if (uis.sgain <= 0.0f || g < uis.sgain)
+        uis.sgain = g;                       /* louder: at once */
+    else
+        uis.sgain = uis.sgain * 1.25f < g ? uis.sgain * 1.25f : g;
+    for (i = 0; i < SA_WAVE_N; i++) {
+        int32_t y = (int32_t)((float)buf[trig + 2u * i] * uis.sgain);
+        ui.wave[i] = (int16_t)(y > SA_SCOPE_AMP ? SA_SCOPE_AMP : y < -SA_SCOPE_AMP ? -SA_SCOPE_AMP : y);
+    }
     ui.view = sa.view;
     ui.theme = sa.theme;
     ui.keyheld = 0;
@@ -589,12 +622,13 @@ static void sa_paint_scope(void)
         sg_rect(119, i, 2, 4, UC(D5));
         sg_rect(179, i, 2, 4, UC(D5));
     }
-    for (int32_t pass = 0; pass < 2; pass++) {   /* the wave in 4-pixel steps, its shadow first */
+    for (int32_t pass = 0; pass < 2; pass++) {   /* the wave, 3 pixels thick, 2 a point; its shadow first */
         prev = -1;
-        for (i = 0; i < 60; i++) {
-            int32_t y = 116 - ((int32_t)ui.wave[i] * 56 / 127) / 4 * 4, top = prev < 0 ? y : (prev < y ? prev : y),
-                    bot = prev < 0 ? y + 4 : (prev > y ? prev : y) + 4;
-            sg_rect(4 * i + (pass ? 0 : 4), top + (pass ? 0 : 4), 4, bot - top, pass ? UC(A4) : UC(D2));
+        for (i = 0; i < (int32_t)SA_WAVE_N; i++) {
+            int32_t y = 119 - (ui.wave_on ? ui.wave[i] : 0), top = prev < 0 ? y : (prev < y ? prev : y),
+                    bot = (prev < 0 ? y : (prev > y ? prev : y)) + 3, o = pass ? 0 : 3;
+            if (sg_hits(top - 1 + o, bot - top + 2))
+                sg_rect(2 * i + o, top - 1 + o, 2, bot - top, pass ? UC(A4) : UC(D2));
             prev = y;
         }
     }

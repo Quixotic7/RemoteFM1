@@ -14,6 +14,7 @@
 
 #define SA_UI_FRAME_MS 33u                   /* ~30 frames a second while anything moves */
 #define SA_NBARS 14u
+#define SA_WAVE_N 120u                      /* the Scope's points, 2 pixels apart */
 #define SA_CHIPS_MAX 8u                      /* note chips at most (as many as fit the width: sa_ui_chips) */
 
 static struct {
@@ -42,7 +43,8 @@ static struct {
     uint8_t nbars;
     /* S5: the views, the theme menu */
     uint8_t view, theme;
-    int8_t wave[60];
+    int16_t wave[SA_WAVE_N];                 /* the Scope's points: pixels from the zero line, + up */
+    uint8_t wave_on;                         /* something to show (else a flat line) */
     uint32_t keyheld;
     uint8_t lvl8;
     /* S4: the arp's, the tempo's */
@@ -64,6 +66,7 @@ static struct {                              /* across frames */
     uint32_t pop_ms;
     float lvl;
     uint32_t lvl_ms;
+    float sgain;                             /* the Scope's gain (pixels a Q15 unit), smoothed */
 } uis;
 
 #define UC(t) (ui.c[SA_TK_##t])

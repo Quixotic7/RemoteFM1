@@ -142,8 +142,9 @@ static int32_t sa_mono[APP_BLOCK] PLAT_POOL;
 static float sa_lim_g = 1.0f;
 static volatile uint32_t sa_peak_q15;        /* the output's peak since the screen last read it (Q15) */
 static uint32_t sa_clips;                    /* samples the soft knee had to bend (the simulator's checks) */
-#define SA_SCOPE_N 512u                      /* the Scope view's samples (every other one of the output) */
-static int8_t sa_scope[SA_SCOPE_N] PLAT_POOL;
+#define SA_SCOPE_N 512u                      /* the Scope view's samples: every other one of the synth's sum (before
+                                              * the limiter and MASTER), Q15 of full scale, clamped */
+static int16_t sa_scope[SA_SCOPE_N] PLAT_POOL;
 static volatile uint32_t sa_scope_w;
 
 static void sa_ev_apply(void)                /* (the render) */
@@ -208,8 +209,10 @@ static void sa_render(int32_t *lr, uint32_t n, uint32_t gain_q12)
             int32_t v = (int32_t)(y * mg);
             peak_out = ay > peak_out ? ay : peak_out;
             lr[2u * (k + i)] = lr[2u * (k + i) + 1u] = v;
-            if (i & 1u)
-                sa_scope[sa_scope_w++ % SA_SCOPE_N] = (int8_t)(y * 127.0f);
+            if (i & 1u) {
+                float r = (float)sa_mono[k + i] * pg * 32767.0f;
+                sa_scope[sa_scope_w++ % SA_SCOPE_N] = (int16_t)(r > 32767.0f ? 32767 : r < -32767.0f ? -32767 : r);
+            }
         }
         sa_lim_g = g1;
     }

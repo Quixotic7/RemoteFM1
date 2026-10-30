@@ -780,7 +780,12 @@ int app_expect(const char *what, int *got)
         *got = sl_clock_on();
     else if (!strcmp(what, "sa_view"))             /* S5: HOME's view; the user banks there, arrived, refused, bad */
         *got = sa.view;
-    else if (!strcmp(what, "sa_ubanks"))
+    else if (!strcmp(what, "sa_scope_amp")) {      /* the Scope's tallest point (pixels from the zero line), 0 flat */
+        uint32_t i;
+        *got = 0;
+        for (i = 0; ui.wave_on && i < SA_WAVE_N; i++)
+            *got = ui.wave[i] > *got ? ui.wave[i] : -ui.wave[i] > *got ? -ui.wave[i] : *got;
+    } else if (!strcmp(what, "sa_ubanks"))
         *got = (int)sa_ub_count();
     else if (!strcmp(what, "sa_ub_got"))
         *got = (int)ub.got;

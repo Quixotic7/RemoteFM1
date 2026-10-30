@@ -13,7 +13,8 @@ key 19 down 100
 wait 200
 tap HOME
 expect sa_view 1
-wait 60
+wait 300
+expect sa_scope_amp >70
 shot sa_scope.png
 tap HOME
 expect sa_view 2
@@ -23,6 +24,19 @@ key 9 up
 key 12 up
 key 16 up
 key 19 up
+tap HOME
+expect sa_view 0
+# the Scope fills the screen at a soft touch too (auto gain); flat when silent
+tap HOME
+expect sa_view 1
+key 12 down 12
+wait 300
+expect sa_scope_amp >70
+shot sa_scope_soft.png
+key 12 up
+wait 3000
+expect sa_scope_amp 0
+tap HOME
 tap HOME
 expect sa_view 0
 # HOME with an overlay up closes it, the view stays
