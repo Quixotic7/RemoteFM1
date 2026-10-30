@@ -73,6 +73,15 @@ python3 tools/m0_bench.py --selftest
 echo "== the TILES decoder, with and without the shadow, and the screen push (firmware/src/rfm_draw.c, rfm_push.c)"
 $TCC $SAN -o "$H/rfm_draw_test" tests/rfm_draw_test.c
 "$H/rfm_draw_test"
+echo "== the store's window: RemoteFM1 writes only 0xF2000..0xF3FFF and the calibration's 0xFC000..0xFDFFF"
+echo "   (firmware/app.h APP_STORE_OK; fm1-base's st_erase / st_prog keep to it: patches/fm1-base/0006)"
+$TCC -DPLAT_HOST -Ibuild/fm1-base/include -Ifirmware -o "$H/store_window_test" tests/store_window_test.c
+"$H/store_window_test"
+[ "$(grep -c 'if (!APP_STORE_OK(off' build/fm1-base/device/unity.c)" = 2 ] ||
+    { echo "FAILED: fm1-base's st_erase / st_prog do not keep to APP_STORE_OK"; exit 1; }
+if grep -rn "plat_data_erase\|plat_data_write\|fl_erase4k\|fl_write" firmware/src firmware/sa firmware/app.c; then
+    echo "FAILED: the app writes the flash beside the store"; exit 1
+fi
 echo "== the standalone's chord names (firmware/sa/sa_chord.c)"
 $TCC $SAN -o "$H/sa_chord_test" tests/sa_chord_test.c
 "$H/sa_chord_test"

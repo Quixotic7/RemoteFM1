@@ -30,17 +30,25 @@
 #define BLE_IN_Q 1024u
 #define BLE_OUT_Q 128u
 
-/* the store: the panel calibration (the platform's, only written by OCT- + OCT+ at power-on) and Bluetooth's address
- * and pairing (written once at the first Bluetooth start); two 4 KiB sectors each. Placed where other firmwares keep
- * nothing, so hopping between RemoteFM1 and them loses no data: Bluetooth's at 0xF2000..0xF3FFF (free in ChoralRoot's
- * map, below the stock firmware's resources at 0xF4000, above felucca-bsp's staging at 0xE0000..0xE4FFF and Felucca's
- * store); the calibration at 0xFC000 as fm1-base's template has it (Felucca's globals: only on a calibration).
- * Not 0xDC000..0xDFFFF (the template's): ChoralRoot's loop slots are 0xD2000..0xE5FFF. */
-/* The standalone's settings (OBJ_SA: the channel, octave, cartridge and voice; sa/sa_main.c) in Felucca's autosave pair
- * at 0xE5000..0xE6FFF (felucca-bsp FL_AUTO: inside FL_STORE_OK, where fm1-base's storage may write; FIZZ keeps its
- * Bluetooth object there, so a unit going between FIZZ and RemoteFM1 loses that pairing, not data). */
-enum { OBJ_PANEL, OBJ_BLE, OBJ_SA, OBJ_NOBJ };
-#define APP_STORE_MAP {0xFC000u, 0xF2000u, 0xE5000u}
+/* the store (src/rfm_store.c): RemoteFM1 writes only in 0xF2000..0xF3FFF, the one window that ChoralRoot, the stock
+ * firmware and fm1-base's other firmwares leave free (ChoralRoot's map: its loop slots end at 0xE5FFF, its sound pool
+ * fills 0xE6000..0xE9FFF and 0xEB000..0xF1FFF; the stock resources start at 0xF4000; FIZZ keeps its stores in
+ * 0x97000..0xDFFFF and its Bluetooth at 0xE5000), and in the panel's calibration at 0xFC000 (the platform's, written
+ * only by OCT- + OCT+ at power-on), so hopping between firmwares loses nobody's data. APP_STORE_OK keeps fm1-base's
+ * store to exactly those (the device's st_erase / st_prog; the simulator refuses a save outside them). The two
+ * sectors are one object, OBJ_RF (an A/B pair: cut-safe), and the objects RemoteFM1 keeps are records in it
+ * (APP_STORE_MUX: OBJ_BLE, fm1-base's Bluetooth address and bondings, and OBJ_SA, the standalone's settings; they
+ * have no sectors of their own). Numbers: OBJ_PANEL 0 and OBJ_BLE 1 as in 0.2 (whose OBJ_BLE at 0xF2000 was never
+ * written: outside felucca-bsp's FL_STORE_OK, every save refused); OBJ_RF's record header says 2, so 0.2 reads none. */
+enum { OBJ_PANEL, OBJ_BLE, OBJ_RF, OBJ_SA, OBJ_NOBJ };
+#define APP_STORE_MAP {0xFC000u, 0u, 0xF2000u, 0u}
+#define APP_STORE_OK(off, n) (plat_in((off), (n), 0xF2000u, 0xF4000u) || plat_in((off), (n), 0xFC000u, 0xFE000u))
+#define APP_STORE_MUX
+#define APP_STORE_VIRTUAL(obj) ((obj) == OBJ_BLE || (obj) == OBJ_SA)   /* records in OBJ_RF */
+int plat_store_raw_load(uint32_t obj, void *dst, uint32_t max);   /* (fm1-base's, under APP_STORE_MUX) */
+int plat_store_raw_head(uint32_t obj, void *dst, uint32_t n);
+int plat_store_raw_size(uint32_t obj);
+int plat_store_raw_save(uint32_t obj, const void *src, uint32_t len);
 
 /* the contract: the platform calls these */
 void app_init(void);

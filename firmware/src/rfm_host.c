@@ -349,6 +349,29 @@ int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, c
             snprintf(w, sizeof w, "%s", want);
             w[strcspn(w, "\r\n")] = 0;
             sa_host_check("name", sa.name, w);
+        } else if (!strcmp(a, "storecheck")) {   /* the store's records (src/rfm_store.c) and its window */
+            static uint8_t ble[1536], back[1536];
+            uint32_t i, w0 = store_writes, o0 = store_outside;
+            int n;
+            for (i = 0; i < sizeof ble; i++)
+                ble[i] = (uint8_t)(i * 7u + 3u);
+            if (plat_store_save(OBJ_BLE, ble, sizeof ble) != 0 || store_writes != w0 + 1u)
+                printf("FAIL sa storecheck: Bluetooth's object not saved\n"), sa_host_fails++;
+            n = plat_store_load(OBJ_BLE, back, sizeof back);
+            if (n != (int)sizeof ble || memcmp(ble, back, sizeof ble))
+                printf("FAIL sa storecheck: Bluetooth's object back %d\n", n), sa_host_fails++;
+            if (plat_store_save(OBJ_BLE, ble, sizeof ble) != 0 || store_writes != w0 + 1u)
+                printf("FAIL sa storecheck: the same object written again\n"), sa_host_fails++;
+            if (plat_store_size(OBJ_BLE) != (int)sizeof ble || plat_store_head(OBJ_BLE, back, 4) != 4 || back[1] != ble[1])
+                printf("FAIL sa storecheck: size / head\n"), sa_host_fails++;
+            ble[100] ^= 0xFFu;
+            if (plat_store_save(OBJ_BLE, ble, sizeof ble) != 0 || store_writes != w0 + 2u)
+                printf("FAIL sa storecheck: a change not saved\n"), sa_host_fails++;
+            if (plat_store_raw_save(OBJ_SA, ble, 16) != -8 || store_outside != o0 + 1u)   /* (no sectors of its own:
+                                                                                        * refused, counted) */
+                printf("FAIL sa storecheck: a save outside the window not refused\n"), sa_host_fails++;
+            else
+                printf("  ok sa storecheck\n");
         } else {
             printf("sa %s: no such check\n", a);
             exit(2);
@@ -647,6 +670,10 @@ int app_expect(const char *what, int *got)
         *got = (int)sa.led_b;
     else if (!strcmp(what, "sa_touch"))            /* the keys' velocity sensing on */
         *got = touch_is_on();
+    else if (!strcmp(what, "rf_store_saves"))      /* records saved into OBJ_RF (src/rfm_store.c); unchanged ones */
+        *got = (int)rs_saves;
+    else if (!strcmp(what, "rf_store_same"))
+        *got = (int)rs_same;
     else
         return 0;
     return 1;

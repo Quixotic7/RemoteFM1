@@ -11,6 +11,7 @@
  *   src/rfm_app.c        the protocol layer: session, HELLO_R, LEDS, TILES, FRAME_ACK, PANEL_R, the panel as MIDI
  *   sa/sa_bench.c        the standalone DX7's bench (STANDALONE-PLAN.md S0): FM6 (sa/sa_synth.c, its own unit:
  *                        fm1.toml o2) timed block by block, asked for over SysEx (SA_BENCH)
+ *   src/rfm_store.c      the store: every object in 0xF2000..0xF3FFF (and the calibration at 0xFC000)
  *   sa/sa_main.c         the standalone instrument (STANDALONE-PLAN.md S1): the mode switch, the keys on FM6, the
  *                        controls, MIDI in and out, the screens (sa_ui.c, sa_gfx.c), the ROM voices (sa_bank.c)
  *   src/rfm_main.c       the app: its transports (USB SysEx, USB bulk, Bluetooth SysEx), the LEDs, the panel, the
@@ -20,6 +21,7 @@
 #include "remote_proto.h"
 #include "rfm_draw.c"
 #include "rfm_push.c"
+#include "rfm_store.c"
 #include "sa/sa_bench.c"
 #include "sa/sa_main.c"
 #include "rfm_main.c"

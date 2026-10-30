@@ -143,3 +143,22 @@ RemoteFM1 standalone (STANDALONE-PLAN.md S0b) runs saadet's FM6 so (`firmware/th
 RAM code, 13 calls, all within RAM (FM6's own function pointers between its RAM functions, and its DC filter's helper).
 FIZZ (the owner's) places its RAM code in the `.c1_text` window instead, which the check leaves out entirely; this
 patch keeps FM6 under the check.
+
+## fm1-base: `fm1-base/0006-app-store-window-and-mux.patch`
+
+`device/unity.c`, `device/plat_fm1.c`, `host/plat_host.c`, `include/plat.h`. PR title: **The store kept to an app's
+own window; an app's objects as records of one of its own**
+
+> - `APP_STORE_OK(off, n)` (app.h): where `st_erase` / `st_prog` may write, instead of felucca-bsp's `FL_STORE_OK`.
+>   An app that shares the FM-1 with other firmwares keeps its objects where none of them keeps data, and nothing of
+>   it can ever write elsewhere. The simulator refuses a save whose object's sectors (`APP_STORE_MAP`, A and B) are
+>   outside it, counted (`expect store_outside`), so a test catches an object placed outside.
+> - `APP_STORE_MUX` (app.h): the platform's four `plat_store_*` are renamed `plat_store_raw_*` and the app defines
+>   `plat_store_*` on them: it can keep several objects (fm1-base's own `OBJ_BLE` among them) as records inside one
+>   A/B pair when it has only two sectors to its name.
+>
+> Without either macro nothing changes.
+
+RemoteFM1 (src/rfm_store.c): every object in 0xF2000..0xF3FFF, the one window ChoralRoot, the stock firmware and
+fm1-base's other firmwares leave free, plus the calibration's pair at 0xFC000. RemoteFM1 0.2 placed `OBJ_BLE` at 0xF2000,
+outside `FL_STORE_OK`: every save of the radio's address, trim and bondings was refused (-8) on the unit.

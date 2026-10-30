@@ -85,8 +85,8 @@ firmware/
   which also helps panel mode's tile codec when a host mirrors the screen.
 - **Budget**: RemoteFM1 0.2 is 78 KB of fm1-base's 581 KB app slot. Estimates: FM6 code plus tables about 60 KB,
   Yamaha's 8 ROM cartridges 32 KB (256 voices x 128 B packed), fonts and sprites about 30 KB, the instrument about
-  80 KB. Loops are in the pool (16 loops x 2,048 events x 8 B = 256 KB at most; less if the pool is short); user
-  banks and saved loops go in the data region. To measure in S0.
+  80 KB. Loops are in the pool (16 loops x 2,048 events x 8 B = 256 KB at most; less if the pool is short); where
+  user banks and saved loops go: section 7, question 3. To measure in S0.
 
 ### Measured on the unit (2026-10-30, Bluetooth bench package, 256-frame blocks of 5,805 us)
 
@@ -131,3 +131,31 @@ RemoteFM1 unit, and the owner trying it.
    `tools/gen_dx7_rom.py` reads them from that path; only the packed header goes into the build. ROM1A is the EU/JP
    master, ROM3A the US one; ROM3/4 repeat many ROM1/2 voices, so S1 may list each distinct voice once.
 2. Saadet credit: Kerem Kilic in the README and the About screen, besides PROVENANCE.md (assumed yes).
+3. **Where S2..S5 keep their data** (proposal, 2026-10-30; not implemented). The owner moves units between
+   firmwares, and no other firmware's data may be lost. Since S1, RemoteFM1 writes only 0xF2000..0xF3FFF (one A/B
+   object, OBJ_RF, whose records are Bluetooth's address, trim and bondings, up to 1,536 B, and the standalone's
+   settings) and the panel calibration's 0xFC000..0xFDFFF (`firmware/app.h` APP_STORE_OK, fm1-base patch 0006,
+   `tests/store_window_test.c`). What there is:
+
+   | Flash | Size | Whose data is there | Writing it costs |
+   |---|---|---|---|
+   | 0xF2000..0xF3FFF, OBJ_RF's records | ~2 KB left of the object's 3,840 B | nobody's (ChoralRoot and the stock firmware leave it free; FIZZ's re-pushable blob may span it) | nothing |
+   | XDATA0 0x93000..0x96FFF (just above fm1-base's app slot; fm1-base `plat_data_*`) | 16 KB | no data: it is ChoralRoot's and the stock firmware's code area (to 0x9CFFF); FIZZ keeps nothing there | RemoteFM1's own data there is lost whenever ChoralRoot or the stock firmware is installed (their code overwrites it). Bytes 0xF00..0xF07 of each sector must never read as an update record |
+   | 0xFE000 (one sector) | 4 KB | ChoralRoot's flash map says free, but its storage.c names it the FM6 bank's copy B | maybe ChoralRoot's FM6 bank: avoid |
+   | 0x97000..0xDFFFF (fm1-base's data area) | 292 KB | ChoralRoot's store (0x9D000..0xBAFFF) and USRFLASH (CZ banks, loop slots: 0xC2000..0xE5FFF); FIZZ's stores (0x97000..0xDFFFF); the stock VM and USRFLASH | their user data, unrecoverably |
+   | 0xE5000..0xF1FFF, 0xF4000.. | | ChoralRoot's loop slots and sound pool, FIZZ's Bluetooth object, the stock USRFLASH; the stock resources from 0xF4000 (never) | their data |
+   | RemoteFM1's own app slot above its image (~290 KB free) | | nobody's | not writable by the app (the loader's area), and erased by every update |
+
+   Needs: S2's CC map (5 banks x 4 CCs: under 100 B) and S5's theme are small; S5's user banks are 4 KB each (+ a
+   name); S3's 16 loops are up to 256 KB (16 x 2,048 events x 8 B), typically a few KB each.
+
+   **Recommendation.** (a) S2's CC map, the theme and every small setting: more records in OBJ_RF (no new flash).
+   (b) S5's user banks: XDATA0, up to three banks (12 KB) as raw sectors with their own header and CRC, written only
+   when a bank arrives by SysEx; a ChoralRoot or stock install loses them, acceptable because a bank is sent again
+   from the librarian that has it (the screen says when a bank is missing); the store-window test widened to exactly
+   those sectors. (c) S3's loops live in RAM (the pool) and are saved to and loaded from the computer over SysEx (USB
+   or Bluetooth: a page on the site, as the backup does), never in the unit's flash beside other firmwares; XDATA0's
+   last 4 KB may keep one loop (~1,000 events packed to 4 B) across a power cycle if the owner wants that. Not
+   recommended: claiming the data area (0x97000..0xDFFFF) behind an owner tag, as ChoralRoot's st_owner_check does:
+   it would hold all 16 loops but destroy ChoralRoot's or FIZZ's user data on the first save. The owner decides
+   before S3.

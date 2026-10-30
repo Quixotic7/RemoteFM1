@@ -1,0 +1,148 @@
+diff -ruN a/device/plat_fm1.c b/device/plat_fm1.c
+--- a/device/plat_fm1.c
++++ b/device/plat_fm1.c
+@@ -327,10 +327,15 @@
+ #else
+ const uint8_t *plat_chip_uid(void) { return 0; }
+ #endif
+-int plat_store_load(uint32_t obj, void *dst, uint32_t max) { return flash_ok ? st_load(obj, dst, max) : -1; }
+-int plat_store_head(uint32_t obj, void *dst, uint32_t n) { return flash_ok ? st_load_head(obj, dst, n) : -1; }
+-int plat_store_size(uint32_t obj) { return flash_ok ? st_size(obj) : -1; }
+-int plat_store_save(uint32_t obj, const void *src, uint32_t len) { return flash_ok ? st_save(obj, src, len) : -9; }
++#ifdef APP_STORE_MUX                                /* (plat.h: the app's plat_store_* sit on these) */
++#define PLAT_STORE_FN(f) plat_store_raw_##f
++#else
++#define PLAT_STORE_FN(f) plat_store_##f
++#endif
++int PLAT_STORE_FN(load)(uint32_t obj, void *dst, uint32_t max) { return flash_ok ? st_load(obj, dst, max) : -1; }
++int PLAT_STORE_FN(head)(uint32_t obj, void *dst, uint32_t n) { return flash_ok ? st_load_head(obj, dst, n) : -1; }
++int PLAT_STORE_FN(size)(uint32_t obj) { return flash_ok ? st_size(obj) : -1; }
++int PLAT_STORE_FN(save)(uint32_t obj, const void *src, uint32_t len) { return flash_ok ? st_save(obj, src, len) : -9; }
+ 
+ static volatile uint32_t audio_cpu_pct, audio_xruns;
+ uint32_t plat_cpu_pct(void) { return audio_cpu_pct; }
+diff -ruN a/device/unity.c b/device/unity.c
+--- a/device/unity.c
++++ b/device/unity.c
+@@ -147,17 +147,22 @@
+     }
+     return 0;
+ }
++/* where the store may write: felucca-bsp's FL_STORE_OK, or the app's own window (app.h APP_STORE_OK(off, n): its
++ * objects only there, nowhere else; another firmware's data around them is never touched) */
++#ifndef APP_STORE_OK
++#define APP_STORE_OK(off, n) FL_STORE_OK(off, n)
++#endif
+ static int st_erase(uint32_t off)
+ {
+     uint32_t took;
+-    if (!FL_STORE_OK(off, 0x1000u))
++    if (!APP_STORE_OK(off, 0x1000u))
+         return -8;
+     audio_silence();
+     return fl_erase4k(off, &took);
+ }
+ static int st_prog(uint32_t off, const void *src, uint32_t n)
+ {
+-    if (!FL_STORE_OK(off, n))
++    if (!APP_STORE_OK(off, n))
+         return -8;
+     return fl_write(off, src, n);
+ }
+diff -ruN a/host/plat_host.c b/host/plat_host.c
+--- a/host/plat_host.c
++++ b/host/plat_host.c
+@@ -530,7 +530,22 @@
+ static uint8_t store[OBJ_NOBJ][PLAT_STORE_MAX];
+ static int store_len[OBJ_NOBJ];           /* -1 = nothing saved (store_ready) */
+ static uint32_t store_writes, store_tries;
+-static int store_fail;                    /* flash_fail 1: every save fails (a flash error) */
++static int store_fail;
++#ifdef APP_STORE_MUX                            /* (plat.h: the app's plat_store_* sit on these) */
++#define PLAT_STORE_FN(f) plat_store_raw_##f
++#else
++#define PLAT_STORE_FN(f) plat_store_##f
++#endif
++#ifdef APP_STORE_OK
++/* the app's window (app.h APP_STORE_OK), as the device's st_erase / st_prog keep to it: a save of an object whose
++ * sectors (APP_STORE_MAP, A and B) are outside it fails, counted (expect store_outside) */
++static uint32_t store_outside;
++static int store_in_window(uint32_t obj)
++{
++    static const uint32_t map[OBJ_NOBJ] = APP_STORE_MAP;
++    return APP_STORE_OK(map[obj], 0x1000u) && APP_STORE_OK(map[obj] + 0x1000u, 0x1000u);
++}
++#endif                    /* flash_fail 1: every save fails (a flash error) */
+ static void store_ready(void)             /* the flash starts empty: once, on first use (a "reboot" keeps it) */
+ {
+     static int done;
+@@ -546,7 +561,7 @@
+     static const uint8_t U[16] = {0x46, 0x4D, 0x31, 0x2D, 0x68, 0x6F, 0x73, 0x74};   /* "FM1-host" */
+     return U;
+ }
+-int plat_store_load(uint32_t obj, void *dst, uint32_t max)
++int PLAT_STORE_FN(load)(uint32_t obj, void *dst, uint32_t max)
+ {
+     int n;
+     store_ready();
+@@ -557,7 +572,7 @@
+     memcpy(dst, store[obj], (size_t)n);
+     return n;
+ }
+-int plat_store_head(uint32_t obj, void *dst, uint32_t n)
++int PLAT_STORE_FN(head)(uint32_t obj, void *dst, uint32_t n)
+ {
+     store_ready();
+     if (obj >= OBJ_NOBJ || store_len[obj] <= 0 || (uint32_t)store_len[obj] < n)
+@@ -565,17 +580,23 @@
+     memcpy(dst, store[obj], (size_t)n);
+     return (int)n;
+ }
+-int plat_store_size(uint32_t obj)
++int PLAT_STORE_FN(size)(uint32_t obj)
+ {
+     store_ready();
+     return obj >= OBJ_NOBJ || store_len[obj] <= 0 ? -1 : store_len[obj];
+ }
+-int plat_store_save(uint32_t obj, const void *src, uint32_t len)
++int PLAT_STORE_FN(save)(uint32_t obj, const void *src, uint32_t len)
+ {
+     store_ready();
+     store_tries++;
+     if (obj >= OBJ_NOBJ || len > PLAT_STORE_MAX || store_fail)
+         return -1;
++#ifdef APP_STORE_OK
++    if (!store_in_window(obj)) {
++        store_outside++;
++        return -8;
++    }
++#endif
+     memcpy(store[obj], src, len);
+     store_len[obj] = (int)len;
+     store_writes++;
+@@ -1092,6 +1113,10 @@
+         got = (int)store_writes;
+     else if (!strcmp(what, "store_tries"))
+         got = (int)store_tries;
++#ifdef APP_STORE_OK
++    else if (!strcmp(what, "store_outside"))        /* saves refused: outside the app's window (APP_STORE_OK) */
++        got = (int)store_outside;
++#endif
+ #if FM1B_BACKUP
+     else if (!strcmp(what, "restore_rc"))
+         got = restore_rc;
+diff -ruN a/include/plat.h b/include/plat.h
+--- a/include/plat.h
++++ b/include/plat.h
+@@ -211,7 +211,10 @@
+  * for an address that must not change (the WiFi MAC, the Bluetooth name); 0 = unknown (and in a build without a radio) */
+ const uint8_t *plat_chip_uid(void);
+ 
+-/* persistent storage (Felucca storage.c objects: A/B sectors, CRC, torn-write safe) */
++/* persistent storage (Felucca storage.c objects: A/B sectors, CRC, torn-write safe). An app may keep its objects to a
++ * window of its own (app.h APP_STORE_OK(off, n): the store erases and writes only there; the simulator refuses a save
++ * outside it, expect store_outside), and may keep several objects inside one of its own (app.h APP_STORE_MUX: the app
++ * defines the four functions below, on the platform's, renamed plat_store_raw_load / _head / _size / _save) */
+ int plat_store_load(uint32_t obj, void *dst, uint32_t max);   /* bytes loaded, < 0 = none / bad (an empty object is
+                                                                * none: a restore writes one for an absent object) */
+ int plat_store_head(uint32_t obj, void *dst, uint32_t n);     /* its first n bytes (a header): n, < 0 = none / bad /

@@ -263,3 +263,14 @@ expect sa_panel 0
 # the bench (SysEx, no HELLO): the standalone stays; the bench has the synth, then the voice comes back
 rf send usb 09 01
 expect sa_panel 0
+# the store (src/rfm_store.c): every save so far inside RemoteFM1's window (0xF2000..0xF3FFF, the calibration at
+# 0xFC000): none refused; Bluetooth's object and the settings as records of one object there; a record saved as it is
+# costs no write; a save with no sectors in the window refused (the simulator's check, as the device's st_erase)
+expect store_outside 0
+expect rf_store_saves >0
+sa storecheck
+expect store_outside 1
+reboot
+wait 300
+expect sa_ch 10
+expect sa_loads 1
