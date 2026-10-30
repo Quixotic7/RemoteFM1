@@ -401,6 +401,9 @@ int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, c
                 printf("FAIL sa loopget %u: %u of %u events\n", k, first, sl.n[k]), sa_host_fails++;
             else
                 printf("  ok sa loopget %u: %u events\n", k, first);
+        } else if (!strcmp(a, "scalelook")) {   /* sa scalelook N: the Scale screen's look (sa_screens.c) */
+            sa_scale_look = (uint8_t)(atoi(b) & 1);
+            sa.poke = 1;
         } else if (!strcmp(a, "storecheck")) {   /* the store's records (src/rfm_store.c) and its window */
             static uint8_t ble[1536], back[1536];
             uint32_t i, w0 = store_writes, o0 = store_outside;

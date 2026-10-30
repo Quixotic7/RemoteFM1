@@ -865,24 +865,72 @@ static void sa_paint_latch(void)
 }
 
 /* ------------------------------------------------------------------ the scale (GLO + PRESETS / ALGORITHM) --- */
+/* Redrawn in the mockup's style (the owner, 2026-10-30, did not like the old keyboard): flat pixel keys as the Keys
+ * view's, no bevels; the root in the theme's accent, the scale's notes lit, the others dark; the root and the scale's
+ * name big. Two looks for the owner to pick (sa_scale_look; the simulator's "sa scalelook N"):
+ *   0  one octave, big: C..B, 7 white keys 30 wide and 5 black, under the root and the name;
+ *   1  the FM-1's own 27 keys (F3..G5) as their LEDs show the scale, under "ROOT NAME" on one line. */
+static uint8_t sa_scale_look;
+
+static uint16_t sa_sc_col(uint32_t pc, int black)   /* a key's colour: the root, in the scale, out */
+{
+    uint32_t d = (pc + 12u - ui.sc_root % 12u) % 12u, mask = SA_SCALES[ui.sc % SA_NSCALES].mask;
+    if (d == 0u && ui.sc)
+        return UC(A1);
+    if (mask >> d & 1u)
+        return ui.sc ? (black ? UC(A4) : UC(INK)) : (black ? UC(MID) : UC(SOFT));
+    return black ? UC(BG) : UC(D5);
+}
+
 static void sa_paint_scale(void)
 {
     const char *root = SA_ROOTS[ui.sc_root % 12u], *name = SA_SCALES[ui.sc % SA_NSCALES].name;
-    uint32_t mask = SA_SCALES[ui.sc % SA_NSCALES].mask;
-    int32_t i, n = 3, w;
+    int32_t i, n, w;
     sg_chip_text(10, 8, 0, 22, 7, "SCALE", UC(A4), UC(ON));
     sg_chip_text(186, 8, 44, 22, 0, "GLO", UC(A3), UC(ON));
-    w = sg_text_w(root, 7);
-    sg_text_sh((SG_W - w) / 2, 40, 7, root, ui.sc ? UC(A4) : UC(MID), 4, UC(D2));
-    while (n > 1 && sg_text_w(name, n) > 224)
-        n--;
-    sg_text_sh((SG_W - sg_text_w(name, n)) / 2, 128, n, name, UC(INK), 3, UC(SHADOW));
-    for (i = 0; i < 12; i++) {               /* C..B: the scale's notes lit, the root in the accent, the black ones low */
-        static const uint8_t BLK[12] = {0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0};
-        uint32_t pc = ((uint32_t)i + 12u - ui.sc_root) % 12u;
-        int on = mask >> pc & 1u, rt = pc == 0u;
-        int32_t x = 12 + 18 * i, y = BLK[i] ? 176 : 196;
-        sg_chip(x, y, 16, 30, rt ? UC(A1) : on ? UC(A4) : UC(PANEL));
+    if (sa_scale_look == 0u) {
+        static const uint8_t WPC[7] = {0, 2, 4, 5, 7, 9, 11}, BPC[5] = {1, 3, 6, 8, 10}, BX[5] = {1, 2, 4, 5, 6};
+        w = sg_text_w(root, 7);
+        sg_text_sh((SG_W - w) / 2, 38, 7, root, ui.sc ? UC(A1) : UC(MID), 4, UC(SHADOW));
+        for (n = 3; n > 1 && sg_text_w(name, n) > 224; n--)
+            ;
+        sg_text_sh((SG_W - sg_text_w(name, n)) / 2, 116, n, name, UC(INK), 3, UC(SHADOW));
+        for (i = 0; i < 7; i++)              /* 7 white keys, 30 wide, 2 apart, from x 14 */
+            sg_rect(14 + 32 * i, 156, 30, 72, sa_sc_col(WPC[i], 0));
+        for (i = 0; i < 5; i++) {            /* 5 black keys, 18 wide, a 2-pixel gap of the ground round them */
+            int32_t x = 14 + 32 * BX[i] - 10;
+            sg_rect(x - 2, 156, 22, 44, UC(BG));
+            sg_rect(x, 156, 18, 42, sa_sc_col(BPC[i], 1));
+            if (sa_sc_col(BPC[i], 1) == UC(BG))   /* (a dark black key: its outline) */
+                sg_rect(x + 2, 156, 14, 40, UC(PANEL)), sg_rect(x + 4, 156, 10, 38, UC(BG));
+        }
+    } else {
+        static const uint8_t BLACK_AFTER[11] = {0, 1, 2, 4, 5, 7, 8, 9, 11, 12, 14};
+        static const uint8_t WPC[16] = {5, 7, 9, 11, 0, 2, 4, 5, 7, 9, 11, 0, 2, 4, 5, 7};   /* F G A B C .. G */
+        static const uint8_t BPC[11] = {6, 8, 10, 1, 3, 6, 8, 10, 1, 3, 6};
+        char line[24];
+        sa_cpy(sa_cpy(sa_cpy(line, root), " "), name);
+        for (n = 5; n > 2 && sg_text_w(line, n) > 224; n--)
+            ;
+        if (sg_text_w(line, n) <= 224) {
+            sg_text_sh((SG_W - sg_text_w(line, n)) / 2, 62 + (5 - n) * 5, n, line, UC(INK), 4, UC(SHADOW));
+            sg_text((SG_W - sg_text_w(line, n)) / 2, 62 + (5 - n) * 5, n, root, ui.sc ? UC(A1) : UC(MID));
+        } else {                             /* (too long for one line: the root above the name) */
+            sg_text_sh((SG_W - sg_text_w(root, 5)) / 2, 40, 5, root, ui.sc ? UC(A1) : UC(MID), 4, UC(SHADOW));
+            for (n = 3; n > 1 && sg_text_w(name, n) > 224; n--)
+                ;
+            sg_text_sh((SG_W - sg_text_w(name, n)) / 2, 98, n, name, UC(INK), 3, UC(SHADOW));
+        }
+        for (i = 0; i < 16; i++)             /* the Keys view's 16 white keys, 12 wide, 2 apart */
+            sg_rect(9 + 14 * i, 140, 12, 88, sa_sc_col(WPC[i], 0));
+        for (i = 0; i < 11; i++) {
+            int32_t x = 9 + 14 * BLACK_AFTER[i] + 9;
+            uint16_t c = sa_sc_col(BPC[i], 1);
+            sg_rect(x - 2, 140, 12, 56, UC(BG));
+            sg_rect(x, 140, 8, 54, c == UC(BG) ? UC(PANEL) : c);
+            if (c == UC(BG))
+                sg_rect(x + 2, 140, 4, 52, UC(BG));
+        }
     }
 }
 
