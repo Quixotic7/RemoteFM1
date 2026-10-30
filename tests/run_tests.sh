@@ -88,6 +88,9 @@ if grep -rn "plat_data_erase\|plat_data_write\|fl_erase4k\|fl_write" firmware/sr
 fi
 [ "$(grep -c 'if (!APP_STORE_OK(off, ' firmware/sa/sa_ubank.c)" = 2 ] ||
     { echo "FAILED: sa_ubank.c's flash writes do not keep to APP_STORE_OK"; exit 1; }
+echo "== the standalone's themes over every background readable (firmware/sa/sa_theme.h)"
+$TCC $SAN -o "$H/sa_theme_test" tests/sa_theme_test.c
+"$H/sa_theme_test"
 echo "== the standalone's chord names (firmware/sa/sa_chord.c)"
 $TCC $SAN -o "$H/sa_chord_test" tests/sa_chord_test.c
 "$H/sa_chord_test"

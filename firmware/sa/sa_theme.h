@@ -62,16 +62,20 @@ static const sa_theme_t SA_THEMES[SA_NTHEMES] = {
 /* The background (the theme menu's ALGORITHM; kept with the theme). 0 the themes' own black, then dark grounds every
  * theme's ink, accents and chips read on, then SA_BG_CLASSIC: the theme's classic screen colour (C64 blue, Game Boy
  * green, SynthWave purple, SNES grey...), offered only where the theme has one and its ink keeps a contrast of 4.5:1
- * (WCAG AA) on it; the choice is kept through the other themes (black where one has none). Over a background not
- * black, a theme's border drawn in black follows the background, and a panel colour too near it is lifted 2/8 of the
- * way to the ink (the chips stay chips). */
-#define SA_NBG 7u
-#define SA_BG_CLASSIC 6u
+ * (WCAG AA) on it; the choice is kept through the other themes (black where one has none). Then two bright grounds
+ * (the owner, 2026-10-30): ORANGE and HOT PINK. Over a background not black, a theme's border drawn in black follows
+ * the background, and a panel colour too near it is lifted 2/8 of the way to the ink (the chips stay chips). Where the
+ * theme's ink falls under 4.5:1 on the background (every theme on the bright two), the theme is turned for a light
+ * ground (sa_theme_build): ink black, chip text white on accents darkened until they keep 3:1 on the ground (large
+ * text) and white keeps 4.5:1 on them, light panels, the dim greys and the deep shades from the ground. */
+#define SA_NBG 9u
+#define SA_BG_CLASSIC 6u                     /* (its number is kept in the store: the bright ones come after it) */
 static const struct {
     const char *name;
     uint32_t rgb;
-} SA_BGS[SA_NBG - 1u] = {{"BLACK", 0x000000u},  {"MIDNIGHT", 0x0a1026u}, {"CHARCOAL", 0x18181cu},
-                         {"PLUM", 0x1e0c26u},   {"FOREST", 0x08190fu},   {"OXBLOOD", 0x220909u}};
+} SA_BGS[SA_NBG] = {{"BLACK", 0x000000u}, {"MIDNIGHT", 0x0a1026u}, {"CHARCOAL", 0x18181cu}, {"PLUM", 0x1e0c26u},
+                    {"FOREST", 0x08190fu}, {"OXBLOOD", 0x220909u}, {"CLASSIC", 0u},         {"ORANGE", 0xff7a1au},
+                    {"HOT PINK", 0xff3ea5u}};
 static const uint32_t SA_BG_CLASSIC_RGB[SA_NTHEMES] = {
     0x1a1c2cu,                               /* Pixel: Sweetie-16's ground */
     0,                                       /* ChoralRoot: black is its own */
@@ -121,7 +125,9 @@ static uint32_t sa_bg_rgb(uint32_t theme, uint32_t bg)
 
 static const char *sa_bg_name(uint32_t theme, uint32_t bg)   /* (CLASSIC where the theme has none: black) */
 {
-    return bg == SA_BG_CLASSIC ? (sa_bg_ok(theme, bg) ? "CLASSIC" : "BLACK") : SA_BGS[bg % (SA_NBG - 1u)].name;
+    if (bg == SA_BG_CLASSIC && !sa_bg_ok(theme, bg))
+        return "BLACK";
+    return SA_BGS[bg < SA_NBG ? bg : 0u].name;
 }
 
 static uint32_t sa_bg_step(uint32_t theme, uint32_t bg, int32_t d)   /* ALGORITHM: the next one offered, round */
@@ -135,6 +141,16 @@ static uint32_t sa_bg_step(uint32_t theme, uint32_t bg, int32_t d)   /* ALGORITH
     return (uint32_t)b;
 }
 
+/* a darkened by k/8 towards black, k the least that brings its luminance under lmax (8: black) */
+static uint32_t sa_dark_to(uint32_t a, float lmax)
+{
+    uint32_t k;
+    for (k = 0; k < 8u; k++)
+        if (sa_lum(SA_MIX(a, 0u, k)) <= lmax)
+            break;
+    return SA_MIX(a, 0u, k);
+}
+
 static void sa_theme_build(uint32_t theme, uint32_t bg, uint16_t out[SA_NTK])   /* the theme over the background */
 {
     const uint16_t *t = SA_THEMES[theme < SA_NTHEMES ? theme : 0u].c;
@@ -146,6 +162,25 @@ static void sa_theme_build(uint32_t theme, uint32_t bg, uint16_t out[SA_NTK])   
     out[SA_TK_BG] = SA_565(rgb);
     if (t[SA_TK_BORDER] == t[SA_TK_BG])
         out[SA_TK_BORDER] = out[SA_TK_BG];
+    if (sa_contrast(rgb, sa_888(t[SA_TK_INK])) < 4.5f) {   /* a light ground: the theme turned for it */
+        float lb = sa_lum(rgb), lacc = (lb + 0.05f) / 3.0f - 0.05f, l45 = (lb + 0.05f) / 4.5f - 0.05f;
+        static const uint8_t ACC[5] = {SA_TK_A1, SA_TK_A2, SA_TK_A3, SA_TK_A4, SA_TK_A5};
+        uint32_t sh = SA_MIX(rgb, 0u, 2u);
+        if (lacc > 1.05f / 4.5f - 0.05f)
+            lacc = 1.05f / 4.5f - 0.05f;     /* (white on the accents: 4.5:1 too) */
+        out[SA_TK_INK] = SA_565(0x000000u);
+        out[SA_TK_ON] = SA_565(0xffffffu);
+        for (k = 0; k < 5u; k++)             /* accents: 3:1 on the ground (big numbers), white text 4.5:1 on them */
+            out[ACC[k]] = SA_565(sa_dark_to(sa_888(t[ACC[k]]), lacc));
+        out[SA_TK_PANEL] = SA_565(SA_MIX(rgb, 0xffffffu, 5u));   /* light chips, black text */
+        out[SA_TK_MID] = SA_565(sa_dark_to(rgb, lacc));           /* dim text: 3:1 */
+        out[SA_TK_SOFT] = SA_565(sa_dark_to(rgb, l45));           /* small text: 4.5:1 */
+        out[SA_TK_SHADOW] = SA_565(sh);      /* under black text: the ground, deeper */
+        for (d = 2u; d > 0u && sa_contrast(SA_MIX(rgb, 0u, d), 0u) < 4.5f; d--)
+            ;
+        out[SA_TK_D1] = out[SA_TK_D2] = out[SA_TK_D5] = SA_565(SA_MIX(rgb, 0u, d ? d : 1u));   /* black reads on it */
+        return;
+    }
     p = sa_888(t[SA_TK_PANEL]);
     for (d = 0, k = 0; k < 24u; k += 8u) {   /* (the channels' distances, summed) */
         uint32_t a = p >> k & 255u, b = rgb >> k & 255u;

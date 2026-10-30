@@ -74,7 +74,8 @@ expect sa_screen 0
 expect sa_theme 8
 wait 60
 shot sa_notes_synthwave.png
-# ALGORITHM in the theme menu: the background (black, five dark grounds, the theme's classic where its ink reads)
+# ALGORITHM in the theme menu: the background (black, five dark grounds, the theme's classic where its ink reads,
+# ORANGE, HOT PINK)
 tap SAVE
 turn SELECT -4 100
 expect sa_theme 4
@@ -98,8 +99,12 @@ expect sa_bg 6
 wait 60
 shot sa_theme_gameboy_classic.png
 turn ALGO 1 100
+expect sa_bg 7
+turn ALGO 2 100
 expect sa_bg 0
 turn ALGO -1 100
+expect sa_bg 8
+turn ALGO -2 100
 expect sa_bg 6
 turn SELECT 1 100
 wait 60
@@ -111,7 +116,7 @@ wait 60
 shot sa_theme_fizz_classic_none.png
 turn ALGO -1 100
 expect sa_bg 5
-turn ALGO 2 100
+turn ALGO 4 100
 expect sa_bg 1
 wait 60
 shot sa_theme_fizz_midnight.png

@@ -53,3 +53,45 @@ wait 8000
 expect sa_screen 16
 tap SAVE
 expect sa_screen 0
+# the bright backgrounds (the owner, 2026-10-30): ORANGE and HOT PINK after CLASSIC; the theme turned for a light
+# ground (black ink, darkened accents with white chip text: tests/sa_theme_test.c checks the contrasts)
+tap SAVE
+turn ALGO 7
+expect sa_bg 7
+wait 40
+shot sa_theme_pixel_orange.png
+turn ALGO 1
+expect sa_bg 8
+wait 40
+shot sa_theme_pixel_hotpink.png
+tap SAVE
+key 7 down 100
+key 10 down 100
+key 14 down 100
+wait 60
+shot sa_notes_hotpink.png
+key 7 up
+key 10 up
+key 14 up
+tap SAVE
+turn PRESET 8
+turn ALGO -1
+expect sa_bg 7
+wait 40
+shot sa_theme_synthwave_orange.png
+tap SAVE
+tap SEL
+wait 40
+shot sa_cc_bank_orange.png
+tap HOME
+tap OCT+
+wait 40
+shot sa_octave_orange.png
+wait 1100
+tap OCT-
+wait 1100
+tap SAVE
+turn PRESET -8
+turn ALGO 2
+expect sa_bg 0
+tap SAVE

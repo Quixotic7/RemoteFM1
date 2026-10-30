@@ -43,7 +43,7 @@ and its `melodee_fm6.h` (Felucca's factory voices), and anything under saadet's 
 | FX SEL ENV LFO EDIT | CC bank A..E (its screen stays until HOME or another screen; the knobs change it in place) | GLO + FX: MIDI REMOTE on / off (docs/PROTOCOL.md section 8) |
 | GLO | shift (held) | |
 | HOME | next view: Notes, Scope, Keys | |
-| SAVE | the theme menu (ALGORITHM there: the background) | hold: save everything (CC map, loops, theme, settings) |
+| SAVE | the theme menu (ALGORITHM there: the background: black, five dark grounds, the theme's classic, ORANGE, HOT PINK; on the bright two the theme turns to black ink) | hold: save everything (CC map, loops, theme, settings) |
 | ARP | arp on / off | hold: arp settings (mode, rate, octaves, gate) |
 | SEQ | spare | |
 | PLAY | play / stop the current loop; stops a recording and plays it | hold: the 16 loops; a picked loop queues in at the end of the current one |
