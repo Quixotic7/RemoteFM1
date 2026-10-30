@@ -3,6 +3,24 @@
   "repo": "https://github.com/Quixotic7/RemoteFM1",
   "releases": [
     {
+      "version": "0.3.0",
+      "date": "2026-10-30",
+      "tag": "v0.3.0",
+      "identity": "FM-1_52000300",
+      "license": "MPL-2.0",
+      "sha256": "0403415f68afd8c087004ab65683378b3d52dd7669cd46fed11bdb7c923b9a9f",
+      "usbOnly": {
+        "file": "remote-usb-0.3.0.fwsc",
+        "sha256": "acde3717ef90e5f60c43c2e14636537e34feb3c95020ff0b7872e666a108c584"
+      },
+      "notes": [
+        "The FM-1 on its own: without a host it is a DX7 (Yamaha's 256 ROM voices and your own cartridges over SysEx), with velocity, scales, latch, an arp and a 16-loop looper.",
+        "A MIDI controller over USB, Bluetooth and the TRS jack: 5 banks of 4 CCs, and a REMOTE MIDI mode (GLO + FX) where every control just sends MIDI.",
+        "A host still takes it over as its panel, as in 0.2; MIDI from the TRS jack now reaches the host's firmware.",
+        "Tested on an FM-1 on 2026-10-30: playing, MIDI over USB, Bluetooth and TRS, the website with FIZZ, and USB audio."
+      ]
+    },
+    {
       "version": "0.2.3",
       "date": "2026-10-28",
       "tag": "v0.2.3",

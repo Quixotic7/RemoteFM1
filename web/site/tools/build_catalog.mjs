@@ -223,8 +223,8 @@ function remoteEntry() {
     authorFull: "Quixotic7",
     category: "Other",
     categories: ["Other"],
-    tag: "Waits for a host",
-    what: "The firmware this site installs, running as itself. It turns an FM-1 into a USB panel for a computer, so it makes no sound of its own: it shows a screen and waits for a host. In a browser tab, no host is coming.",
+    tag: "DX7 + MIDI controller",
+    what: "The firmware this site installs, running as itself. On its own (0.3) the FM-1 is a DX7 with Yamaha's ROM voices, a MIDI controller, a looper and an arp; when a computer connects it becomes that computer's panel.",
     license: r.license || "GPL-3.0-only",     // (the firmware: MPL-2.0 from 0.2, GPL-3.0-only before)
     source: rel.repo,
     repo: "Quixotic7/RemoteFM1",
@@ -237,7 +237,7 @@ function remoteEntry() {
     native: null,
     emu: { pkg: PATHS[layout].installer + file, sha256: r.sha256, size: pkg.length, product: null, from: "site" },
     badge: "meta",
-    blurb: "Plays nothing. Waits for a host.",
+    blurb: "A DX7, a controller, a looper. Or a host's panel.",
   };
 }
 firmwares.splice(0, firmwares.length, ...firmwares.filter((f) => f.id !== REMOTE_ID), remoteEntry());

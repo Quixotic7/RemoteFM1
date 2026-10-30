@@ -1,6 +1,6 @@
 {
  "about": "Built by web/site/tools/build_catalog.mjs from the FM-1 Firmware Hub's catalog, FM1VST's cores, RemoteFM1's own release (web/installer/releases.json) and the site's .rfm1 files (data/site-rfm1.json). Edit those, not this file.",
- "generated": "2026-10-29",
+ "generated": "2026-10-30",
  "hubUpdated": "2026-10-18 17:01 UTC",
  "hubSource": "snapshot",
  "hub": "https://thefirmwarehub.com/",
@@ -1723,19 +1723,19 @@
   {
    "id": "remotefm1",
    "name": "RemoteFM1",
-   "version": "0.2.3",
+   "version": "0.3.0",
    "author": "Quixotic7",
    "authorFull": "Quixotic7",
    "category": "Other",
    "categories": [
     "Other"
    ],
-   "tag": "Waits for a host",
-   "what": "The firmware this site installs, running as itself. It turns an FM-1 into a USB panel for a computer, so it makes no sound of its own: it shows a screen and waits for a host. In a browser tab, no host is coming.",
+   "tag": "DX7 + MIDI controller",
+   "what": "The firmware this site installs, running as itself. On its own (0.3) the FM-1 is a DX7 with Yamaha's ROM voices, a MIDI controller, a looper and an arp; when a computer connects it becomes that computer's panel.",
    "license": "MPL-2.0",
    "source": "https://github.com/Quixotic7/RemoteFM1",
    "repo": "Quixotic7/RemoteFM1",
-   "release": "https://github.com/Quixotic7/RemoteFM1/releases/tag/v0.2.3",
+   "release": "https://github.com/Quixotic7/RemoteFM1/releases/tag/v0.3.0",
    "site": null,
    "play": null,
    "beta": false,
@@ -1745,14 +1745,14 @@
    "defaultEngine": "emu",
    "native": null,
    "emu": {
-    "pkg": "../installer/firmware/remote-0.2.3.fwsc",
-    "sha256": "211f06f63e8ca09de2812c017db9bb229713ce8e5a102eba887031551b2b403c",
+    "pkg": "../installer/firmware/remote-0.3.0.fwsc",
+    "sha256": "0403415f68afd8c087004ab65683378b3d52dd7669cd46fed11bdb7c923b9a9f",
     "size": 611496,
     "product": null,
     "from": "site"
    },
    "badge": "meta",
-   "blurb": "Plays nothing. Waits for a host."
+   "blurb": "A DX7, a controller, a looper. Or a host's panel."
   },
   {
    "id": "s1vave",

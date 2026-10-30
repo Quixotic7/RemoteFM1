@@ -151,9 +151,9 @@ if (!process.argv[2]) {
   const files = readdirSync(new URL("./firmware/", import.meta.url)).filter((f) => f.endsWith(".fwsc")).sort().join();
   const summed = sums.trim().split("\n").map((l) => l.split(/\s+/)[1]).sort().join();
   ok(files === listed && summed === listed, `firmware/ holds the listed packages only (${files})`);
-  ok(rels[0].version === "0.2.3" && rels[0].identity === "FM-1_52000203" && rels[0].usbOnly && rels[0].license === "MPL-2.0"
+  ok(rels[0].version === "0.3.0" && rels[0].identity === "FM-1_52000300" && rels[0].usbOnly && rels[0].license === "MPL-2.0"
      && rels.some((r) => r.version === "0.1.1" && r.identity === "FM-1_015" && r.license === "GPL-3.0-only") && !files.includes("remote-0.1.fwsc"),
-     "RemoteFM1 0.2.3 is offered (USB + Bluetooth, and USB only), 0.2.2, 0.2.1 and 0.1.1 kept as the older release, 0.1 not published");
+     "RemoteFM1 0.3.0 is offered (USB + Bluetooth, and USB only), 0.2.3, 0.2.2, 0.2.1 and 0.1.1 kept as the older release, 0.1 not published");
   // the USB-only choice: its own file, its own SHA-256, the same identity
   const r0 = rels[0], usbRaw = new Uint8Array(readFileSync(new URL(`./firmware/${r0.usbOnly.file}`, import.meta.url)));
   const asked = [];
@@ -166,7 +166,7 @@ if (!process.argv[2]) {
   ok(/not the released one/.test(e), "the USB-only file served for the default package: refused (SHA-256)");
   e = "";
   try { await releasedPackage({ ...r0, identity: "FM-1_52000200" }, fetchAny, "usb"); } catch (x) { e = x.message; }
-  ok(/installs as FM-1_52000203, not FM-1_52000200/.test(e), "a package whose identity is not the release's: refused");
+  ok(/installs as FM-1_52000300, not FM-1_52000200/.test(e), "a package whose identity is not the release's: refused");
   const old = rels.find((r) => r.version === "0.1.1");
   ok(releaseFile(old, "usb").file === "remote-0.1.1.fwsc", "a release without a USB-only package: the choice falls back to its one package");
 }

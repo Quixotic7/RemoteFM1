@@ -327,7 +327,7 @@ RemoteFM1 message starts `F0 7D 52 46`.
   first; `caps` bit8 (`RFM_CAP_BLE_FAST`; 0x1AF in all): libremotefm1 then paces Bluetooth at 30000 B/s with 8 KB
   in flight and budgets up to 3000 B (measured with a Mac: ~35 KB/s of 1 KB frames, nothing lost at 14 KB in flight).
 - 0.2.3: no protocol change (the USB audio input fixed; `caps` still 0x1AF).
-- TRS MIDI (after 0.2.3): MIDI_IN (`0x54`, section 4), `caps` bit9 (`RFM_CAP_MIDI_IN`; 0x3AF in all, 0x22C without
+- 0.3.0: the standalone instrument (section 8) and TRS MIDI: MIDI_IN (`0x54`, section 4), `caps` bit9 (`RFM_CAP_MIDI_IN`; 0x3AF in all, 0x22C without
   the shadow). The standalone instrument plays the jack's MIDI (section 8).
 
 ## 8. The standalone build's own messages (STANDALONE-PLAN.md)

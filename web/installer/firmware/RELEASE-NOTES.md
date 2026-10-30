@@ -1,3 +1,42 @@
+# RemoteFM1 0.3.0
+
+Released 2026-10-30, built with `./build.sh --release 0.3.0` (and `--no-ble` for the USB-only package). It replaces
+0.2.3. Both packages install as `FM-1_52000300`.
+
+| Package | sha256 |
+| --- | --- |
+| `remote-0.3.0.fwsc`, USB + Bluetooth MIDI (the default) | `0403415f68afd8c087004ab65683378b3d52dd7669cd46fed11bdb7c923b9a9f` |
+| `remote-usb-0.3.0.fwsc`, USB only | `acde3717ef90e5f60c43c2e14636537e34feb3c95020ff0b7872e666a108c584` |
+
+## What changed from 0.2.3: the FM-1 on its own
+
+Without a host, RemoteFM1 is now an instrument of its own (the full control map: README.md "Standalone",
+STANDALONE-PLAN.md section 3). A host's SESSION still takes it over as its panel, exactly as in 0.2.
+
+- **A DX7.** saadet's FM6 engine (Kerem Kilic; MSFA's DX7 maths, sample for sample as saadet renders it), 8 voices
+  over the FM-1's two cores. Yamaha's 8 ROM cartridges (256 voices) built in; send your own 32-voice cartridges over
+  SysEx (up to 3 user banks). PRESETS the voice (rolling into the next cartridge), GLO + SELECT the cartridge.
+- **Playing.** Velocity keys, OCT-/OCT+ (both: panic), scales that snap the keys (GLO + PRESETS the root,
+  GLO + ALGORITHM the scale), LATCH (hold LFO), an arp (tap / hold ARP), SELECT the tempo, MIDI clock in.
+- **A looper.** REC records exactly what you play, from the first note; 16 loops on SEQ (white keys pick, launch
+  instantly, at the bar or at the end); count-in and a metronome; save / load over SysEx.
+- **A MIDI controller.** Notes and 5 banks of 4 CCs out over USB and Bluetooth at once; MIDI in from USB, Bluetooth
+  and the **TRS jack** plays the DX7. **REMOTE MIDI** (GLO + FX): every key, button and knob just sends MIDI, with its
+  own settings page (hold HOME): screen, absolute / relative knobs, channels, keys, octave keys, scale shortcuts,
+  knob LEDs.
+- **Looks.** A pixel-art UI with 9 themes and background colours (SAVE), Notes / Scope / Keys views (HOME).
+- **For hosts.** The TRS jack's MIDI goes to the host's firmware during a session (MIDI_IN, `0x54`; `caps` bit 9). A
+  bare HELLO no longer hands the unit over: only a SESSION start does.
+- Settings live only in 0xF2000..0xF3FFF (and user banks in 0x93000..0x96FFF), where no other FM-1 firmware keeps
+  data; Bluetooth pairing is now saved too.
+
+## Testing
+
+On an FM-1 on 2026-10-30: the release package installed as `FM-1_52000300`; the DX7's render hash on the unit equals
+the computer's on one and two cores; macOS shows the FM-1's USB audio devices; the owner played it, MIDI over USB,
+Bluetooth and TRS (an OMX-27), and the website with FIZZ getting the TRS jack's MIDI. The simulator suite (every
+standalone feature), the site, installer and remote-link tests pass.
+
 # RemoteFM1 0.2.3
 
 Released 2026-10-28, built with `./build.sh --release 0.2.3` (and `--no-ble` for the USB-only package). It replaces
