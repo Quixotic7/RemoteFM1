@@ -456,7 +456,7 @@ static void rf_leds_of(const uint8_t *m, uint32_t *btn, uint32_t *keys)   /* mat
                 *btn |= LED_PLAY_GREEN;
         }
 }
-static uint32_t rf_led_lit_b, rf_led_lit_k, rf_led_mid_k, rf_led_glow_k;   /* (the simulator's checks) */
+static uint32_t rf_led_lit_b, rf_led_lit_k, rf_led_mid_k, rf_led_glow_k, rf_led_root_k;   /* (the simulator's checks) */
 static void rfa_leds(const uint8_t *lit, const uint8_t *glow, const uint8_t *bg)
 {
     uint32_t lb, lk, mb, mk, fb, fk;
@@ -467,6 +467,7 @@ static void rfa_leds(const uint8_t *lit, const uint8_t *glow, const uint8_t *bg)
     mk &= ~lk;
     plat_lights(lb, lk, (mb | fb) & ~lb, (mk | fk) & ~lk, 2);
     plat_lights_mid(mb & ((1u << NB) - 1u), mk);
+    plat_lights_levels(0, 0, 0, 0);                     /* (the standalone's levels off) */
     rf_led_lit_b = lb;
     rf_led_lit_k = lk;
     rf_led_mid_k = mk;
@@ -482,22 +483,29 @@ static void rf_waiting_leds(uint32_t btns, uint32_t keys)
     rf_wait_keys = keys;
     plat_lights(btns, keys, (1u << NB) - 1u, (1u << NKEYS) - 1u, 2);
     plat_lights_mid(0, 0);
+    plat_lights_levels(0, 0, 0, 0);
     rf_led_lit_b = btns;
     rf_led_lit_k = keys;
     rf_led_mid_k = 0;
     rf_led_glow_k = ((1u << NKEYS) - 1u) & ~keys;
 }
 
-/* standalone (sa_main.c sa_leds): the lit buttons and keys, the unlit buttons at the glow; the mid level a host's
- * LEDS left (plat_lights_mid holds it until it is called again) cleared, or its keys would stay lit at ~12 % */
-static void rf_sa_leds(uint32_t btns, uint32_t keys, uint32_t keys_mid)
+/* standalone (sa_main.c sa_leds): the lit buttons and keys (100 %), the unlit buttons at the glow; two steady levels
+ * for keys (fm1-base patch 0007, felucca-bsp 0004): keys_root at SA_LED_ROOT_8 / 8 (a scale's root: the owner asked
+ * 75 %), keys_mid at SA_LED_SCALE_8 / 8 (its notes: 40 % asked, 3/8 the nearest); the mid level a host's LEDS left
+ * (plat_lights_mid holds it until it is called again) cleared, or its keys would stay lit at ~12 % */
+#define SA_LED_ROOT_8 6u
+#define SA_LED_SCALE_8 3u
+static void rf_sa_leds(uint32_t btns, uint32_t keys, uint32_t keys_root, uint32_t keys_mid)
 {
     plat_glow(1);
     plat_leds(btns, keys);
-    plat_lights_mid(0, keys_mid);
+    plat_lights_mid(0, 0);
+    plat_lights_levels(keys_root & ~keys, SA_LED_ROOT_8, keys_mid & ~keys & ~keys_root, SA_LED_SCALE_8);
     rf_led_lit_b = btns;
     rf_led_lit_k = keys;
-    rf_led_mid_k = keys_mid;
+    rf_led_root_k = keys_root & ~keys;
+    rf_led_mid_k = keys_mid & ~keys & ~keys_root;
     rf_led_glow_k = 0;
 }
 

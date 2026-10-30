@@ -76,6 +76,17 @@ static uint32_t sa_scale_keys(int32_t oct)   /* the keys whose notes are in the 
     return m;
 }
 
+static uint32_t sa_root_keys(int32_t oct)    /* the keys playing the scale's root (none when chromatic) */
+{
+    uint32_t k, m = 0;
+    for (k = 0; sa.scale && k < NKEYS; k++) {
+        int32_t n = (int32_t)SA_NOTE0 + (int32_t)k + 12 * oct;
+        if (n >= 0 && n < 128 && ((uint32_t)n + 12u * 11u - sa.scale_root) % 12u == 0u)
+            m |= 1u << k;
+    }
+    return m;
+}
+
 static uint32_t sa_snap(uint32_t n)          /* note n, onto the scale: the nearest note in it, a tie down */
 {
     int32_t d;

@@ -58,7 +58,8 @@ static void rf_ev_put(uint32_t pkt);        /* a MIDI event packet out (USB, and
 static int rf_panel_ours(void);             /* no session, no push, no hold: the screen is the standalone's */
 static int rf_session_on(void);
 static void rf_info(char out[4][32], uint8_t *warn);   /* the hand-over screen's lines (the waiting screen's) */
-static void rf_sa_leds(uint32_t btns, uint32_t keys, uint32_t keys_mid);   /* the LEDs (keys_mid: dim) */
+static void rf_sa_leds(uint32_t btns, uint32_t keys, uint32_t keys_root, uint32_t keys_mid);   /* the LEDs: lit (100 %),
+                                              * a scale's root (75 %), its notes (40 %) */
 
 #define SA_NOTE0 53u                         /* key 0 at octave 0: F3 */
 #define SA_HOST_MS 3000u                     /* a HELLO without a session: panel mode this long after its last message */
@@ -143,7 +144,7 @@ static struct {
     uint8_t poke;                            /* the picture changed: a frame soon */
     uint8_t lost;                            /* the panel was someone else's since the last frame */
     uint32_t frame_ms;
-    uint32_t led_b, led_k, led_km, led_ms;
+    uint32_t led_b, led_k, led_kr, led_km, led_ms;
     uint32_t notes_out, notes_in, ev_drop, panics, saves, loads, cc_out, save_holds;   /* (the simulator's checks) */
 } sa;
 
@@ -751,7 +752,7 @@ static void sa_midi_in(uint32_t pkt)
 /* ------------------------------------------------------------------ the panel, once a millisecond --- */
 static void sa_leds(void)
 {
-    uint32_t b = 0, k = 0, i, km;
+    uint32_t b = 0, k = 0, i, km, kr;
     if (sa.btns >> B_GLO & 1u)
         b |= 1u << B_GLO;
     b |= 1u << (B_FX + sa.ccbank);           /* the CC bank's button */
@@ -776,14 +777,15 @@ static void sa_leds(void)
         if ((sa.keys >> i & 1u) || (n >= 0 && n < 128 && sa.held[n]))
             k |= 1u << i;
     }
-    km = sa_scale_keys(sa.oct) & ~k;         /* the scale's notes, dim */
+    km = sa_scale_keys(sa.oct) & ~k;         /* the scale's notes (40 %), its root (75 %); playing: lit */
+    kr = sa_root_keys(sa.oct) & ~k;
     if (sa.btns >> B_GLO & 1u) {             /* GLO held: the channel's white key, the octave's black key */
         k = sa_glo_keys(sa.ch, sa.oct);
-        km = 0;
+        km = kr = 0;
     }
     if (sa.base == SA_SCR_LOOPS) {           /* the 16 loops' page: the loop lit (the one queued blinking), the loops
                                               * with notes dim; the launch's black keys lit */
-        k = km = 0;
+        k = km = kr = 0;
         for (i = 0; i < NKEYS; i++) {
             int32_t w = sa_key_white(i), bl = sa_key_black(i);
             if (w >= 0 && ((uint32_t)w == sl.cur || ((uint32_t)w == sl.next && plat_ms() % 500u < 250u)))
@@ -794,13 +796,15 @@ static void sa_leds(void)
                 k |= 1u << i;
         }
     }
-    if (b == sa.led_b && k == sa.led_k && km == sa.led_km && plat_ms() - sa.led_ms < SA_LED_REFRESH_MS)
+    if (b == sa.led_b && k == sa.led_k && kr == sa.led_kr && km == sa.led_km &&
+        plat_ms() - sa.led_ms < SA_LED_REFRESH_MS)
         return;
     sa.led_b = b;
     sa.led_k = k;
+    sa.led_kr = kr;
     sa.led_km = km;
     sa.led_ms = plat_ms();
-    rf_sa_leds(b, k, km);                    /* (rewritten now and then too: nothing else's LEDs stay) */
+    rf_sa_leds(b, k, kr, km);                /* (rewritten now and then too: nothing else's LEDs stay) */
 }
 
 static void sa_hold(uint32_t b);

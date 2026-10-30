@@ -1,0 +1,45 @@
+--- a/boards/fm1/fm1_input.h
++++ b/boards/fm1/fm1_input.h
+@@ -210,6 +210,10 @@
+ static uint8_t fm1_led_dim[FM1_NCOL];
+ static uint8_t fm1_led_breath[FM1_NCOL];   /* breathing LEDs (see top): dark .. ~60 % of lit, in step */
+ static uint8_t fm1_led_mid[FM1_NCOL];      /* a steady mid level (see top): lit 1 frame in FM1_LED_MID_N */
++/* two more steady levels (RemoteFM1, 2026-10-30: a scale's root and its notes on the keys): lit on the first
++ * fm1__lv_k[i] of every 8 frames (0..8, /8 of lit: 8.8 ms, ~114 Hz), dark in the others; fm1_led_levels sets them */
++static uint8_t fm1_led_lv[2][FM1_NCOL];
++static uint8_t fm1__lv_k[2], fm1__lv_ph;
+ #ifndef FM1_INPUT_LED_OK
+ #define FM1_INPUT_LED_OK(col, rowbit) 1
+ #endif
+@@ -553,7 +557,13 @@
+ }
+ /* column c's lit lines this frame: lit, a breath's lit frame (not dim), the mid level's lit frame */
+ #define FM1__LIT(c) (fm1_led[c] | (fm1__br_lit ? fm1_led_breath[c] & ~fm1_led_dim[c] : 0u) | \
+-                     (!fm1__mid_ph ? fm1_led_mid[c] : 0u))
++                     (!fm1__mid_ph ? fm1_led_mid[c] : 0u) | (fm1__lv_ph < fm1__lv_k[0] ? fm1_led_lv[0][c] : 0u) | \
++                     (fm1__lv_ph < fm1__lv_k[1] ? fm1_led_lv[1][c] : 0u))
++static void fm1_led_levels(uint32_t a8, uint32_t b8)   /* the two levels' brightness, /8 of lit (main loop, any time) */
++{
++    fm1__lv_k[0] = (uint8_t)(a8 > 8u ? 8u : a8);
++    fm1__lv_k[1] = (uint8_t)(b8 > 8u ? 8u : b8);
++}
+ #if FM1_LED_DIM_DIV > 1
+ static uint8_t fm1__dim_ph;
+ #endif
+@@ -642,7 +652,7 @@
+     for (i = 0; i < FM1_NKEY; i++)
+         fm1__an_acc[i] = FM1_ANIM_FULL / 2u;
+     for (c = 0; c < FM1_NCOL; c++)
+-        fm1_led[c] = fm1_led_dim[c] = fm1_led_breath[c] = fm1_led_mid[c] = 0;
++        fm1_led[c] = fm1_led_dim[c] = fm1_led_breath[c] = fm1_led_mid[c] = fm1_led_lv[0][c] = fm1_led_lv[1][c] = 0;
+     fm1__an_glow = glow != 0u;
+     fm1__an_idle = idle != 0u;
+     fm1__an_f = 1;
+@@ -713,6 +723,7 @@
+     fm1__sr_latch();                               /* column n, the lines dark */
+     if (n == 0u) {                                 /* (a new frame: the mid level's turn, before column 0 lights) */
+         fm1__mid_ph = (uint8_t)(fm1__mid_ph + 1u >= fm1__mid_n ? 0u : fm1__mid_ph + 1u);
++        fm1__lv_ph = (uint8_t)((fm1__lv_ph + 1u) & 7u);
+         fm1_an.phase = (uint8_t)(fm1_an.phase + 1u >= 2u + (fm1_an.probe != 0u) ? 0u : fm1_an.phase + 1u);   /* the rows' turn */
+     }
+     if (fm1_an.con)

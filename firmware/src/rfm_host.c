@@ -661,6 +661,8 @@ int app_expect(const char *what, int *got)
         *got = (int)rf_led_lit_b;
     else if (!strcmp(what, "rf_mid_keys"))
         *got = (int)rf_led_mid_k;
+    else if (!strcmp(what, "rf_root_keys"))       /* the standalone's keys at the scale's root level (75 %) */
+        *got = (int)rf_led_root_k;
     else if (!strcmp(what, "rf_glow_keys"))
         *got = (int)rf_led_glow_k;
     else if (!strcmp(what, "sa_bench_state"))      /* the standalone DX7's bench (sa/sa_bench.c) */

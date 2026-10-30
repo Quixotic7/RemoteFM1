@@ -1,0 +1,67 @@
+--- a/include/plat.h
++++ b/include/plat.h
+@@ -46,6 +46,10 @@
+ /* a third level, between the glow and lit (~12 % of lit; ~8 % with glow 1): these buttons and keys, unless lit, until
+  * the next call (0, 0: none). Call it after plat_lights each time the lights change */
+ void plat_lights_mid(uint32_t buttons, uint32_t keys);
++/* two more steady levels for keys (RemoteFM1, 2026-10-30): keys_a lit a8 / 8 of the time, keys_b b8 / 8 (0..8; whole
++ * lit frames, 1 in 8 frames at least: ~114 Hz), unless lit, until the next call. Call it after plat_lights each time
++ * the lights change; (0, 0, 0, 0): none */
++void plat_lights_levels(uint32_t keys_a, uint32_t a8, uint32_t keys_b, uint32_t b8);
+ /* the same, simpler: the lit buttons and keys, the unlit buttons glowing if plat_glow(1); PLAY lights green, red
+  * while plat_play_red(1) */
+ void plat_leds(uint32_t buttons, uint32_t keys);
+--- a/device/plat_fm1.c
++++ b/device/plat_fm1.c
+@@ -125,6 +125,22 @@
+     }
+     for (c = 0; c < FM1_NCOL; c++)
+         fm1_led_mid[c] = (uint8_t)(ml[c] & ~fm1_led[c]);
++}
++void plat_lights_levels(uint32_t ka, uint32_t a8, uint32_t kb, uint32_t b8)   /* felucca-bsp's fm1_led_lv */
++{
++    uint8_t l[2][FM1_NCOL] = {{0}};
++    uint32_t i, c, j;
++    for (j = 0; j < 2u; j++)
++        for (i = 0; i < NKEYS; i++) {
++            uint8_t q = led_pos[14u + i];
++            if (q != 0xFF && ((j ? kb : ka) >> i & 1u))
++                l[j][q >> 3] |= (uint8_t)(1u << (q & 7u));
++        }
++    fm1_led_levels(a8, b8);
++    for (c = 0; c < FM1_NCOL; c++) {
++        fm1_led_lv[0][c] = (uint8_t)(l[0][c] & ~fm1_led[c]);
++        fm1_led_lv[1][c] = (uint8_t)(l[1][c] & ~fm1_led[c] & ~l[0][c]);
++    }
+ }
+ static uint8_t glow_on = 1, play_red;
+ void plat_glow(int on) { glow_on = (uint8_t)(on != 0); }
+--- a/host/plat_host.c
++++ b/host/plat_host.c
+@@ -195,6 +195,13 @@
+     (void)b;
+     mid_keys = k & ~lit_keys;
+ }
++static uint32_t lv_keys[2], lv_8[2];   /* plat_lights_levels' keys and levels: "leds" shows them as the glow */
++void plat_lights_levels(uint32_t ka, uint32_t a8, uint32_t kb, uint32_t b8)
++{
++    lv_keys[0] = ka & ~lit_keys;
++    lv_keys[1] = kb & ~lit_keys & ~ka;
++    lv_8[0] = a8, lv_8[1] = b8;
++}
+ static int glow_on = 1;                 /* the device's button glow (plat_glow) */
+ void plat_glow(int on) { glow_on = on; }
+ void plat_play_red(int red) { (void)red; }      /* the device's PLAY colour: green, red while recording */
+@@ -1477,10 +1484,10 @@
+                     printf(" %s", BTN_N[i]);
+             printf(" | white ");
+             for (i = 0; i < 16; i++)
+-                printf("%c", (lit_keys >> HOST_WHITE_K[i] & 1u) ? '#' : ((dim_keys | mid_keys) >> HOST_WHITE_K[i] & 1u) ? '+' : '.');
++                printf("%c", (lit_keys >> HOST_WHITE_K[i] & 1u) ? '#' : ((dim_keys | mid_keys | lv_keys[0] | lv_keys[1]) >> HOST_WHITE_K[i] & 1u) ? '+' : '.');
+             printf(" black ");
+             for (i = 0; i < 11; i++)
+-                printf("%c", (lit_keys >> HOST_BLACK_K[i] & 1u) ? '#' : ((dim_keys | mid_keys) >> HOST_BLACK_K[i] & 1u) ? '+' : '.');
++                printf("%c", (lit_keys >> HOST_BLACK_K[i] & 1u) ? '#' : ((dim_keys | mid_keys | lv_keys[0] | lv_keys[1]) >> HOST_BLACK_K[i] & 1u) ? '+' : '.');
+             printf("\n");
+         } else if (!strcmp(cmd, "expect"))
+             fails += expect(a, b);

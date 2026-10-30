@@ -19,6 +19,16 @@ wait 40
 shot sa_scale.png
 wait 100
 expect rf_mid_keys >0
+# the keys' LEDs (the owner, 2026-10-30): the root D (D4, D5) at 75 percent, the scale's other notes at 40, a key
+# played at 100
+expect rf_root_keys 2097664
+expect rf_mid_keys 93149397
+key 9 down 100
+wait 20
+expect rf_lit_keys 512
+expect rf_root_keys 2097152
+key 9 up
+wait 20
 # D dorian: C4 stays, C#4 snaps down to C4 (a tie), D#4 to D4, F#4 to F4 (a tie), G#4 to G4 (a tie)
 out
 key 7 down 100
