@@ -1,0 +1,133 @@
+# SPDX-License-Identifier: MPL-2.0
+# RemoteFM1 standalone: the settings' VELOCITY (the owner, 2026-10-30): on (the default), the keys play and send
+# their own velocity; off, every key's note is 100 (the DX7 and MIDI out), kept across a power cycle. And panel
+# mode's TOUCH (0x14, RFM_CAP_TOUCH): a session sends velocity 100 and no aftertouch until its host asks; then each
+# key's own velocity and its pressure as poly aftertouch (AF 53+k p), whatever VELOCITY says (that is the host's).
+# tests/run_tests.sh runs it (both builds).
+wait 400
+expect sa_set8 1
+out
+key 9 down 90
+wait 30
+expect_out USB 90 3E 5A
+key 9 up
+wait 30
+# the settings: VELOCITY (the ninth row) off
+press HOME
+wait 600
+release HOME
+expect sa_screen 19
+turn SELECT 8
+turn K1 -1
+expect sa_set8 0
+wait 30
+shot sa_settings_velocity.png
+press HOME
+release HOME
+wait 50
+out
+key 9 down 30
+wait 30
+expect_out USB 90 3E 64
+key 9 up
+wait 30
+# kept across a power cycle
+wait 3000
+reboot
+wait 300
+expect sa_set8 0
+out
+key 12 down 120
+wait 30
+expect_out USB 90 41 64
+key 12 up
+wait 30
+# panel mode: TOUCH in the caps; a session without it: 100, no aftertouch
+rf hello usb
+wait 20
+expect rf_hello_caps 1967
+rf session usb 1 0
+wait 20
+expect sa_panel 1
+expect sa_touch 0
+expect rf_touch 0
+out
+key 9 down 70 60
+wait 50
+expect_out USB 9F 3E 64
+expect rf_at_n 0
+key 9 up
+wait 30
+# velocity only: no aftertouch
+rf send usb 14 01
+wait 20
+expect rf_touch 1
+out
+key 16 down 40 80
+wait 500
+expect rf_key_vel 40
+expect_out USB 9F 45 28
+expect rf_at_n 0
+key 16 up
+wait 30
+# TOUCH velocity + pressure: the keys' sensing on, the real velocity, the pressure as AF on channel 16
+rf send usb 14 03
+wait 20
+expect rf_touch 3
+expect sa_touch 1
+rf panelreq usb
+wait 20
+expect rf_panel_flags 7
+out
+key 9 down 70 60
+wait 30
+expect_out USB 9F 3E 46
+expect rf_at_n 0
+# (the pressure counts from where the key rests: 250 ms of settling)
+wait 500
+expect rf_key_vel 70
+expect rf_at_n >0
+expect rf_at_last >10
+key 9 up
+wait 30
+expect_out USB 8F 3E 00
+# TOUCH off: back to 100, the sensing off
+rf send usb 14 00
+wait 20
+expect sa_touch 0
+out
+key 9 down 30
+wait 30
+expect_out USB 9F 3E 64
+key 9 up
+wait 30
+# the session's end resets it; the next session starts without it
+rf send usb 14 03
+wait 20
+rf session usb 0
+wait 20
+expect rf_touch 0
+expect sa_panel 0
+expect sa_touch 1
+rf session usb 1 0
+wait 20
+expect rf_touch 0
+expect sa_touch 0
+rf session usb 0
+wait 20
+# VELOCITY on again
+press HOME
+wait 600
+release HOME
+turn SELECT 8
+turn K1 1
+expect sa_set8 1
+press HOME
+release HOME
+wait 50
+out
+key 9 down 90
+wait 30
+expect_out USB 90 3E 5A
+key 9 up
+wait 30

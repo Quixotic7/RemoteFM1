@@ -15,7 +15,7 @@ const FRAME_EVERY_S = 1 / 30;
 
 export class PanelMerge {   // the page's panel messages -> one setPanel per quantum (taps: down and up between two)
   constructor() {
-    this.keys = 0; this.buttons = 0; this.master = 768; this.keyVel = new Uint8Array(27); this.enc = new Int32Array(7);
+    this.keys = 0; this.buttons = 0; this.master = 768; this.keyVel = new Uint8Array(27); this.keyLean = new Uint8Array(27); this.enc = new Int32Array(7);
     this.everKeys = 0; this.everButtons = 0; this.sentKeys = 0; this.sentButtons = 0; this.dirty = false;
   }
   add(p) {
@@ -23,12 +23,13 @@ export class PanelMerge {   // the page's panel messages -> one setPanel per qua
     this.everKeys = (this.everKeys | this.keys) >>> 0; this.everButtons = (this.everButtons | this.buttons) >>> 0;
     if (typeof p.master === "number") this.master = p.master;
     if (p.keyVel) this.keyVel.set(p.keyVel.subarray ? p.keyVel.subarray(0, 27) : p.keyVel.slice(0, 27));
+    if (p.keyLean) this.keyLean.set(p.keyLean.subarray ? p.keyLean.subarray(0, 27) : p.keyLean.slice(0, 27));
     if (p.enc) for (let i = 0; i < 7; i++) this.enc[i] += p.enc[i] | 0;
     this.dirty = true;
   }
   take() {
     const taps = { keys: (this.everKeys & ~this.keys & ~this.sentKeys) >>> 0, buttons: (this.everButtons & ~this.buttons & ~this.sentButtons) >>> 0 };
-    const p = { keys: this.keys, buttons: this.buttons, enc: this.enc.slice(), master: this.master, keyVel: this.keyVel.slice() };
+    const p = { keys: this.keys, buttons: this.buttons, enc: this.enc.slice(), master: this.master, keyVel: this.keyVel.slice(), keyLean: this.keyLean.slice() };
     if (taps.keys || taps.buttons) p.taps = taps;
     this.enc.fill(0);
     this.sentKeys = this.keys; this.sentButtons = this.buttons;

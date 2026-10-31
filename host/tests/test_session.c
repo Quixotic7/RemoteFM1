@@ -312,6 +312,112 @@ static void test_panel_events(void)
     teardown(&h);
 }
 
+/* TOUCH (0.3.1, RFM_CAP_TOUCH): asked after the SESSION ACK; key downs carry their velocity, RFM_EV_PRESS the
+ * pressure (back to 0 at the release); turned off at once; asked again after a reboot and after a lost TOUCH
+ * (PANEL_R's flags); a unit without the cap is never sent it and its 100 is "none given" */
+static void touch_evs(h_t *h, int *key_vel, int *press, int *press0)
+{
+    uint32_t i;
+    *key_vel = *press = *press0 = -1;
+    for (i = 0; i < h->nev; i++) {
+        const rfm_event_t *e = &h->ev[i];
+        if (e->type == RFM_EV_KEY && e->index == 5 && e->value == 1)
+            *key_vel = e->vel;
+        if (e->type == RFM_EV_PRESS && e->index == 5 && e->value)
+            *press = e->value;
+        if (e->type == RFM_EV_PRESS && e->index == 5 && !e->value)
+            *press0 = 1;
+    }
+}
+static void test_touch(void)
+{
+    h_t h;
+    rfm_session_cfg_t sc;
+    rfm_fake_cfg_t fc;
+    rfm_session_stats_t st;
+    rfm_fake_t *u;
+    int kv, pr, p0;
+    rfm_session_cfg_default(&sc);
+    CHECK(sc.key_touch == (RFM_TOUCH_F_VEL | RFM_TOUCH_F_PRESS));
+    setup(&h, &sc);
+    default_fake(&fc);
+    add_fake(&h, &fc);
+    u = h.f[0];
+    step(&h, 30);
+    CHECK(rfm_session_state(h.s) == RFM_S_ACTIVE && (rfm_session_hello(h.s)->caps & RFM_CAP_TOUCH));
+    step(&h, 600);
+    CHECK((rfm_fake_touch(u) & 0xFFu) == 3u && (rfm_fake_touch(u) >> 8) == 1u);
+    rfm_session_stats(h.s, &st);
+    CHECK(st.touch == 3u && st.touch_sent == 1u && rfm_session_panel(h.s)->touch == 3u);
+    h.nev = 0;
+    rfm_fake_key_vel(u, 5, 1, 77);
+    rfm_fake_press(u, 5, 40);
+    step(&h, 2);
+    touch_evs(&h, &kv, &pr, &p0);
+    CHECK(kv == 77 && pr == 40 && p0 < 0);
+    CHECK(rfm_session_panel(h.s)->key_vel[5] == 77 && rfm_session_panel(h.s)->key_press[5] == 40);
+    CHECK(rfm_panel_lean(rfm_session_panel(h.s), 5) == 31u);
+    rfm_fake_press(u, 5, 127);
+    step(&h, 2);
+    CHECK(rfm_panel_lean(rfm_session_panel(h.s), 5) == 100u);
+    h.nev = 0;
+    rfm_fake_key_vel(u, 5, 0, 0);
+    step(&h, 2);
+    touch_evs(&h, &kv, &pr, &p0);
+    CHECK(p0 == 1 && rfm_session_panel(h.s)->key_press[5] == 0);
+    /* off: the unit back to 100 and no AF, the host's events "none given" */
+    rfm_session_set_key_touch(h.s, 0);
+    step(&h, 5);
+    CHECK((rfm_fake_touch(u) & 0xFFu) == 0u && rfm_session_panel(h.s)->touch == 0u);
+    h.nev = 0;
+    rfm_fake_key_vel(u, 5, 1, 77);
+    rfm_fake_press(u, 5, 40);
+    step(&h, 2);
+    touch_evs(&h, &kv, &pr, &p0);
+    CHECK(kv == 0 && pr < 0);
+    rfm_fake_key_vel(u, 5, 0, 0);
+    /* velocity only, through a reboot: asked again in the new session */
+    rfm_session_set_key_touch(h.s, RFM_TOUCH_F_VEL);
+    step(&h, 5);
+    CHECK((rfm_fake_touch(u) & 0xFFu) == 1u);
+    rfm_fake_reboot(u);
+    step(&h, 3000);
+    CHECK(rfm_session_state(h.s) == RFM_S_ACTIVE && (rfm_fake_touch(u) & 0xFFu) == 1u);
+    h.nev = 0;
+    rfm_fake_key_vel(u, 5, 1, 12);
+    rfm_fake_press(u, 5, 40);
+    step(&h, 2);
+    touch_evs(&h, &kv, &pr, &p0);
+    CHECK(kv == 12 && pr < 0);
+    rfm_fake_key_vel(u, 5, 0, 0);
+    /* a TOUCH lost on the way: PANEL_R says otherwise, asked again */
+    rfm_fake_deaf(u, 1);
+    rfm_session_set_key_touch(h.s, RFM_TOUCH_F_VEL | RFM_TOUCH_F_PRESS);
+    step(&h, 5);
+    rfm_fake_deaf(u, 0);
+    CHECK((rfm_fake_touch(u) & 0xFFu) == 1u);
+    step(&h, 1200);
+    CHECK((rfm_fake_touch(u) & 0xFFu) == 3u && rfm_session_panel(h.s)->touch == 3u);
+    teardown(&h);
+
+    /* a unit before 0.3.1: never sent TOUCH, its velocity 100 reported as none given */
+    setup(&h, &sc);
+    default_fake(&fc);
+    fc.touch = 0;
+    add_fake(&h, &fc);
+    u = h.f[0];
+    step(&h, 630);
+    CHECK(rfm_session_state(h.s) == RFM_S_ACTIVE && !(rfm_session_hello(h.s)->caps & RFM_CAP_TOUCH));
+    rfm_session_stats(h.s, &st);
+    CHECK(st.touch_sent == 0u && st.touch == 0u && (rfm_fake_touch(u) >> 8) == 0u);
+    h.nev = 0;
+    rfm_fake_key_vel(u, 5, 1, 77);
+    step(&h, 2);
+    touch_evs(&h, &kv, &pr, &p0);
+    CHECK(kv == 0);
+    teardown(&h);
+}
+
 /* the TRS jack's MIDI (MIDI_IN, RFM_CAP_MIDI_IN): delivered in order, only in a session, over SysEx and bulk;
  * a long burst split into messages of whole MIDI messages; malformed bodies counted, never delivered */
 static void test_midi_in(int bulk)
@@ -1069,6 +1175,7 @@ int main(void)
     test_discovery_and_frames();
     test_sysex_flow();
     test_panel_events();
+    test_touch();
     test_midi_in(0);
     test_midi_in(1);
     test_faults(1);

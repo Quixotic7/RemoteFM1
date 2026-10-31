@@ -95,6 +95,7 @@ export class Controls {
     this.keySrc = new Uint8Array(NKEY);
     this.btnSrc = new Uint8Array(NB);
     this.keyVel = new Uint8Array(NKEY);
+    this.keyLean = new Uint8Array(NKEY);   // a held key's pressure 0..100 (the user's FM-1: TOUCH), fm1core's key_lean
     this.angle = new Float32Array(NE);
     this.encPending = new Int32Array(7);
     this.master = 768;
@@ -115,9 +116,17 @@ export class Controls {
     const was = this.keySrc[k] !== 0;
     this.keySrc[k] = down ? this.keySrc[k] | src : this.keySrc[k] & ~src;
     if (down && vel) this.keyVel[k] = vel;
-    if (!down && !this.keySrc[k]) this.keyVel[k] = 0;
+    if (!down && !this.keySrc[k]) { this.keyVel[k] = 0; this.keyLean[k] = 0; }
     if (was !== (this.keySrc[k] !== 0)) this.emit();
     this.dirty();
+  }
+  // a held key's pressure 0..100 (aftertouch: the user's FM-1, RemoteFM1 0.3.1's TOUCH); sent when it changes
+  leanKey(k, v) {
+    if (k < 0 || k >= NKEY) return;
+    v = this.keySrc[k] ? Math.max(0, Math.min(100, v | 0)) : 0;
+    if (v === this.keyLean[k]) return;
+    this.keyLean[k] = v;
+    this.emit();
   }
   holdBtn(b, src, down) {
     if (b < 0 || b >= NB) return;
@@ -128,7 +137,7 @@ export class Controls {
   }
   releaseSrc(mask) {
     let ch = false;
-    for (let k = 0; k < NKEY; k++) if (this.keySrc[k] & mask) { this.keySrc[k] &= ~mask; if (!this.keySrc[k]) this.keyVel[k] = 0; ch = true; }
+    for (let k = 0; k < NKEY; k++) if (this.keySrc[k] & mask) { this.keySrc[k] &= ~mask; if (!this.keySrc[k]) { this.keyVel[k] = 0; this.keyLean[k] = 0; } ch = true; }
     for (let b = 0; b < NB; b++) if (this.btnSrc[b] & mask) { this.btnSrc[b] &= ~mask; ch = true; }
     if (ch) { this.emit(); this.dirty(); }
   }
@@ -157,7 +166,7 @@ export class Controls {
     for (let b = 0; b < NB; b++) if (this.btnSrc[b]) buttons |= 1 << labelToMatrix(b);
     const enc = this.encPending.slice();
     this.encPending.fill(0);
-    return { keys: keys >>> 0, buttons: buttons >>> 0, enc, master: this.master, keyVel: this.keyVel.slice() };
+    return { keys: keys >>> 0, buttons: buttons >>> 0, enc, master: this.master, keyVel: this.keyVel.slice(), keyLean: this.keyLean.slice() };
   }
   emit() { if (this.onChange) this.onChange(this.snapshot()); }
 }

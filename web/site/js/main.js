@@ -823,8 +823,8 @@ async function main() {
     if (m && typeof m.RemoteFM1 === "function") {          // W4's class: the section is ours (use-fm1.js)
       app.remoteMounted = true;
       if (typeof m.isCandidatePortName === "function") midi.isUnitPort = m.isCandidatePortName;
-      fm1 = createFm1(site, m, { onUnitPorts: (ports) => { midi.unitPorts = ports; midi.bind(); } });
-      mountUseFm1(sheet.remoteSlot, fm1, site);
+      fm1 = createFm1(site, m, { onUnitPorts: (ports) => { midi.unitPorts = ports; midi.bind(); }, keyTouch: prefs.fm1Touch !== false });
+      mountUseFm1(sheet.remoteSlot, fm1, site, { touch: { get: () => prefs.fm1Touch !== false, set: (v) => { prefs.fm1Touch = !!v; savePrefs(); } } });
       mountHeader($("fm1-btn"), fm1, { openSheet: () => sheet.open() });
       fm1.on(onFm1);
       onFm1(fm1.view());

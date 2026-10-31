@@ -751,6 +751,14 @@ int app_expect(const char *what, int *got)
         *got = (int)hs_mi_bad;
     else if (!strcmp(what, "rf_midi_drop"))
         *got = (int)rf_midi_drop;
+    else if (!strcmp(what, "rf_key_vel"))          /* TOUCH: the last panel key's Note On velocity */
+        *got = (int)rf_ev_on_vel;
+    else if (!strcmp(what, "rf_at_n"))             /* TOUCH: poly aftertouch events sent, the last one's value */
+        *got = (int)rf_ev_at_n;
+    else if (!strcmp(what, "rf_at_last"))
+        *got = (int)rf_ev_at_last;
+    else if (!strcmp(what, "rf_touch"))           /* TOUCH's flags in this session */
+        *got = rfa.touch;
     else if (!strcmp(what, "rf_session"))
         *got = rfa.session;
     else if (!strcmp(what, "rf_session_t"))
@@ -913,10 +921,10 @@ int app_expect(const char *what, int *got)
         *got = sa.latch;
     else if (!strcmp(what, "sa_lat_n"))
         *got = sa.lat_n;
-    else if (!strncmp(what, "sa_set", 6) && what[6] >= '0' && what[6] <= '7') {   /* the settings' rows: screen,
-                                           * knobs, CC channel, key channel, keys, OCT keys, scale shortcuts, knob LEDs */
-        const uint8_t v[8] = {sa.rm_disp, sa.rm_rel, sa.rm_cc_ch, sa.rm_key_ch, sa.rm_keys, sa.rm_octk, sa.rm_scl,
-                              sa.rm_kled};
+    else if (!strncmp(what, "sa_set", 6) && what[6] >= '0' && what[6] <= '8') {   /* the settings' rows: screen,
+                               * knobs, CC channel, key channel, keys, OCT keys, scale shortcuts, knob LEDs, velocity */
+        const uint8_t v[9] = {sa.rm_disp, sa.rm_rel, sa.rm_cc_ch, sa.rm_key_ch, sa.rm_keys, sa.rm_octk, sa.rm_scl,
+                              sa.rm_kled, sa.vel_on};
         *got = v[what[6] - '0'];
     } else if (!strcmp(what, "sa_scale"))          /* the scale: root * 100 + scale */
         *got = sa.scale_root * 100 + sa.scale;

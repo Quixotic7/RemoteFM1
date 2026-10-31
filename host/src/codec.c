@@ -124,6 +124,12 @@ uint32_t rfm_build_session(uint8_t *b, int start, uint32_t keepalive_ms)
     return RFM_SESSION_LEN;
 }
 
+uint32_t rfm_build_touch(uint8_t *b, uint32_t flags)
+{
+    b[0] = (uint8_t)(flags & (RFM_TOUCH_F_VEL | RFM_TOUCH_F_PRESS));
+    return RFM_TOUCH_LEN;
+}
+
 int rfm_parse_session(const uint8_t *b, uint32_t n, int *start, uint32_t *keepalive_ms)
 {
     if (n < RFM_SESSION_LEN)

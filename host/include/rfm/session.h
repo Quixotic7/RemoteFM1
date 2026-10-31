@@ -66,6 +66,7 @@ enum { RFM_S_DISCOVER = 0, RFM_S_STARTING, RFM_S_ACTIVE, RFM_S_STOPPING, RFM_S_S
 #define RFM_BLE_ACK_MIN_MS 2000u
 #define RFM_BLE_COLORS 4u                               /* cfg.ble_colors' default: 2 bpp PAL tiles */
 #define RFM_BLE_REFINE_MS 1000u
+#define RFM_TOUCH_SETTLE_MS 300u                        /* a PANEL_R this soon after TOUCH may predate it */
 
 typedef struct {
     uint32_t fps;                                       /* 20 */
@@ -85,6 +86,10 @@ typedef struct {
     uint32_t ble_refine_ms;                             /* RFM_BLE_REFINE_MS: still this long -> exact; 0 never */
     int ble_hold;                                       /* 1 (default): whole screen changes (HOLD) over Bluetooth */
     const char *host_name;                              /* HELLO's body ("fm1remote") */
+    /* TOUCH (0.3.1, units with RFM_CAP_TOUCH; docs/VELOCITY-HOSTS.md): RFM_TOUCH_F_VEL | RFM_TOUCH_F_PRESS (the
+     * default): asked after every SESSION start's ACK (and again when PANEL_R says otherwise), so key events carry
+     * the keys' velocity (rfm_event_t.vel) and RFM_EV_PRESS their pressure. 0: velocity 100, no pressure, as before */
+    uint32_t key_touch;
 } rfm_session_cfg_t;
 void rfm_session_cfg_default(rfm_session_cfg_t *c);
 
@@ -119,6 +124,8 @@ typedef struct {
     uint32_t hold;                                      /* 1: screen changes go whole (HOLD) on this link now */
     uint32_t held;                                      /* frames sent with HOLD */
     uint32_t midi_in, midi_in_bytes, midi_in_bad;       /* MIDI_IN messages delivered, their bytes, malformed */
+    uint32_t touch_sent;                                /* TOUCH messages sent */
+    uint32_t touch;                                     /* RFM_TOUCH_F_* in force now (0: none, or a unit without) */
 } rfm_session_stats_t;
 
 typedef struct rfm_session rfm_session_t;
@@ -136,6 +143,8 @@ void rfm_session_set_leds(rfm_session_t *s, const rfm_leds_t *l);
 void rfm_session_set_ble_colors(rfm_session_t *s, uint32_t colors);
 /* cfg.ble_hold now (0: every frame shown as it arrives, as before 0.2.2; a change being held goes on unheld) */
 void rfm_session_set_ble_hold(rfm_session_t *s, int on);
+/* cfg.key_touch now (RFM_TOUCH_F_*; sent at once in a session with a unit that has RFM_CAP_TOUCH) */
+void rfm_session_set_key_touch(rfm_session_t *s, uint32_t flags);
 void rfm_session_stop(rfm_session_t *s, uint32_t now_ms);               /* SESSION start=0, then STOPPED */
 void rfm_session_restart(rfm_session_t *s, uint32_t now_ms);            /* back to DISCOVER (after stop too) */
 

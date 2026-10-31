@@ -59,9 +59,9 @@
 #define RFA_IDENTITY FELUCCA_ID
 #if RFM_SHADOW
 #define RFA_CAPS (RFM_CAP_SHADOW | RFM_CAP_COPY | RFM_CAP_RLE | RFM_CAP_PAL | RFM_CAP_PLAY_GREEN | RFM_CAP_HOLD | \
-                  RFM_CAP_BLE_FAST | RFM_CAP_MIDI_IN)  /* (the radio's settings: fm1.toml ble_dle, ble_2m, ble_rx_bufs) */
+                  RFM_CAP_BLE_FAST | RFM_CAP_MIDI_IN | RFM_CAP_TOUCH)  /* (the radio's settings: fm1.toml ble_dle, ble_2m, ble_rx_bufs) */
 #else
-#define RFA_CAPS (RFM_CAP_RLE | RFM_CAP_PAL | RFM_CAP_PLAY_GREEN | RFM_CAP_MIDI_IN)
+#define RFA_CAPS (RFM_CAP_RLE | RFM_CAP_PAL | RFM_CAP_PLAY_GREEN | RFM_CAP_MIDI_IN | RFM_CAP_TOUCH)
 #endif
 #include "rfm_app.c"
 
@@ -420,10 +420,15 @@ static void rf_ev_put(uint32_t pkt)                     /* (the standalone instr
     rf_evq[rf_ev_w % RF_EVQ] = pkt;
     rf_ev_w++;
 }
+static uint32_t rf_ev_on_vel, rf_ev_at_n, rf_ev_at_last;   /* (the simulator's checks: the last key's velocity, AFs) */
 static void rfa_midi(uint32_t st, uint32_t d1, uint32_t d2)
 {
     if (sa_standalone())
         return;                                         /* (standalone: the keys are the instrument's) */
+    if (st == (0x90u | RFM_MIDI_KEY_CH) && d2)
+        rf_ev_on_vel = d2;
+    else if (st == (RFM_MIDI_KEY_AT | RFM_MIDI_KEY_CH))
+        rf_ev_at_n++, rf_ev_at_last = d2;
     rf_ev_put((st >> 4) | st << 8 | d1 << 16 | d2 << 24);   /* cable 0, CIN = the status */
 }
 static void rf_ev_flush(void)
@@ -567,6 +572,9 @@ static void rfa_session_changed(uint32_t on)
 }
 
 static int rf_session_on(void) { return rfa.session; }
+
+/* TOUCH (the host's): the keys' sensing on in panel mode while it wants velocity or pressure (sa_main.c) */
+static void rfa_touch_changed(uint32_t flags) { sa_panel_touch(flags != 0u); }
 
 /* the screen is the standalone's (or the hand-over's): no session, no push, nobody holding it (M0's tiles, the blit
  * bench); after somebody else drew on it, all of it again */
@@ -1068,6 +1076,7 @@ static void rf_ms_step(void)
     static uint32_t adc_ms;
     int32_t steps[RFM_NENC], roles[NE], master = -1;
     uint32_t e, keys = plat_keys(), lb = plat_buttons(), btns = 0, i;
+    uint8_t vel[RFM_NKEYS], press[RFM_NKEYS], touch = 0;
     for (e = 0; e < RFM_NENC; e++)
         steps[e] = 0;
     for (e = 0; e < NE; e++) {
@@ -1093,7 +1102,16 @@ static void rf_ms_step(void)
         rf_wait_btns = 0xFFFFFFFFu;                 /* (sa_main.c's LEDs; the waiting ones again in panel mode) */
     else if (!rfa.session)
         rf_waiting_leds(lb & ((1u << NB) - 1u), keys & ((1u << NKEYS) - 1u));
-    rfm_app_panel(keys, btns, steps, master);
+    if (rfa.session && rfa.touch && touch_is_on()) {   /* TOUCH: the keys as sensed, their velocity and pressure */
+        touch_poll();                               /* (as standalone does every millisecond: sa_ms) */
+        keys = touch_keys();
+        for (i = 0; i < RFM_NKEYS; i++) {
+            vel[i] = touch_vel(i);
+            press[i] = touch_pressure(i);
+        }
+        touch = 1;
+    }
+    rfm_app_panel(keys, btns, steps, master, touch ? vel : 0, touch ? press : 0);
     if (rfa.session && rfa.st != RF_T_BLE && (rp_usb_resets() != rf_usb_resets_seen || !rp_usb_live()))
         rfm_app_usb_lost();                         /* a bus reset, or the host went away / asleep */
     rf_usb_resets_seen = rp_usb_resets();

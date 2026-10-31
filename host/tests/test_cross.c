@@ -203,6 +203,7 @@ static void rfa_hello_dev(uint8_t *h, uint32_t t)      /* as remote.c fills it *
     rf_wr16(h + 41, RF_BK_BODY_MAX);
 }
 static void rfa_session_changed(uint32_t on) { D.session_on = (int)on; }
+static void rfa_touch_changed(uint32_t flags) { (void)flags; }
 static uint32_t rfa_us(void) { return (uint32_t)now_us; }
 static void rfa_diag(uint32_t t, uint32_t cmd, const uint8_t *body, uint32_t len)
 {
@@ -386,7 +387,7 @@ static void dev_ms(void)
         D.master_ms = now_ms();
         master = D.master;
     }
-    rfm_app_panel(D.keys, D.buttons, D.steps, master);
+    rfm_app_panel(D.keys, D.buttons, D.steps, master, 0, 0);
     for (e = 0; e < RFM_NENC; e++)
         D.steps[e] = 0;
     ev_flush();

@@ -32,6 +32,7 @@ struct rfm_fake {
     uint32_t now;
     uint64_t busy_us[2];                                /* the simulated wire: busy until (us) */
     int session;                                        /* 0, 1 + link */
+    uint32_t touch, touch_msgs;                         /* TOUCH's flags in this session; TOUCHes taken */
     uint32_t keepalive_ms, last_rx, last_panel_r;
     uint8_t shadow[RFM_W * RFM_H * 2];
     uint8_t panel[RFM_W * RFM_H * 2];                   /* what the unit shows */
@@ -65,6 +66,7 @@ void rfm_fake_cfg_default(rfm_fake_cfg_t *c)
     c->tiles_outside_session = 1;
     c->hold = 1;
     c->midi_in = 1;
+    c->touch = 1;
 }
 
 static void show(rfm_fake_t *f)
@@ -148,7 +150,7 @@ static void send_panel_r(rfm_fake_t *f, int link)
     memcpy(p.enc, f->enc, sizeof p.enc);
     p.master = f->master;
     p.battery_mv = 3900;
-    p.flags = f->session ? RFM_PANEL_F_SESSION : 0;
+    p.flags = (uint8_t)(f->session ? RFM_PANEL_F_SESSION | (uint32_t)f->touch << 1 : 0u);
     rfm_build_panel_r(b, &p);
     reply(f, link, RFM_PANEL_R, b, RFM_PANEL_LEN);
     f->st.panel_r++;
@@ -188,7 +190,8 @@ static void on_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
         h.screen_w = RFM_W;
         h.screen_h = RFM_H;
         h.caps = RFM_CAP_SHADOW | RFM_CAP_COPY | RFM_CAP_RLE | RFM_CAP_PAL | RFM_CAP_BATTERY | RFM_CAP_PLAY_GREEN |
-                 RFM_CAP_LED5 | (f->cfg.hold ? RFM_CAP_HOLD : 0u) | (f->cfg.midi_in ? RFM_CAP_MIDI_IN : 0u);
+                 RFM_CAP_LED5 | (f->cfg.hold ? RFM_CAP_HOLD : 0u) | (f->cfg.midi_in ? RFM_CAP_MIDI_IN : 0u) |
+                 (f->cfg.touch ? RFM_CAP_TOUCH : 0u);
         h.max_in_flight = RFM_FRAMES_IN_FLIGHT;
         h.session = f->session ? 1 : 0;
         strncpy(h.fw_ver, "m1-fake", 8);
@@ -203,6 +206,7 @@ static void on_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
             break;
         if (start) {
             f->session = 1 + link;
+            f->touch = 0;                               /* (TOUCH: every session starts without it) */
             f->keepalive_ms = ka;
             memset(f->shadow, 0, sizeof f->shadow);
             show(f);
@@ -232,6 +236,13 @@ static void on_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
         break;
     case RFM_PANEL_REQ:
         f->st.panel_req++;
+        send_panel_r(f, link);
+        break;
+    case RFM_TOUCH:                                     /* (0.3.1) in a session on its link: PANEL_R replies */
+        if (!f->cfg.touch || !f->session || f->session != 1 + link || n < RFM_TOUCH_LEN)
+            break;
+        f->touch = b[0] & (RFM_TOUCH_F_VEL | RFM_TOUCH_F_PRESS);
+        f->touch_msgs++;
         send_panel_r(f, link);
         break;
     case RFM_TILES: {
@@ -403,6 +414,26 @@ void rfm_fake_poll(rfm_fake_t *f, uint32_t now)
 }
 
 /* ---------------------------------------------------------------- the panel ---- */
+void rfm_fake_key_vel(rfm_fake_t *f, uint32_t k, int down, uint32_t vel)
+{
+    if (k >= RFM_NKEYS)
+        return;
+    f->keys = down ? f->keys | 1u << k : f->keys & ~(1u << k);
+    if (down)
+        midi3(f, 0x90 | RFM_MIDI_KEY_CH, (uint8_t)(RFM_MIDI_KEY_NOTE0 + k),
+              (uint8_t)((f->touch & RFM_TOUCH_F_VEL) && vel >= 1u && vel <= 127u ? vel : RFM_MIDI_KEY_VEL));
+    else
+        midi3(f, 0x80 | RFM_MIDI_KEY_CH, (uint8_t)(RFM_MIDI_KEY_NOTE0 + k), 0);
+}
+
+void rfm_fake_press(rfm_fake_t *f, uint32_t k, uint32_t p)
+{
+    if (k < RFM_NKEYS && (f->touch & RFM_TOUCH_F_PRESS) && (f->keys >> k & 1u))
+        midi3(f, RFM_MIDI_KEY_AT | RFM_MIDI_KEY_CH, (uint8_t)(RFM_MIDI_KEY_NOTE0 + k), (uint8_t)(p > 127u ? 127u : p));
+}
+
+uint32_t rfm_fake_touch(const rfm_fake_t *f) { return f->touch | f->touch_msgs << 8; }
+
 void rfm_fake_key(rfm_fake_t *f, uint32_t k, int down)
 {
     if (k >= RFM_NKEYS)

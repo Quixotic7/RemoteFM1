@@ -42,7 +42,7 @@ and its `melodee_fm6.h` (Felucca's factory voices), and anything under saadet's 
 | KN1..KN4 | send the 4 CCs of the current bank; in a menu, its four values | GLO + knob: pick which CC that knob sends |
 | FX SEL ENV LFO EDIT | CC bank A..E (its screen stays until HOME or another screen; the knobs change it in place; LFO acts when let go) | GLO + FX: MIDI REMOTE on / off (docs/PROTOCOL.md section 8); LFO held: LATCH on / off (the notes stay after the keys are let go, a new chord replaces them, the arp steps them; LFO blinks, a LATCH chip on HOME; off lets them go) |
 | GLO | shift (held); held, the keys' LEDs show the MIDI channel (its white key) and the octave (its black key) | |
-| HOME | next view: Notes, Scope, Keys (when let go); closes a menu | hold, or GLO + HOME: the settings page (REMOTE MODE SETTINGS: SELECT the row, KN1 the value; docs/PROTOCOL.md section 8) |
+| HOME | next view: Notes, Scope, Keys (when let go); closes a menu | hold, or GLO + HOME: the settings page (SETTINGS: SELECT the row, KN1 the value; docs/PROTOCOL.md section 8) |
 | SAVE | the theme menu (KN1 the theme; KN2 or ALGORITHM the background: black, five dark grounds, the theme's classic, ORANGE, HOT PINK; on the bright two the theme turns to black ink) | hold: save everything (CC map, loops, theme, settings) |
 | ARP | arp on / off (a playing loop's notes move into or out of it) | hold: arp settings (MODE, RATE, OCTAVES, GATE on KN1..KN4) |
 | SEQ | the 16 loops (SEQ again closes): the white keys pick loops 1..16 (no notes there), the black keys each octave's F# G# A# or KN1 the launch: INSTANT, AT BAR, AT END (kept); the current loop lit | |

@@ -336,6 +336,12 @@ c.holdKey(0, SRC.REMOTE, true); c.holdKey(0, SRC.KEY, false);
 ok(msgs.at(-1).keys & 1, "controls: a key held by two sources stays down until both let go");
 c.releaseSrc(SRC.REMOTE);
 ok(!(msgs.at(-1).keys & 1), "controls: releasing a source lets its keys go");
+c.holdKey(3, SRC.REMOTE, true, 70); c.leanKey(3, 40);
+ok(msgs.at(-1).keyVel[3] === 70 && msgs.at(-1).keyLean[3] === 40, "controls: the FM-1's velocity and pressure (keyLean 0..100) to the engine");
+const nLean = msgs.length; c.leanKey(3, 40); c.leanKey(5, 30);
+ok(msgs.length === nLean, "controls: an unchanged lean, or one for a key not held, sends nothing");
+c.holdKey(3, SRC.REMOTE, false);
+ok(msgs.at(-1).keyLean[3] === 0 && msgs.at(-1).keyVel[3] === 0, "controls: a released key's lean back to 0");
 
 // ---- host: down and up between two quanta is a tap
 const pm = new PanelMerge();
@@ -344,6 +350,9 @@ let p = pm.take();
 ok(p.keys === 0 && p.taps && p.taps.keys === 4 && p.master === 700, "host: a key pressed and released within a quantum arrives as a tap");
 pm.add({ keys: 4, buttons: 0 }); p = pm.take(); pm.add({ keys: 0, buttons: 0 }); p = pm.take();
 ok(!p.taps, "host: a key the engine saw down is a plain release, not a tap");
+pm.add({ keys: 8, buttons: 0, keyVel: Uint8Array.from({ length: 27 }, (_, k) => (k === 3 ? 70 : 0)), keyLean: Uint8Array.from({ length: 27 }, (_, k) => (k === 3 ? 55 : 0)) });
+p = pm.take();
+ok(p.keyVel[3] === 70 && p.keyLean[3] === 55, "host: keyVel and keyLean reach the engine's setPanel");
 
 // ---- keymap (FM1VST's)
 ok(hintText(KM.KEY, 8) === "F4/W" && hintText(KM.BTN, B.FX) === "F5/C" && hintText(KM.KEY, 7) === "5", "keymap: the panel's hints as FM1VST prints them");
@@ -519,6 +528,33 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
     await run(10);
     ok(link.view().tone === "on" && link.view().via === "USB" && got.join() === m.join(),
        "fm1 TRS MIDI in: the unit's MIDI_IN (over USB bulk) -> site.midiIn, whole messages, in order");
+    await Promise.all([link.disconnect(), run(400)]);
+  }
+  { // TOUCH (RemoteFM1 0.3.1): the unit's key velocity and pressure through use-fm1.js into the page's panel; the
+    // sheet's "Velocity & pressure from my FM-1" off: none given
+    const { createFm1 } = await import("./js/use-fm1.js");
+    const w = await createWorld(createFakeUnit, { start: 3 });
+    w.midiPerm = "granted";
+    w.unit = w.addUnit({ midiName: "FM-1", bulk: true });
+    w.permitted.add(w.unit.usb);
+    let remote = null;
+    const mod = { RemoteFM1: class extends RemoteFM1 { constructor(o) { super({ ...o, navigator: w.navigator, now: () => w.t, timers: false, module: createRemoteFM1 }); remote = this; } } };
+    const keys = [], leans = [], noop = () => {};
+    const site = { panel: { key: (k, d, v) => keys.push([k, d, v | 0].join()), lean: (k, v) => leans.push([k, v].join()), button: noop, turn: noop, master: noop, releaseAll: noop },
+      screen: () => ({ seq: 1, pixels: null }), on: noop, midiIn: noop };
+    const link = createFm1(site, mod, { keyTouch: true });
+    const run = async (ms) => { for (let i = 0; i < ms; i++) { w.step(1); remote.tick(); if ((i & 3) === 3) await settle(); } await settle(); };
+    await link.auto();
+    await run(2000);
+    ok(link.status.unit && link.status.unit.touch === true && w.touch(w.unit) === 3, "fm1 TOUCH: the unit asked for velocity + pressure");
+    w.keyVel(w.unit, 9, 1, 87); await run(10);
+    w.press(w.unit, 9, 64); await run(10);
+    ok(keys.includes("9,true,87") && leans.includes("9,50"), `fm1 TOUCH: key 9 at 87, pressure 64 -> lean 50 (${keys.join(" ")} | ${leans.join(" ")})`);
+    w.keyVel(w.unit, 9, 0, 0); await run(10);
+    link.setKeyTouch(false); await run(10);
+    keys.length = 0;
+    w.keyVel(w.unit, 9, 1, 87); await run(10);
+    ok(w.touch(w.unit) === 0 && keys.includes("9,true,0"), "fm1 TOUCH off: the unit asked for neither; the key's velocity none given");
     await Promise.all([link.disconnect(), run(400)]);
   }
   { // a click with the browser's prompt left unanswered, then allowed

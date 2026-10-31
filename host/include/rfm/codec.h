@@ -55,6 +55,7 @@ int rfm_hello_is_remotefm1(const rfm_hello_t *h);
 int rfm_hello_is_ble(const rfm_hello_t *h);
 
 uint32_t rfm_build_session(uint8_t *body, int start, uint32_t keepalive_ms);
+uint32_t rfm_build_touch(uint8_t *body, uint32_t flags);   /* TOUCH (0.3.1): RFM_TOUCH_F_*; RFM_TOUCH_LEN */
 int rfm_parse_session(const uint8_t *b, uint32_t n, int *start, uint32_t *keepalive_ms);
 
 typedef struct {

@@ -176,7 +176,7 @@ static void sa_rm_ms(uint32_t keys, uint32_t btns, const int32_t *steps)
             continue;
         if (keys >> k & 1u) {
             int32_t n, w = sa_key_white(k), bl = sa_key_black(k);
-            uint32_t v = touch_vel(k);
+            uint32_t v = sa_key_vel(k);
             if (glo && w >= 0) {             /* MIDI KEYBOARD: GLO + a white key: the keys' channel 1..16 */
                 sa.rm_key_ch = (uint8_t)(w + 1);
                 sa_changed();

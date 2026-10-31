@@ -33,7 +33,7 @@ struct rfm_session {
     link_t links[RFM_MAX_LINKS];
     int state, frame_link, midi_link, link_lost;
     rfm_hello_t hello;
-    uint32_t now, t_state, t_sent;
+    uint32_t now, t_state, t_sent, t_touch;            /* (t_touch: the last TOUCH sent) */
     int tries, first_round;
     uint32_t last_tx, last_rx, last_led_tx, last_panel_r, next_frame, period;
     uint16_t frame_no;
@@ -76,6 +76,7 @@ void rfm_session_cfg_default(rfm_session_cfg_t *c)
     c->ble_colors = RFM_BLE_COLORS;
     c->ble_refine_ms = RFM_BLE_REFINE_MS;
     c->ble_hold = 1;
+    c->key_touch = RFM_TOUCH_F_VEL | RFM_TOUCH_F_PRESS;
 }
 
 static void logf_(rfm_session_t *s, const char *fmt, ...)
@@ -202,6 +203,18 @@ static void enter_starting(rfm_session_t *s, const char *why)
     send_session(s, 1);
 }
 
+/* TOUCH: what cfg.key_touch asks; the panel reports it at once (PANEL_R corrects it if the unit did not take it) */
+static void send_touch(rfm_session_t *s)
+{
+    uint8_t b[RFM_TOUCH_LEN];
+    rfm_build_touch(b, s->cfg.key_touch);
+    if (!send_msg(s, s->frame_link, RFM_TOUCH, b, RFM_TOUCH_LEN))
+        s->st.touch_sent++;
+    s->panel.touch = b[0];
+    s->st.touch = b[0];
+    s->t_touch = s->now;
+}
+
 static void enter_active(rfm_session_t *s)
 {
     s->frame_no = 0;
@@ -218,6 +231,8 @@ static void enter_active(rfm_session_t *s)
     s->t_busy = s->now;
     s->st.sessions++;
     set_state(s, RFM_S_ACTIVE, "session started");
+    if (s->cfg.key_touch && (s->hello.caps & RFM_CAP_TOUCH))
+        send_touch(s);                                  /* (every session starts without it) */
 }
 
 static uint32_t min_nz(uint32_t a, uint32_t b) { return !b ? a : !a ? b : a < b ? a : b; }
@@ -453,6 +468,18 @@ static void on_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
         }
         if (s->state == RFM_S_ACTIVE || s->state == RFM_S_STARTING)
             rfm_panel_reconcile(&s->panel, &p, s->now);
+        if (s->state == RFM_S_ACTIVE && (s->hello.caps & RFM_CAP_TOUCH)) {
+            uint32_t got = (uint32_t)(p.flags >> 1) & (RFM_TOUCH_F_VEL | RFM_TOUCH_F_PRESS),
+                     want = s->cfg.key_touch & (RFM_TOUCH_F_VEL | RFM_TOUCH_F_PRESS);
+            if (got != want && s->now - s->t_touch < RFM_TOUCH_SETTLE_MS)
+                break;                                  /* (sent before our TOUCH arrived: its own PANEL_R follows) */
+            s->panel.touch = (uint8_t)got;              /* (what the unit does: PANEL_R wins) */
+            s->st.touch = got;
+            if (got != want) {
+                logf_(s, "PANEL_R: TOUCH %u in force, %u asked: asking again", got, want);
+                send_touch(s);
+            }
+        }
         break;
     }
     default:
@@ -689,6 +716,13 @@ void rfm_session_set_ble_hold(rfm_session_t *s, int on)
     s->cfg.ble_hold = on ? 1 : 0;
     if (s->frame_link >= 0)
         rfm_screen_set_snapshot(s->screen, hold_on(s));
+}
+
+void rfm_session_set_key_touch(rfm_session_t *s, uint32_t flags)
+{
+    s->cfg.key_touch = flags & (RFM_TOUCH_F_VEL | RFM_TOUCH_F_PRESS);
+    if (s->state == RFM_S_ACTIVE && (s->hello.caps & RFM_CAP_TOUCH))
+        send_touch(s);
 }
 
 void rfm_session_set_leds(rfm_session_t *s, const rfm_leds_t *l)

@@ -81,6 +81,7 @@ static void rfa_hello_dev(uint8_t *h, uint32_t t)
 }
 static int32_t session_on = -1;
 static void rfa_session_changed(uint32_t on) { session_on = (int32_t)on; }
+static void rfa_touch_changed(uint32_t flags) { (void)flags; }
 static uint32_t now_us;
 static uint32_t rfa_us(void) { return now_us += 7; }   /* every look at the clock: 7 us later */
 static uint32_t diag_cmd, ndiag;
@@ -253,7 +254,7 @@ int main(void)
     for (i = 0; i < 240 * 240; i++)
         panel[i] = 0x1234;                              /* the waiting screen */
     poll(1);
-    rfm_app_panel(0, 0, NO_STEPS, 512);                 /* the MASTER at 512 (first reading: sent) */
+    rfm_app_panel(0, 0, NO_STEPS, 512, 0, 0);                 /* the MASTER at 512 (first reading: sent) */
     CHECK(nmidi == 2 && midi[0][0] == 0xBE && midi[0][1] == 7 && midi[0][2] == (512u << 4) >> 7 &&
           midi[1][0] == 0xBE && midi[1][1] == 39 && midi[1][2] == ((512u << 4) & 0x7F));
 
@@ -408,7 +409,7 @@ int main(void)
     nmidi = 0;
     {
         int32_t steps[7] = {0, 0, 0, 2, 0, 0, -70};
-        rfm_app_panel(1u << 0 | 1u << 26, 1u << 12, steps, -1);
+        rfm_app_panel(1u << 0 | 1u << 26, 1u << 12, steps, -1, 0, 0);
         enc[3] = 2, enc[6] = -70;
     }
     CHECK(nmidi == 6);
@@ -420,17 +421,17 @@ int main(void)
     CHECK(midi[5][0] == 0xBE && midi[5][1] == 22 && midi[5][2] == 57);      /* then -7 */
     nmidi = 0;
     poll(1);
-    rfm_app_panel(1u << 26, 0, NO_STEPS, 513);          /* key 0 off, button off; MASTER +1: inside the deadband */
+    rfm_app_panel(1u << 26, 0, NO_STEPS, 513, 0, 0);          /* key 0 off, button off; MASTER +1: inside the deadband */
     CHECK(nmidi == 2 && midi[0][0] == 0x8F && midi[0][1] == 53 && midi[0][2] == 0 && midi[1][0] == 0x8E &&
           midi[1][1] == 12 && midi[1][2] == 0);
     nmidi = 0;
-    rfm_app_panel(1u << 26, 0, NO_STEPS, 520);          /* +8: sent (5 ms since the last) */
+    rfm_app_panel(1u << 26, 0, NO_STEPS, 520, 0, 0);          /* +8: sent (5 ms since the last) */
     CHECK(nmidi == 2 && midi[0][2] == (520u << 4) >> 7 && midi[1][2] == ((520u << 4) & 0x7F));
     nmidi = 0;
-    rfm_app_panel(1u << 26, 0, NO_STEPS, 530);          /* +10 in the same ms: held back (5 ms) */
+    rfm_app_panel(1u << 26, 0, NO_STEPS, 530, 0, 0);          /* +10 in the same ms: held back (5 ms) */
     CHECK(nmidi == 0);
     poll(5);
-    rfm_app_panel(1u << 26, 0, NO_STEPS, 530);
+    rfm_app_panel(1u << 26, 0, NO_STEPS, 530, 0, 0);
     CHECK(nmidi == 2);
     /* ---- PANEL_REQ on bulk, and the 500 ms PANEL_R on the session's transport (bulk) */
     nout = 0;

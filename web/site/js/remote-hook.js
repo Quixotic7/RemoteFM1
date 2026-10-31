@@ -15,6 +15,7 @@
 //     site.panel.button(matrixId, down)    matrix button 0 OCT- 1 OCT+ 2 FX .. 13 REC
 //     site.panel.turn(matrixEnc, detents)  matrix encoder 0 SELECT 1 ALGO 2..5 KNOB1..4 6 PRESETS, + = clockwise
 //     site.panel.master(v)                 0..1023
+//     site.panel.lean(k, v)                a held key's pressure 0..100 (aftertouch; fm1core's key_lean)
 //     site.panel.releaseAll()              (the unit went away: nothing stays held)
 //     site.midiIn(bytes)                   raw MIDI to the firmware's MIDI in
 //     site.setStatus(text, kind)           the line under the section's title ("", "ok", "warn", "bad")
@@ -43,6 +44,7 @@ export function makeSite({ controls, getState, installerUrl, setStatus, midiIn }
       button: (m, down) => controls.holdBtn(MATRIX_TO_LABEL[m], SRC.REMOTE, !!down),
       turn: (enc, detents) => controls.turn(MATRIX_TO_ROLE[enc], detents | 0),
       master: (v) => controls.setMaster(v),
+      lean: (k, v) => controls.leanKey(k, v),
       releaseAll: () => controls.releaseSrc(SRC.REMOTE),
     },
     midiIn: (bytes) => midiIn(bytes),

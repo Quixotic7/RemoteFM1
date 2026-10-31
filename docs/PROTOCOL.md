@@ -106,7 +106,7 @@ One message = a command byte + a body (8-bit bytes, multi-byte fields **little e
   | offset | field |
   |---|---|
   | 51 | `screen_w16` (240), `screen_h16` (240) |
-  | 55 | `caps16`: bit0 shadow frame buffer, bit1 COPY, bit2 RLE, bit3 PAL, bit4 battery reading, bit5 PLAY green LED, bit6 five LED levels (else: lit / dim / faint, mid shown as dim), bit7 TILES' HOLD flag (0.2.2, section 3), bit8 fast Bluetooth radio (0.2.2: 2M, long link packets, MTU 247; section 1), bit9 MIDI_IN: the TRS jack's MIDI in comes to the host in a session (section 4) |
+  | 55 | `caps16`: bit0 shadow frame buffer, bit1 COPY, bit2 RLE, bit3 PAL, bit4 battery reading, bit5 PLAY green LED, bit6 five LED levels (else: lit / dim / faint, mid shown as dim), bit7 TILES' HOLD flag (0.2.2, section 3), bit8 fast Bluetooth radio (0.2.2: 2M, long link packets, MTU 247; section 1), bit9 MIDI_IN: the TRS jack's MIDI in comes to the host in a session (section 4), bit10 TOUCH: the keys' velocity and pressure on request (0.3.1, TOUCH below) |
   | 57 | `max_frames_in_flight8` (2) |
   | 58 | `session8` (1 while a session is active) |
   | 59 | `fw_ver[8]` (the RemoteFM1 version string) |
@@ -135,6 +135,22 @@ One message = a command byte + a body (8-bit bytes, multi-byte fields **little e
   - A USB reset or unplug ends a USB session (SysEx or bulk); a Bluetooth disconnect ends a Bluetooth session. Neither
     ends the other's.
   - Reply: **ACK** (`0x46`, empty).
+
+- **TOUCH** (`0x14`, body: `flags8`; units with `caps` bit10, `RFM_CAP_TOUCH`, 0.3.1). The keys' velocity and
+  pressure in the panel events (section 4), for a host whose firmware uses them. Bit0 `RFM_TOUCH_F_VEL`: each key's
+  Note On carries the velocity it was played at (1..127) instead of 100; bit1 `RFM_TOUCH_F_PRESS`: a held key's
+  pressure goes out as poly aftertouch. Other bits are reserved (0) and ignored.
+  - Only in a session, on the session's transport; ignored otherwise. Every session starts with 0 (velocity 100, no
+    aftertouch: what a host before 0.3.1 gets), so a host that wants them sends TOUCH after each SESSION start's ACK.
+  - Reply: **PANEL_R** (section 4), whose `flags` carry the flags in force: bit1 velocity, bit2 pressure (every
+    PANEL_R has them). A host that sees them differ from what it asked sends TOUCH again (a lost message), but not
+    for a PANEL_R that may have left before its TOUCH arrived (libremotefm1: within 300 ms of sending it; the unit
+    sends one right after each SESSION start's ACK). `flags8 = 0` turns both off at once.
+  - The firmware: with either bit set, the unit senses its keys as the standalone instrument does (fm1-base's
+    lib/touch; the 20 keys F3..C5 have velocity and pressure, the 7 top keys C#5..G5 velocity only), and a key's
+    press is reported when the sensing says so (a few ms after the contact). The standalone's VELOCITY setting
+    (section 8) does not apply here: it is the host's choice.
+  - Bytes, over SysEx: `F0 7D 52 46 14 <flags packed> F7`, e.g. both on: body `03`.
 
 - **Waiting screen** (no session): "REMOTE FM1", the version and the identity, "WAITING FOR HOST", USB's state (no
   host, idle, host connected), in the Bluetooth build the advertised name and Bluetooth's state (connected, ready,
@@ -212,7 +228,8 @@ short queue (256 events) when a port has no room, and are dropped when nobody is
 
 | what | message |
 |---|---|
-| note key `k` (0..26, matrix id `14 + k`, `emu_hal_t.keys` bit `k`; key 0 = F3) | Note On `9F 53+k 100` / Note Off `8F 53+k 0` (channel 16) |
+| note key `k` (0..26, matrix id `14 + k`, `emu_hal_t.keys` bit `k`; key 0 = F3) | Note On `9F 53+k 100` / Note Off `8F 53+k 0` (channel 16). With TOUCH velocity on (0.3.1, section 2): `9F 53+k v`, v = the key's velocity 1..127 |
+| a held key's pressure (TOUCH pressure on, 0.3.1; keys 0..19 only) | Poly aftertouch `AF 53+k p`, p 0..127 (`emu_hal_t` / `fm1panel_t` `key_lean` = p × 100 / 127, rounded). Sent on a change of ≥ 2 (`RFM_MIDI_KEY_AT_DEAD`) or on reaching 0, at most every 10 ms per key (`RFM_MIDI_KEY_AT_MS`), only while the key is held; a press starts from 0 and its Note Off ends it (no `AF … 0` after it). Hosts before 0.3.1 never get it (they never send TOUCH) |
 | button `b` (matrix id 0..13, `emu_hal_t.buttons` bit `b`: 0 OCT-, 1 OCT+, 2 FX, 3 SEL, 4 ENV, 5 LFO, 6 EDIT, 7 GLO, 8 HOME, 9 SAVE, 10 ARP, 11 SEQ, 12 PLAY, 13 REC) | Note On `9E b 127` / Note Off `8E b 0` (channel 15) |
 | matrix encoder `e` (0..6, `emu_hal_t.enc[e]`, + clockwise) | `BE 16+e 64+d`, with `d` the detents since the last report, never 0; a turn of more than 63 detents is **split** into several messages of at most ±63, so nothing is lost. Deltas are in matrix sense: `emu_hal_t.enc[e]` moves by exactly `d` |
 | MASTER pot (ADC 0..1023, `emu_hal_t.master`) | `BE 07 v14>>7` then `BE 27 v14&0x7F`, with `v14 = adc << 4`. Sent on a change of ≥ 2 counts, at most every 5 ms, and always when a session starts |
@@ -231,7 +248,7 @@ Body:
 | 6 | `enc[7]` (int16, absolute detent counters since boot, wrapping) |
 | 20 | `master16`: the ADC value 0..1023 (not v14), exact. The host takes it even inside the MIDI deadband |
 | 22 | `battery_mv16` (0 = unknown) |
-| 24 | `flags8` (bit0 session active) |
+| 24 | `flags8` (bit0 session active; 0.3.1: bit1 TOUCH velocity on, bit2 TOUCH pressure on) |
 
 Length `RFM_PANEL_LEN` = 25.
 
@@ -329,6 +346,9 @@ RemoteFM1 message starts `F0 7D 52 46`.
 - 0.2.3: no protocol change (the USB audio input fixed; `caps` still 0x1AF).
 - 0.3.0: the standalone instrument (section 8) and TRS MIDI: MIDI_IN (`0x54`, section 4), `caps` bit9 (`RFM_CAP_MIDI_IN`; 0x3AF in all, 0x22C without
   the shadow). The standalone instrument plays the jack's MIDI (section 8).
+- 0.3.1: TOUCH (`0x14`, section 2), `caps` bit10 (`RFM_CAP_TOUCH`; 0x7AF in all, 0x62C without the shadow): on the
+  host's request, the keys' real velocity in their Note Ons and their pressure as poly aftertouch `AF 53+k p`
+  (section 4); PANEL_R `flags` bits 1 and 2. docs/VELOCITY-HOSTS.md is the guide for hosts.
 
 ## 8. The standalone build's own messages (STANDALONE-PLAN.md)
 
@@ -368,7 +388,7 @@ CC is one General MIDI leaves undefined, free for a DAW's MIDI learn:
 | The keys in MIDI KEYS | snapped to the scale (SNAP: a note out of it moves to the nearest in it, a tie down); the keys' LEDs: the root at 75 %, the scale's other notes at 40 % (3/8), held keys lit |
 | The keys' LEDs with the screen off | an encoder turned in ABSOLUTE, or MASTER moved: its value on the 16 white keys for 1.5 s (0 the first, 127 all 16); in MIDI KEYS, GLO held: the keys' channel (its white key) and octave (its black key) lit |
 
-**The settings page** ("REMOTE MODE SETTINGS": HOME held or GLO + HOME in the instrument, not in the mode; one row
+**The settings page** ("SETTINGS", "REMOTE MODE SETTINGS" before VELOCITY came: HOME held or GLO + HOME in the instrument, not in the mode; one row
 big at a time, its value bigger, the rows before and after peeking; SELECT the row, KN1 its value, KN2..KN4 nothing;
 HOME, HOME held or GLO + HOME closes; GLO + FX from it goes into MIDI REMOTE and comes back to it; kept with the
 settings):
@@ -383,6 +403,7 @@ settings):
 | OCT KEYS | OCTAVE (in MIDI KEYS, OCT- / OCT+ shift the keys' octave) or CC 85/86 (they send their CCs) |
 | SCALE SHORTCUTS | ON (in MIDI KEYS, GLO + PRESETS / ALGORITHM set the scale) or OFF |
 | KNOB LEDS | ON (an absolute knob's or MASTER's value on the 16 white keys' LEDs for 1.5 s) or OFF |
+| VELOCITY | ON (the default: the keys' own velocity) or OFF (every key's note at 100): the DX7, the arp's and the loops' notes (recorded as played), MIDI out and MIDI REMOTE's keys. Not panel mode's (TOUCH, section 2: the host's). Kept in the settings record (a spare byte: older records read ON) |
 
 GLO + FX itself sends nothing for the button pressed second; turning the mode off sends 0 for every button still held
 that had sent 127, and the note offs of the keys held.

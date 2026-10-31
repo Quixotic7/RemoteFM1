@@ -49,6 +49,7 @@ static void rfa_midi(uint32_t st, uint32_t d1, uint32_t d2);
 static void rfa_leds(const uint8_t *lit, const uint8_t *glow, const uint8_t *bg);
 static void rfa_hello_dev(uint8_t *h, uint32_t t);
 static void rfa_session_changed(uint32_t on);
+static void rfa_touch_changed(uint32_t flags);   /* TOUCH's flags now (0 at a session's start and end) */
 static uint32_t rfa_us(void);
 static void rfa_diag(uint32_t t, uint32_t cmd, const uint8_t *body, uint32_t len);
 
@@ -95,6 +96,9 @@ static struct {
     int32_t master, master_sent;            /* ADC 0..1023, -1 none yet */
     uint32_t master_ms;
     uint16_t batt_mv;
+    uint8_t touch;                          /* TOUCH's flags (RFM_TOUCH_F_*) in this session */
+    uint8_t at_last[RFM_NKEYS];             /* each held key's pressure as last sent (AF) */
+    uint32_t at_ms[RFM_NKEYS];
     /* counters */
     uint32_t frames, decode_errs, bad, sessions, lcd_lost, held_frames, hold_timeouts;
 } rfa;
@@ -156,7 +160,7 @@ static void rfa_panel_r(uint32_t t)
         rfa_wr16(b + RFM_PANEL_ENC + 2u * e, (uint16_t)rfa.enc[e]);
     rfa_wr16(b + RFM_PANEL_MASTER, rfa.master < 0 ? 0u : (uint32_t)rfa.master);
     rfa_wr16(b + RFM_PANEL_BATTERY, rfa.batt_mv);
-    b[RFM_PANEL_FLAGS] = rfa.session ? RFM_PANEL_F_SESSION : 0u;
+    b[RFM_PANEL_FLAGS] = (uint8_t)(rfa.session ? RFM_PANEL_F_SESSION | (uint32_t)rfa.touch << 1 : 0u);
     rfa_tx(t, RFM_PANEL_R, b, sizeof b);
     rfa.panel_ms = rfa.now;
 }
@@ -208,11 +212,21 @@ static void rfa_push_reset(int all)
             rfa.push.dirty[b] = 0;
 }
 
+static void rfa_set_touch(uint32_t f)               /* (TOUCH; a session's start and end: 0) */
+{
+    f &= RFM_TOUCH_F_VEL | RFM_TOUCH_F_PRESS;
+    if (f == rfa.touch)
+        return;
+    rfa.touch = (uint8_t)f;
+    rfa_touch_changed(f);
+}
+
 static void rfa_session_end(void)
 {
     if (!rfa.session)
         return;
     rfa.session = 0;
+    rfa_set_touch(0);
     rfa.qn = 0;                                         /* nobody waits for those ACKs any more */
     rfa.flush = 0;
     rfa.hold_used = rfa.held = 0;                       /* (held tiles: never shown, the waiting screen comes) */
@@ -224,6 +238,7 @@ static void rfa_session_start(uint32_t t, uint32_t keepalive)
 {
     rfa.session = 1;
     rfa.sessions++;
+    rfa_set_touch(0);                                   /* (a host that wants them says TOUCH after the ACK) */
     rfa.st = (uint8_t)t;
     rfa.keepalive = (uint16_t)keepalive;
     rfa.last_rx = rfa.now;
@@ -374,6 +389,14 @@ static void rfm_app_msg(uint32_t t, uint32_t cmd, const uint8_t *body, uint32_t 
     case RFM_PANEL_REQ:
         rfa_panel_r(t);
         break;
+    case RFM_TOUCH:                                     /* the reply: PANEL_R, its flags what is on now */
+        if (len < RFM_TOUCH_LEN)
+            rfa.bad++;
+        else if (rfa.session && t == rfa.st) {
+            rfa_set_touch(body[0]);
+            rfa_panel_r(t);
+        }
+        break;
     case RFM_ECHO:
         rfa_tx(t, RFM_ECHO_R, body, len);
         break;
@@ -384,18 +407,36 @@ static void rfm_app_msg(uint32_t t, uint32_t cmd, const uint8_t *body, uint32_t 
 }
 
 /* the panel now (once a millisecond): keys / buttons debounced, encoder detents since the last call, the MASTER
- * ADC (-1: not read this time) */
-static void rfm_app_panel(uint32_t keys, uint32_t buttons, const int32_t *steps, int32_t master)
+ * ADC (-1: not read this time); vel / press (NULL: none): each key's velocity 1..127 and pressure 0..127, used only
+ * when the session's TOUCH asked for them (RFM_CAP_TOUCH: else velocity 100 and no aftertouch, as before) */
+static void rfm_app_panel(uint32_t keys, uint32_t buttons, const int32_t *steps, int32_t master, const uint8_t *vel,
+                          const uint8_t *press)
 {
     uint32_t ch, i, e;
     keys &= (1u << RFM_NKEYS) - 1u;
     buttons &= (1u << RFM_NBTN) - 1u;
+    if (!(rfa.touch & RFM_TOUCH_F_VEL))
+        vel = 0;
+    if (!(rfa.touch & RFM_TOUCH_F_PRESS))
+        press = 0;
     for (ch = keys ^ rfa.keys, i = 0; ch; ch >>= 1, i++)
         if (ch & 1u) {
-            uint32_t on = (keys >> i) & 1u;
-            rfa_midi((on ? 0x90u : 0x80u) | RFM_MIDI_KEY_CH, RFM_MIDI_KEY_NOTE0 + i, on ? RFM_MIDI_KEY_VEL : 0u);
+            uint32_t on = (keys >> i) & 1u, v = vel && vel[i] ? (vel[i] > 127u ? 127u : vel[i]) : RFM_MIDI_KEY_VEL;
+            rfa_midi((on ? 0x90u : 0x80u) | RFM_MIDI_KEY_CH, RFM_MIDI_KEY_NOTE0 + i, on ? v : 0u);
+            rfa.at_last[i] = 0;                         /* (a press starts from no pressure; a release says it all) */
+            rfa.at_ms[i] = rfa.now;
         }
     rfa.keys = keys;
+    for (i = 0; press && i < RFM_NKEYS; i++)            /* poly aftertouch: a held key's pressure, on a change */
+        if (keys >> i & 1u) {
+            uint32_t p = press[i] > 127u ? 127u : press[i], l = rfa.at_last[i];
+            if (p != l && (p + RFM_MIDI_KEY_AT_DEAD <= l || p >= l + RFM_MIDI_KEY_AT_DEAD || !p) &&
+                rfa.now - rfa.at_ms[i] >= RFM_MIDI_KEY_AT_MS) {
+                rfa_midi(RFM_MIDI_KEY_AT | RFM_MIDI_KEY_CH, RFM_MIDI_KEY_NOTE0 + i, p);
+                rfa.at_last[i] = (uint8_t)p;
+                rfa.at_ms[i] = rfa.now;
+            }
+        }
     for (ch = buttons ^ rfa.buttons, i = 0; ch; ch >>= 1, i++)
         if (ch & 1u) {
             uint32_t on = (buttons >> i) & 1u;

@@ -278,6 +278,9 @@ export async function createWorld(createFakeUnit, { start = 1000 } = {}) {
     world.leds = u => { const p = F._fk_leds(u.h), b = F.HEAPU8;
         return { lit: b.slice(p, p + 11), mid: b.slice(p + 11, p + 22), dim: b.slice(p + 22, p + 33), faint: b.slice(p + 33, p + 44), flags: b[p + 44] }; };
     world.key = (u, k, d) => F._fk_key(u.h, k, d ? 1 : 0);
+    world.keyVel = (u, k, d, vel) => F._fk_key_vel(u.h, k, d ? 1 : 0, vel);   // TOUCH (0.3.1): a key at its velocity
+    world.press = (u, k, p) => F._fk_press(u.h, k, p);                         // ... a held key's pressure 0..127
+    world.touch = u => F._fk_touch(u.h) & 0xff;                                // the TOUCH flags the unit has now
     world.button = (u, b, d) => F._fk_button(u.h, b, d ? 1 : 0);
     world.enc = (u, e, d) => F._fk_enc(u.h, e, d);
     world.master = (u, v) => F._fk_master(u.h, v);

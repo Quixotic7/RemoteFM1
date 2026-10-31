@@ -58,7 +58,7 @@ static struct {
     /* MIDI REMOTE (sa_remote.c) */
     uint8_t rm_last[3], rm_src, rm_src_i, rm_any;
     uint8_t latch;
-    uint8_t set[8], blank;                   /* the settings' values (sa_setopt's rows); MIDI REMOTE's screen off */
+    uint8_t set[SA_NSET], blank;                   /* the settings' values (sa_setopt's rows); MIDI REMOTE's screen off */
     uint8_t rm_info, rm_oct, rm_keych, rm_kbd;
     uint8_t sc_root, sc;                     /* the scale */
     int8_t rm_rel;

@@ -6,7 +6,7 @@
  * session's callbacks into calls of the JS functions the module instance carries:
  *
  *   Module.rfmWrite(tag, Uint8Array) -> 0 ok, else the link failed      (a copy: the bytes may be kept)
- *   Module.rfmEvent(type, index, source, value)                          (rfm_event_t)
+ *   Module.rfmEvent(type, index, source, value, vel)                     (rfm_event_t; vel: a key down's, TOUCH)
  *   Module.rfmState(state, why)                                          (RFM_S_*)
  *   Module.rfmRescan()
  *   Module.rfmLog(msg)
@@ -23,8 +23,8 @@
 EM_JS(int, js_write, (int tag, const uint8_t *p, uint32_t n), {
     return Module.rfmWrite(tag, HEAPU8.slice(p, p + n)) | 0;
 });
-EM_JS(void, js_event, (int type, int index, int source, int value), {
-    if (Module.rfmEvent) Module.rfmEvent(type, index, source, value);
+EM_JS(void, js_event, (int type, int index, int source, int value, int vel), {
+    if (Module.rfmEvent) Module.rfmEvent(type, index, source, value, vel);
 });
 EM_JS(void, js_state, (int state, const char *why), {
     if (Module.rfmState) Module.rfmState(state, UTF8ToString(why));
@@ -48,12 +48,13 @@ static uint32_t out32[64];
 static char host_name[17] = "web";
 static int ble_colors = -1;                             /* rw_set_ble_colors(); -1: the library's default */
 static int ble_hold = -1;                               /* rw_set_ble_hold(); -1: the library's default (on) */
+static int key_touch = -1;                              /* rw_set_key_touch(); -1: the library's default (both) */
 
 static int w_link(void *ctx, const uint8_t *p, uint32_t n) { return js_write((int)(intptr_t)ctx, p, n); }
 static void cb_event(void *ctx, const rfm_event_t *e)
 {
     (void)ctx;
-    js_event(e->type, e->index, e->source, e->value);
+    js_event(e->type, e->index, e->source, e->value, e->vel);
 }
 static void cb_state(void *ctx, int st, const char *why)
 {
@@ -95,6 +96,8 @@ EMSCRIPTEN_KEEPALIVE int rw_init(int fps, int transport, int keepalive_ms, int b
         c.ble_colors = (uint32_t)ble_colors;
     if (ble_hold >= 0)
         c.ble_hold = ble_hold;
+    if (key_touch >= 0)
+        c.key_touch = (uint32_t)key_touch;
     if (name && *name) {
         strncpy(host_name, name, 16);
         host_name[16] = 0;
@@ -208,6 +211,19 @@ EMSCRIPTEN_KEEPALIVE void rw_set_ble_hold(int on)
     if (S)
         rfm_session_set_ble_hold(S, on != 0);
 }
+
+/* TOUCH (a unit from 0.3.1, RFM_CAP_TOUCH): bit0 the keys' velocity, bit1 their pressure (poly aftertouch); 0 off;
+ * -1 the library's default (both); now and for later sessions (rw_init) */
+EMSCRIPTEN_KEEPALIVE void rw_set_key_touch(int flags)
+{
+    key_touch = flags;
+    if (S)
+        rfm_session_set_key_touch(S, flags >= 0 ? (uint32_t)flags : (RFM_TOUCH_F_VEL | RFM_TOUCH_F_PRESS));
+}
+
+/* each key's velocity (its last press, 0 none given) and pressure (0..127), RFM_NKEYS bytes each: the panel's */
+EMSCRIPTEN_KEEPALIVE const uint8_t *rw_key_vel(void) { static const uint8_t z[RFM_NKEYS]; return S ? rfm_session_panel(S)->key_vel : z; }
+EMSCRIPTEN_KEEPALIVE const uint8_t *rw_key_press(void) { static const uint8_t z[RFM_NKEYS]; return S ? rfm_session_panel(S)->key_press : z; }
 
 EMSCRIPTEN_KEEPALIVE void rw_stop(uint32_t now)
 {

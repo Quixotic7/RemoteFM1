@@ -11,17 +11,22 @@ import { h } from "./sheet.js";
 import { Fm1Link } from "./fm1-link.js";
 import { mountCart } from "./cart.js";
 
-export function createFm1(site, mod, { onUnitPorts } = {}) {
-  const remote = new mod.RemoteFM1();
+export function createFm1(site, mod, { onUnitPorts, keyTouch = true } = {}) {
+  // keyTouch: the keys' velocity and pressure from a unit with RemoteFM1 0.3.1 (TOUCH; the sheet's "Velocity &
+  // pressure from my FM-1"), into the firmware as key velocity and key lean (API.md setPanel keyVel / keyLean)
+  const remote = new mod.RemoteFM1({ keyTouch: !!keyTouch });
   const link = new Fm1Link(remote);
+  link.setKeyTouch = (on) => { if (typeof remote.setKeyTouch === "function") remote.setKeyTouch(!!on); };
   let unitKeys = 0, unitButtons = 0;
 
   // the unit's panel -> the page's input (site.panel: source REMOTE, matrix ids; remote-hook.js maps them)
   remote.onPanel((p) => {
     for (let k = 0; k < 27; k++) {
       const was = (unitKeys >>> k) & 1, now = (p.keys >>> k) & 1, tap = (p.taps && (p.taps.keys >>> k) & 1) && !now && !was;
-      if (tap) { site.panel.key(k, true); site.panel.key(k, false); }
-      else if (was !== now) site.panel.key(k, !!now);
+      const vel = p.keyVel ? p.keyVel[k] : 0;          // (0: none given, the firmware's own)
+      if (tap) { site.panel.key(k, true, vel); site.panel.key(k, false); }
+      else if (was !== now) site.panel.key(k, !!now, now ? vel : 0);
+      if (now && p.keyLean && site.panel.lean) site.panel.lean(k, p.keyLean[k]);
     }
     for (let m = 0; m < 14; m++) {
       const was = (unitButtons >>> m) & 1, now = (p.buttons >>> m) & 1, tap = (p.taps && (p.taps.buttons >>> m) & 1) && !now && !was;
@@ -69,7 +74,7 @@ function waitingFrame() {
 }
 
 // ---- the sheet's section
-export function mountUseFm1(slot, link, site) {
+export function mountUseFm1(slot, link, site, { touch } = {}) {
   const btn = h("button", { class: "pill primary" }, "Connect my FM-1");
   const line = h("p", { class: "remote-status small" });
   btn.addEventListener("click", () => { const v = link.view(); if (v.tone === "on" || v.tone === "busy") link.disconnect(); else link.connect(); });
@@ -86,8 +91,27 @@ export function mountUseFm1(slot, link, site) {
     h("p", { class: "row-sub", style: { margin: "0 0 10px" } }, "Play this firmware from your own FM-1: its keys, knobs and screen, the sound here. The FM-1 needs RemoteFM1."),
     h("div", { class: "pills two" }, btn, h("a", { class: "pill", href: site.installerUrl }, "Install RemoteFM1")),
     line,
+    touch ? touchRow(link, touch) : null,
     h("p", { class: "note" }, "Chrome or Edge. Once allowed, it connects by itself when the page opens or the FM-1 is plugged in. macOS and ChromeOS get the fast USB path; Windows and Linux fall back to MIDI."));
   mountCart(slot, link);
+}
+
+// "Velocity & pressure from my FM-1" (touch: { get() -> bool, set(bool) }, the page's prefs): on by default; a unit
+// before RemoteFM1 0.3.1 has neither, and the emulated engines take neither (only firmwares that read them do)
+function touchRow(link, touch) {
+  const sw = h("button", { class: "switch", role: "switch", "aria-label": "Velocity & pressure from my FM-1" }, h("span"));
+  const sub = h("div", { class: "row-sub" });
+  const show = (v, s) => {
+    const on = touch.get();
+    sw.className = "switch" + (on ? " on" : ""); sw.setAttribute("aria-checked", String(on));
+    const unit = s && s.state === "connected" ? s.unit : null;
+    sub.textContent = unit && unit.touch === false ? "this FM-1's RemoteFM1 is older than 0.3.1: update it for velocity"
+      : "the keys' velocity, and how hard a held key is pressed (aftertouch), for firmwares that use them";
+  };
+  sw.addEventListener("click", () => { const on = !touch.get(); touch.set(on); link.setKeyTouch(on); show(null, link.status); });
+  link.on(show);
+  show(null, link.status);
+  return h("div", { class: "row" }, h("div", { class: "row-label" }, h("div", {}, "Velocity & pressure from my FM-1"), sub), sw);
 }
 
 // ---- the header's Connect FM-1 button, and its menu while connected or connecting

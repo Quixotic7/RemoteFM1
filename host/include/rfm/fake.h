@@ -37,6 +37,8 @@ typedef struct {
                                                          * holds; 0: a unit before 0.2.2 */
     int midi_in;                                        /* 1 (default): HELLO_R caps has RFM_CAP_MIDI_IN, and
                                                          * rfm_fake_trs sends MIDI_IN in a session */
+    int touch;                                          /* 1 (default): HELLO_R caps has RFM_CAP_TOUCH and TOUCH works
+                                                         * (rfm_fake_key_vel / rfm_fake_press); 0: a unit before 0.3.1 */
     int tiles_outside_session;                          /* 1 (default): TILES / LEDS outside a session are still
                                                          * drawn and acknowledged (FRAME_ACK says shadow reset after
                                                          * a reboot); 0: ignored, no FRAME_ACK */
@@ -64,6 +66,11 @@ void rfm_fake_poll(rfm_fake_t *f, uint32_t now_ms);
 
 /* the panel (sent as plain MIDI at once, and kept for PANEL_R) */
 void rfm_fake_key(rfm_fake_t *f, uint32_t k, int down);
+/* TOUCH (cfg.touch): a key pressed at vel (sent as vel when the session asked for velocity, else 100); a held key's
+ * pressure 0..127 (AF, when the session asked for it; every call sends) */
+void rfm_fake_key_vel(rfm_fake_t *f, uint32_t k, int down, uint32_t vel);
+void rfm_fake_press(rfm_fake_t *f, uint32_t k, uint32_t p);
+uint32_t rfm_fake_touch(const rfm_fake_t *f);           /* RFM_TOUCH_F_* in force; TOUCH messages taken (>> 8) */
 void rfm_fake_button(rfm_fake_t *f, uint32_t b, int down);
 void rfm_fake_enc(rfm_fake_t *f, uint32_t e, int32_t detents);
 void rfm_fake_master(rfm_fake_t *f, uint32_t adc);

@@ -55,6 +55,9 @@ EMSCRIPTEN_KEEPALIVE uint32_t fk_take_bk(rfm_fake_t *f) { return rfm_fake_take_b
 EMSCRIPTEN_KEEPALIVE void fk_poll(rfm_fake_t *f, uint32_t now) { rfm_fake_poll(f, now); }
 
 EMSCRIPTEN_KEEPALIVE void fk_key(rfm_fake_t *f, uint32_t k, int down) { rfm_fake_key(f, k, down); }
+EMSCRIPTEN_KEEPALIVE void fk_key_vel(rfm_fake_t *f, uint32_t k, int down, uint32_t vel) { rfm_fake_key_vel(f, k, down, vel); }
+EMSCRIPTEN_KEEPALIVE void fk_press(rfm_fake_t *f, uint32_t k, uint32_t p) { rfm_fake_press(f, k, p); }
+EMSCRIPTEN_KEEPALIVE uint32_t fk_touch(rfm_fake_t *f) { return rfm_fake_touch(f); }
 EMSCRIPTEN_KEEPALIVE void fk_button(rfm_fake_t *f, uint32_t b, int down) { rfm_fake_button(f, b, down); }
 EMSCRIPTEN_KEEPALIVE void fk_enc(rfm_fake_t *f, uint32_t e, int d) { rfm_fake_enc(f, e, d); }
 EMSCRIPTEN_KEEPALIVE void fk_master(rfm_fake_t *f, uint32_t adc) { rfm_fake_master(f, adc); }

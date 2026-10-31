@@ -128,6 +128,33 @@ async function setup(opts = {}, build = () => {}, start = 3) {
     check(ev.panel.at(-1).master === 700, `MASTER 700 (got ${ev.panel.at(-1).master})`);
     world.master(u, 701); await run(700);                      // a 1-count move: only PANEL_R carries it
     check(ev.panel.at(-1).master === 701, 'MASTER 701 (1 count, from PANEL_R)');
+    // TOUCH (RemoteFM1 0.3.1, caps bit10): asked by default; the keys' velocity and pressure in the panel (keyVel,
+    // keyLean 0..100 as fm1core's key_lean); turned off: none given (0)
+    {
+        check(remote.status.unit && remote.status.unit.touch === true, 'HELLO_R caps bit 10: TOUCH (status.unit.touch)');
+        check(world.touch(u) === 3, `TOUCH asked after the SESSION ACK: velocity + pressure (unit has ${world.touch(u)})`);
+        world.keyVel(u, 9, 1, 87); await run(5);
+        let p = ev.panel.at(-1);
+        check(p.keys === (1 << 9) && p.keyVel[9] === 87 && p.keyLean.length === 27, `key 9 at velocity 87 -> keyVel[9] ${p.keyVel[9]}`);
+        world.press(u, 9, 64); await run(5);
+        p = ev.panel.at(-1);
+        check(p.keyLean[9] === 50, `pressure 64 -> keyLean[9] ${p.keyLean[9]} (64 * 100 / 127)`);
+        world.keyVel(u, 9, 0, 0); await run(5);
+        p = ev.panel.at(-1);
+        check(p.keys === 0 && p.keyLean[9] === 0, 'key 9 up: its lean back to 0');
+        world.keyVel(u, 4, 1, 33); world.keyVel(u, 4, 0, 0); await run(5);
+        check(ev.panel.some(q => ((q.keys | (q.taps ? q.taps.keys : 0)) >>> 4) & 1 && q.keyVel[4] === 33), 'a quick press and release: its velocity 33 reaches the panel');
+        remote.setKeyTouch(false); await run(10);
+        check(world.touch(u) === 0, 'setKeyTouch(false): TOUCH 0 at once');
+        world.keyVel(u, 9, 1, 87); world.press(u, 9, 64); await run(5);
+        p = ev.panel.at(-1);
+        check(p.keyVel[9] === 0 && p.keyLean[9] === 0, 'off: velocity none given (the firmware\'s own), no lean');
+        world.keyVel(u, 9, 0, 0); await run(5);
+        remote.setKeyTouch(true); await run(10);
+        check(world.touch(u) === 3, 'setKeyTouch(true): asked again');
+        const st = remote.stats();
+        check(st.touch === 3 && st.touch_sent >= 3, `stats: touch ${st.touch}, touch_sent ${st.touch_sent}`);
+    }
     // a lost key event is repaired by PANEL_R
     world.dropMidi(u, 1); world.key(u, 3, 1); await run(700);
     check(ev.panel.at(-1).keys === (1 << 3), 'a lost key event repaired by PANEL_R');

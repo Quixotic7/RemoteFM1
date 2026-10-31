@@ -8,6 +8,7 @@
 static void ev(rfm_panel_t *p, uint8_t type, uint8_t index, int16_t value, uint8_t source)
 {
     rfm_event_t e;
+    e.vel = type == RFM_EV_KEY && value && index < RFM_NKEYS ? p->key_vel[index] : 0u;
     e.type = type;
     e.index = index;
     e.value = value;
@@ -31,6 +32,16 @@ void rfm_panel_reset(rfm_panel_t *p)
 {
     p->have_panel = 0;
     p->have_msb = 0;
+    p->touch = 0;                                       /* (a new session starts without TOUCH) */
+}
+
+/* a key let go: its pressure back to 0 (an event if it was not) */
+static void key_up_press(rfm_panel_t *p, uint32_t k, uint8_t source)
+{
+    if (p->key_press[k]) {
+        p->key_press[k] = 0;
+        ev(p, RFM_EV_PRESS, (uint8_t)k, 0, source);
+    }
 }
 
 /* the last event's time; 0 = never (a stamp is never 0) */
@@ -55,8 +66,25 @@ int rfm_panel_midi(rfm_panel_t *p, const uint8_t *m, uint32_t n, uint32_t now)
         p->t_key[k] = stamp(now);
         if (((p->keys >> k) & 1u) != down) {
             p->keys ^= 1u << k;
+            if (down) {
+                p->key_vel[k] = (uint8_t)((p->touch & RFM_TOUCH_F_VEL) ? v : 0u);
+                p->key_press[k] = 0;
+            }
             ev(p, RFM_EV_KEY, (uint8_t)k, (int16_t)down, RFM_EVS_MIDI);
+            if (!down)
+                key_up_press(p, k, RFM_EVS_MIDI);
         }
+        return 1;
+    }
+    if (st == RFM_MIDI_KEY_AT && ch == RFM_MIDI_KEY_CH && a >= RFM_MIDI_KEY_NOTE0 &&
+        a < RFM_MIDI_KEY_NOTE0 + RFM_NKEYS) {          /* TOUCH pressure: only for a held key, only when asked */
+        uint32_t k = a - RFM_MIDI_KEY_NOTE0;
+        if (!(p->touch & RFM_TOUCH_F_PRESS) || !((p->keys >> k) & 1u) || p->key_press[k] == v) {
+            p->ignored++;
+            return 1;
+        }
+        p->key_press[k] = (uint8_t)v;
+        ev(p, RFM_EV_PRESS, (uint8_t)k, (int16_t)v, RFM_EVS_MIDI);
         return 1;
     }
     if ((st == 0x90u || st == 0x80u) && ch == RFM_MIDI_BTN_CH && a < RFM_NBTN) {
@@ -116,7 +144,11 @@ void rfm_panel_reconcile(rfm_panel_t *p, const rfm_panel_r_t *r, uint32_t now)
         uint32_t want = (keys >> k) & 1u;
         if (((p->keys >> k) & 1u) != want && settled(p, p->t_key[k], now)) {
             p->keys ^= 1u << k;
+            if (want)
+                p->key_vel[k] = 0;                      /* (a press PANEL_R found: no velocity known) */
             ev(p, RFM_EV_KEY, (uint8_t)k, (int16_t)want, RFM_EVS_RESYNC);
+            if (!want)
+                key_up_press(p, k, RFM_EVS_RESYNC);
         }
     }
     for (k = 0; k < RFM_NBTN; k++) {

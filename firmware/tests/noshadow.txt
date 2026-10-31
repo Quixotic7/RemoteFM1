@@ -4,7 +4,7 @@
 # too), COPY refused, TILES outside a session left off the panel, the update screen owed by the host ("shadow reset").
 wait 300
 rf hello usb
-expect rf_hello_caps 556
+expect rf_hello_caps 1580
 rf tiles usb 9 end fill:0,0,240,240,1234
 expect rf_ack_frame 9
 wait 100

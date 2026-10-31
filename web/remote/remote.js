@@ -19,7 +19,8 @@
 const KIND_SX = 0, KIND_BK = 1;
 const TRANSPORTS = { auto: 0, midi: 1, bulk: 2 };
 const S_DISCOVER = 0, S_STARTING = 1, S_ACTIVE = 2, S_STOPPING = 3, S_STOPPED = 4;
-const EV_KEY = 1, EV_BUTTON = 2, EV_ENC = 3, EV_MASTER = 4;
+const EV_KEY = 1, EV_BUTTON = 2, EV_ENC = 3, EV_MASTER = 4, EV_PRESS = 5;
+export const CAP_TOUCH = 0x400;      // HELLO_R caps bit10 (RemoteFM1 0.3.1): the keys' velocity and pressure (TOUCH)
 export const USB_FILTER = Object.freeze({ vendorId: 0x1209, productId: 0x0001, classCode: 0xff });
 const VENDOR_IF = 2, BULK_EP = 3, USB_IN_LEN = 16384 + 64;
 const NKEYS = 27, NBTN = 14, NENC = 7;
@@ -27,7 +28,8 @@ const NKEYS = 27, NBTN = 14, NENC = 7;
 const STAT_NAMES = ['frames', 'msgs', 'tiles', 'rects', 'body_bytes', 'wire_bytes', 'acks', 'ack_ms_sum',
     'ack_ms_max', 'ack_timeouts', 'decode_errs', 'shadow_resets', 'leds_sent', 'keepalives', 'panel_r', 'events',
     'sessions', 'discoveries', 'lost', 'in_flight', 'pending', 'last_ack_ms', 'ble', 'frame_ms', 'wire_cap',
-    'wire_in_flight', 'reduced', 'refined', 'inexact', 'lossy', 'hold', 'held'];
+    'wire_in_flight', 'reduced', 'refined', 'inexact', 'lossy', 'hold', 'held', 'midi_in', 'midi_in_bytes',
+    'midi_in_bad', 'touch_sent', 'touch'];
 
 // A port that may be an FM-1: its name says so. Updater ports are never touched (as host/src/macos/coremidi.c).
 export function isCandidatePortName(name) {
@@ -74,12 +76,17 @@ async function midiPermissionStatus(nav) {
     try { return await nav.permissions.query({ name: 'midi', sysex: true }); } catch (e) { return 'unknown'; }
 }
 
+// opts.keyTouch -> rw_set_key_touch's flags (RFM_TOUCH_F_VEL 1 | RFM_TOUCH_F_PRESS 2)
+function touchFlags(on) { return on == null || on === true ? 3 : on === false ? 0 : (on | 0) & 3; }
+
 export class RemoteFM1 {
     // opts: { fps: 20, transport: 'auto' | 'midi' | 'bulk', usb: 'ask' | 'known' | 'off', keepaliveMs: 3000,
     //         budget: 0 (bytes per frame, 0 = the transport's), moduleUrl, portMatch(name) -> bool,
     //         bleColors: null (Bluetooth's lossy tiles: null the library's default (4), 0 lossless, 2..16),
     //         bleHold: null (Bluetooth: each screen change shown whole on a unit from 0.2.2; null the default (on),
     //         false every frame shown as it arrives),
+    //         keyTouch: null (a unit from 0.3.1: null / true both the keys' velocity and pressure, false neither, or
+    //         flags: 1 velocity, 2 pressure; the panel's keyVel 1..127 and keyLean 0..100),
     //         quietHelloMs: 2000 (a quiet session's HELLO, per port, at most this often),
     //         autoMinMs: 2000, autoDebounceMs: 250 (autoConnect()'s looks after a plug-in),
     //         navigator (tests), now() -> ms (tests), timers: true (false: the caller calls tick()) }
@@ -199,6 +206,7 @@ export class RemoteFM1 {
             M.stringToUTF8(name, np, name.length * 3 + 1);
             M.rfmWrite = (tag, bytes) => this._write(tag, bytes);
             M.rfmEvent = (t, i, s, v) => this._event(t, i, s, v);
+            M._rw_set_key_touch(touchFlags(this.opts.keyTouch));
             M.rfmState = (st, why) => this._state(st, why);
             M.rfmRescan = () => this._rescan();
             M.rfmLog = msg => this._log(msg);
@@ -262,6 +270,13 @@ export class RemoteFM1 {
     setBleHold(on) {
         this.opts.bleHold = on;
         if (this._M) this._M._rw_set_ble_hold(on == null ? -1 : on ? 1 : 0);
+    }
+
+    // The keys' velocity and pressure from a unit with RemoteFM1 0.3.1 (TOUCH) now: true / null both, false neither,
+    // or flags (1 velocity, 2 pressure). Off: the panel's keyVel and keyLean stay 0 (the firmware's own defaults).
+    setKeyTouch(on) {
+        this.opts.keyTouch = on;
+        if (this._M) this._M._rw_set_key_touch(touchFlags(on));
     }
 
     // A session that keeps looking quietly (HELLO every opts.quietHelloMs), or back to normal.
@@ -545,9 +560,14 @@ export class RemoteFM1 {
         const M = this._M;
         this._panelDirty = false;
         const p = M._rw_panel() >> 2, h = M.HEAPU32;
+        const kv = M._rw_key_vel(), kp = M._rw_key_press(), keyVel = new Uint8Array(NKEYS), keyLean = new Uint8Array(NKEYS);
+        for (let k = 0; k < NKEYS; k++) {    // (TOUCH: 0 none given; the lean as fm1core's key_lean, 0..100)
+            if (((h[p] | this._tapK) >>> k) & 1) keyVel[k] = M.HEAPU8[kv + k];   // (held, or a tap since the last)
+            keyLean[k] = Math.round(M.HEAPU8[kp + k] * 100 / 127);
+        }
         const panel = {
             keys: h[p] >>> 0, buttons: h[p + 1] >>> 0, enc: Int32Array.from(this._encAcc),
-            master: h[p + 3] ? h[p + 2] : null, keyVel: new Uint8Array(NKEYS),
+            master: h[p + 3] ? h[p + 2] : null, keyVel, keyLean,
             taps: { keys: (this._tapK & ~h[p]) >>> 0, buttons: (this._tapB & ~h[p + 1]) >>> 0 },
             battery_mv: h[p + 4], source: 'fm1',
         };
@@ -564,7 +584,7 @@ export class RemoteFM1 {
         this._encAcc.fill(0);
         this._downK = this._downB = this._tapK = this._tapB = 0;
         this._emitPanel({ keys: 0, buttons: 0, enc: new Int32Array(NENC), master: null, keyVel: new Uint8Array(NKEYS),
-            taps: { keys: 0, buttons: 0 }, battery_mv: 0, source: 'fm1' });
+            keyLean: new Uint8Array(NKEYS), taps: { keys: 0, buttons: 0 }, battery_mv: 0, source: 'fm1' });
     }
 
     _emitPanel(p) { for (const cb of this._ls.panel) cb(p); }
@@ -576,6 +596,7 @@ export class RemoteFM1 {
             const unit = {
                 name: M.UTF8ToString(M._rw_hello_str(0)), fwVer: M.UTF8ToString(M._rw_hello_str(1)),
                 identity: M.UTF8ToString(M._rw_hello_str(2)), caps: h[hp], maxInFlight: h[hp + 1],
+                touch: (h[hp] & CAP_TOUCH) !== 0,
             };
             this._wasActive = true;
             this._fpsT = this._t();         // the fps window: frames acknowledged per second from here

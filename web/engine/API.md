@@ -42,6 +42,9 @@ engine.setPanel(p) // p = { keys: uint32, buttons: uint32,   // bit k: note key 
                    //       enc: Int32Array(7),              // detents since the last call, matrix order, + = CW
                    //       master: 0..1023,
                    //       keyVel: Uint8Array(27),          // 0 = none given
+                   //       keyLean?: Uint8Array(27),        // a held key's pressure 0..100 (fm1core key_lean); the
+                   //                                        // user's FM-1 with RemoteFM1 0.3.1 (TOUCH). native and
+                   //                                        // rfm1 pass both to the core; emu ignores both
                    //       taps?: { keys, buttons } }       // went down and up since the last call
 engine.render(left, right)  // fill both Float32Array(128) at sampleRate (one render quantum)
                             // the engine resamples from its 44.1 kHz internally
