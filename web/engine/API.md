@@ -36,7 +36,14 @@ export async function createEngine({ sampleRate, files, flash /* Uint8Array | nu
 engine.info()      -> { id, name, version, license, source, credits, family,
                         latencyFrames,   // frames the engine runs ahead (0 for native)
                         keymap,          // [6][11] matrix id at (row, column), or null for the FM-1 default
-                        buttonNames }    // [14] the firmware's own labels, in the FM1P_B_* order
+                        buttonNames }    // [14] the firmware's own labels, in the FM1P_B_* order (FX SEL ENV LFO
+                                         // EDIT GLO HOME SAVE ARP SEQ PLAY REC OCT- OCT+), or null; an entry may be
+                                         // "" / null where the firmware gives none. native: fm1core_t.button_names
+                                         // (wasm_glue string keys 100..113); rfm1: the descriptor's button_names
+                                         // through rfm1_layout; emu: the printed names (no descriptor); mock: null.
+                                         // The player (panel.js buttonLabels) draws the printed name for an empty
+                                         // entry, and all printed with its "Firmware's button names" setting off.
+                                         // docs/BUTTON-LABELS.md
 
 engine.setPanel(p) // p = { keys: uint32, buttons: uint32,   // bit k: note key k (0 = F3); bit i: matrix button i
                    //       enc: Int32Array(7),              // detents since the last call, matrix order, + = CW

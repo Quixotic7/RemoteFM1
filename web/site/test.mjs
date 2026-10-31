@@ -1376,5 +1376,27 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   }
 }
 
+// ---- the firmware's own button names (panel.js buttonLabels; the OMX-27 views): a fake rfm1/native info, fallbacks
+{
+  const { buttonLabels, PANEL_LABELS } = await import("./js/panel.js");
+  const { OmxViews } = await import("./js/omx27-views.js");
+  const fw = ["FX", "KEY", "ENV", "LFO", "EDIT", "GLO", "HOME", "SAVE", "PERF", "SEQ", "PLAY", "REC", "OCT-", "OCT+"];
+  const fake = await createEngine({ sampleRate: 48000, files: {}, flash: null, options: {} });
+  const info = { ...fake.info(), buttonNames: fw };   // what rfm1/native engines give: the descriptor's button_names
+  ok(buttonLabels(info.buttonNames).join() === fw.join() && buttonLabels(info.buttonNames, false).join() === PANEL_LABELS.join(),
+     "button names: the firmware's own; the setting off gives the printed ones");
+  const holes = fw.slice(); holes[1] = null; holes[8] = "  "; holes[3] = "";
+  const got = buttonLabels(holes);
+  ok(got[1] === "SEL" && got[8] === "ARP" && got[3] === "LFO" && got[0] === "FX" && got.length === 14,
+     "button names: null / blank / empty entries fall back to the printed name");
+  ok([null, undefined, [], ["A"]].every((n) => buttonLabels(n).join() === PANEL_LABELS.join()) && buttonLabels(fake.info().buttonNames).join() === PANEL_LABELS.join(),
+     "button names: none (emu, mock, short array): the printed labels");
+  const v = new OmxViews({ button: 8 });
+  v.setButtonNames(buttonLabels(fw));
+  ok(v.screen(0).line.includes("AUX PERF"), "button names: the OMX-27 views name AUX by the firmware's name");
+  v.setButtonNames(null);
+  ok(v.screen(0).line.includes("AUX ARP"), "button names: the OMX-27 views fall back to the printed name");
+}
+
 console.log(fails ? `site: ${fails} of ${checks} FAILED` : `site tests passed (${checks})`);
 process.exit(fails ? 1 : 0);

@@ -17,6 +17,15 @@ export const B = { FX: 0, SEL: 1, ENV: 2, LFO: 3, EDIT: 4, GLO: 5, HOME: 6, SAVE
 export const E = { SELECT: 0, ALGO: 1, PRESETS: 2, K1: 3, K2: 4, K3: 5, K4: 6, MASTER: 7 };
 export const NKEY = 27, NB = 14, NE = 8;
 export const PANEL_LABELS = ["FX", "SEL", "ENV", "LFO", "EDIT", "GLO", "HOME", "SAVE", "ARP", "SEQ", "PLAY", "REC", "OCT-", "OCT+"];
+// the 14 labels to draw: the firmware's own (engine info().buttonNames, FM1P_B_* order) where it gives one, the printed
+// name where it gives none (no array, not 14 long, an empty or blank entry) or when \`use\` is false (the player's
+// "Firmware's button names" setting off)
+export function buttonLabels(names, use = true) {
+  return PANEL_LABELS.map((d, i) => {
+    const n = use && Array.isArray(names) && names.length === PANEL_LABELS.length && names[i] != null ? String(names[i]).trim() : "";
+    return n || d;
+  });
+}
 const LCD = 240;
 
 export const keyBlack = (k) => (0x54A >> ((k + 5) % 12)) & 1;
@@ -346,6 +355,11 @@ function legend(ctx, s, cx, cy, size, fill, maxW = Infinity, tracking = 0.06, gl
     size = Math.max(size * 0.5, size * maxW / w);
     ctx.font = `700 ${size}px ${HW}`;
     if (ls) ctx.letterSpacing = `${(size * tracking).toFixed(2)}px`;
+    // still too wide at half size (a long firmware name): cut it, with an ellipsis
+    if (ctx.measureText(s).width > maxW) {
+      while (s.length > 1 && ctx.measureText(s + "\u2026").width > maxW) s = s.slice(0, -1);
+      s += "\u2026";
+    }
   }
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   if (glow) { ctx.shadowColor = glow; ctx.shadowBlur = 4; }
@@ -407,7 +421,7 @@ export class DeviceView {
   // under a button's name
   setHints(on) { this.hints = !!on; }
   setRunning(on) { this.running = !!on; }
-  setButtonNames(n) { this.names = (n && n.length === NB ? n : PANEL_LABELS).map((s) => String(s || "")); this.base = null; }
+  setButtonNames(n, use = true) { this.names = buttonLabels(n, use); this.base = null; }
   setKeymap(km) { this.ledIdx = ledIndexOf(km); }
   setLeds(levels, playGreen) { this.levels = levels; this.playGreen = playGreen | 0; }
   setLearn(l) { this.learn = l || null; }

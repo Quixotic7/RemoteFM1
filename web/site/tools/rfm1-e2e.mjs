@@ -129,6 +129,9 @@ try {
   await js("(clearInterval(window.__w.timer), true)");
   ok(held.length > 0 && Math.max(...held) > 0.005 && !w.errors.length, `it sounds with a key held (peak ${held.length ? Math.max(...held).toFixed(3) : "none"}${w.errors.length ? "; errors " + w.errors.join(" | ") : ""})`);
   await shot("rfm1-page-choralroot");
+  // the firmware's own button names (the descriptor's button_names through rfm1_layout): ChoralRoot's SEL is KEY, ARP PERF
+  const names = await js("window.FM1Omx.views.names.join(' ')");
+  ok(names.split(" ").length === 14 && names !== "FX SEL ENV LFO EDIT GLO HOME SAVE ARP SEQ PLAY REC OCT- OCT+", `the panel shows the firmware's button names (${names})`);
   // the header's source link and the About page
   const src = await js(`(() => { const a = document.getElementById("fw-src"); return { href: a.href, title: a.title, off: a.classList.contains("off") }; })()`);
   ok(!src.off && /^https:\/\/github\.com\/Quixotic7\/ChoralRootFM1\/tree\/[0-9a-f]{40}$/.test(src.href) && /GPL-3\.0-only/.test(src.title), `the header's Source link: ${src.href}`);

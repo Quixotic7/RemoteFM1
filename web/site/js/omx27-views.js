@@ -77,7 +77,9 @@ export class OmxViews {
     this.btns = new Uint8Array(PANEL_LABELS.length);
     this.master = new MasterPot();
     this.note = null;                               // { text, until }: the theme's name, MASTER's %
+    this.names = PANEL_LABELS.slice();              // the buttons' names: the firmware's own where it has them
   }
+  setButtonNames(n) { this.names = n && n.length === PANEL_LABELS.length ? n.slice() : PANEL_LABELS.slice(); }
   saved() { return { theme: this.theme, knob: this.knob, button: this.button, auxBlack: this.auxBlack, ch: this.ch, oct: this.oct }; }
 
   // the quick keys showing in Base: "knob", "btn" or null
@@ -237,7 +239,7 @@ export class OmxViews {
   }
   // the screen: { title, line } (line: a moment's note, else the view's context)
   screen(now = 0) {
-    const ov = this.overlay(), kn = KNOB_NAME.get(this.knob), aux = "AUX " + PANEL_LABELS[this.button];
+    const ov = this.overlay(), kn = KNOB_NAME.get(this.knob), aux = "AUX " + this.names[this.button];
     const title = this.view === VIEW.SEQ ? "SEQ" : this.view === VIEW.KEYS ? "KEYBOARD" : this.view === VIEW.QUICK ? "QUICK KEYS"
       : ov === "knob" ? "KNOBS" : ov === "btn" ? "BUTTONS" : "FM-1";
     let line;
@@ -257,7 +259,7 @@ export class OmxViews {
         case "fm1": return noteName(r.k);
         case "note": return noteName(r.note - 53);
         case "aux": return "AUX";
-        case "oct": case "btn": return PANEL_LABELS[r.b];
+        case "oct": case "btn": return this.names[r.b];
         case "knob": return KNOB_NAME.get(r.role);
         case "range": return "R" + (r.r + 1);
         case "qk": return r.which === "knob" ? "KNOBS" : "BTNS";

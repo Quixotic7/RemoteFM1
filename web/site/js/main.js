@@ -6,7 +6,7 @@
 //   &engine=native|emu  pick the engine (where both can)
 //   &view=screen      the screen view
 //   &embed=1          only the device: no header, no settings
-import { Controls, DeviceView, ScreenView, Lcd, SRC, PANEL_LABELS, KM } from "./panel.js";
+import { Controls, DeviceView, ScreenView, Lcd, SRC, PANEL_LABELS, KM, buttonLabels } from "./panel.js";
 import { DEFAULT_THEME, CUSTOM_NAME, presetNamed, derived, css, resolve, accentOf, onAccent } from "./theme.js";
 import { Keyboard, attachPointer, MidiInput } from "./input.js";
 import { Player, sha256hex } from "./audio.js";
@@ -41,6 +41,7 @@ const state = {
   view: params.get("view") === "screen" ? "screen" : params.get("view") === "device" ? "device" : prefs.view || "device",
   transpose: prefs.transpose | 0, notesPlayKeys: prefs.notesPlayKeys !== false, reachFirmware: !!prefs.reachFirmware,
   keyHints: keyHintsOn(prefs),                              // the computer-key letters on the panel: off by default
+  fwNames: !prefs || prefs.fwButtonNames !== false,         // the firmware's own button names: on by default
   saves: [], selectedSave: null, carryOffer: null,
   mhz: DEVICE_MHZ, mhzChoice: "auto", mhzPending: null,     // the emulated CPU clock of the running firmware (cpu.js); mhzPending: Auto's step, waiting for a take to end
   browseEngine: ["all", "native", "emu"].includes(prefs.browseEngine) ? prefs.browseEngine : "all",   // the browser's filter
@@ -385,6 +386,14 @@ async function answerCarry(yes) {
   if (sheet) sheet.render();
 }
 
+// the buttons' names on the panel and the OMX-27's views: the running firmware's own (info.buttonNames) unless the
+// "Firmware's button names" setting is off; the printed ones for any it leaves empty (and for fm1-emu)
+function applyButtonNames() {
+  const n = buttonLabels(state.info && state.info.buttonNames, state.fwNames);
+  device.setButtonNames(n);
+  if (omx) omx.views.setButtonNames(n);
+}
+
 // ------------------------------------------------------------------ audio ---
 function makePlayer() {
   player = new Player(catalog, {
@@ -393,7 +402,7 @@ function makePlayer() {
     info(info) {
       state.info = info;
       if (state.engine !== "mock") state.engineState = "running";
-      device.setButtonNames(info.buttonNames && info.buttonNames.length === 14 ? info.buttonNames : PANEL_LABELS);
+      applyButtonNames();
       device.setKeymap(info.keymap || null);
       setStatus("");
       if (state.engine === "emu") {
@@ -639,6 +648,7 @@ const app = {
       state.theme = derived(prefs.customTheme); prefs.theme = CUSTOM_NAME; applyTheme();
     }
     else if (k === "view") { state.view = v; prefs.view = v; layout(); }
+    else if (k === "fwNames") { state.fwNames = !!v; prefs.fwButtonNames = !!v; applyButtonNames(); invalidate(); }
     else if (k === "keyHints") { state.keyHints = !!v; prefs.keyHints = !!v; device.setHints(state.keyHints); invalidate(); }
     else if (k === "knobSpeed") { state.knobSpeed = prefs.knobSpeed = speedOf(v); midiMap.setSpeed(state.knobSpeed); }
     else { state[k] = v; prefs[k] = v; }
