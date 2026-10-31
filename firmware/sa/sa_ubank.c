@@ -108,7 +108,12 @@ static int sa_ub_ack(uint32_t *t, uint8_t *body)   /* (rfm_main.c) the next repl
         return 0;
     memcpy(body, ub.aq[0], 3);
     *t = ub.aq[0][3];
-    memmove(ub.aq[0], ub.aq[1], 4u * --ub.aq_n);
+    {                                        /* (forward copy: no memmove in the USB-only build) */
+        uint8_t *d = ub.aq[0], *s = ub.aq[1];
+        uint32_t i, n = 4u * --ub.aq_n;
+        for (i = 0; i < n; i++)
+            d[i] = s[i];
+    }
     return 1;
 }
 
