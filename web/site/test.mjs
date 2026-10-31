@@ -1398,5 +1398,84 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   ok(v.screen(0).line.includes("AUX ARP"), "button names: the OMX-27 views fall back to the printed name");
 }
 
+// ---- RemoteFM1FW's .rfm1 files (tools/fetch_fw_catalog.mjs, build_catalog.mjs --fw-catalog): a fixture made from
+// S1Vave's committed file with other manifests (no network); the merge, the guard, the browser's two sections
+{
+  const { mkdirSync, writeFileSync, rmSync } = await import("node:fs");
+  const L = await import("./js/live.js"), G = await import("./tools/site_guard.mjs");
+  const src = readFileSync(new URL("./fw/s1vave-1.0.rfm1", import.meta.url));
+  const leb = (n) => { const o = []; do { let b = n & 0x7f; n >>>= 7; if (n) b |= 0x80; o.push(b); } while (n); return Buffer.from(o); };
+  const withManifest = (patch) => {           // the file with its "rfm1" custom section's JSON patched
+    const parts = [src.subarray(0, 8)];
+    let at = 8;
+    while (at < src.length) {
+      const id = src[at]; let p = at + 1, size = 0, sh = 0, b;
+      do { b = src[p++]; size |= (b & 0x7f) << sh; sh += 7; } while (b & 0x80);
+      const body = src.subarray(p, p + size);
+      let nl = 0, q = 0; sh = 0;
+      do { b = body[q++]; nl |= (b & 0x7f) << sh; sh += 7; } while (b & 0x80);
+      if (id === 0 && body.subarray(q, q + nl).toString() === "rfm1") {
+        const j = Buffer.from(JSON.stringify({ ...JSON.parse(body.subarray(q + nl).toString()), ...patch }));
+        const nb = Buffer.concat([leb(4), Buffer.from("rfm1"), j]);
+        parts.push(Buffer.from([0]), leb(nb.length), nb);
+      } else parts.push(src.subarray(at, p + size));
+      at = p + size;
+    }
+    return Buffer.concat(parts);
+  };
+  const dir = new URL(`./.test-fw-${process.pid}/`, import.meta.url), dirPath = fileURLToPath(dir);
+  mkdirSync(dir, { recursive: true });
+  const files = { "sloop-9.9.rfm1": withManifest({ id: "sloop", name: "SLOOP", version: "9.9" }), "jiant-0.0.1.rfm1": withManifest({ id: "jiant", name: "JIANT FM", version: "0.0.1" }),
+    "clipper-1.3.rfm1": withManifest({ id: "clipper", name: "Clipper", version: "1.3" }), "zzz-0.1.rfm1": withManifest({ id: "zzz", name: "Zzz", version: "0.1" }), "s1vave-1.0.rfm1": src };
+  let sums = "";
+  for (const [n, b] of Object.entries(files)) { writeFileSync(new URL(n, dir), b); sums += `${createHash("sha256").update(b).digest("hex")}  ${n}\n`; }
+  writeFileSync(new URL("SHA256SUMS", dir), sums);
+  writeFileSync(new URL("release.json", dir), JSON.stringify({ repo: "Quixotic7/RemoteFM1FW", tag: "fixture", url: "https://github.com/Quixotic7/RemoteFM1FW/releases/tag/fixture" }));
+  const out = join(tmpdir(), `fwcat-${process.pid}.json`), bc = fileURLToPath(new URL("./tools/build_catalog.mjs", import.meta.url));
+  const log = execFileSync(process.execPath, [bc, "--fw-catalog", dirPath, "--out", out], { encoding: "utf8" });
+  const c = JSON.parse(readFileSync(out, "utf8")), by = new Map(c.firmwares.map((f) => [f.id, f])), rel = `.test-fw-${process.pid}`;
+  const sl = by.get("sloop"), ji = by.get("jiant"), cl = by.get("clipper"), zz = by.get("zzz"), s1 = by.get("s1vave");
+  ok(c.firmwares.length === cat.firmwares.length + 2 && c.fwCatalog.tag === "fixture" && /5 \.rfm1 files, 2 new entries, 2 merged, 1 kept/.test(log),
+     "fw catalog: five files -> two new entries, two merged, S1Vave's own kept");
+  ok(sl.defaultEngine === "rfm1" && sl.engines.join() === "rfm1,emu" && sl.rfm1.file === `${rel}/sloop-9.9.rfm1` && sl.rfm1.version === "9.9" && L.siteRfm1(sl) && sl.emu.pkg,
+     "fw catalog: a newer .rfm1 of a Hub firmware is its default; the Hub's package stays emulated");
+  ok(ji.defaultEngine === by.get("jiant").defaultEngine && ji.defaultEngine !== "rfm1" && ji.engines.at(-1) === "rfm1" && ji.native,
+     "fw catalog: an older .rfm1 is an alternative engine; the default stays");
+  ok(cl.engines.join() === "rfm1" && cl.category === "Groovebox" && cl.author === "isod89" && cl.release === c.fwCatalog.url
+     && zz.category === "Other" && /Zzz by /.test(zz.what), "fw catalog: a new firmware: data/fw-catalog.json's card text, else Other");
+  ok(s1.rfm1.file === "fw/s1vave-1.0.rfm1", "fw catalog: the same version as the site's own .rfm1: the committed one, no duplicate");
+  // live merge: the Hub's catalog over it keeps the .rfm1 the default while it is the Hub's version or newer
+  const hubOf = (v) => ({ firmwares: [{ id: "sloop", name: "SLOOP", version: v, pkg: "fw/sloop.fwsc", sha256: "ab".repeat(32), kind: "groove" }] });
+  ok(L.mergeLive(c, hubOf("2.7.1")).firmwares.find((f) => f.id === "sloop").defaultEngine === "rfm1"
+     && L.mergeLive(c, hubOf("10.0")).firmwares.find((f) => f.id === "sloop").defaultEngine === "emu",
+     "fw catalog: the live merge keeps the .rfm1 the default up to the Hub's version; a newer Hub release runs emulated");
+  const ch = { ...by.get("choralroot") };
+  ok(L.mergeLive(c, { firmwares: [] }).firmwares.length > 0 && L.newestWins({ ...ch, engines: ["rfm1", "native", "emu"], version: "0.1", rfm1: { from: "site", version: "0.26.1" }, native: { version: "0.26.1" } }).defaultEngine === "rfm1"
+     && L.newestWins({ ...ch, engines: ["rfm1", "native", "emu"], version: "9.0", rfm1: { from: "site", version: "0.26.1" }, native: { version: "0.26.1" } }).defaultEngine === "emu",
+     "newestWins: a site .rfm1 at the Hub's version or newer is the default, else newest wins as before");
+  // the guard: every fetched file in the site at its SHA-256, and in the catalog
+  const fwSums = new Map(Object.entries(files).map(([n, b]) => [`${rel}/${n}`, createHash("sha256").update(b).digest("hex")]));
+  const g = (cc, have = () => true, sha = (p) => fwSums.get(p)) => G.guardSite({ catalog: cc, has: have, expected: [], managers: { managers: [] }, sha, fwSums }).errors.filter((e) => /RemoteFM1FW/.test(e));
+  ok(g(c).length === 0 && g({ ...c, firmwares: c.firmwares.filter((f) => f.id !== "zzz") }).some((e) => /zzz-0\.1\.rfm1 \(RemoteFM1FW\) has no catalog entry/.test(e))
+     && g(c, (p) => !/clipper/.test(p)).some((e) => /clipper-1\.3\.rfm1 .* not in the site/.test(e)) && g(c, () => true, () => "0".repeat(64)).length === 5
+     && G.fwSumsOf(dirPath + "/..", rel).size === 5,
+     "guard: RemoteFM1FW's files: each there, at its SHA256SUMS hash, and listed");
+  // fetch_fw_catalog --from: checked against SHA256SUMS; a bad hash writes nothing
+  const ff = fileURLToPath(new URL("./tools/fetch_fw_catalog.mjs", import.meta.url)), fout = join(tmpdir(), `fwfetch-${process.pid}`);
+  const r1 = execFileSync(process.execPath, [ff, "--from", dirPath, "--out", fout], { encoding: "utf8" });
+  writeFileSync(new URL("zzz-0.1.rfm1", dir), Buffer.from("bad"));
+  let bad = "";
+  try { execFileSync(process.execPath, [ff, "--from", dirPath, "--out", fout + "-bad"], { encoding: "utf8", stdio: "pipe" }); } catch (e) { bad = String(e.stderr); }
+  ok(/5 \.rfm1 files/.test(r1) && existsSync(join(fout, "release.json")) && /zzz-0\.1\.rfm1: SHA-256 .* SHA256SUMS says/.test(bad) && !existsSync(fout + "-bad"),
+     "fetch_fw_catalog: --from copies and checks; a file not its SHA256SUMS line fails, writing nothing");
+  // the browser: native (.rfm1 / native core) first, the emulated-only (.fwsc) below
+  const sec = L.browseSections(c.firmwares);
+  ok(sec.native.length + sec.emulated.length === c.firmwares.length && sec.native.every(L.runsNative) && sec.emulated.every((f) => !f.native && !f.engines.includes("rfm1"))
+     && sec.native.some((f) => f.id === "sloop") && sec.emulated.some((f) => f.id === "bubba")
+     && L.browseSections(c.firmwares, { q: "sloop" }).native.some((f) => f.id === "sloop") && L.browseSections(c.firmwares, { q: "bubba" }).emulated.length === 1,
+     "browser: native and .rfm1 firmwares first, the emulated-only ones in a section below; search spans both");
+  rmSync(dir, { recursive: true, force: true }); rmSync(fout, { recursive: true, force: true }); unlinkSync(out);
+}
+
 console.log(fails ? `site: ${fails} of ${checks} FAILED` : `site tests passed (${checks})`);
 process.exit(fails ? 1 : 0);

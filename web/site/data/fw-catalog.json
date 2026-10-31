@@ -1,0 +1,9 @@
+{
+ "about": "Optional card text for the .rfm1 files of Quixotic7/RemoteFM1FW (tools/fetch_fw_catalog.mjs, build_catalog.mjs --fw-catalog) that neither the Hub nor FM1VST's cores list, by the manifest's id: author (the short name), category, tag, what, site, beta. Everything else (id, name, version, licence, authors, source) is the file's own manifest. A firmware missing here gets category Other and a tag from its name.",
+ "firmwares": {
+  "clipper": { "author": "isod89", "category": "Groovebox", "tag": "SLOOP-family groovebox",
+               "what": "A SLOOP-family firmware by isod89, built as its author intends (with the Hügelton icons, all rights reserved) to WebAssembly (.rfm1) and hosted here; it runs natively in the browser." },
+  "karma": { "author": "Ariel Muchnik", "category": "Groovebox", "tag": "SLOOP-family, Plaits + Elements",
+             "what": "A SLOOP-family firmware with Plaits' and Elements' models, built as its author intends (with the Hügelton icons, all rights reserved) to WebAssembly (.rfm1) and hosted here; it runs natively in the browser." }
+ }
+}

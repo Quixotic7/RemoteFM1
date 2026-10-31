@@ -11,6 +11,8 @@
 #                                                                module it and the native engine import
 #   fw/                                                          the site's own .rfm1 files (FIZZ: tools/rfm1/build_fizz.sh,
 #                                                                committed), checked against fw/SHA256SUMS
+#   fw/rfm1/                                                     RemoteFM1FW's latest release's .rfm1 files, fetched at deploy
+#                                                                (web/site/tools/fetch_fw_catalog.mjs), checked against its SHA256SUMS
 #   remote/remote.js, build/remote/remotefm1.mjs                 W4 (Use my FM-1)
 #   installer/                                                   the RemoteFM1 installer and its packages (firmware/: every
 #                                                                release releases.json lists, checked against SHA256SUMS)
@@ -71,10 +73,14 @@ jobs:
 
       - name: The Hub's releases (native cores behind it), and whether to deploy
         id: report
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p _check
           ext=()
           if [ -f _check/native-ext.json ]; then ext=(--native-ext _check/native-ext.json); fi
+          # RemoteFM1FW's latest .rfm1 files (a new release changes the catalog, so it deploys); a failure: without them
+          if node web/site/tools/fetch_fw_catalog.mjs; then ext+=(--fw-catalog web/site/fw/rfm1); fi
           # the Hub's live catalog, else the snapshot in the tree (a Hub outage does not fail the run)
           node web/site/tools/build_catalog.mjs --layout pages --hub https://thefirmwarehub.com/catalog.json --out _check/catalog.json "${ext[@]}" \
             || node web/site/tools/build_catalog.mjs --layout pages --out _check/catalog.json "${ext[@]}"
@@ -177,19 +183,26 @@ jobs:
           .github/scripts/logged.sh authors node web/site/tools/native_sync.mjs --mirror _site/engines/native/ext --index web/build/native-ext/index.json
 
       - name: The player and the installer
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p _site _site/engines/common _site/engines/rfm1
+          # RemoteFM1FW's compiled .rfm1 files (the latest release, the one the iOS app reads), each checked against its
+          # SHA256SUMS, into web/site/fw/rfm1/ (never committed); copied with fw/ below. A failure: the site without them
+          fwcat=()
+          if node web/site/tools/fetch_fw_catalog.mjs; then fwcat=(--fw-catalog web/site/fw/rfm1); else echo "::warning title=RemoteFM1FW::the .rfm1 catalog was not fetched; the site lists the Hub's and its own"; fi
           cp -R web/site/index.html web/site/css web/site/js web/site/worklet web/site/mock web/site/fonts web/site/native web/site/fw _site/
           # the site's own .rfm1 files (FIZZ), as committed; the deploy guard also checks each against the catalog
           (cd _site/fw && sha256sum -c SHA256SUMS)
+          if [ -f _site/fw/rfm1/SHA256SUMS ]; then (cd _site/fw/rfm1 && sha256sum -c SHA256SUMS); fi
           # the .rfm1 engine (the visitor's own files and the site's: nothing to build) and the module it and the native engine import
           cp web/engines/common/shared.js _site/engines/common/
           cp web/engines/rfm1/engine.js _site/engines/rfm1/
           ext=()
           if [ -f web/build/native-ext/index.json ]; then ext=(--native-ext web/build/native-ext/index.json); fi
           # the catalog: the Hub's live one, else the snapshot in the tree; native only where the core's .wasm is here
-          node web/site/tools/build_catalog.mjs --layout pages --hub https://thefirmwarehub.com/catalog.json --out _site/catalog.json --native-dir _site/engines/native "${ext[@]}" \
-            || node web/site/tools/build_catalog.mjs --layout pages --out _site/catalog.json --native-dir _site/engines/native "${ext[@]}"
+          node web/site/tools/build_catalog.mjs --layout pages --hub https://thefirmwarehub.com/catalog.json --out _site/catalog.json --native-dir _site/engines/native "${ext[@]}" "${fwcat[@]}" \
+            || node web/site/tools/build_catalog.mjs --layout pages --out _site/catalog.json --native-dir _site/engines/native "${ext[@]}" "${fwcat[@]}"
           mkdir -p _site/installer
           cp -R web/installer/index.html web/installer/installer.js web/installer/fm1ota.js web/installer/fm1pkg.js \
                 web/installer/releases.json web/installer/firmware _site/installer/

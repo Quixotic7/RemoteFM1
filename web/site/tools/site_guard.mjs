@@ -8,6 +8,8 @@
 //         - more than a third of FM1VST's un-gated cores (data/cores.json, or --cores) have no .wasm in SITE;
 //         - the .rfm1 engine is missing, or engines/common/shared.js (the native and .rfm1 engines import it);
 //         - an .rfm1 file the site hosts (a catalog entry's rfm1.file: FIZZ's, fw/) is missing or not its SHA-256;
+//         - a RemoteFM1FW .rfm1 fetched at deploy (fw/rfm1/SHA256SUMS, or --fw-catalog DIR) is missing, not its SHA-256,
+//           or not in the catalog;
 //         - the catalog has emulated entries and the emulated engine (engine.js, fm1_web.wasm, catalog.mjs) is missing,
 //           or a package the site itself hosts (RemoteFM1's) is missing;
 //         - the hosted managers' index.json names a manager whose page is missing, or the Web MIDI shim is missing;
@@ -38,7 +40,7 @@ export function nativeAvailability(coreIds, has) {
 // the guard. catalog: the site's catalog.json; has(path) -> bool, path relative to the site; expected: the un-gated
 // core ids; managers: the site's managers/index.json (null: none); sha(path) -> its SHA-256 (hex), where the caller can
 // read the files. -> { errors: [], warnings: [], missing: [] }
-export function guardSite({ catalog, has, expected, managers = null, sha = null }) {
+export function guardSite({ catalog, has, expected, managers = null, sha = null, fwSums = null }) {
   const errors = [], warnings = [], P = catalog.paths || {}, E = P.engines || {};
   const fws = catalog.firmwares || [];
   // native: every entry's .wasm, and the engine
@@ -58,6 +60,15 @@ export function guardSite({ catalog, has, expected, managers = null, sha = null 
   for (const f of fws) if (f.rfm1 && f.rfm1.from === "site") {
     if (!has(f.rfm1.file)) errors.push(`${f.id}: its .rfm1 ${f.rfm1.file} (hosted here) is not in the site`);
     else if (sha && sha(f.rfm1.file) !== f.rfm1.sha256) errors.push(`${f.id}: its .rfm1 ${f.rfm1.file} is not the catalog's (its SHA-256 differs)`);
+  }
+  // RemoteFM1FW's .rfm1 files fetched at deploy (fwSums: Map(path in the site -> SHA-256), fw/rfm1/SHA256SUMS): each in
+  // the site at that SHA-256, and listed: an entry's .rfm1, or the site's own .rfm1 of that firmware kept over it
+  if (fwSums) for (const [p, want] of fwSums) {
+    if (!has(p)) { errors.push(`${p} (RemoteFM1FW) is in SHA256SUMS, not in the site`); continue; }
+    if (sha && sha(p) !== want) errors.push(`${p} (RemoteFM1FW) is not its SHA256SUMS line (its SHA-256 differs)`);
+    const id = (/([^/]+?)-\d[^/]*\.rfm1$/.exec(p) || [])[1];
+    if (!fws.some((f) => f.rfm1 && (f.rfm1.file === p || (f.id === id && f.rfm1.from === "site"))))
+      errors.push(`${p} (RemoteFM1FW) has no catalog entry`);
   }
   if (fws.some((f) => f.rfm1 && f.rfm1.from === "site") && !E.rfm1) errors.push("the catalog lists .rfm1 files of this site, but no .rfm1 engine");
   for (const k of ["native", "rfm1"]) {
@@ -102,6 +113,18 @@ export function annotate({ level, title, message }) {
   } else console.log(`${level}: ${title}: ${message}`);
 }
 
+// the fetched RemoteFM1FW folder's SHA256SUMS (dir relative to the site) -> Map(path, sha); null when there is none
+export function fwSumsOf(site, dir) {
+  const f = join(site, dir, "SHA256SUMS");
+  if (!existsSync(f)) return null;
+  const m = new Map();
+  for (const line of readFileSync(f, "utf8").split("\n")) {
+    const r = /^([0-9a-f]{64})\s+\*?(\S+\.rfm1)\s*$/i.exec(line.trim());
+    if (r) m.set(`${dir.replace(/\/$/, "")}/${r[2]}`, r[1].toLowerCase());
+  }
+  return m;
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const summary = (line) => { console.log(line); if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, line + "\n"); };
   const [cmd, target] = process.argv.slice(2);
@@ -120,7 +143,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const mbase = (catalog.paths && catalog.paths.managers) || "managers/";
     const managers = existsSync(join(site, mbase, "index.json")) ? read(join(mbase, "index.json")) : null;
     const g = guardSite({ catalog, has: (p) => existsSync(join(site, p)), expected: ungatedCores(cores), managers,
-      sha: (p) => createHash("sha256").update(readFileSync(join(site, p))).digest("hex") });
+      sha: (p) => createHash("sha256").update(readFileSync(join(site, p))).digest("hex"), fwSums: fwSumsOf(site, arg("--fw-catalog", "fw/rfm1")) });
     g.warnings.forEach((m) => annotate({ level: "warning", title: "site guard", message: m }));
     g.errors.forEach((m) => annotate({ level: "error", title: "not deployed (site guard)", message: m }));
     const nat = catalog.firmwares.filter((f) => f.native).length;

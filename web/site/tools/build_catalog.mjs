@@ -18,7 +18,7 @@
 // (newest wins: web/site/js/live.js, which builds the entries; the page merges the Hub's live catalog over this one at
 // load).
 //   node web/site/tools/build_catalog.mjs [--layout dev|pages] [--hub FILE|URL] [--out FILE] [--native-ext FILE]
-//                                         [--native-dir DIR]
+//                                         [--native-dir DIR] [--fw-catalog DIR]
 // --native-dir: the folder the native cores' .wasm are published in (the Pages build: _site/engines/native). Only the
 // cores whose <core>.wasm is there are listed as native (a warning names each one that is not): a Hub firmware whose
 // core is missing runs emulated only (or on its author's native build), a native-only entry (LOOM-8, Speak37) is left
@@ -31,7 +31,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { siteEntry, CATEGORIES, HUB, authorNative, preferNative, rfm1Entry } from "../js/live.js";
+import { siteEntry, CATEGORIES, HUB, authorNative, preferNative, rfm1Entry, compareVersions } from "../js/live.js";
 import { inspect } from "../../engines/rfm1/engine.js";
 import { nativeAvailability, ungatedCores, annotate } from "./site_guard.mjs";
 
@@ -261,6 +261,55 @@ for (const d of JSON.parse(readFileSync(join(SITE, "data", "site-rfm1.json"), "u
       : { ...h, engines: ["rfm1", ...h.engines.filter((k) => k !== "rfm1")], defaultEngine: "rfm1", rfm1: r.rfm1, license: h.license || r.license };
   }
 }
+// the compiled .rfm1 files of Quixotic7/RemoteFM1FW (--fw-catalog DIR: tools/fetch_fw_catalog.mjs's folder, its files
+// and SHA256SUMS; the Pages build fetches it at deploy into fw/rfm1/, never committed). Each file is checked against
+// SHA256SUMS and listed by its own manifest. Merging, by the manifest's id:
+//   - a firmware already on this site's own .rfm1 (data/site-rfm1.json: FIZZ, S1Vave): the newer file is kept; at the
+//     same version the committed one (one entry, one file);
+//   - a Hub firmware or an FM1VST core: the .rfm1 joins its engines; it is the default when its version is the Hub's and
+//     the native core's or newer (unsure counts as older), else it is an alternative and the default stays;
+//   - anything else: a new entry, its card text from data/fw-catalog.json (else category Other).
+const fwDir = arg("--fw-catalog", null);
+let fwRelease = null;
+if (fwDir) {
+  const meta = JSON.parse(readFileSync(join(SITE, "data", "fw-catalog.json"), "utf8")).firmwares;
+  const rel = relative(SITE, fwDir).split(sep).join("/");
+  if (rel.startsWith("..")) { console.error(`build_catalog: --fw-catalog ${fwDir} is not inside web/site`); process.exit(1); }
+  try { fwRelease = JSON.parse(readFileSync(join(fwDir, "release.json"), "utf8")); } catch (_) { fwRelease = null; }
+  const sums = new Map();
+  for (const line of readFileSync(join(fwDir, "SHA256SUMS"), "utf8").split("\n")) {
+    const m = /^([0-9a-f]{64})\s+\*?(\S+\.rfm1)\s*$/i.exec(line.trim());
+    if (m) sums.set(m[2], m[1].toLowerCase());
+  }
+  const ge = (a, b) => !b || compareVersions(a, b) >= 0;
+  let added = 0, merged = 0, kept = 0;
+  for (const [name, want] of [...sums].sort()) {
+    const bytes = readFileSync(join(fwDir, name)), sha = createHash("sha256").update(bytes).digest("hex");
+    if (sha !== want) { console.error(`build_catalog: ${rel}/${name} has SHA-256 ${sha}, its SHA256SUMS says ${want}`); process.exit(1); }
+    let m;
+    try { m = inspect(new Uint8Array(bytes)).manifest; } catch (e) { console.error(`build_catalog: ${rel}/${name}: ${e.message || e}`); process.exit(1); }
+    const d = { file: `${rel}/${name}`, release: fwRelease && fwRelease.url, ...(meta[m.id] || {}) };
+    const r = rfm1Entry(d, m, { sha256: sha, size: bytes.length });
+    const i = firmwares.findIndex((f) => f.id === r.id);
+    if (i < 0) {
+      if (!meta[m.id]) console.log(`build_catalog: ${r.id} (${name}) has no card text in data/fw-catalog.json: category Other`);
+      if (!r.what) r.what = `${r.name} by ${r.authorFull}, built to WebAssembly (.rfm1) and run natively here.`;
+      firmwares.push(r); added++; continue;
+    }
+    const h = firmwares[i];
+    if (h.engines.includes("rfm1") && h.rfm1) {
+      if (compareVersions(r.version, h.rfm1.version) > 0) { firmwares[i] = { ...h, rfm1: r.rfm1 }; merged++; console.log(`build_catalog: ${r.id}: ${name} replaces ${h.rfm1.fileName}`); }
+      else { kept++; console.log(`build_catalog: ${r.id}: ${h.rfm1.fileName} (the site's own) kept over ${name}`); }
+      continue;
+    }
+    const dflt = ge(r.version, h.version) && ge(r.version, h.native && (h.native.hubVersion || h.native.version));
+    firmwares[i] = { ...h, engines: dflt ? ["rfm1", ...h.engines] : [...h.engines, "rfm1"], defaultEngine: dflt ? "rfm1" : h.defaultEngine,
+                     rfm1: r.rfm1, license: h.license || r.license };
+    merged++;
+    console.log(`build_catalog: ${r.id}: ${name} ${dflt ? "is the default" : `is an alternative (the Hub's ${h.version}${h.native ? `, native ${h.native.version}` : ""} is newer or unsure)`}`);
+  }
+  console.log(`build_catalog: RemoteFM1FW ${fwRelease ? fwRelease.tag : "(no release.json)"}: ${sums.size} .rfm1 files, ${added} new entries, ${merged} merged, ${kept} kept the site's own`);
+}
 firmwares.sort((a, b) => a.name.localeCompare(b.name, "en", { sensitivity: "base" }));
 
 const catalog = {
@@ -279,6 +328,7 @@ const catalog = {
     hub: { name: "The FM-1 Firmware Hub", source: HUB },
   },
   // the authors' own native builds: the workflow that signs them, and what the last sync accepted and turned down
+  fwCatalog: fwDir ? { repo: fwRelease && fwRelease.repo, tag: fwRelease && fwRelease.tag, url: fwRelease && fwRelease.url } : null,
   nativeAuthors: ext ? { workflow: ext.workflow, trustedRefs: ext.trustedRefs, docs: "native/",
     accepted: ext.accepted.map((b) => `${b.id} ${b.version}`), rejected: ext.rejected.map((r) => ({ repo: r.repo, tag: r.tag, why: r.why })) } : null,
   firmwares,

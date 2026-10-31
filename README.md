@@ -172,6 +172,18 @@ REC turns the keys into a keyboard. Its licence is `MPL-2.0 AND GPL-3.0-only AND
 FM1VST's glue, plutovg and Emscripten's runtime, FreeType's rasterizer, the Inter Tight font); `tools/rfm1/README.md`
 says how to rebuild it for a new release.
 
+**The .rfm1 catalog on the site.** Every deploy fetches the latest release of
+[RemoteFM1FW](https://github.com/Quixotic7/RemoteFM1FW) (the `.rfm1` files the iOS app reads) with
+`web/site/tools/fetch_fw_catalog.mjs`, checks each file against its `SHA256SUMS` and hosts them at `fw/rfm1/` (never
+committed; `web/site/fw/rfm1/` is ignored). `build_catalog.mjs --fw-catalog web/site/fw/rfm1` lists each by its own
+manifest: a Hub firmware or an FM1VST core gets the `.rfm1` as its default engine when it is the Hub's and the native
+core's version or newer (else as an alternative); a firmware already hosted in `fw/` (S1Vave) keeps the committed file
+unless the release's is newer; anything else is a new entry, with card text from `web/site/data/fw-catalog.json`. The
+browser lists the firmwares with an `.rfm1` or a native core first; the ones that only run emulated (`.fwsc`) are
+folded below. For local work, `node web/site/tools/fetch_fw_catalog.mjs` (or `--from DIR` offline) then
+`node web/site/tools/build_catalog.mjs --fw-catalog web/site/fw/rfm1`; the deploy guard checks every fetched file's
+SHA-256 and that the catalog lists it.
+
 **An OMX-27 as the controller.** With the OMX-27 firmware that has REMOTE mode (the `q7-2026-3` branch), the site's
 player takes it over: Settings > Use my OMX-27 > Connect (Chrome or Edge, Web MIDI with SysEx; the port whose name
 holds "OMX"). The page puts it in REMOTE mode; its keys, encoder and five pots then play the firmware, and the page

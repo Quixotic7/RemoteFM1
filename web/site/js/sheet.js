@@ -8,7 +8,7 @@
 // app (main.js) holds the state and the actions; the sheet re-renders its page on app.changed().
 import { PRESETS, CUSTOM_NAME, CHOICE_ROLES, accentOf, onAccent, css, hex } from "./theme.js";
 import { AUTOSAVE } from "./saves.js";
-import { browse, cardView, ENGINE_FILTERS, nativeOrigin, nameOf, siteRfm1, localRfm1 } from "./live.js";
+import { browse, browseSections, cardView, ENGINE_FILTERS, nativeOrigin, nameOf, siteRfm1, localRfm1 } from "./live.js";
 import { RELEASES } from "./library.js";
 import { MHZ_CHOICES, DEVICE_MHZ, DEVICE_RANGE, OVERCLOCK, DUAL_CORE, isOverclock, inDeviceRange } from "./cpu.js";
 import { SPEEDS, srcLabel } from "./midi-map.js";
@@ -380,8 +380,8 @@ export class Sheet {
     const grid = h("div", { class: "cards" });
     const fill = () => {
       const eng = st.browseEngine || "all";
-      const list = browse(cat.firmwares, { engine: eng, cat: cats[this.cat], q: this.search });
-      grid.replaceChildren(...list.map((f) => {
+      const secs = browseSections(cat.firmwares, { engine: eng, cat: cats[this.cat], q: this.search }), list = [...secs.native, ...secs.emulated];
+      const cardOf = (f) => {
         // a card with a badge (RemoteFM1's "meta") is wider and shows its blurb in place of the tag
         const v = cardView(f, eng), meta = f.blurb || `${f.tag} · ${f.author}`;
         // a dual-core firmware, when it would run emulated: CPU-heavy
@@ -398,7 +398,13 @@ export class Sheet {
           f.native ? h("span", { class: "card-badge" + (f.native.by === "author" ? " author" : ""), title: f.native.by === "author" ? "Runs natively (WebAssembly), built by its author" : "Runs natively (WebAssembly)" })
             : siteRfm1(f) ? h("span", { class: "card-badge", title: "Runs natively (WebAssembly): this site's .rfm1 build of its release" }) : null);
         return card;
-      }), h("label", { class: "card file", title: "An .rfm1 firmware (it runs natively and stays in this browser), or a package to emulate (for example M-VAVE's FM-1.fwsc). Or drop the file on the page." },
+      };
+      // the emulated-only ones (.fwsc) below, folded: open while searching, under the Emulated filter, or with no native match
+      emuGrid.replaceChildren(...secs.emulated.map(cardOf));
+      emuCount.textContent = String(secs.emulated.length);
+      emuSec.hidden = !secs.emulated.length;
+      if (this.search.trim() || eng === "emu" || !secs.native.length) emuSec.open = true;
+      grid.replaceChildren(...secs.native.map(cardOf), h("label", { class: "card file", title: "An .rfm1 firmware (it runs natively and stays in this browser), or a package to emulate (for example M-VAVE's FM-1.fwsc). Or drop the file on the page." },
         h("span", { class: "card-top" }, h("b", {}, "Open a file..."), h("span", { class: "card-ver", html: icon("file") })),
         h("span", { class: "card-meta" }, ".rfm1 native · .fwsc emulated"),
         h("input", { type: "file", accept: ".rfm1,.fwsc", hidden: true, onchange: (ev) => { const f = ev.target.files[0]; ev.target.value = ""; if (f) { a.openLocalFile(f); this.close(); } } })));
@@ -409,6 +415,8 @@ export class Sheet {
       mine.replaceChildren(...libList.map((f) => this.libCard(f)));
       if (lib.length && !libList.length) mine.append(h("p", { class: "empty" }, "None matches"));
     };
+    const emuGrid = h("div", { class: "cards emu-only" }), emuCount = h("span", { class: "heading-val" });
+    const emuSec = h("details", { class: "emu-section" }, h("summary", { class: "heading", title: "Firmwares that run only emulated, from their .fwsc packages" }, "Emulated (.fwsc) ", emuCount), emuGrid);
     const lib = a.library || [];
     const mineHead = h("h3", { class: "heading mine-head" }, "Your firmware", h("span", { class: "heading-val" }, `${lib.length} in this browser · `, link(RELEASES, "Get more ↗")));
     const mine = h("div", { class: "cards mine" });
@@ -422,7 +430,7 @@ export class Sheet {
       this.cat = i; for (const b of chips.children) b.classList.toggle("on", b === ev.currentTarget); fill();
     } }, c)));
     fill();
-    return [search, lib.length ? mineHead : null, lib.length ? mine : null, lib.length ? h("h3", { class: "heading" }, "Catalog") : null, engines, chips, grid,
+    return [search, lib.length ? mineHead : null, lib.length ? mine : null, lib.length ? h("h3", { class: "heading" }, "Catalog") : null, engines, chips, grid, emuSec,
       h("div", { class: "links get-rfm1" }, link(RELEASES, "Get .rfm1 firmwares ↗"), h("span", { class: "muted small" }, " download one, then open it here (or drop it on the page)")),
       h("p", { class: "note" }, "From ", link(cat.hub, "the FM-1 Firmware Hub"), ` (${cat.live ? "live, " : "as of "}${cat.hubUpdated || "snapshot"}). Firmwares with a dot run natively, compiled from FM1VST's cores, built by their authors or built here as an .rfm1 (`, h("a", { href: "native/" }, "how to publish yours"), `; where the Hub has a newer release, it runs emulated unless you pick native); every firmware also runs emulated on `,
         link(cat.credits.fm1emu.source, "fm1-emu"), ", its package fetched from where the Hub points (RemoteFM1's from this site).")];

@@ -90,9 +90,15 @@ export function hubNewer(hubV, nativeV) {
 // native.preferred (data/cores.json nativeDefault): the native core stays the default though the Hub's is newer (PIGEON:
 // the Hub's is a beta; the native core is far lighter); nativeBehind still says so.
 export function newestWins(e) {
+  // (this site's .rfm1 build of a Hub firmware: build_catalog.mjs --fw-catalog. The default while it is the Hub's version
+  // or newer; behind it, the emulated package, as for a native core)
+  const rf = siteRfm1(e) && e.engines.includes("rfm1") && e.engines.includes("emu") ? compareVersions(e.rfm1.version, e.version) : null;
+  if (rf !== null && !e.native && rf < 0) { e.defaultEngine = "emu"; return e; }
   if (!e.native || !e.engines.includes("native")) return e;
   e.nativeBehind = e.engines.includes("emu") && hubNewer(e.version, e.native.hubVersion || e.native.version);
   e.defaultEngine = e.nativeBehind && !e.native.preferred ? "emu" : "native";
+  // (this site's .rfm1 build at the Hub's version or newer stays the default: build_catalog.mjs --fw-catalog)
+  if (rf !== null && rf >= 0) e.defaultEngine = "rfm1";
   return e;
 }
 export const nameOf = (e, engine) => (!e ? "" : engine === "native" && e.native && e.native.name ? e.native.name : e.name);
@@ -371,6 +377,13 @@ export function browse(list, { engine = "all", cat = "All", q = "" } = {}) {
     (engine === "all" || (engine === "native" ? (!!f.native && f.engines.includes("native")) || f.engines.includes("rfm1") : f.engines.includes("emu") && !f.emuNote)) &&
     (cat === "All" || (f.categories || []).includes(cat)) &&
     (!s || [f.name, f.author, f.authorFull, f.tag, f.what, f.id].some((x) => x && String(x).toLowerCase().includes(s))));
+}
+// the browser's two sections (the owner: native first, the .fwsc ones below, less prominent): native, the firmwares
+// with an .rfm1 (this site's or RemoteFM1FW's) or a native core; emulated, the ones that only run as .fwsc packages
+export const runsNative = (f) => (!!f.native && f.engines.includes("native")) || f.engines.includes("rfm1");
+export function browseSections(list, opts = {}) {
+  const all = browse(list, opts);
+  return { native: all.filter(runsNative), emulated: all.filter((f) => !runsNative(f)) };
 }
 // what a card shows under a filter: { version, note, engine } (engine: the one a click starts; null: the default)
 export function cardView(f, engine = "all") {
