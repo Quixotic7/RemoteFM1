@@ -3,6 +3,24 @@
   "repo": "https://github.com/Quixotic7/RemoteFM1",
   "releases": [
     {
+      "version": "0.3.1",
+      "date": "2026-10-31",
+      "tag": "v0.3.1",
+      "identity": "FM-1_52000301",
+      "license": "MPL-2.0",
+      "sha256": "11680a48829ee5f4687da1148a60df192eb97e39d333ae18fd63931e3cd7e724",
+      "usbOnly": {
+        "file": "remote-usb-0.3.1.fwsc",
+        "sha256": "3d7d88535fe003dd57ba465ba552b798a23ed420e50e7c29525247d92248da12"
+      },
+      "notes": [
+        "16 user DX7 cartridges (was 3): list, replace, delete and rename them from the website or the iOS app; every upload is confirmed.",
+        "Loops are saved on the FM-1 (SAVE held) and come back after power-off. This uses the area where ChoralRoot and FIZZ keep their saves: back those up first if you go back to them.",
+        "A VELOCITY setting (hold HOME); hosts can get the keys' real velocity and pressure.",
+        "Tested on an FM-1 on 2026-10-31: both packages installed, USB audio, the DX7 render, the cartridges kept from 0.3.0."
+      ]
+    },
+    {
       "version": "0.3.0",
       "date": "2026-10-30",
       "tag": "v0.3.0",

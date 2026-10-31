@@ -1,3 +1,31 @@
+# RemoteFM1 0.3.1
+
+Released 2026-10-31, built with `./build.sh --release 0.3.1` (and `--no-ble` for the USB-only package). It replaces
+0.3.0. Both packages install as `FM-1_52000301`.
+
+| Package | sha256 |
+| --- | --- |
+| `remote-0.3.1.fwsc`, USB + Bluetooth MIDI (the default) | `11680a48829ee5f4687da1148a60df192eb97e39d333ae18fd63931e3cd7e724` |
+| `remote-usb-0.3.1.fwsc`, USB only | `3d7d88535fe003dd57ba465ba552b798a23ed420e50e7c29525247d92248da12` |
+
+## What changed from 0.3.0
+
+- **16 user cartridges** (was 3), USER1..USER16. New SysEx (docs/CART-UPLOAD.md, PROTOCOL.md section 8): list the
+  banks with their names, send into a chosen slot (replace), delete, rename, and a STORED reply after every upload.
+  The website's player (settings, under Use my FM-1) and the iOS app use them. 0.3.0's banks are carried over.
+- **Loops saved on the unit**: SAVE held also writes the 16 loops; they load at power-on. Power-cut safe.
+- **Where it saves:** 0.3.1 uses 0x97000..0xD8FFF, where ChoralRoot and FIZZ keep their saves (the owner's choice:
+  both can back up and restore). Going back to ChoralRoot or FIZZ on the same unit: restore their backup.
+- **VELOCITY** on / off in the settings page (hold HOME, now titled SETTINGS); off plays every note at 100.
+- **For hosts:** TOUCH (`0x14`, caps bit 10): the keys' real velocity and pressure (poly aftertouch) during a
+  session, opted in by the host (docs/VELOCITY-HOSTS.md). The website has a switch for it.
+
+## Testing
+
+On an FM-1 on 2026-10-31: both packages installed as `FM-1_52000301`, macOS shows the FM-1's USB audio devices with
+each, the DX7's render hash equals the computer's on one and two cores, the three user banks from earlier stayed.
+The owner tested the velocity build. Simulator, host, site, installer and remote-link suites pass.
+
 # RemoteFM1 0.3.0
 
 Released 2026-10-30, built with `./build.sh --release 0.3.0` (and `--no-ble` for the USB-only package). It replaces

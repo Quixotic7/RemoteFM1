@@ -14,7 +14,8 @@ MASTER pot to the computer, and shows whatever the computer sends back on its LE
 computer, an FM-1 firmware built for the emulator runs at full speed and uses the real FM-1 as its panel. That lets
 you try firmware changes without reflashing the unit, and run things the FM-1's own CPU and memory couldn't hold.
 
-> **Status: 0.3.0 released on the site (2026-10-30): the FM-1 on its own.** Without a host, 0.3 is an instrument: a
+> **Status: 0.3.1 released on the site (2026-10-31): the FM-1 on its own.** 0.3.1 adds 16 user cartridges (list,
+> replace, delete), loops saved on the unit, a VELOCITY setting, and velocity and pressure for hosts. Without a host, 0.3 is an instrument: a
 > DX7 (saadet's FM6, Yamaha's 256 ROM voices and your own cartridges), a MIDI controller over USB, Bluetooth and the
 > TRS jack, a 16-loop looper, an arp, scales and a REMOTE MIDI mode; a host still takes it over as its panel
 > ([STANDALONE-PLAN.md](STANDALONE-PLAN.md)). 0.2 moves the firmware onto
@@ -59,7 +60,7 @@ emulator exists for the FM-1's CPU.
 
 1. **Install RemoteFM1** on the FM-1 with [its web installer](https://quixotic7.github.io/RemoteFM1/installer/)
    (USB + Bluetooth MIDI, or USB only) or any Felucca-family installer, for example
-   `python3 tools/fm1_install.py web/installer/firmware/remote-0.3.0.fwsc` (USB only: `remote-usb-0.3.0.fwsc`).
+   `python3 tools/fm1_install.py web/installer/firmware/remote-0.3.1.fwsc` (USB only: `remote-usb-0.3.1.fwsc`).
    0.2 answers installers as itself, `FM-1_52XXYYZZ` (release X.Y.Z; fm1-base's scheme), on the USB device "FM-1";
    0.1 answered as the official V15 (`FM-1_015`).
 2. **Without a host**, the screen reads REMOTE FM1 / WAITING FOR HOST, with USB's state, the Bluetooth name it
@@ -136,7 +137,7 @@ macOS keeps the MIDI port name of the first firmware it saw on the unit (for exa
 finds RemoteFM1 by asking (HELLO), never by name. If the port shows up offline after a firmware change, use
 `--midi-restart` or Audio MIDI Setup > Rescan MIDI.
 
-**Over Bluetooth** (0.2, the default package `remote-0.3.0.fwsc`; `remote-usb-0.3.0.fwsc` has no radio): Bluetooth
+**Over Bluetooth** (0.2, the default package `remote-0.3.1.fwsc`; `remote-usb-0.3.1.fwsc` has no radio): Bluetooth
 is on at every power-on. Connect the FM-1 in Audio MIDI Setup > MIDI Studio > Bluetooth (on a Mac) or the app's Bluetooth MIDI page;
 its port is named after what it advertises, "FM-1 1F2D". The site and FM1VST send HELLO to any port whose name holds
 "FM-1", so they find it there too. The update path stays USB-only.
@@ -216,8 +217,8 @@ and the JieLi AC79 SDK (its Bluetooth libraries; never in this tree):
 ```sh
 git submodule update --init --recursive
 git clone --depth 1 --branch AC79NN_SDK_V1.2.1_2023-12-13 https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK.git ~/fw-AC79_AIoT_SDK
-./build.sh --release 0.3.0           # -> firmware/build/remotefm1-0.3.0.fwsc (USB + Bluetooth MIDI), FM-1_52000300
-./build.sh --release 0.3.0 --no-ble  # -> firmware/build/remotefm1-usb-0.3.0.fwsc (USB only: no Bluetooth library)
+./build.sh --release 0.3.1           # -> firmware/build/remotefm1-0.3.1.fwsc (USB + Bluetooth MIDI), FM-1_52000301
+./build.sh --release 0.3.1 --no-ble  # -> firmware/build/remotefm1-usb-0.3.1.fwsc (USB only: no Bluetooth library)
 ./build.sh                           # a development build, FM-1_5200 (the standalone's DX7 voices: Yamaha's ROM
                                      # cartridges from DX7_ROM_DIR, default Presets/DX7-ROM beside the checkout;
                                      # without them the INIT VOICE only)
