@@ -9,6 +9,7 @@
 //   p.panel(msg); p.midi(bytes); p.flashReq();
 //   p.setVolume(0..1)                         the page's volume: a GainNode after the worklet (recordings are taken before it)
 //   p.recStart({ id, chunkFrames, maxFrames }); p.recStop(); p.recBuf(l, r)   the recorder (js/rec-ui.js); events: rec(m)
+//   events.fs(m): a Fantasy CFW's file request (js/folder.js serve()); p.fsReply(reply, transfer); p.fsChanged()
 //
 // The emulated engine's packages come from where the Hub points, at play time (thefirmwarehub.com's mirror: CORS *;
 // GitHub release downloads send no CORS header). W2's web/engines/emu/catalog.mjs is the hook: its fetchPackage()
@@ -180,6 +181,7 @@ export class Player {
     else if (m.type === "error") this.emit("error", m.message);
     else if (m.type === "load") this.emit("load", { ...m, glitches: this.glitches() });
     else if (m.type === "recChunk" || m.type === "recLevel") this.emit("rec", m);
+    else if (m.type === "fs") this.emit("fs", m);
   }
 
   // the browser's running count of audio glitches (frames the device got no audio for), where it has one: Chrome's
@@ -282,4 +284,7 @@ export class Player {
   panel(p) { if (this.node) this.node.port.postMessage({ type: "panel", ...p }); }
   midi(bytes) { if (this.node) this.node.port.postMessage({ type: "midi", bytes: Uint8Array.from(bytes) }); }
   flashReq() { if (this.node) this.node.port.postMessage({ type: "flashReq" }); }
+  // a Fantasy CFW's file API (engines/rfm1/engine.js FileApi): an answer, and "the folder changed"
+  fsReply(reply, transfer = []) { if (this.node) this.node.port.postMessage(reply, transfer); }
+  fsChanged() { if (this.node) this.node.port.postMessage({ type: "fsChanged" }); }
 }
