@@ -38,6 +38,28 @@ smk key 0 up
 smk tap OCT-
 wait 10
 expect sa_oct 0
+# LATCH (NOTE REPEAT held: LFO): an outer key's chord replaces the one latched, as the 27 keys' do
+smk press NOTE-REPEAT
+wait 600
+smk release NOTE-REPEAT
+wait 10
+expect sa_latch 1
+smk key 0 down 80
+wait 10
+smk key 0 up
+wait 10
+expect sa_lat_n 1
+smk key 36 down 80
+wait 10
+smk key 36 up
+wait 10
+expect sa_lat_n 1
+smk press NOTE-REPEAT
+wait 600
+smk release NOTE-REPEAT
+wait 10
+expect sa_latch 0
+expect sa_held 0
 # the wheels, the pedal, the faders, the extra buttons
 out
 smk bend 4096

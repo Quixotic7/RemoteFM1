@@ -153,9 +153,9 @@ grep -q "FAIL" "$OUT/log.txt" && { cat "$OUT/log.txt"; echo "FAILED: firmware/te
 echo "== the SMK-37 build of the simulator (BOARD=smk37 ./build.sh --host, firmware/patches/smk37): the panel as an"
 echo "   FM-1's (keys, pads as white keys, buttons, knobs, lights), the extras as MIDI, the flash map, the FM-1's scenarios"
 BOARD=smk37 env -u CC ./build.sh --host >/dev/null
-SMK_FM1_TESTS="firmware/tests/session.txt firmware/tests/bulk_ota.txt firmware/tests/ble.txt firmware/tests/hold.txt firmware/tests/standalone.txt firmware/tests/standalone_ble.txt $(echo $SA_TESTS | tr ' ' '\n' | grep -v standalone_velocity | tr '\n' ' ')"
+SMK_FM1_TESTS="firmware/tests/session.txt firmware/tests/bulk_ota.txt firmware/tests/ble.txt firmware/tests/hold.txt firmware/tests/standalone.txt firmware/tests/standalone_ble.txt $(echo $SA_TESTS | tr ' ' '\n' | grep -v "standalone_velocity\|standalone_store" | tr '\n' ' ')"
 sim "$SIM/remotefm1-smk37_host" firmware/tests/smk_panel.txt firmware/tests/smk_extras.txt firmware/tests/smk_flash.txt \
-    firmware/tests/smk_hello.txt $SMK_FM1_TESTS        # (standalone_velocity: no aftertouch on the SMK's keys, by design)
+    firmware/tests/smk_hello.txt $SMK_FM1_TESTS        # (not standalone_velocity: no aftertouch on the SMK, by design; standalone_store: 0.3.0's XDATA0 banks, none on the SMK)
 for f in hello_usb hello_bk hello_ble panel_idle panel_held; do
     cmp -s "$OUT/smk_fm1/$f.txt" "$OUT/$f.txt" ||
         { echo "FAILED: the SMK-37's $f differs from the FM-1's:"; cat "$OUT/smk_fm1/$f.txt" "$OUT/$f.txt"; exit 1; }

@@ -888,7 +888,7 @@
 +}
 --- a/chip/fm1_flash.h
 +++ b/chip/fm1_flash.h
-@@ -36,6 +36,66 @@
+@@ -36,6 +36,69 @@
  #define T4_CNT          REG32(0x10804u)            /* TIMER4, 24 MHz free-running */
  
  #define FL_XIP(off)     FM1_XIP(off)              /* fm1_xip.h */
@@ -908,7 +908,7 @@
 + *   0xEA000-0xEAFFF  USRFLASH's last sector, the stock end marker ("usrdata" at 0xEAFF8): while it stands the stock
 + *                    firmware trusts USRFLASH as its mapping, so it is erased (whole, never programmed) before a
 + *                    firmware's first write there, and the stock firmware builds its factory mapping again after a
-+ *                    return to stock                                               FL_STOCKTAG
++ *                    return to stock                                               FL_SMK_MARK
 + * The app area 0x04000-0x9CFFF is the update loader's alone. */
 +#define FL_SMK_HEAD_HI  0x00004000u
 +#define FL_SMK_CAL_LO   0x000C0000u
@@ -922,30 +922,33 @@
 +#define FL_OTA_HI       0x000C0000u
 +#define FL_USRFLASH_LO  0x000C2000u
 +#define FL_USRFLASH_HI  0x000EA000u
-+#define FL_STOCKTAG_LO  0x000EA000u
-+#define FL_STOCKTAG_HI  0x000EB000u
-+#define FL_STOCKTAG_MARK 0x000EAFF8u               /* "usrdata\0" */
-+/* [off, off + n) touches [lo, hi) (no wrap: the part ignores the high address bits) */
-+#define FL_HITS(off, n, lo, hi) ((uint32_t)(off) < (hi) && \
-+                                 ((uint32_t)(off) >= (lo) || (uint32_t)(n) > (lo) - (uint32_t)(off)))
-+#define FL_SMK_PROTECTED(off, n) (FL_HITS(off, n, 0u, FL_SMK_HEAD_HI) || FL_HITS(off, n, FL_SMK_CAL_LO, FL_SMK_CAL_HI) || \
-+                                  FL_HITS(off, n, FL_SMK_USR_LO, FL_SMK_USR_HI) || (uint32_t)(off) >= FL_SMK_KEY_LO || \
-+                                  (uint32_t)(n) > FL_SMK_KEY_LO - (uint32_t)(off))
++#define FL_SMK_MARK_LO  0x000EA000u
++#define FL_SMK_MARK_HI  0x000EB000u
++#define FL_SMK_MARK_AT 0x000EAFF8u               /* "usrdata\0" */
++/* [off, off + n) and [lo, hi) share a byte: neither lies wholly before the other (n counted from off, so a range
++ * that would wrap round the 1 MiB part, whose high address bits it ignores, counts as reaching everything above) */
++#define FL_SMK_TOUCHES(off, n, lo, hi) (!((uint32_t)(off) >= (hi) || \
++                                        ((uint32_t)(off) < (lo) && (uint32_t)(n) <= (lo) - (uint32_t)(off))))
++#define FL_SMK_PROTECTED(off, n) (FL_SMK_TOUCHES(off, n, 0u, FL_SMK_HEAD_HI) || \
++                                  FL_SMK_TOUCHES(off, n, FL_SMK_CAL_LO, FL_SMK_CAL_HI) || \
++                                  FL_SMK_TOUCHES(off, n, FL_SMK_USR_LO, FL_SMK_USR_HI) || \
++                                  FL_SMK_TOUCHES(off, n, FL_SMK_KEY_LO, 0xFFFFFFFFu) || \
++                                  (uint32_t)(n) > 0xFFFFFFFFu - (uint32_t)(off))
 +/* a window [lo, hi): whole sectors, clear of every protected range */
 +#define FL_SMK_WIN_OK(lo, hi) ((lo) % 0x1000u == 0u && (hi) % 0x1000u == 0u && (lo) < (hi) && (lo) >= FL_SMK_HEAD_HI && \
 +                               (hi) <= FL_SMK_KEY_LO && ((hi) <= FL_SMK_CAL_LO || (lo) >= FL_SMK_CAL_HI) && \
 +                               ((hi) <= FL_SMK_USR_LO || (lo) >= FL_SMK_USR_HI))
 +_Static_assert(FL_SMK_WIN_OK(FL_DATA_LO, FL_DATA_HI) && FL_SMK_WIN_OK(FL_OTA_LO, FL_OTA_HI) &&
-+               FL_SMK_WIN_OK(FL_USRFLASH_LO, FL_USRFLASH_HI) && FL_SMK_WIN_OK(FL_STOCKTAG_LO, FL_STOCKTAG_HI) &&
++               FL_SMK_WIN_OK(FL_USRFLASH_LO, FL_USRFLASH_HI) && FL_SMK_WIN_OK(FL_SMK_MARK_LO, FL_SMK_MARK_HI) &&
 +               FL_SMK_WIN_OK(0x4000u, 0x9D000u), "SMK-37: a window overlaps a protected range");
-+_Static_assert(FL_DATA_HI == FL_OTA_LO && FL_OTA_HI == FL_SMK_CAL_LO && FL_USRFLASH_HI == FL_STOCKTAG_LO &&
-+               FL_STOCKTAG_MARK + 8u == FL_STOCKTAG_HI, "SMK-37: the map");
++_Static_assert(FL_DATA_HI == FL_OTA_LO && FL_OTA_HI == FL_SMK_CAL_LO && FL_USRFLASH_HI == FL_SMK_MARK_LO &&
++               FL_SMK_MARK_AT + 8u == FL_SMK_MARK_HI, "SMK-37: the map");
 +#define FL_IN(off, n, lo, hi) ((uint32_t)(off) >= (lo) && (uint32_t)(off) <= (hi) && \
 +                               (uint32_t)(n) <= (hi) - (uint32_t)(off))
 +#define FL_STORE_OK(off, n) (FL_IN(off, n, FL_DATA_LO, FL_DATA_HI) || FL_IN(off, n, FL_USRFLASH_LO, FL_USRFLASH_HI))
-+#define FL_STOCKTAG_OK(off, n) ((uint32_t)(off) == FL_STOCKTAG_LO && (uint32_t)(n) == 0x1000u)   /* (an erase) */
++#define FL_SMK_MARK_OK(off, n) ((uint32_t)(off) == FL_SMK_MARK_LO && (uint32_t)(n) == 0x1000u)   /* (an erase) */
 +#ifndef FL_RANGE_OK
-+#define FL_RANGE_OK(off, n) (FL_STORE_OK(off, n) || FL_IN(off, n, FL_OTA_LO, FL_OTA_HI) || FL_STOCKTAG_OK(off, n))
++#define FL_RANGE_OK(off, n) (FL_STORE_OK(off, n) || FL_IN(off, n, FL_OTA_LO, FL_OTA_HI) || FL_SMK_MARK_OK(off, n))
 +#endif
 +#define FL_GUARD(off, n) (FL_RANGE_OK(off, n) && !FL_SMK_PROTECTED(off, n))
 +#define FL_JEDEC_OK(id) ((id) == 0xEB6014u || (id) == 0x856014u)   /* the SMK-37's part on the guide's unit; the
@@ -955,7 +958,7 @@
  #define FL_DATA_LO      0x00097000u                /* Felucca main store */
  #define FL_DATA_HI      0x000E0000u
  #define FL_GLOB_LO      0x000FC000u                /* Felucca superblock / globals */
-@@ -65,6 +125,10 @@
+@@ -65,6 +128,10 @@
  #ifndef FL_RANGE_OK
  #define FL_RANGE_OK(off, n) (FL_STORE_OK(off, n) || FL_XDATA_OK(off, n) || FL_IN(off, n, FL_OTA_LO, FL_OTA_HI))
  #endif
@@ -966,7 +969,7 @@
  
  typedef struct { uint32_t sfc_con, spi_con; } fl_saved_t;
  
-@@ -196,7 +260,7 @@
+@@ -196,7 +263,7 @@
  static RAMFN int fl_erase4k_ram(uint32_t off, uint32_t *took_us)
  {
      fl_saved_t s; int rc;
@@ -975,7 +978,7 @@
          return -1;
      if (fl_enter(&s)) return -2;
      fl_wren();
-@@ -213,7 +277,7 @@
+@@ -213,7 +280,7 @@
  static RAMFN int fl_prog_ram(uint32_t off, const uint8_t *src, uint32_t n, uint32_t *took_us)
  {
      fl_saved_t s; int rc; uint32_t i;
@@ -984,7 +987,7 @@
          n == 0 || n > 256u || ((off & 0xFFu) + n) > 256u) return -1;    /* one page, no wrap */
      if (fl_enter(&s)) return -2;
      fl_wren();
-@@ -291,3 +355,4 @@
+@@ -291,3 +358,4 @@
      for (i = 0; i < n; i++) if (p[i] != ref[i]) return -(int)(i + 1);
      return 0;
  }
@@ -1019,7 +1022,7 @@
 +#define OTA_BOARD (OTA_BOARD_ANY() ? "fm1" : "smk37")   /* an m-bootloader container's board */
 +#define OTA_BOARD_LEN (OTA_BOARD_ANY() ? 4u : 6u)       /* (with its NUL) */
 +_Static_assert(OTA_SMK_AREA >= FL_OTA_LO && OTA_SMK_AREA + OTA_AREA_LEN <= FL_OTA_HI, "SMK-37: the staging is FL_OTA");
-+_Static_assert(sizeof OTA_PARM_SMK - 1u <= 20u, "SMK-37: the record's name ends by +0x1C");
++_Static_assert(sizeof OTA_PARM_SMK - 1u <= 20u, "SMK-37: the stock loader's name, at most 20 bytes from +8");
 +#else
  #define OTA_AREA 0x000E0000u                     /* staged loader, 5 x 4 KiB */
  #define OTA_AREA_LEN 0x5000u

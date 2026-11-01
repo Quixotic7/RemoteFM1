@@ -669,7 +669,7 @@
 +static int smk_fl_read(uint32_t off, void *p, uint32_t n);
 +static int smk_fl_erase(uint32_t off);
 +static int smk_fl_write(uint32_t off, const void *p, uint32_t n);
-+#define SMK_STOCKTAG_MARK (PLAT_SMK_STOCKTAG + 0xFF8u)
++#define SMK_MARK_AT (PLAT_SMK_MARK + 0xFF8u)
 +
 +static int smk_hits(uint32_t off, uint32_t n, uint32_t lo, uint32_t hi)   /* [off, off + n) touches [lo, hi) */
 +{
@@ -685,13 +685,13 @@
 +        return -1;
 +    if (smk_stock_gone || !smk_hits(off, n, PLAT_XDATA1_LO, PLAT_XDATA1_HI))
 +        return 0;
-+    if (smk_fl_read(SMK_STOCKTAG_MARK, m, 8))
++    if (smk_fl_read(SMK_MARK_AT, m, 8))
 +        return -1;
 +    for (i = 0; i < 8u; i++)
 +        blank &= m[i] == 0xFFu;
 +    if (!blank) {
 +        smk_stock_erases++;
-+        if (smk_fl_erase(PLAT_SMK_STOCKTAG) || smk_fl_read(SMK_STOCKTAG_MARK, m, 8))
++        if (smk_fl_erase(PLAT_SMK_MARK) || smk_fl_read(SMK_MARK_AT, m, 8))
 +            return -1;
 +        for (i = 0; i < 8u; i++)
 +            if (m[i] != 0xFFu)
@@ -899,7 +899,7 @@
  #define DATA_BASE PLAT_XDATA0_LO
 -static uint8_t data_area[PLAT_XDATA1_HI - DATA_BASE];
 +#if BOARD_SMK37                                 /* (the SMK-37: the stock firmware's marker sector after USRFLASH too) */
-+#define DATA_END (PLAT_SMK_STOCKTAG + 0x1000u)
++#define DATA_END (PLAT_SMK_MARK + 0x1000u)
 +#else
 +#define DATA_END PLAT_XDATA1_HI
 +#endif
@@ -1087,7 +1087,7 @@
 +        static const uint8_t M[8] = {'u', 's', 'r', 'd', 'a', 't', 'a', 0};
 +        data_init();
 +        memset(&data_area[PLAT_XDATA1_LO - DATA_BASE], 0x5A, 0x200u);
-+        memcpy(&data_area[PLAT_SMK_STOCKTAG + 0xFF8u - DATA_BASE], M, 8);
++        memcpy(&data_area[PLAT_SMK_MARK + 0xFF8u - DATA_BASE], M, 8);
 +    } else if (!strcmp(a, "foreign")) {             /* smk foreign: another firmware's tag and data in the VM */
 +        data_init();
 +        memset(&data_area[PLAT_DATA_LO - DATA_BASE], 0xA5, 0x100u);
@@ -1141,7 +1141,7 @@
 +    else if (!strcmp(what, "smk_owner_clears"))     /* starts that cleared another firmware's data */
 +        got = (int)smk_owner_clears;
 +    else if (!strcmp(what, "smk_marker"))           /* the stock marker stands */
-+        got = data_area[PLAT_SMK_STOCKTAG + 0xFF8u - DATA_BASE] == 'u';
++        got = data_area[PLAT_SMK_MARK + 0xFF8u - DATA_BASE] == 'u';
 +    else if (!strcmp(what, "smk_mapping"))          /* the stock mapping ("smk stock") is as it was */
 +        got = data_area[PLAT_XDATA1_LO - DATA_BASE] == 0x5A && data_area[PLAT_XDATA1_LO + 0x1FFu - DATA_BASE] == 0x5A;
 +    else if (!strcmp(what, "smk_foreign"))          /* another firmware's data ("smk foreign") still in the VM */
@@ -1189,7 +1189,7 @@
 +#define PLAT_DATA_LO 0x9D000u
 +#define PLAT_DATA_HI 0xBB000u
 +#define PLAT_SMK_TAG 0xAF000u
-+#define PLAT_SMK_STOCKTAG 0xEA000u           /* the stock firmware's USRFLASH end marker's sector (device/smk_store.c) */
++#define PLAT_SMK_MARK 0xEA000u           /* the stock firmware's USRFLASH end marker's sector (device/smk_store.c) */
 +#define PLAT_XDATA0_LO 0x9D000u
 +#define PLAT_XDATA0_HI 0x9D000u
 +#define PLAT_XDATA1_LO 0xC2000u

@@ -70,12 +70,12 @@ int main(void)
             fails++;
         }
         if (APP_STORE_OK(off, 0x1000u) && (protected_hit(off, off + 0x1000u) || off == PLAT_SMK_TAG ||
-                                           off == PLAT_SMK_STOCKTAG || (off >= 0xBB000u && off < 0xC0000u))) {
+                                           off == PLAT_SMK_MARK || (off >= 0xBB000u && off < 0xC0000u))) {
             printf("FAIL APP_STORE_OK allows 0x%05X (protected, the tag, the marker or the staging)\n", off);
             fails++;
         }
         if (PLAT_DATA_OK(off, 0x1000u) && (protected_hit(off, off + 0x1000u) || off == PLAT_SMK_TAG ||
-                                           off == PLAT_SMK_STOCKTAG || (off >= 0xBB000u && off < 0xC0000u))) {
+                                           off == PLAT_SMK_MARK || (off >= 0xBB000u && off < 0xC0000u))) {
             printf("FAIL PLAT_DATA_OK allows 0x%05X\n", off);
             fails++;
         }

@@ -1,5 +1,3 @@
-diff --git a/app.h b/app.h
-index ef4e4a8..1fb29cd 100644
 --- a/app.h
 +++ b/app.h
 @@ -12,6 +12,9 @@
@@ -51,11 +49,9 @@ index ef4e4a8..1fb29cd 100644
  #define APP_STORE_MUX
  #define APP_STORE_VIRTUAL(obj) ((obj) == OBJ_BLE || (obj) == OBJ_SA)   /* records in OBJ_RF */
  int plat_store_raw_load(uint32_t obj, void *dst, uint32_t max);   /* (fm1-base's, under APP_STORE_MUX) */
-diff --git a/sa/sa_main.c b/sa/sa_main.c
-index 57717f9..3ec9d53 100644
 --- a/sa/sa_main.c
 +++ b/sa/sa_main.c
-@@ -62,6 +62,11 @@ static void rf_sa_leds(uint32_t btns, uint32_t keys, uint32_t keys_root, uint32_
+@@ -62,6 +62,11 @@
                                                * a scale's root (75 %), its notes (40 %) */
  
  #define SA_NOTE0 53u                         /* key 0 at octave 0: F3 */
@@ -67,7 +63,7 @@ index 57717f9..3ec9d53 100644
  #define SA_HOST_MS 3000u                     /* a HELLO without a session: panel mode this long after its last message */
  #define SA_OVERLAY_MS 1000u
  #define SA_LED_REFRESH_MS 500u                /* the LEDs written again this often, changed or not */
-@@ -125,8 +130,11 @@ static struct {
+@@ -125,8 +130,11 @@
      char name[12];                           /* the voice's */
      uint32_t keys;                           /* keys held (as played: lib/touch) */
      uint32_t btns;                           /* buttons held (plat.h's B_*) */
@@ -81,7 +77,7 @@ index 57717f9..3ec9d53 100644
      uint8_t held[128];                       /* the notes sounding from the keys and MIDI in, counted: the screen */
      uint8_t latch;                           /* LATCH (LFO held): the keys' notes held after they are let go */
      uint8_t rm_disp, rm_rel, rm_cc_ch, rm_key_ch, rm_keys, rm_octk;   /* the settings (SA_RMD_*, SA_RMR_*, 1..16,
-@@ -331,14 +339,22 @@ static void sa_latch_release(void)           /* every latched note let go */
+@@ -331,14 +339,22 @@
      sa.lat_n = 0;
  }
  
@@ -106,7 +102,7 @@ index 57717f9..3ec9d53 100644
                  sa_latch_release();
              } else {
                  uint32_t i, j;
-@@ -402,6 +418,12 @@ static void sa_all_off(int now)
+@@ -402,6 +418,12 @@
      for (k = 0; k < NKEYS; k++)
          if (sa.keys >> k & 1u)
              sa_key(k, 0);
@@ -119,7 +115,7 @@ index 57717f9..3ec9d53 100644
      sa_latch_release();
      sa_remote_off_all();
      for (k = 0; k < 128u; k++)
-@@ -1288,7 +1310,7 @@ static void sa_init(void)
+@@ -1288,7 +1310,7 @@
      sl_init();
      sl_store_load();                         /* the loops kept (SAVE held) */
      sar_init();
@@ -128,7 +124,7 @@ index 57717f9..3ec9d53 100644
          sa.key_note[k] = 0xFFu;
      sa.led_b = sa.led_k = 0xFFFFFFFFu;
      sa_load();
-@@ -1304,4 +1326,7 @@ static void sa_ui_init(void)                 /* (app_ui_init: the platform is up
+@@ -1304,4 +1326,7 @@
          touch_on(1);
  }
  
@@ -136,11 +132,9 @@ index 57717f9..3ec9d53 100644
 +#include "sa_smk.c"                          /* the M-Vave SMK-37's outer keys, faders, wheels, pedal and extra buttons */
 +#endif
  #include "sa_ui.c"
-diff --git a/sa/sa_remote.c b/sa/sa_remote.c
-index 23ba07e..fc95c49 100644
 --- a/sa/sa_remote.c
 +++ b/sa/sa_remote.c
-@@ -111,13 +111,13 @@ static void sa_rm_exit(int send)             /* send: 0 for the buttons held, th
+@@ -111,13 +111,13 @@
          for (b = 0; b < NB; b++)
              if (((sa.btns & ~rm.mute) >> b & 1u) && sa_rm_btn_cc(b))
                  sa_midi3(0xB0u | SA_RM_CC_CH(), SA_RM_BTN_CC[b], 0);
@@ -156,12 +150,9 @@ index 23ba07e..fc95c49 100644
          sa.key_note[k] = 0xFFu;
      rm.on = 0;
      sa.led_b = sa.led_k = 0xFFFFFFFFu;
-diff --git a/sa/sa_smk.c b/sa/sa_smk.c
-new file mode 100644
-index 0000000..d358f16
---- /dev/null
+--- a/sa/sa_smk.c
 +++ b/sa/sa_smk.c
-@@ -0,0 +1,84 @@
+@@ -0,0 +1,85 @@
 +/* SPDX-License-Identifier: MPL-2.0
 + * Copyright (C) 2026 RemoteFM1 contributors */
 +/* The M-Vave SMK-37's controls the FM-1 has not (docs/SMK37.md; fm1-base's plat_smk_take, BOARD_SMK37), standalone:
@@ -221,10 +212,11 @@ index 0000000..d358f16
 +        if (v) {
 +            if (sa.okeys & bit)
 +                return;
++            sa_key(k, sa.vel_on ? v : SA_VEL_FIXED);   /* (before it counts as held: a LATCH's new chord, as the 27
++                                                         * keys', starts when no other key is held) */
 +            sa.okeys |= bit;
-+            sa_key(k, sa.vel_on ? v : SA_VEL_FIXED);
 +        } else if (sa.okeys & bit) {
-+            sa.okeys &= ~bit;                /* (before sa_key: a LATCH's next chord sees it let go) */
++            sa.okeys &= ~bit;
 +            sa_key(k, 0);
 +        }
 +        return;
@@ -246,8 +238,6 @@ index 0000000..d358f16
 +    default: return;
 +    }
 +}
-diff --git a/sa/sa_store.c b/sa/sa_store.c
-index 8b085c3..d2c18fb 100644
 --- a/sa/sa_store.c
 +++ b/sa/sa_store.c
 @@ -25,8 +25,17 @@
@@ -268,7 +258,7 @@ index 8b085c3..d2c18fb 100644
  #define SF_MAGIC 0x31444652u                 /* "RFD1" */
  #define SF_UB 16u                            /* user banks */
  #define SF_NL 16u                            /* loops (sa_loop.c SA_LOOPS) */
-@@ -131,7 +140,11 @@ static int sf_write(uint32_t off, const void *src, uint32_t n)
+@@ -131,7 +140,11 @@
      return plat_data_write(off, src, n);
  }
  
@@ -280,11 +270,9 @@ index 8b085c3..d2c18fb 100644
  
  static int sf_dir_ok(const sf_dir_t *d)
  {
-diff --git a/src/rfm_host.c b/src/rfm_host.c
-index 4e29f07..e6e676e 100644
 --- a/src/rfm_host.c
 +++ b/src/rfm_host.c
-@@ -606,6 +606,25 @@ int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, c
+@@ -606,6 +606,25 @@
          hb_run();
          return 1;
      }
@@ -310,7 +298,7 @@ index 4e29f07..e6e676e 100644
      if (t < 0) {
          printf("rf %s: a transport (usb, bk, ble)\n", a);
          exit(2);
-@@ -780,8 +799,10 @@ int app_expect(const char *what, int *got)
+@@ -780,8 +799,10 @@
      else if (!strcmp(what, "rf_hello_sxq"))
          *got = (int)rf_rd16(hs_hello + 29);
      else if (!strcmp(what, "rf_hello_ident"))
@@ -322,8 +310,6 @@ index 4e29f07..e6e676e 100644
      else if (!strcmp(what, "rf_panel_flags"))
          *got = hs_panel[RFM_PANEL_FLAGS];
      else if (!strcmp(what, "rf_panel_keys"))
-diff --git a/src/rfm_main.c b/src/rfm_main.c
-index 58751cd..34d8425 100644
 --- a/src/rfm_main.c
 +++ b/src/rfm_main.c
 @@ -56,7 +56,16 @@
@@ -343,7 +329,7 @@ index 58751cd..34d8425 100644
  #if RFM_SHADOW
  #define RFA_CAPS (RFM_CAP_SHADOW | RFM_CAP_COPY | RFM_CAP_RLE | RFM_CAP_PAL | RFM_CAP_PLAY_GREEN | RFM_CAP_HOLD | \
                    RFM_CAP_BLE_FAST | RFM_CAP_MIDI_IN | RFM_CAP_TOUCH)  /* (the radio's settings: fm1.toml ble_dle, ble_2m, ble_rx_bufs) */
-@@ -84,9 +93,10 @@ static void rp_wdt(void);                           /* the watchdog fed (inside
+@@ -84,9 +93,10 @@
  static uint32_t rp_bk_rx_n(void), rp_bk_tx_n(void); /* the vendor rings' sizes (HELLO_R) */
  enum { RC_RESETS, RC_SETUPS, RC_EP1_RX, RC_EP1_TX, RC_EP3_RX, RC_EP3_TX, RC_EP3_HELD, RC_LCD_TIMEOUTS, RC_N };
  static void rp_counters(uint32_t *c);               /* USB's and the panel's counters (STATS_R) */
@@ -356,7 +342,7 @@ index 58751cd..34d8425 100644
  static const int8_t RF_KEYMAP[6][RFM_NCOL] = {
      {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}, {5, 11, 4, 10, 3, 9, 2, 8, -1, -1, -1},
      {34, 35, 36, 37, 38, 40, 39, 13, 7, 6, 12},   {23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33},
-@@ -595,7 +605,10 @@ static void rfa_hello_dev(uint8_t *h, uint32_t t)
+@@ -595,7 +605,10 @@
      h[25] = (uint8_t)((rp_usb_cfg() ? 1u : 0u) | 2u | (uint32_t)(rf_heard & 3u) << 2 |
                        (plat_ble_connected() ? 0x10u : 0u) | (rf_heard & 4u ? 0x20u : 0u));
      h[26] = 1;                                      /* the main loop polls USB */
@@ -368,7 +354,7 @@ index 58751cd..34d8425 100644
      h[27] = LCD_BAUD;
  #else
      h[27] = 0;
-@@ -1068,6 +1081,63 @@ static void rf_rx_step(void)
+@@ -1068,6 +1081,63 @@
          rfm_app_activity();                         /* (SINK too: the keepalive counts every byte) */
  }
  
@@ -432,7 +418,7 @@ index 58751cd..34d8425 100644
  /* ------------------------------------------------------------------ the panel, once a millisecond --- */
  static uint32_t rf_usb_resets_seen;
  static uint8_t rf_ble_was;
-@@ -1084,6 +1154,9 @@ static void rf_ms_step(void)
+@@ -1084,6 +1154,9 @@
          steps[RF_ENC_OF_ROLE[e]] += roles[e];
      }
      sa_ms(lb, roles);                               /* standalone: the instrument; panel mode: its timeout */

@@ -97,8 +97,9 @@ if [ $SMK = 1 ]; then
         for f in "$APPDIR"/build/remotefm1-smk37*.fwsc; do
             [ ! -f "$f" ] || cp -p "$f" firmware/build/
         done
-        for f in "$APPDIR"/build/host/remotefm1-smk37*_host; do
-            [ ! -f "$f" ] || cp "$f" firmware/build/host/
+        for f in "$APPDIR"/build/host/remotefm1-smk37*_host; do   # (a new file, not over the old one: macOS kills
+            [ ! -f "$f" ] || { cp -p "$f" "firmware/build/host/.$(basename "$f")" &&  # a binary rewritten in place)
+                               mv -f "firmware/build/host/.$(basename "$f")" "firmware/build/host/$(basename "$f")"; }
         done
         echo "(the SMK-37's packages and simulator copied to firmware/build/)"
         exit 0
