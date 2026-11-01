@@ -10,6 +10,11 @@
 #   ./build.sh --host               the host simulator: firmware/build/host/remotefm1_host (tests/run_tests.sh)
 #   ./build.sh --bench [--no-ble]   the FM6 bench build: firmware/build/remotefm1[-usb]-bench.fwsc, which measures the
 #                                   standalone DX7 at boot (firmware/sa/sa_bench.c; firmware/tools/sa_bench.py reads it)
+#   BOARD=smk37 [MODEL=pro|elite|mke] ./build.sh [--no-ble] [--host] [--release X.Y.Z]   the M-Vave SMK-37
+#                                   (docs/SMK37.md): firmware/build/remotefm1-smk37[-elite|-mke][-usb][-X.Y.Z].fwsc, or
+#                                   the simulator build/host/remotefm1-smk37[...]_host; the SMK's own patch series
+#                                   (firmware/patches/smk37/) applied after the others, so the FM-1's inputs stay as
+#                                   they are (BOARD unset or fm1: the FM-1)
 #   JIELI_TOOLCHAIN  JieLi's Linux toolchain (default ~/.jieli/toolchain; on a Mac it runs in Docker)
 #   AC79_SDK         JieLi's AC79 SDK, for its Bluetooth libraries (default ~/fw-AC79_AIoT_SDK; never committed)
 #   PYTHON           a Python whose Pillow has libraqm (fm1-base's fonts); on a Mac DYLD_LIBRARY_PATH=/opt/homebrew/lib
@@ -55,6 +60,20 @@ for p in firmware/patches/felucca-bsp/*.patch; do
     GIT_CEILING_DIRECTORIES="$ROOT/build" git -C "$B/bsp" apply "$ROOT/$p" ||
         { echo "build.sh: $p does not apply to base/bsp (felucca-bsp moved on?)"; exit 1; }
 done
+case "${BOARD:-fm1}" in
+fm1) ;;
+smk37)                                                  # the SMK-37's series, on top (firmware/patches/smk37/UPSTREAM.md)
+    [ $BENCH = 0 ] || { echo "build.sh: --bench is the FM-1's"; exit 1; }
+    for p in firmware/patches/smk37/fm1-base/*.patch; do
+        GIT_CEILING_DIRECTORIES="$ROOT/build" git -C "$B" apply "$ROOT/$p" ||
+            { echo "build.sh: $p does not apply"; exit 1; }
+    done
+    for p in firmware/patches/smk37/felucca-bsp/*.patch; do
+        GIT_CEILING_DIRECTORIES="$ROOT/build" git -C "$B/bsp" apply "$ROOT/$p" ||
+            { echo "build.sh: $p does not apply"; exit 1; }
+    done ;;
+*) echo "build.sh: BOARD=$BOARD: fm1 or smk37"; exit 1 ;;
+esac
 if [ $BENCH = 0 ]; then
     exec "$PY" "$B/tools/build.py" firmware "$@"
 fi
