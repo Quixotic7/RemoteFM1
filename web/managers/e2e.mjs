@@ -11,7 +11,7 @@
 //           INFO), opens FM1VST's test bank (tests/fixtures/pigeon/bank.kob), sends it (Send bank, verified by its
 //           read-back), and then the keys sound (the player's output, through an AnalyserNode)
 // Screenshots: web/build/test/editor-<id>-<mode>.png (and SHOTS_DIR when set).
-//   node web/managers/e2e.mjs [id ...] [--mode engine|double|notes|both]     (after node web/managers/build.mjs; the native
+//   node web/managers/e2e.mjs [id ...] [--mode engine|double|notes|both] [--engine native|rfm1]     (after node web/managers/build.mjs; the native
 //   cores in web/build/native: web/engines/native/build.sh)
 // Exit 1 when a check fails. "engine" without an answering core reports "no reply" (expected until sysex-glue lands)
 // and fails only if the manager's bytes did not reach the engine.
@@ -27,7 +27,8 @@ const CHROMIUM = process.env.CHROMIUM || "/Applications/Chromium.app/Contents/Ma
 const OUT = join(WEB, "build", "test"), SHOTS = process.env.SHOTS_DIR || null;
 const argv = process.argv.slice(2), mi = argv.indexOf("--mode");
 const MODE = mi >= 0 ? argv[mi + 1] : "both";
-const IDS = argv.filter((a, i) => !a.startsWith("--") && i !== mi + 1);
+const ei = argv.indexOf("--engine"), ENGINE = ei >= 0 ? argv[ei + 1] : "native";     // rfm1: the firmware's .rfm1 file
+const IDS = argv.filter((a, i) => !a.startsWith("--") && i !== mi + 1 && i !== ei + 1);
 const INDEX = JSON.parse(readFileSync(join(WEB, "build", "managers", "index.json"), "utf8"));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 mkdirSync(OUT, { recursive: true });
@@ -126,9 +127,9 @@ async function session(id, mode) {
       while (Date.now() - t0 < 12000) { now = await autosave(); if (now && now !== before && now.split(" ")[1] !== (before || " ").split(" ")[1]) break; await sleep(300); }
       return ok(now && now !== before && now.split(" ")[1] !== (before || " ").split(" ")[1], `${id}: ${what}'s flash writes reached the site's Autosave (${before || "none"} -> ${now || "none"})`);
     };
-    await S("Page.navigate", { url: `${BASE}site/?fw=${id}&engine=native` });
+    await S("Page.navigate", { url: `${BASE}site/?fw=${id}&engine=${ENGINE}` });
     const up = await until(`window.FM1Editor && FM1Editor.bridge.target.connected && FM1Editor.bridge.target.port`, 25000);
-    ok(up, `${id}: the native engine runs, the in-page port is "${up}"`);
+    ok(up, `${id}: the ${ENGINE} engine runs, the in-page port is "${up}"`);
     if (!up) return;
     const r = { id, mode, port: up };
     // the double: the manager's own simulator in place of the core, behind the same bridge (installed before the
@@ -189,7 +190,7 @@ async function session(id, mode) {
     else console.log(`  ${answered ? "ok  " : "--  "}  ${id}: INFO ${answered ? `answered: "${r.version}"` : "not answered (the core has no SysEx service yet: FM1VST sysex-glue)"}; status "${r.status}"`);
 
     // ---- a backup get, a put and the get-back
-    if (answered && felucca(id)) {
+    if (answered && felucca(id) && await ev(`${FR} !!F.document.getElementById("backup-export")`)) {
       const caps = await ev(`${FR} (F.document.getElementById("backup-export").disabled ? 0 : 1) | (F.document.getElementById("backup-import").disabled ? 0 : 2)`);
       if (caps & 1) {
         const save = async () => {
@@ -252,7 +253,9 @@ async function session(id, mode) {
       await ev(`dispatchEvent(new KeyboardEvent("keyup", { code: "KeyD", key: "d", bubbles: true })), true`);
       const f1 = await until(`FM1Editor.d.getState().frameSeq !== ${f0} ? FM1Editor.d.getState().frameSeq : null`, 3000);
       const ctx = await ev(`FM1Editor.d.getState().running && FM1Editor.d.getState().engineState`);
-      ok(f1 && ctx === "running", `${id}: the firmware keeps running with the editor open (screen frame ${f0} -> ${f1}, engine ${ctx})`);
+      // (SLOOP's home screen does not redraw for a key, with or without the editor: there the engine's state tells)
+      const still = id === "sloop" ? ctx === "running" : f1 && ctx === "running";
+      ok(still, `${id}: the firmware keeps running with the editor open (screen frame ${f0} -> ${f1}, engine ${ctx})`);
     }
     r.cmds = await ev(`JSON.stringify(window.__cmds)`);
     Object.assign(r, await ev(`({ toEngine: FM1Editor.bridge.stats.toEngine, toManagers: FM1Editor.bridge.stats.toManagers })`));
@@ -310,8 +313,10 @@ async function session(id, mode) {
   }
 }
 
-// the panel without a manager to show: an emulated firmware ("switch Engine to Native"), a firmware with no native
-// build whose editor is on its own site ("needs a real FM-1"); a phone upright (the panel under the FM-1)
+// the site's catalog lists the firmware on an .rfm1 (the dev catalog built with --fw-catalog)
+const rfm1Of = (id) => { try { return JSON.parse(readFileSync(join(WEB, "site", "catalog.json"), "utf8")).firmwares.some((f) => f.id === id && f.engines.includes("rfm1")); } catch (_) { return false; } };
+// the panel without a manager to show: an emulated firmware ("switch Engine to Native"), an emulated-only
+// firmware whose editor is on its own site ("needs a real FM-1"); a phone upright (the panel under the FM-1)
 async function notes() {
   const { p, wsUrl } = await launch();
   try {
@@ -323,8 +328,11 @@ async function notes() {
     const ev = async (expr) => { const r = await S("Runtime.evaluate", { expression: expr, awaitPromise: true, returnByValue: true, userGesture: true }); return r.exceptionDetails ? null : r.result.value; };
     const until = async (expr, ms) => { const t0 = Date.now(); for (;;) { const v = await ev(expr); if (v) return v; if (Date.now() - t0 > ms) return null; await sleep(150); } };
     const cases = [
-      { name: "emu", url: "site/?fw=felucca&engine=emu", w: 1600, h: 900, want: /switch Engine to Native/ },
-      { name: "real", url: "site/?fw=sloop", w: 1600, h: 900, want: /needs a real FM-1/ },
+      { name: "emu", url: "site/?fw=felucca&engine=emu", w: 1600, h: 900, want: /switch Engine to (Native|\.rfm1)/ },
+      { name: "real", url: "site/?fw=zp12", w: 1600, h: 900, want: /needs a real FM-1/ },
+      // with the .rfm1 files (build_catalog --fw-catalog): SLOOP's editor on its .rfm1, Skiff's only on its own site
+      ...(rfm1Of("sloop") ? [{ name: "rfm1", url: "site/?fw=sloop", w: 1600, h: 900, want: /SLOOP editor/, frame: true }] : []),
+      ...(rfm1Of("skiff") ? [{ name: "rfm1-link", url: "site/?fw=skiff&engine=rfm1", w: 1600, h: 900, want: /not hosted on this site yet/ }] : []),
       { name: "phone", url: "site/?fw=jiant&engine=native", w: 390, h: 844, mobile: true, want: /JIANT FM editor/, frame: true },
     ];
     for (const c of cases) {
@@ -372,9 +380,9 @@ async function pigeonSession() {
     };
     const until = async (expr, ms, step = 100) => { const t0 = Date.now(); for (;;) { let v; try { v = await ev(expr); } catch (_) { v = null; } if (v) return v; if (Date.now() - t0 > ms) return null; await sleep(step); } };
     const status = () => ev(`${FR} F.document.getElementById("status").textContent`);
-    await S("Page.navigate", { url: `${BASE}site/?fw=${id}&engine=native` });
+    await S("Page.navigate", { url: `${BASE}site/?fw=${id}&engine=${ENGINE}` });
     const up = await until(`window.FM1Editor && FM1Editor.bridge.target.connected && FM1Editor.bridge.target.port`, 25000);
-    ok(up === "PIGEON", `${id}: the native engine runs, the in-page port is "${up}"`);
+    ok(up === "PIGEON", `${id}: the ${ENGINE} engine runs, the in-page port is "${up}"`);
     if (!up) return;
     // the player's output, measured: the loudest sample over a window, through an AnalyserNode on the output
     await ev(`(() => { const pl = FM1Rec.o.getPlayer(), an = pl.ctx.createAnalyser(); an.fftSize = 2048; pl.out.connect(an);
@@ -436,7 +444,7 @@ if (MODE === "notes" || (MODE === "both" && !IDS.length)) { console.log("== the 
 for (const id of ids) {
   const core = INDEX.managers.find((m) => m.id === id);
   if (!core) { ok(false, `${id}: no such hosted manager`); continue; }
-  if (!existsSync(join(WEB, "build", "native", `${id}.wasm`))) { ok(false, `${id}: no web/build/native/${id}.wasm (web/engines/native/build.sh)`); continue; }
+  if (ENGINE === "native" && !existsSync(join(WEB, "build", "native", `${id}.wasm`))) { ok(false, `${id}: no web/build/native/${id}.wasm (web/engines/native/build.sh)`); continue; }
   for (const mode of MODE === "both" ? ["double", "engine"] : [MODE]) {
     console.log(`== ${id} (${mode})`);
     if (id === "pigeon" && mode === "double") { console.log("  --    pigeon: no double (the loader has no simulator of its own)"); continue; }

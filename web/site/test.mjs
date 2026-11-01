@@ -1298,6 +1298,37 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   }
 }
 
+// ---- the Editor panel on an .rfm1 firmware (js/managers.js, web/managers/managers.json): SLOOP's and KARMA's editors are
+// hosted, take the "Felucca" port and talk SysEx through the bridge to a fake .rfm1 engine (midiIn / midiOut, API.md)
+{
+  const { ManagerBridge, editorOf, portOf } = await import("./js/managers.js");
+  const spec = JSON.parse(readFileSync(new URL("../managers/managers.json", import.meta.url), "utf8"));
+  const index = { managers: spec.managers, ports: spec.ports };
+  const sloop = { id: "sloop", name: "SLOOP", engines: ["rfm1", "emu"], editor: "https://isod89.github.io/sloop-fm1/webapp/editor/" };
+  const karma = { id: "karma", name: "KARMA", engines: ["rfm1"], editor: null };
+  ok(editorOf(sloop, index)?.kind === "hosted" && editorOf(sloop, index).manager.id === "sloop" && portOf(sloop, index) === "Felucca", "editor: SLOOP's editor is hosted, port Felucca");
+  ok(editorOf(karma, index)?.kind === "hosted" && portOf(karma, index) === "Felucca", "editor: KARMA's editor is hosted, port Felucca");
+  ok(editorOf({ id: "skiff", engines: ["rfm1"], editor: "https://x/" }, index)?.kind === "real", "editor: a firmware whose editor is only on its site stays a link");
+  // the fake .rfm1 engine: an INFO request (F0 7D .. 01 F7) answered by a SysEx reply on its MIDI out, in two chunks
+  const fake = { inq: [], outq: [], midiIn(b) { this.inq.push(Uint8Array.from(b)); if (b[0] === 0xf0 && b[b.length - 2] === 0x01) this.outq.push(Uint8Array.of(0xf0, 0x7d, 0x02, 0x53, 0x4c), Uint8Array.of(0xf8, 0x4f, 0x50, 0xf7)); },
+                midiOut() { const o = this.outq.flatMap((x) => [...x]); this.outq = []; return Uint8Array.from(o); } };
+  const bridge = new ManagerBridge({ toEngine: (b) => fake.midiIn(b), win: null, BC: null });
+  const got = [];
+  bridge.receive({ __fm1mgr: 1, sid: "s1", type: "hello", manager: "sloop" }, "frame", (m) => got.push(m));
+  ok(got[0]?.type === "state" && got[0].connected === false, "editor: no port before the .rfm1 firmware runs");
+  bridge.setTarget({ port: portOf(sloop, index), firmware: "SLOOP 2.8.4", engine: "rfm1" });
+  ok(got.at(-1).type === "state" && got.at(-1).connected && got.at(-1).port === "Felucca" && got.at(-1).engine === "rfm1", "editor: the .rfm1 engine gives the editor its port");
+  bridge.receive({ __fm1mgr: 1, sid: "s1", type: "midi", bytes: Uint8Array.of(0xf0, 0x7d, 0x01, 0xf7) }, "frame", (m) => got.push(m));
+  ok(fake.inq.length === 1 && fake.inq[0].length === 4, "editor: the editor's SysEx reaches the .rfm1 engine's MIDI in");
+  const out = fake.midiOut();
+  bridge.fromEngine(out.subarray(0, 3)); bridge.fromEngine(out.subarray(3));
+  const reply = got.filter((m) => m.type === "midi");
+  ok(reply.length === 1 && Array.from(reply[0].bytes).join() === [0xf0, 0x7d, 0x02, 0x53, 0x4c, 0x4f, 0x50, 0xf7].join(), "editor: the firmware's SysEx reply comes back whole (clock dropped)");
+  bridge.setTarget({ port: null });
+  bridge.receive({ __fm1mgr: 1, sid: "s1", type: "midi", bytes: Uint8Array.of(0xf0, 0x7d, 0x01, 0xf7) }, "frame", () => {});
+  ok(fake.inq.length === 1, "editor: nothing reaches the engine once the port is gone");
+}
+
 // ---- a DX7 cartridge to the FM-1 (js/cart.js; docs/CART-UPLOAD.md): parsed, checked, sent to a fake MIDI port
 {
   const C = await import("./js/cart.js");

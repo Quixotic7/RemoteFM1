@@ -4,7 +4,8 @@
 // playing, with sound, while the panel is open; "Pop out" opens the manager in a tab of its own (a BroadcastChannel).
 //   native firmware (or an .rfm1 file) with a hosted manager   the manager
 //   emulated (or the test engine)           "Editors work with the native engine; switch Engine to Native"
-//   no native build, an editor on its site  "This firmware's editor needs a real FM-1" and a link to it
+//   native / .rfm1, an editor only on its site   "not hosted on this site yet" and a link to it
+//   emulated only, an editor on its site    "This firmware's editor needs a real FM-1" and a link to it
 import { ManagerBridge, editorOf, portOf } from "./managers.js";
 
 const $ = (id) => document.getElementById(id);
@@ -34,7 +35,7 @@ export class EditorPanel {
     const s = this.d.getState(), e = s.entry, ed = this.editor;
     this.btn.hidden = !ed;
     if (ed) {
-      this.btn.title = ed.kind === "hosted" ? `${ed.manager.title}: ${e.name}'s own editor, on the firmware running here` : `${e.name}'s editor (it needs a real FM-1)`;
+      this.btn.title = ed.kind === "hosted" ? `${ed.manager.title}: ${e.name}'s own editor, on the firmware running here` : `${e.name}'s editor (on its own site, for an FM-1 on USB)`;
       this.btn.setAttribute("aria-expanded", String(this.open));
       this.btn.classList.toggle("on", this.open);
     }
@@ -99,15 +100,23 @@ export class EditorPanel {
     const p = (text, cls = "") => { const el = document.createElement("p"); el.textContent = text; if (cls) el.className = cls; box.append(el); return el; };
     const btn = (text, onclick, cls = "pill primary") => { const b = document.createElement("button"); b.className = cls; b.textContent = text; b.onclick = onclick; box.append(b); return b; };
     if (ed.kind === "hosted") {
-      const canNative = e.engines.includes("native");
-      p(s.engine === "mock" && s.wantEngine === "native"
-        ? `The native engine could not start here, so ${ed.manager.title} has no firmware to talk to.`
-        : "Editors work with the native engine; switch Engine to Native.", "ed-lead");
-      p(`${ed.manager.title} talks to the firmware over MIDI SysEx. The emulated FM-1 (fm1-emu) has no MIDI out, so it cannot answer; the native engine runs ${e.name}'s own code and does.`, "muted");
-      if (canNative && s.engine !== "native") btn(`Switch ${e.name} to Native`, () => this.d.setEngine("native"));
+      // the engine to offer: the firmware's own code, native or its .rfm1 (whichever the catalog lists first)
+      const own = e.engines.find((k) => k === "native" || k === "rfm1") || null;
+      const ownName = own === "rfm1" ? ".rfm1" : "Native";
+      p(s.engine === "mock" && (s.wantEngine === "native" || s.wantEngine === "rfm1")
+        ? `The ${s.wantEngine === "rfm1" ? ".rfm1" : "native"} engine could not start here, so ${ed.manager.title} has no firmware to talk to.`
+        : `Editors work with the firmware's own code; switch Engine to ${own ? ownName : "Native"}.`, "ed-lead");
+      p(`${ed.manager.title} talks to the firmware over MIDI SysEx. The emulated FM-1 (fm1-emu) has no MIDI out, so it cannot answer; the native and .rfm1 engines run ${e.name}'s own code and do.`, "muted");
+      if (own && s.engine !== own) btn(`Switch ${e.name} to ${ownName}`, () => this.d.setEngine(own));
+    } else if (e.engines.some((k) => k === "native" || k === "rfm1")) {
+      // the firmware runs its own code here, but its editor is not hosted on this site (yet): only its own site has it
+      p(`${e.name}'s editor is not hosted on this site yet.`, "ed-lead");
+      p(`It lives on ${e.name}'s own site, which cannot reach the firmware running in this page. Open it there with ${e.name} on your FM-1 over USB (Chrome or Edge).`, "muted");
     } else {
       p("This firmware's editor needs a real FM-1.", "ed-lead");
-      p(`${e.name} has no native build on this site, and the emulated FM-1 has no MIDI out, so its editor cannot talk to the firmware here. Open it on its own site with ${e.name} on your FM-1 over USB (Chrome or Edge).`, "muted");
+      p(`${e.name} has no native or .rfm1 build on this site, and the emulated FM-1 has no MIDI out, so its editor cannot talk to the firmware here. Open it on its own site with ${e.name} on your FM-1 over USB (Chrome or Edge).`, "muted");
+    }
+    if (ed.kind === "real") {
       const a = document.createElement("a"); a.className = "pill primary"; a.href = ed.url; a.target = "_blank"; a.rel = "noopener"; a.textContent = `Open ${e.name}'s editor ↗`;
       box.append(a);
     }

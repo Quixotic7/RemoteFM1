@@ -21,7 +21,9 @@
     "grimm": "Felucca",
     "pigeon": "PIGEON",
     "tonitor": "FM-1 Tonitor",
-    "speak37": "Speak37"
+    "speak37": "Speak37",
+    "sloop": "Felucca",
+    "karma": "Felucca"
   },
   "managers": [
     {
@@ -91,6 +93,30 @@
       "author": "Jason Persinger, a fork of Felucca by Leo Kuroshita, Hügelton Instruments",
       "repo": "https://github.com/jasonpersinger/ghoulbox-fm1-dungeon-synth",
       "upstream": "https://jasonpersinger.me/ghoulbox-fm1-dungeon-synth/webapp/editor/"
+    },
+    {
+      "id": "sloop",
+      "title": "SLOOP editor",
+      "firmwares": ["sloop"],
+      "tree": "sloop-fm1",
+      "page": "web/editor.html",
+      "files": ["web/fukiai.ttf", "web/FUKIAI-LICENSE.txt"],
+      "licence": "GPL-3.0-only",
+      "author": "isod89, a fork of Felucca by Leo Kuroshita, Hügelton Instruments",
+      "repo": "https://github.com/isod89/sloop-fm1",
+      "upstream": "https://isod89.github.io/sloop-fm1/webapp/editor/"
+    },
+    {
+      "id": "karma",
+      "title": "KARMA editor",
+      "firmwares": ["karma"],
+      "tree": "karma-fm1",
+      "page": "web/editor.html",
+      "files": ["web/fukiai.ttf", "web/FUKIAI-LICENSE.txt"],
+      "licence": "GPL-3.0-only",
+      "author": "Ariel Muchnik, a fork of SLOOP by isod89, on Felucca by Leo Kuroshita, Hügelton Instruments",
+      "repo": "https://github.com/eatyourgreensstudio-dotcom/karma-fm1",
+      "upstream": "https://eatyourgreensstudio-dotcom.github.io/karma-fm1/webapp/editor/"
     },
     {
       "id": "pigeon",
