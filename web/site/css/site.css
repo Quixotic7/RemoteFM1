@@ -577,3 +577,20 @@ body.learning #device { cursor: crosshair; }
 .cards.emu-only { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px; margin-top: 8px; }
 .cards.emu-only .card { opacity: 0.8; font-size: 0.92em; }
 .cards.emu-only .card:hover, .cards.emu-only .card:focus-visible { opacity: 1; }
+
+/* Fantasy CFW (FM1VST docs/VIRTUAL-CARTS.md): an .rfm1 for RemoteFM1 only. Its badge, and its RemoteFM1 folder
+   (js/folder-ui.js): the sheet's box (a drop zone with this site's storage) and the prompt when it has none */
+.fantasy-badge {
+  flex: none; padding: 1px 6px; border-radius: 6px; font: 700 9.5px/1.5 var(--ui); letter-spacing: .06em; text-transform: uppercase; white-space: nowrap;
+  color: #E9DBFF; background: linear-gradient(100deg, rgba(166, 120, 255, .35), rgba(255, 128, 196, .3)); border: 1px solid rgba(201, 174, 230, .55);
+}
+.card-top .fantasy-badge { margin-right: auto; font-size: 9px; padding: 0 5px; }
+.heading .fantasy-badge { letter-spacing: .06em; }
+.folder-box { padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; }
+.folder-box.over { border-color: #C9AEE6; background: color-mix(in srgb, var(--surface) 85%, #A678FF); }
+.folder-box.off .folder-top b { color: var(--muted); }
+.folder-top { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.folder-top b { font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.folder-pills { grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); }
+.folder-pills label.pill { position: relative; }
+.offer.folder-ask { border-color: #C9AEE6; }

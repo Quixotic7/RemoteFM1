@@ -153,6 +153,8 @@ export function nativeOrigin(e) {
 // (js/library.js: local). Both run on the rfm1 engine; their saves are the firmware's under engine "rfm1".
 export const siteRfm1 = (e) => !!(e && e.rfm1 && e.rfm1.from === "site");
 export const localRfm1 = (e) => !!(e && e.rfm1 && e.local);
+// a Fantasy CFW (FM1VST docs/VIRTUAL-CARTS.md): an .rfm1 for RemoteFM1 hosts only (its manifest's "virtual": true)
+export const fantasyCfw = (e) => !!(e && e.rfm1 && e.rfm1.virtual);
 // d: data/site-rfm1.json's record (file, author, category, tag, what, source, release, site, beta); m: the file's
 // manifest (engines/rfm1/engine.js inspect); file: { sha256, size }. The id, name, version, licence, authors, source and
 // glue are the manifest's
@@ -169,7 +171,8 @@ export function rfm1Entry(d, m, { sha256, size }) {
     play: null, editor: null, beta: !!d.beta,
     engines: ["rfm1"], defaultEngine: "rfm1", native: null, emu: null,
     rfm1: { from: "site", file: d.file, sha256, size, fileName: String(d.file).split("/").pop(), version: String(m.version),
-            sourceUrl: m.source_url || null, glueUrl: typeof m.glue_url === "string" ? m.glue_url : null, builtBy: m.built_by || null, authors },
+            sourceUrl: m.source_url || null, glueUrl: typeof m.glue_url === "string" ? m.glue_url : null, builtBy: m.built_by || null, authors,
+            ...(m.virtual === true || d.virtual === true ? { virtual: true } : {}) },
   };
 }
 

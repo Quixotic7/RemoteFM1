@@ -8,7 +8,7 @@
 // app (main.js) holds the state and the actions; the sheet re-renders its page on app.changed().
 import { PRESETS, CUSTOM_NAME, CHOICE_ROLES, accentOf, onAccent, css, hex } from "./theme.js";
 import { AUTOSAVE } from "./saves.js";
-import { browse, browseSections, cardView, ENGINE_FILTERS, nativeOrigin, nameOf, siteRfm1, localRfm1 } from "./live.js";
+import { browse, browseSections, cardView, ENGINE_FILTERS, nativeOrigin, nameOf, siteRfm1, localRfm1, fantasyCfw } from "./live.js";
 import { RELEASES } from "./library.js";
 import { MHZ_CHOICES, DEVICE_MHZ, DEVICE_RANGE, OVERCLOCK, DUAL_CORE, isOverclock, inDeviceRange } from "./cpu.js";
 import { SPEEDS, srcLabel } from "./midi-map.js";
@@ -54,6 +54,8 @@ function stepper(value, onStep) {
     h("span", {}, value),
     h("button", { "aria-label": "more", onclick: () => onStep(1), html: '<svg viewBox="0 0 16 16"><path d="M3.5 8h9M8 3.5v9"/></svg>' }));
 }
+// a Fantasy CFW (FM1VST docs/VIRTUAL-CARTS.md): an .rfm1 for RemoteFM1 hosts only
+const fantasyTag = () => h("span", { class: "fantasy-badge", title: "Fantasy CFW: runs in RemoteFM1 only, not on an FM-1" }, "Fantasy CFW");
 const pill = (text, onclick, kind = "", extra = {}) => h("button", { class: "pill " + kind, onclick, ...extra }, text);
 const link = (href, text) => h("a", { href, target: "_blank", rel: "noopener" }, text);
 // a learned encoder's modes, short (midi-map.js MODES)
@@ -123,9 +125,11 @@ export class Sheet {
     out.push(h("button", { class: "fw-card", onclick: () => this.show("firmware") },
       h("span", { class: "led" }),
       h("span", { class: "fw-text" },
-        h("span", { class: "fw-top" }, h("b", {}, e ? nameOf(e, st.wantEngine) : "No firmware"), h("span", { class: "muted" }, e ? a.versionOf(e, st.wantEngine) : "")),
+        h("span", { class: "fw-top" }, h("b", {}, e ? nameOf(e, st.wantEngine) : "No firmware"), h("span", { class: "muted" }, e ? a.versionOf(e, st.wantEngine) : ""), fantasyCfw(e) ? fantasyTag() : null),
         h("span", { class: "fw-meta" + (st.engineState === "mock" ? " warn" : "") }, a.metaLine())),
       h("span", { class: "chev", html: icon("right") })));
+    // a Fantasy CFW's RemoteFM1 folder (js/folder-ui.js)
+    if (a.folderSection) out.push(...a.folderSection());
 
     // SAVES
     out.push(heading("Saves"));
@@ -389,7 +393,7 @@ export class Sheet {
         const note = v.note || (runsEmu && DUAL_CORE.has(f.id) ? "CPU-heavy" : null);
         const card = h("button", { class: "card" + (f.badge ? " badged" : "") + (a.isCurrent(f) ? " current" : ""), title: `${f.name} ${v.version}\n${f.what || ""}`,
           "data-id": f.id, onclick: () => { a.openFirmware(f.id, v.engine); this.close(); } },
-          h("span", { class: "card-top" }, h("b", {}, f.name), f.badge ? h("span", { class: "card-tag" }, f.badge) : null, h("span", { class: "card-ver" }, v.version)),
+          h("span", { class: "card-top" }, h("b", {}, f.name), f.badge ? h("span", { class: "card-tag" }, f.badge) : null, fantasyCfw(f) ? fantasyTag() : null, h("span", { class: "card-ver" }, v.version)),
           note
             ? h("span", { class: "card-meta split" }, h("span", {}, meta), h("span", { class: "card-note" + (v.note ? "" : " heavy"),
                 title: v.note ? (eng === "native" ? `The Hub has ${f.version}; FM1VST's native core is ${f.native.version}` : `FM1VST's native core is ${f.native.version}; the Hub's latest ${f.version} runs emulated`)
@@ -447,7 +451,7 @@ export class Sheet {
     return h("div", { class: "card-wrap" },
       h("button", { class: "card" + (a.isCurrent(f) ? " current" : ""), title: `${f.name} ${f.version}\n${f.rfm1.fileName} (${Math.round(f.rfm1.size / 1024)} KiB), ${f.license || "no licence given"}`,
         "data-sha": sha, onclick: () => { a.openRfm1(sha); this.close(); } },
-        h("span", { class: "card-top" }, h("b", {}, f.name), h("span", { class: "card-ver" }, f.version)),
+        h("span", { class: "card-top" }, h("b", {}, f.name), fantasyCfw(f) ? fantasyTag() : null, h("span", { class: "card-ver" }, f.version)),
         h("span", { class: "card-meta" }, `.rfm1 · ${f.author}`),
         h("span", { class: "card-badge", title: "Runs natively (WebAssembly), from your .rfm1 file" })),
       h("button", { class: "card-x", "aria-label": `Remove ${f.name} ${f.version} from this browser`, title: "Remove from this browser",
@@ -461,8 +465,9 @@ export class Sheet {
     const kv = (k, v) => h("div", { class: "kv" }, h("span", { class: "k" }, k), h("span", { class: "v" }, v));
     const shown = st.engine === "mock" ? st.wantEngine : st.engine;
     if (e) {
-      out.push(heading(e.name));
+      out.push(heading(e.name, fantasyCfw(e) ? fantasyTag() : null));
       out.push(h("p", { class: "about-what" }, e.what || ""));
+      if (fantasyCfw(e)) out.push(kv("Runs", "in RemoteFM1 only, not on an FM-1"));
       out.push(kv("Version", a.versionOf(e, shown) + (shown === "native" && e.native.version !== e.version ? ` (the Hub's: ${e.version})` : "")));
       out.push(kv("Author", e.authorFull || e.author));
       out.push(kv("Licence", e.license || info.license || "see its source"));

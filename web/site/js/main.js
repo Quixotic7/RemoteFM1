@@ -23,6 +23,8 @@ import { EditorPanel } from "./editor-panel.js";
 import { RecUI } from "./rec-ui.js";
 import { MidiMap, Learn, MODES, srcLabel, speedOf, targetOf, knobTarget, buttonTarget } from "./midi-map.js";
 import { OmxLink, mountOmx } from "./omx-link.js";
+import { Folder } from "./folder.js";
+import { FolderUI } from "./folder-ui.js";
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -56,6 +58,14 @@ let soundOut = null;   // the output device: the system's or the FM-1's USB audi
 let editor = null;   // the Editor button and panel: the firmware's own manager, hosted (editor-panel.js)
 let rec = null;      // the recorder: the header's record button and Takes (rec-ui.js)
 let omx = null;      // an OMX-27 in REMOTE mode as the controller (omx-link.js)
+let folderUi = null; // a Fantasy CFW's RemoteFM1 folder: the sheet's section and the prompt (folder-ui.js)
+const folder = new Folder();   // its files (folder.js): the file API's requests are answered there
+// the running Fantasy CFW, for the folder: its id, folders, and whether it reads files (null: none runs)
+const fantasyNow = () => {
+  const e = state.entry, i = state.info;
+  if (!e || state.wantEngine !== "rfm1" || !(e.rfm1 && e.rfm1.virtual) && !(i && i.virtual)) return null;
+  return { id: e.id, folders: (i && i.folders) || {}, fs: !!(i && Array.isArray(i.needs) && i.needs.includes("fs1")) };
+};
 const editorChanged = () => { if (editor) editor.update(); };
 const lcd = new Lcd();
 const controls = new Controls((p) => { if (player) player.panel(p); if (omx) omx.panelTurned(p.enc); });
@@ -164,6 +174,7 @@ async function openFirmware(id, want = null) {
     history.replaceState(null, "", u);
   }
   device.setButtonNames(null); device.setKeymap(null);
+  if (folderUi) folderUi.update();
   state.levels = new Uint8Array(44); state.playGreen = 0; device.setLeds(state.levels, 0);
   lcd.clear(); invalidate();
   await refreshSaves();
@@ -415,6 +426,12 @@ function makePlayer() {
       if (sheet) sheet.render();
       siteEmit("info", info); siteEmit("firmware", { entry: state.entry, engine: state.engine });
       editorChanged();
+      if (folderUi) folderUi.update();
+    },
+    // a Fantasy CFW's file request: answered from the RemoteFM1 folder (folder.js)
+    fs(m) {
+      folder.serve(m).then(({ reply, transfer }) => player.fsReply(reply, transfer))
+        .catch(() => player.fsReply({ type: "fsDone", key: m.key, id: m.id, result: -4 }));
     },
     flash(m) {
       if (state.engine === "mock" || !state.entry) return;
@@ -640,6 +657,7 @@ const app = {
   remoteMounted: false,
   remoteStatus: "",
   versionOf, metaLine, engineNote, carryText, answerCarry, sourceNow,
+  folderSection: () => (folderUi ? folderUi.section() : []),
   sheetChanged(open) { if (open) learnStop(); document.body.classList.toggle("sheet-open", open); if (open) document.body.classList.remove("chrome"); else $("stage").focus({ preventScroll: true }); },
   set(k, v) {
     if (k === "theme") { state.theme = presetNamed(v, prefs.customTheme) || state.theme; prefs.theme = state.theme.name; applyTheme(); }
@@ -863,6 +881,12 @@ async function main() {
     });
     window.FM1Rec = rec;
   }
+
+  // a Fantasy CFW's RemoteFM1 folder: the files changed (picked, added, back to the page) -> the cart's fs_changed
+  folderUi = new FolderUI({ folder, cart: fantasyNow, toast, render: () => { if (sheet) sheet.render(); } });
+  folder.on((kind) => { if (kind === "changed" && player) player.fsChanged(); folderUi.update(); if (sheet) sheet.render(); });
+  addEventListener("focus", () => { if (player && fantasyNow() && folder.state === "ready") player.fsChanged(); });
+  window.FM1Folder = folder;
 
   // input
   new Keyboard({

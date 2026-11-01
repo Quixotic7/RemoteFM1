@@ -60,7 +60,9 @@ if (typeof AudioWorkletProcessor !== "undefined") {
       const mod = ENGINES[m.engine];
       if (!mod || typeof mod.createEngine !== "function") return this.fail("load", `no engine "${m.engine}" registered`);
       try {
-        const eng = await mod.createEngine({ sampleRate, files: m.files || {}, flash: m.flash || null, options: m.options || {} });
+        // (a Fantasy CFW's file requests go to the page, js/folder.js: engines/rfm1/engine.js FileApi)
+        const options = { ...(m.options || {}), fsSend: (msg, transfer) => this.post(msg, transfer) };
+        const eng = await mod.createEngine({ sampleRate, files: m.files || {}, flash: m.flash || null, options });
         if (ticket !== this.loading) { try { eng.dispose(); } catch (_) {} return; }
         this.engine = eng;
         this.seen = { screen: -1, leds: -1, flash: -1 };
@@ -80,7 +82,9 @@ if (typeof AudioWorkletProcessor !== "undefined") {
       if (m.type === "recBuf") { if (this.rec && m.l && m.l.length === this.rec.n) this.recFree.push([m.l, m.r]); return; }
       if (!this.engine) return;
       try {
-        if (m.type === "midi") this.engine.midiIn(m.bytes instanceof Uint8Array ? m.bytes : Uint8Array.from(m.bytes));
+        if (m.type === "fsDone") { if (this.engine.fsDone) this.engine.fsDone(m); }
+        else if (m.type === "fsChanged") { if (this.engine.fsChanged) this.engine.fsChanged(); }
+        else if (m.type === "midi") this.engine.midiIn(m.bytes instanceof Uint8Array ? m.bytes : Uint8Array.from(m.bytes));
         else if (m.type === "flashReq") {
           const f = this.engine.flash(true);
           this.post({ type: "flash", seq: f.seq, bytes: f.bytes ? f.bytes.slice() : null, requested: true });

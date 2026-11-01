@@ -19,6 +19,12 @@
 // at 44100 Hz. render() runs the device until the resampler (../common/shared.js) has the blocks it needs.
 // A TRAP ends the instance: halted() is then 0x100 | code after proc_exit(code), 0x200 after any other trap, render()
 // gives silence and every other call does nothing (the flash stays readable: the page boots it again).
+// A FANTASY CFW (FM1VST docs/VIRTUAL-CARTS.md: a host-only .rfm1, the manifest's "virtual": true) may have up to
+// 512 MiB of memory (a file under 16 MiB) and, with "fs1" in its "needs", import the file API of section 4 from
+// rfm1_host_1: the RemoteFM1 folder (audio/, code/<id>/, data/<id>/), asynchronous. The engine checks every request
+// (the path, the manifest's "folders", the limits) and hands it to options.fsSend(msg, transfer) (host.js posts it to
+// the page, js/folder.js answers; a Node test serves a directory: ./fs-dir.mjs); the answer comes back through
+// fsDone(msg) and is copied into the module's memory at the start of the next render(), never during an export call.
 
 import { FS, BLOCK, RS_HALF, Resampler, MidiParser, packetBytes, now } from "../common/shared.js";
 
@@ -32,6 +38,8 @@ const NB = 14;
 const PAGE = 65536;
 const MAX_MEMORY = 32 * 1048576;
 const MAX_FILE = 64 * 1048576;
+const MAX_VIRTUAL_MEMORY = 512 * 1048576;      // a Fantasy CFW (VIRTUAL-CARTS.md section 2)
+const MAX_VIRTUAL_FILE = 16 * 1048576;          // (the file under it)
 const STAGED = "fm1core:staged";
 const HALT_TRAP = 0x200;
 
@@ -64,6 +72,19 @@ const IMPORTS = {
     clock_time_get: [[I32, I64, I32], [I32]],
     proc_exit: [[I32], []],
 };
+// VIRTUAL-CARTS.md section 4: the file API a Fantasy CFW with "fs1" in its needs may import
+const HOST = "rfm1_host_1";
+const HOST_IMPORTS = {
+    fs_request: [[I32, I32, I32, I64, I32, I32], [I32]],
+    fs_poll: [[I32], [I32]],
+    fs_cancel: [[I32], []],
+    fs_changed: [[], [I32]],
+};
+const KNOWN_NEEDS = ["fs1"];
+export const FS_OP = { STAT: 1, LIST: 2, READ: 3, WRITE: 4, DELETE: 5, MKDIR: 6 };
+export const FS_ERR = { PENDING: -1, ENOENT: -2, EACCES: -3, EIO: -4, ENOSPC: -5, EBUSY: -6, ECANCELED: -7, ENOFOLDER: -8 };
+const FS_MAX_INFLIGHT = 32, FS_MAX_LEN = 1048576, FS_MAX_PATH = 1024;
+const FS_ROOTS = ["audio", "code", "data"];
 // section 2: the exports, [name, i32 arguments, i32 results]; _initialize is optional
 const EXPORTS = [["_initialize", 0, 0], ["rfm1_version", 0, 1], ["rfm1_get", 1, 1], ["rfm1_layout", 1, 1],
     ["rfm1_alloc", 1, 1], ["rfm1_free", 1, 0], ["rfm1_options", 4, 0], ["rfm1_boot_options", 3, 1], ["rfm1_init", 1, 0],
@@ -132,6 +153,7 @@ export function inspect(bytes) {
     if (b.length > MAX_FILE) refuse("larger than 64 MiB");
     const types = [], funcs = [], exports = new Map(), licenseByN = new Map();
     let importedFuncs = 0, memories = 0, memoryPages = 0, manifestText = null, credits = "";
+    const hostImports = [];
     const r = new Reader(b, 8, b.length);
     while (r.at < r.end) {
         const id = r.byte(), size = r.u32();
@@ -161,6 +183,15 @@ export function inspect(bytes) {
                 const what = `${mod}.${fld}`;
                 if (kind !== 0) refuse(`it imports ${what} (a ${["", "table", "memory", "global"][kind] || "non-function"}): the format allows only WASI functions (section 3)`);
                 const ti = s.u32();
+                if (mod === HOST) {                           // a Fantasy CFW's file API: allowed by its manifest (below)
+                    const hs = Object.prototype.hasOwnProperty.call(HOST_IMPORTS, fld) ? HOST_IMPORTS[fld] : null;
+                    if (!hs) refuse(`it imports ${what}, which this site doesn't know (it needs a newer RemoteFM1)`);
+                    if (ti >= types.length) refuse(`the import ${what} has no type`);
+                    if (!sameSig(types[ti], hs)) refuse(`the import ${what} has the signature ${sigText(types[ti])}, not ${sigText(hs)}`);
+                    hostImports.push(fld);
+                    importedFuncs++;
+                    continue;
+                }
                 const sig = mod === WASI && Object.prototype.hasOwnProperty.call(IMPORTS, fld) ? IMPORTS[fld] : null;
                 if (!sig) refuse(`it imports ${what}, which the format doesn't allow (only ${WASI}'s ${Object.keys(IMPORTS).join(", ")})`);
                 if (ti >= types.length) refuse(`the import ${what} has no type`);
@@ -178,8 +209,8 @@ export function inspect(bytes) {
                 if (flags & 2) refuse("a shared memory (threads): not in the format");
                 if (!(flags & 1) || max !== init)
                     refuse(`its memory can grow (initial ${init} pages, maximum ${flags & 1 ? max : "none"}): the format wants a fixed memory, initial = maximum (section 6)`);
-                if (init * PAGE > MAX_MEMORY) refuse(`its memory is ${init / 16} MiB: at most 32 MiB (section 6)`);
-                memoryPages = init;
+                if (init * PAGE > MAX_VIRTUAL_MEMORY) refuse(`its memory is ${init / 16} MiB: at most 512 MiB, for a Fantasy CFW`);
+                memoryPages = init;                   // (32 MiB unless the manifest says virtual: below)
             }
         } else if (id === 7) {                                // exports
             for (let i = 0, n = s.u32(); i < n && s.ok; i++) {
@@ -215,6 +246,28 @@ export function inspect(bytes) {
     if (m.authors !== undefined && !Array.isArray(m.authors)) refuse("its manifest's \"authors\" is not a list");
     if (m.glue_url !== undefined && typeof m.glue_url !== "string") refuse("its manifest's \"glue_url\" is not a string");
 
+    // a Fantasy CFW (VIRTUAL-CARTS.md sections 1-4): what it needs first, then its limits and its file API
+    if (m.virtual !== undefined && typeof m.virtual !== "boolean") refuse("its manifest's \"virtual\" is not true or false");
+    const virtual = m.virtual === true;
+    if (m.needs !== undefined && (!Array.isArray(m.needs) || !m.needs.every((x) => typeof x === "string"))) refuse("its manifest's \"needs\" is not a list of names");
+    const needs = Array.isArray(m.needs) ? m.needs.slice() : [];
+    const unknown = needs.filter((x) => !KNOWN_NEEDS.includes(x));
+    if (unknown.length) refuse(`it needs a newer RemoteFM1 (it needs ${unknown.map((x) => `"${x}"`).join(", ")})`);
+    if (needs.length && !virtual) refuse("its manifest lists \"needs\" but is not \"virtual\" (a Fantasy CFW)");
+    const folders = {};
+    if (m.folders !== undefined) {
+        if (!m.folders || typeof m.folders !== "object" || Array.isArray(m.folders)) refuse("its manifest's \"folders\" is not an object");
+        for (const [k, v] of Object.entries(m.folders)) {
+            if (!FS_ROOTS.includes(k)) continue;                      // (a folder this site doesn't know: never granted)
+            if (v !== "r" && v !== "rw") refuse(`its manifest's "folders" gives ${k} "${v}" (only "r" or "rw")`);
+            folders[k] = v;
+        }
+    }
+    if (hostImports.length && !(virtual && needs.includes("fs1")))
+        refuse(`it imports ${HOST} (the RemoteFM1 folder) but its manifest doesn't say "virtual": true with "fs1" in "needs"`);
+    if (!virtual && memoryPages * PAGE > MAX_MEMORY) refuse(`its memory is ${memoryPages / 16} MiB: at most 32 MiB (section 6)`);
+    if (virtual && b.length >= MAX_VIRTUAL_FILE) refuse("larger than 16 MiB: a Fantasy CFW's file is under 16 MiB");
+
     // the memory and the exports (section 2)
     if (memories !== 1) refuse(memories ? "more than one memory" : "no memory of its own (the format wants one, exported)");
     const mem = exports.get("memory");
@@ -228,7 +281,7 @@ export function inspect(bytes) {
         const want = [new Array(nargs).fill(I32), new Array(nret).fill(I32)];
         if (!sameSig(types[ti], want)) refuse(`its export ${name} has the signature ${sigText(types[ti])}, not ${sigText(want)}`);
     }
-    return { manifest: m, credits, licenses, memoryPages };
+    return { manifest: m, credits, licenses, memoryPages, virtual, needs, folders, fs: hostImports.length > 0 || needs.includes("fs1") };
 }
 
 // the module compiled once per file bytes (the tests boot one file many times; the page sends fresh bytes)
@@ -247,11 +300,175 @@ async function prepare(wasm) {
     return p;
 }
 
+// ---- a Fantasy CFW's file API (VIRTUAL-CARTS.md section 4): rfm1_host_1's four imports
+// A request is checked here (the op, the path, the manifest's folders, the buffer, the limits), given an id and sent
+// at once with options.fsSend; its folder path is the cart's view mapped onto the RemoteFM1 folder (/audio/x ->
+// audio/x, /code/x -> code/<id>/x, /data/x -> data/<id>/x). The answer (fsDone) waits in the inbox until the start of
+// the next render() (apply), which copies it into the module's memory: the module sees nothing change during a call.
+// No sender (a page without a folder): every request ends in FS_ENOFOLDER, at the same point.
+//   to the page:   { type: "fs", key, id, op, path, offset, len, data? }       data: a WRITE's bytes (transferred)
+//   from the page: { type: "fsDone", key, id, result, data?, stat?, entries? } result < 0: an FS_ERR; data: a READ's
+//                  bytes; stat: { size, mtime (ms), dir }; entries: a LIST's [[name, isDir], ...] (unsorted, all)
+const utf8Bytes = (s) => {                          // (no TextEncoder in a worklet)
+    const out = [];
+    for (const ch of s) {
+        const c = ch.codePointAt(0);
+        if (c < 0x80) out.push(c);
+        else if (c < 0x800) out.push(0xc0 | c >> 6, 0x80 | c & 63);
+        else if (c < 0x10000) out.push(0xe0 | c >> 12, 0x80 | c >> 6 & 63, 0x80 | c & 63);
+        else out.push(0xf0 | c >> 18, 0x80 | c >> 12 & 63, 0x80 | c >> 6 & 63, 0x80 | c & 63);
+    }
+    return out;
+};
+const cmpBytes = (a, b) => { for (let i = 0; i < a.length && i < b.length; i++) if (a[i] !== b[i]) return a[i] - b[i]; return a.length - b.length; };
+
+class FileApi {
+    constructor(rt, id, folders, send) {
+        this.rt = rt; this.id = id; this.folders = folders; this.send = send;
+        this.key = `${id}:${Math.floor(Math.random() * 2 ** 31).toString(36)}:${Date.now().toString(36)}`;
+        this.reqs = new Map();          // id -> { op, buf, len, done, canceled, result }
+        this.inbox = [];
+        this.next = 1;
+        this.changed = 0;
+        this.listCache = null;          // { path, entries }: a LIST's sorted entries while the cart pages through them
+    }
+    imports() {
+        return {
+            fs_request: (op, path, pathLen, offset, buf, len) => this.request(op, path, pathLen, offset, buf, len),
+            fs_poll: (id) => this.poll(id),
+            fs_cancel: (id) => this.cancel(id),
+            fs_changed: () => this.changed | 0,
+        };
+    }
+    // the cart's path (bytes in its memory) -> the folder's ("code/<id>/droplets"), or null when section 3 refuses it
+    folderPath(at, n) {
+        const u8 = this.rt.u8;
+        if (n < 2 || n > FS_MAX_PATH || at < 0 || at + n > u8.length) return null;
+        const b = u8.subarray(at, at + n);
+        if (b[0] !== 0x2f) return null;
+        for (const c of b) if (c === 0 || c === 0x5c) return null;     // (no NUL, no backslash)
+        const s = utf8Range(b, 0, n);
+        if (s.includes("�")) return null;
+        const seg = s.slice(1).split("/");
+        if (!FS_ROOTS.includes(seg[0])) return null;
+        for (const x of seg) if (!x || x === "." || x === ".." || utf8Bytes(x).length > 255) return null;
+        const root = seg[0], rest = seg.slice(1);
+        return { root, top: rest.length === 0, path: (root === "audio" ? ["audio"] : [root, this.id]).concat(rest).join("/") };
+    }
+    request(op, pathAt, pathLen, offset, buf, len) {
+        const E = FS_ERR, O = FS_OP;
+        if (!(op >= 1 && op <= 6)) return E.EIO;
+        let inflight = 0;
+        for (const r of this.reqs.values()) if (!r.canceled) inflight++;     // (a cancelled one: no longer the host's)
+        if (inflight >= FS_MAX_INFLIGHT) return E.EBUSY;
+        const p = this.folderPath(pathAt >>> 0, pathLen | 0);
+        if (!p) return E.EACCES;
+        const write = op === O.WRITE || op === O.DELETE || op === O.MKDIR;
+        const mode = this.folders[p.root] || "";
+        if (write ? p.root !== "data" || mode !== "rw" || p.top : !mode.includes("r")) return E.EACCES;
+        const off = typeof offset === "bigint" ? offset : BigInt(offset);
+        buf >>>= 0; len |= 0;
+        if (len < 0) return E.EIO;
+        const size = this.rt.u8.length;
+        let n = 0, o = 0;
+        if (op === O.STAT) { if (len < 16 || buf + 16 > size) return E.EIO; n = 16; }
+        else if (op === O.LIST || op === O.READ || op === O.WRITE) {
+            n = Math.min(len, FS_MAX_LEN);
+            if (buf + n > size) return E.EIO;
+            if (off < (op === O.WRITE ? -1n : 0n) || off > 2n ** 53n) return E.EIO;
+            o = Number(off);
+            if (op === O.LIST && o > 0x7fffffff) return E.EIO;
+        }
+        const id = this.next;
+        this.next = this.next >= 0x7ffffff0 ? 1 : this.next + 1;
+        const r = { op, buf, len: n, done: false, canceled: false, result: E.PENDING, path: p.path, offset: o };
+        this.reqs.set(id, r);
+        if (!this.send) { this.inbox.push({ key: this.key, id, result: E.ENOFOLDER }); return id; }
+        const msg = { type: "fs", key: this.key, id, op, path: p.path, offset: o, len: n };
+        let transfer;
+        if (op === O.WRITE) { msg.data = this.rt.u8.slice(buf, buf + n).buffer; transfer = [msg.data]; }
+        if (op === O.LIST && o > 0 && this.listCache && this.listCache.path === p.path) {
+            // (the next page of a listing: served from the one just read, unless the folder changed meanwhile)
+            this.inbox.push({ key: this.key, id, result: 0, sorted: this.listCache.entries });
+            return id;
+        }
+        try { this.send(msg, transfer); } catch (_) { this.inbox.push({ key: this.key, id, result: E.EIO }); }
+        return id;
+    }
+    poll(id) {
+        const r = this.reqs.get(id);
+        if (!r) return FS_ERR.ENOENT;
+        if (r.canceled) { this.reqs.delete(id); return FS_ERR.ECANCELED; }
+        if (!r.done) return FS_ERR.PENDING;
+        this.reqs.delete(id);
+        return r.result;
+    }
+    cancel(id) {
+        const r = this.reqs.get(id);
+        if (r) { r.canceled = true; r.done = true; }
+    }
+    deliver(m) { if (m && m.key === this.key) this.inbox.push(m); }
+    bump() { this.changed = (this.changed + 1) | 0; this.listCache = null; }
+    // the answers, into memory (the start of render(): between export calls)
+    apply() {
+        if (!this.inbox.length) return;
+        const box = this.inbox;
+        this.inbox = [];
+        for (const m of box) {
+            const r = this.reqs.get(m.id);
+            if (!r || r.done) continue;                    // (polled, cancelled)
+            r.done = true;
+            r.result = this.copy(r, m);
+        }
+    }
+    copy(r, m) {
+        const E = FS_ERR, O = FS_OP, u8 = this.rt.u8, dv = this.rt.dv;
+        const res = typeof m.result === "number" ? m.result | 0 : E.EIO;
+        if (res < 0) return Object.values(E).includes(res) && res !== E.PENDING ? res : E.EIO;
+        if (r.op === O.READ) {
+            const d = m.data ? new Uint8Array(m.data instanceof ArrayBuffer ? m.data : m.data.buffer, m.data.byteOffset || 0, m.data.byteLength) : new Uint8Array(0);
+            const n = Math.min(d.length, r.len);
+            u8.set(d.subarray(0, n), r.buf);
+            return n;
+        }
+        if (r.op === O.STAT) {
+            const st = m.stat;
+            if (!st) return E.EIO;
+            dv.setBigUint64(r.buf, BigInt(Math.max(0, Math.floor(+st.size || 0))), true);
+            dv.setUint32(r.buf + 8, Math.max(0, Math.min(0xffffffff, Math.floor((+st.mtime || 0) / 1000))), true);
+            dv.setUint32(r.buf + 12, st.dir ? 1 : 0, true);
+            return 16;
+        }
+        if (r.op === O.LIST) {
+            let sorted = m.sorted;
+            if (!sorted) {
+                // no hidden files, names of 1-255 bytes, sorted by their bytes
+                sorted = (Array.isArray(m.entries) ? m.entries : [])
+                    .filter((e) => Array.isArray(e) && typeof e[0] === "string" && e[0] && e[0][0] !== "." && !e[0].includes("/"))
+                    .map((e) => ({ b: utf8Bytes(e[0]), dir: !!e[1] })).filter((e) => e.b.length <= 255)
+                    .sort((a, b) => cmpBytes(a.b, b.b));
+                this.listCache = { path: r.path, entries: sorted };
+            }
+            let at = r.buf, end = r.buf + r.len, k = 0;
+            for (let i = r.offset; i < sorted.length; i++) {
+                const e = sorted[i];
+                if (at + 2 + e.b.length > end) break;
+                u8[at] = e.dir ? 1 : 0; u8[at + 1] = e.b.length; u8.set(e.b, at + 2);
+                at += 2 + e.b.length; k++;
+            }
+            if (!k && r.offset < sorted.length) return E.EIO;     // (a buffer too small for the next name)
+            return k;
+        }
+        if (r.op === O.WRITE) return Math.min(res, r.len);
+        return 0;
+    }
+}
+
 class Exit extends Error { constructor(code) { super(`proc_exit(${code})`); this.code = code; } }
 
 // section 3's WASI: fd_write to the log (stdout / stderr, rate-limited), the rest EBADF, the clock the host's, proc_exit
 // halts the instance
-function makeImports(rt, log) {
+function makeImports(rt, log, fsApi) {
     const EBADF = 8, EINVAL = 28;
     let line = [], tokens = 80, last = now(), dropped = 0;
     const emit = (fd, text) => {
@@ -292,12 +509,13 @@ function makeImports(rt, log) {
         },
         proc_exit(code) { rt.exitCode = code & 0xff; throw new Exit(code & 0xff); },
     };
-    return { [WASI]: wasi };
+    return fsApi ? { [WASI]: wasi, [HOST]: fsApi.imports() } : { [WASI]: wasi };
 }
 
 class Rfm1Engine {
-    constructor(rt, file, sampleRate, log) {
+    constructor(rt, file, sampleRate, log, fsApi = null) {
         this.rt = rt;
+        this.fs = fsApi;
         this.ex = rt.ex;
         this.file = file;
         this.log = log;
@@ -455,6 +673,8 @@ class Rfm1Engine {
             licenseTexts: this.file.licenses.slice(),
             flashSize: ds.flashSize,
             memoryBytes: this.rt.u8.length,
+            // (beyond API.md) a Fantasy CFW (VIRTUAL-CARTS.md): the manifest's flag, what it needs, its folders
+            virtual: this.file.virtual, needs: this.file.needs.slice(), folders: { ...this.file.folders },
         };
     }
 
@@ -522,6 +742,7 @@ class Rfm1Engine {
 
     render(left, right) {
         if (this.disposed || this.dead) { left.fill(0); right.fill(0); return; }
+        if (this.fs) this.fs.apply();
         this.feedMidi();
         if (!this.rs) {
             let o = 0;
@@ -615,24 +836,31 @@ class Rfm1Engine {
     // (beyond API.md, for tests) the device's simulated milliseconds since power-on
     deviceMs() { return this.ms; }
     // (beyond API.md, for tests) n device milliseconds with their audio dropped
-    runMs(n) { for (let i = 0; i < n && !this.dead && !this.disposed; i++) this.runMs1(); }
+    runMs(n) { if (this.fs && !this.dead && !this.disposed) this.fs.apply(); for (let i = 0; i < n && !this.dead && !this.disposed; i++) this.runMs1(); }
+
+    // (beyond API.md) a Fantasy CFW's file API: the page's answer to one of its requests (applied at the next render),
+    // and "the folder changed" (fs_changed() moves)
+    fsDone(m) { if (this.fs && !this.disposed) this.fs.deliver(m); }
+    fsChanged() { if (this.fs) this.fs.bump(); }
 }
 
 // files.wasm: the .rfm1 file's bytes (ArrayBuffer or typed array). options.log(fd, line): the firmware's printf
-// (default: dropped). Throws with the reason when the file is not one this engine runs (section 7).
+// (default: dropped). options.fsSend(msg, transfer): a Fantasy CFW's file requests (none: they end in FS_ENOFOLDER).
+// Throws with the reason when the file is not one this engine runs (section 7).
 export async function createEngine({ sampleRate, files, flash = null, options = {} }) {
     if (!files || !files.wasm) throw new Error("rfm1 engine: files.wasm (the .rfm1 file) is required");
     const { file, module } = await prepare(files.wasm);
     const log = options.log || (() => {});
     const rt = { ex: null, exitCode: -1, buf: null, u8: null, dv: null };
+    const fsApi = file.fs ? new FileApi(rt, file.manifest.id, file.folders, typeof options.fsSend === "function" ? options.fsSend : null) : null;
     let inst;
-    try { inst = await WebAssembly.instantiate(module, makeImports(rt, log)); }
+    try { inst = await WebAssembly.instantiate(module, makeImports(rt, log, fsApi)); }
     catch (e) { refuse(`it can't be instantiated (${e.message || e})`); }
     rt.ex = inst.exports;
     rt.buf = rt.ex.memory.buffer;
     rt.u8 = new Uint8Array(rt.buf);
     rt.dv = new DataView(rt.buf);
-    const eng = new Rfm1Engine(rt, file, sampleRate || FS, log);
+    const eng = new Rfm1Engine(rt, file, sampleRate || FS, log, fsApi);
     eng.open();
     if (flash instanceof ArrayBuffer) flash = new Uint8Array(flash);
     eng.boot(flash && flash.length ? flash : null);

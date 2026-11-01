@@ -69,6 +69,6 @@ export function entryOf(rec) {
     license: m.license || null, source: m.source_url || null,
     engines: ["rfm1"], defaultEngine: "rfm1", native: null, emu: null, local: true,
     rfm1: { sha256: rec.sha256, fileName: rec.fileName, size: rec.size, glueUrl: typeof m.glue_url === "string" ? m.glue_url : null,
-            builtBy: m.built_by || null, authors },
+            builtBy: m.built_by || null, authors, ...(m.virtual === true ? { virtual: true } : {}) },
   };
 }
