@@ -185,11 +185,24 @@ python3 tools/fm1_install.py --info
 `fm1_install.py` finds the keyboard by its port (`SMK-37 ...` under the stock firmware, `FM-1` once RemoteFM1 runs) and
 checks that the package is for it: an SMK-37 package goes on any SMK-37 model (one board; install your own model's, so
 M-UPGRADE still knows the unit), never on an FM-1, and an FM-1 package never on an SMK-37, on the install and on the
-resume of one that was cut off (the loader's model is checked the same way). RemoteFM1's site installer and apps
-offer FM-1 packages only. An install cut off: switch the keyboard on again (OCTAVE- held if it does not come up in
+resume of one that was cut off (the loader's model is checked the same way). The site's main installer and the apps
+offer FM-1 packages only (the SMK-37 test installer: below). An install cut off: switch the keyboard on again (OCTAVE- held if it does not come up in
 update mode) and run the install again.
 
 The first start clears another firmware's data in RemoteFM1's windows (above): it takes a second or two longer, once.
+
+### Install from the browser
+
+The SMK-37 test installer, `/installer/smk37/` on the project's site (`https://remotefm1.com/installer/smk37/`
+once deployed; in the tree `web/installer/smk37/`), Chrome or Edge on a computer. No page of the site links it and it
+is not indexed: the maintainer sends testers the link. Tick that you accept the risk and that MIDI apps are closed,
+pick USB + Bluetooth or USB only, and press Install. It reads the keyboard's update identity and picks your model's
+package (`SMK-37 Pro_`, `SMK-37 Elite_`, `MKE-P37_`: the stock firmware's or RemoteFM1's; a Starrykey 37 Play or another
+name of the SMK-37 gets the Pro's), checks its SHA-256 and identity against its list (`releases-smk37.json`) before
+anything is written, and finishes an install that was cut off (RemoteFM1's update mode, `ota-MODEL_900`). It refuses
+an FM-1 (any `FM-1_` identity, any FM-1 update mode) before anything but the identity query is sent, and another
+firmware's update mode (M-UPGRADE's among them). `node web/installer/smk37/test_smk_installer.mjs` checks it against
+a simulated keyboard.
 
 ## Going back
 
