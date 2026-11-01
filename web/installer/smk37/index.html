@@ -1,0 +1,199 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<!-- The SMK-37 test installer (docs/SMK37.md, "Install from the browser"): RemoteFM1's untested community builds for
+     the M-Vave SMK-37 Pro, SMK-37 Elite, MKE-P37 and the Starrykey 37 Play. Linked from no page of the site (the link
+     goes to testers), not indexed. The look is RemoteFM1's installer's (../index.html, TransitFM1's page, GPL-3.0-only);
+     the logic is smk37.js. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<script>/* Web MIDI needs a secure page: http -> https (not on a local server) */ if (location.protocol === "http:" && !/^(localhost|127\.|\[::1\]|.*\.localhost$)/.test(location.hostname)) location.replace("https:" + location.href.slice(5));</script>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>RemoteFM1 for the SMK-37 (test)</title>
+<meta name="theme-color" content="#EE7A3C">
+<style>
+  /* RemoteFM1's installer's look (../index.html): Chakra Petch, DM Sans and Unbounded (SIL OFL 1.1, the player's fonts/) */
+  @font-face { font-family: "Chakra Petch"; font-weight: 700; font-display: swap;
+    src: url("../../fonts/ChakraPetch-Bold-latin.woff") format("woff"), url("../../site/fonts/ChakraPetch-Bold-latin.woff") format("woff"); }
+  @font-face { font-family: "DM Sans"; font-weight: 100 1000; font-display: swap;
+    src: url("../../fonts/DMSans-VF-latin.woff") format("woff"), url("../../site/fonts/DMSans-VF-latin.woff") format("woff"); }
+  @font-face { font-family: "Unbounded"; font-weight: 700; font-display: swap;
+    src: url("../../fonts/Unbounded-Bold-latin.woff") format("woff"), url("../../site/fonts/Unbounded-Bold-latin.woff") format("woff"); }
+  :root {
+    --window: #17140F; --surface: #211E19; --raised: #2A251F; --well: #141210; --border: #3A352D; --line: #2E2A23;
+    --text: #F3EBDC; --row-text: #E2D8C7; --muted: #A69C8A; --heading: #A69C8A;
+    --accent: #EE7A3C; --on-accent: #17140F; --ok: #3BD47A; --bad: #FF5F57; --amber: #F5A524;
+    --body: #EE7A3C; --label: #3A1606;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--window); color: var(--text); font: 500 15px/1.55 "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+  header { display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 14px; background: var(--body); color: var(--label); }
+  header a { color: var(--label); text-decoration: none; font-weight: 600; font-size: 13px; padding: 6px 10px; border-radius: 10px; }
+  header a:hover { background: rgba(0,0,0,.14); }
+  header .brand { display: flex; align-items: center; gap: 10px; font: 700 13px/1 "Chakra Petch", "DM Sans", sans-serif; letter-spacing: .14em; text-transform: uppercase; padding-left: 4px; }
+  .mark { width: 22px; height: 22px; border-radius: 6px; background: #141210; position: relative; box-shadow: 0 2px 0 rgba(0,0,0,.25); flex: none; }
+  .mark::after { content: ""; position: absolute; inset: 4px; border-radius: 2px; background: #C9D6EA; background-image: linear-gradient(transparent 45%, #13203A 45% 60%, transparent 60%); }
+  header nav { margin-left: auto; display: flex; gap: 4px; }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font: 700 2.1rem/1.15 "Unbounded", "DM Sans", sans-serif; margin: 0 0 12px; letter-spacing: -0.02em; }
+  h1 span { color: var(--accent); }
+  h2 { font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--heading); margin: 0 0 12px; font-weight: 600; }
+  .lede { font-size: 1.08rem; color: var(--row-text); margin: 0 0 24px; }
+  .tag { display: inline-block; vertical-align: middle; margin-left: 8px; padding: 3px 9px; border-radius: 999px; background: var(--amber); color: var(--on-accent); font: 700 11px/1.4 "DM Sans", sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 22px; padding: 22px; margin: 0 0 14px; }
+  .warn { border-color: rgba(245, 165, 36, .45); }
+  .warn h2 { color: var(--amber); }
+  .card p { margin: 0 0 10px; }
+  .card p:last-child { margin-bottom: 0; }
+  ul { padding-left: 1.2em; margin: 8px 0 0; }
+  li { margin: 4px 0; }
+  button { font: inherit; font-weight: 600; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--text); padding: 9px 18px; cursor: pointer; }
+  button:hover:not(:disabled) { background: var(--raised); }
+  button.primary { background: var(--accent); color: var(--on-accent); border-color: transparent; font-size: 1.05rem; font-weight: 700; padding: 13px 24px; box-shadow: 0 3px 0 rgba(0,0,0,.35); }
+  button.primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
+  button:disabled { opacity: 0.45; cursor: default; }
+  body.busy button { pointer-events: none; opacity: 0.6; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .meta { color: var(--muted); font-size: 0.93rem; }
+  progress { width: 100%; height: 8px; margin-top: 14px; accent-color: var(--accent); }
+  .status { margin: 14px 0 0; min-height: 1.5em; overflow-wrap: anywhere; }
+  .status.ok { color: var(--ok); font-weight: 600; }
+  .status.bad { color: var(--bad); font-weight: 600; }
+  .status.wait { color: var(--accent); font-weight: 600; }
+  details { margin-top: 12px; }
+  summary { cursor: pointer; color: var(--muted); }
+  pre { white-space: pre-wrap; font-size: 0.8rem; color: var(--muted); max-height: 240px; overflow: auto; background: var(--well); border-radius: 12px; padding: 12px; }
+  label.check { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; color: var(--row-text); }
+  label.check input { margin-top: 4px; accent-color: var(--accent); width: 16px; height: 16px; flex: none; }
+  label.accept { font-weight: 700; color: var(--text); }
+  .choice { margin-top: 14px; display: grid; gap: 2px; }
+  .choice label.check { margin-top: 6px; }
+  a { color: var(--accent); }
+  code { font-size: .9em; background: var(--well); padding: 1px 5px; border-radius: 4px; }
+  .sha { word-break: break-all; font-size: .8rem; color: var(--muted); }
+  ul.files { list-style: none; padding: 0; }
+  ul.files li { padding: 8px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+  footer { color: var(--muted); font-size: 0.88rem; margin-top: 32px; }
+  #browser-warn { color: var(--amber); font-weight: 600; }
+  .box { margin-top: 16px; padding: 16px 18px; border-radius: 18px; background: var(--well); }
+  .box[hidden] { display: none; }
+  .box p { margin: 0 0 8px; color: var(--row-text); }
+  .box p:last-child { margin: 0; }
+  .box.halt { border: 1px solid rgba(255, 95, 87, .45); }
+  .box.fin { border: 1px solid rgba(61, 220, 132, .35); }
+  .box-title { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1.08rem; color: var(--text) !important; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px rgba(61, 220, 132, .16), 0 0 8px rgba(61, 220, 132, .55); flex: none; }
+  .halt .dot { background: var(--bad); box-shadow: 0 0 0 3px rgba(255, 95, 87, .16); }
+</style>
+</head>
+<body>
+<header>
+  <a class="brand player" href="../../"><span class="mark"></span>FM-1 Player</a>
+  <nav><a href="https://github.com/Quixotic7/RemoteFM1/blob/main/docs/SMK37.md" target="_blank" rel="noopener">SMK37.md</a><a href="https://github.com/Quixotic7/RemoteFM1" target="_blank" rel="noopener">Source</a></nav>
+</header>
+<main>
+  <h1>Remote<span>FM1</span> for the SMK-37<span class="tag">test</span></h1>
+  <p class="lede">RemoteFM1 on the M-Vave SMK-37 Pro, SMK-37 Elite and MKE-P37 (the Starrykey 37 Play takes the Pro's
+    package). To every host the keyboard is an FM-1: it plays this site's player, the iOS app and FM1VST as their panel,
+    and on its own it is RemoteFM1's DX7.</p>
+
+  <section class="card warn">
+    <h2>Before you install</h2>
+    <ul>
+      <li><b>This build has not run on an SMK-37.</b> Nobody on the project has one: it follows genkigenki's porting
+        guide and passes the simulator's tests, nothing more. It may not start, or not work as described.</li>
+      <li><b>Have the way back at hand:</b> M-Vave's stock package for your model and their updater, M-UPGRADE. A full
+        flash backup first is the porting guide's advice (the calibration and the Bluetooth and key data are the unit's
+        own).</li>
+      <li>The first start clears another firmware's data in RemoteFM1's flash areas (ChoralRoot's on the SMK-37 among
+        them: back it up first). The calibration, the Bluetooth pairing and the key areas are never written.</li>
+      <li>Chrome or Edge on a computer, the keyboard connected directly by a USB data cable. Close every app that uses
+        MIDI. Keep it connected until it has restarted. Installing other firmware is at your own risk.</li>
+    </ul>
+    <label class="check accept"><input type="checkbox" id="accept"><span>I have read this, I have M-Vave's stock
+      package and M-UPGRADE for my model, and I install this untested build at my own risk.</span></label>
+    <p id="browser-warn" hidden>This browser has no Web MIDI: open this page in Chrome or Edge.</p>
+  </section>
+
+  <section class="card">
+    <h2>Install</h2>
+    <p class="meta">RemoteFM1 <span id="ver">…</span> for the SMK-37, built <span id="date">…</span>. The page picks your
+      model's package from the keyboard's answer and checks its SHA-256 before it writes.</p>
+    <ul id="notes"></ul>
+    <div id="variant" class="choice">
+      <label class="check"><input type="radio" name="variant" id="pkg-ble" checked><span><b>USB + Bluetooth MIDI</b>: the
+        panel also works without a cable.</span></label>
+      <label class="check"><input type="radio" name="variant" id="pkg-usb"><span><b>USB only</b>: no radio.</span></label>
+    </div>
+    <label class="check"><input type="checkbox" id="midi-closed"><span>DAWs and every other app that uses MIDI are
+      closed.</span></label>
+    <div class="row" style="margin-top:16px">
+      <button id="go" class="primary" disabled>Install RemoteFM1</button>
+      <button id="check">What is on my SMK-37?</button>
+    </div>
+    <progress id="bar" max="1000" value="0" hidden></progress>
+    <p id="status" class="status" role="status"></p>
+    <div id="interrupted" class="box halt" hidden>
+      <p class="box-title"><span class="dot"></span>The install did not finish</p>
+      <p>Switch the keyboard on again (hold <b>OCTAVE-</b> while switching on if it does not come up in update mode) and
+        press <b>Install</b> again: it finishes the write. To give up, install M-Vave's stock package for your model with
+        M-UPGRADE.</p>
+    </div>
+    <div id="done" class="box fin" hidden>
+      <p class="box-title"><span class="dot"></span>RemoteFM1 is installed</p>
+      <p>The keyboard restarts into RemoteFM1's splash and its waiting screen. Try it on its own, then with
+        <a class="player" href="../../">the player</a>, and tell us what you find:
+        <a href="https://github.com/Quixotic7/RemoteFM1/blob/main/docs/SMK37.md#what-to-test" target="_blank" rel="noopener">what to test</a>,
+        and <a href="https://github.com/Quixotic7/RemoteFM1/issues" target="_blank" rel="noopener">the issues</a>.</p>
+    </div>
+    <details><summary>Log</summary><pre id="log"></pre></details>
+  </section>
+
+  <section class="card">
+    <h2>Testing it</h2>
+    <p><a href="https://github.com/Quixotic7/RemoteFM1/blob/main/docs/SMK37.md#what-to-test" target="_blank" rel="noopener">SMK37.md, What to test</a>
+      lists what only a unit can answer, in order: the first start, the keys, the pads, the knobs, the buttons and their
+      lights, the wheels and the pedal, the faders, a host, USB audio, saving, going back. Note your model, the package
+      and what you saw; a photo of the screen or the pads helps. <a href="https://github.com/Quixotic7/RemoteFM1/blob/main/docs/SMK37.md#controls" target="_blank" rel="noopener">The controls</a>
+      map the SMK-37's keys, pads, knobs and buttons onto the FM-1's.</p>
+  </section>
+
+  <section class="card">
+    <h2>If an install is cut off</h2>
+    <p>Switch the keyboard off and on (hold <b>OCTAVE-</b> while switching on if it does not come up in update mode),
+      open this page and press <b>Install</b> again: it finds RemoteFM1's update mode and finishes the write with your
+      model's package. Another firmware's update mode (M-UPGRADE's among them) is left to its own updater.</p>
+  </section>
+
+  <section class="card">
+    <h2>Going back</h2>
+    <p>Install M-Vave's stock package for your model with <b>M-UPGRADE</b>. RemoteFM1 answers with the model's
+      identity (<code>SMK-37 Pro_52000301</code>, <code>SMK-37 Elite_52000301</code>, <code>MKE-P37_52000301</code>)
+      and takes the stock package. The calibration, the Bluetooth pairing and the key areas were never written; the
+      stock firmware's key, knob and fader mapping is as it was, or its factory one if RemoteFM1 saved into its area.
+      On RemoteFM1, <b>OCTAVE-</b> held at power-on enters the chip's update mode.</p>
+  </section>
+
+  <section class="card">
+    <h2>Files</h2>
+    <ul class="files" id="files"></ul>
+    <p class="meta"><a href="firmware/SHA256SUMS">SHA256SUMS</a> · <a href="../firmware/LICENSING.md">licensing</a> ·
+      <a href="../firmware/LICENSE">LICENSE</a> · <a href="../firmware/LICENSES/">LICENSES/</a></p>
+  </section>
+
+  <footer>
+    <p>RemoteFM1 is free software (<a href="https://github.com/Quixotic7/RemoteFM1">source</a>): its firmware is MPL-2.0,
+      built on <a href="https://github.com/charlesvestal/fm1-base">fm1-base</a> and
+      <a href="https://github.com/hugelton/felucca-bsp">felucca-bsp</a>; the USB + Bluetooth package links JieLi's
+      Bluetooth library (Apache-2.0). The SMK-37's hardware facts are from genkigenki's porting guide
+      <a href="https://github.com/genkigenki/fm1-to-smk37">fm1-to-smk37</a> and what ChoralRoot's SMK-37 port confirmed on
+      testers' units. This page is GPL-3.0-only.</p>
+    <p>"M-Vave", "SMK-37", "MKE-P37", "Starrykey" and "FM-1" belong to their owners. RemoteFM1 is not made or endorsed by
+      M-Vave or Donner.</p>
+  </footer>
+</main>
+<script type="module" src="smk37.js"></script>
+</body>
+</html>
