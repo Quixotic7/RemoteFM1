@@ -111,13 +111,13 @@ static void sa_rm_exit(int send)             /* send: 0 for the buttons held, th
         for (b = 0; b < NB; b++)
             if (((sa.btns & ~rm.mute) >> b & 1u) && sa_rm_btn_cc(b))
                 sa_midi3(0xB0u | SA_RM_CC_CH(), SA_RM_BTN_CC[b], 0);
-        for (k = 0; k < NKEYS; k++)
+        for (k = 0; k < SA_NKEYS; k++)
             if (sa.key_note[k] != 0xFFu) {
                 sa_midi3(0x80u | sa.key_ch[k], sa.key_note[k], 0x40u);
                 sa.key_note[k] = 0xFFu;
             }
     }
-    for (k = 0; k < NKEYS; k++)
+    for (k = 0; k < SA_NKEYS; k++)
         sa.key_note[k] = 0xFFu;
     rm.on = 0;
     sa.led_b = sa.led_k = 0xFFFFFFFFu;

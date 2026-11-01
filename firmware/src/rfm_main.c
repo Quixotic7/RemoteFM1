@@ -56,7 +56,16 @@
 #define FELUCCA_ID "FM-1_5200"              /* (the host simulator; tools/build.py gives the FM-1's build its own) */
 #endif
 #define RFA_FW_VER APP_VERSION
+#if BOARD_SMK37
+/* the M-Vave SMK-37 (docs/SMK37.md): to every host exactly an FM-1, so HELLO_R's identity is the FM-1 build's of the
+ * same version (tools/build.py FM1B_FM1_ID: "FM-1_520..."); the update identity (FELUCCA_ID) names the model */
+#ifndef FM1B_FM1_ID
+#define FM1B_FM1_ID "FM-1_5200"
+#endif
+#define RFA_IDENTITY FM1B_FM1_ID
+#else
 #define RFA_IDENTITY FELUCCA_ID
+#endif
 #if RFM_SHADOW
 #define RFA_CAPS (RFM_CAP_SHADOW | RFM_CAP_COPY | RFM_CAP_RLE | RFM_CAP_PAL | RFM_CAP_PLAY_GREEN | RFM_CAP_HOLD | \
                   RFM_CAP_BLE_FAST | RFM_CAP_MIDI_IN | RFM_CAP_TOUCH)  /* (the radio's settings: fm1.toml ble_dle, ble_2m, ble_rx_bufs) */
@@ -84,9 +93,10 @@ static void rp_wdt(void);                           /* the watchdog fed (inside 
 static uint32_t rp_bk_rx_n(void), rp_bk_tx_n(void); /* the vendor rings' sizes (HELLO_R) */
 enum { RC_RESETS, RC_SETUPS, RC_EP1_RX, RC_EP1_TX, RC_EP3_RX, RC_EP3_TX, RC_EP3_HELD, RC_LCD_TIMEOUTS, RC_N };
 static void rp_counters(uint32_t *c);               /* USB's and the panel's counters (STATS_R) */
-#ifdef PLAT_HOST
+#if defined PLAT_HOST || BOARD_SMK37
 /* felucca-bsp boards/fm1/fm1_input.h FM1_KEYMAP (Leo Kuroshita, Hügelton Instruments, MPL-2.0): the matrix id at
- * (packed row bit, column), -1 none; the host simulator has no BSP */
+ * (packed row bit, column), -1 none; the host simulator has no BSP (and the M-Vave SMK-37's has another matrix: the
+ * protocol's is the FM-1's there too) */
 static const int8_t RF_KEYMAP[6][RFM_NCOL] = {
     {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}, {5, 11, 4, 10, 3, 9, 2, 8, -1, -1, -1},
     {34, 35, 36, 37, 38, 40, 39, 13, 7, 6, 12},   {23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33},
@@ -595,7 +605,10 @@ static void rfa_hello_dev(uint8_t *h, uint32_t t)
     h[25] = (uint8_t)((rp_usb_cfg() ? 1u : 0u) | 2u | (uint32_t)(rf_heard & 3u) << 2 |
                       (plat_ble_connected() ? 0x10u : 0u) | (rf_heard & 4u ? 0x20u : 0u));
     h[26] = 1;                                      /* the main loop polls USB */
-#ifdef LCD_BAUD
+#if BOARD_SMK37
+    h[27] = 0;                                      /* (the FM-1's LCD_BAUD: HELLO_R is the FM-1's byte for byte; the
+                                                     * SMK-37's panel runs at fm1-base's SMK default, 2) */
+#elif defined LCD_BAUD
     h[27] = LCD_BAUD;
 #else
     h[27] = 0;
@@ -1068,6 +1081,63 @@ static void rf_rx_step(void)
         rfm_app_activity();                         /* (SINK too: the keepalive counts every byte) */
 }
 
+#if BOARD_SMK37
+/* the SMK-37's controls the FM-1 has not (fm1-base plat_smk_take; docs/SMK37.md): standalone, the instrument's
+ * (sa/sa_smk.c); in a session, to the host's firmware as MIDI it receives, on channel 1, as the FM-1's TRS jack's MIDI
+ * in goes (MIDI_IN: the SMK has no TRS MIDI in, so that path is free; caps bit 9 as on the FM-1): the outer keys their
+ * notes (C3..E3 48..52, G#5..C6 80..84) with velocity, the pitch wheel pitch bend, the mod wheel CC 1, the pedal CC 64,
+ * the faders CC 16..19, KNOB BANK / FADER BANK / < / > CC 110..113 (127 / 0). A fader, a wheel or the pedal at most
+ * every RF_SMK_MS (its latest then); waiting for a host (no session): nothing */
+#define RF_SMK_MS 6u
+static uint32_t rf_smk_ms_at[7], rf_smk_sent;
+static uint8_t rf_smk_due;                          /* bit: a control's latest still to send (0..3 faders, 4 bend, 5 mod,
+                                                     * 6 pedal) */
+static void rf_smk_session(int type, int id, int v)
+{
+    uint32_t st, d1, d2;
+    switch (type) {
+    case PLAT_SMK_KEY: st = v ? 0x90u : 0x80u, d1 = 48u + (uint32_t)id, d2 = v ? (uint32_t)v : 64u; break;
+    case PLAT_SMK_BTN: st = 0xB0u, d1 = 110u + (uint32_t)id, d2 = v ? 127u : 0u; break;
+    case PLAT_SMK_FADER: st = 0xB0u, d1 = 16u + (uint32_t)id, d2 = (uint32_t)v; break;
+    case PLAT_SMK_BEND: st = 0xE0u, d1 = (uint32_t)(v + 8192) & 0x7Fu, d2 = (uint32_t)(v + 8192) >> 7; break;
+    case PLAT_SMK_MOD: st = 0xB0u, d1 = 1u, d2 = (uint32_t)v; break;
+    case PLAT_SMK_PEDAL: st = 0xB0u, d1 = 64u, d2 = v ? 127u : 0u; break;
+    default: return;
+    }
+    rf_trs_in((st >> 4) | st << 8 | (d1 & 0x7Fu) << 16 | (d2 & 0x7Fu) << 24);
+    rf_smk_sent++;
+}
+static void rf_smk_ms(void)
+{
+    plat_smk_ev_t e;
+    uint32_t i, now = plat_ms();
+    while (plat_smk_take(&e)) {
+        if (!rfa.session) {
+            if (sa_standalone())
+                sa_smk(&e);
+            continue;
+        }
+        if (e.type == PLAT_SMK_KEY || e.type == PLAT_SMK_BTN) {
+            rf_smk_session(e.type, e.id, e.v);
+            continue;
+        }
+        i = e.type == PLAT_SMK_FADER ? e.id : e.type == PLAT_SMK_BEND ? 4u : e.type == PLAT_SMK_MOD ? 5u : 6u;
+        rf_smk_due |= (uint8_t)(1u << i);
+    }
+    if (!rfa.session) {
+        rf_smk_due = 0;
+        return;
+    }
+    for (i = 0; i < 7u; i++)
+        if ((rf_smk_due >> i & 1u) && now - rf_smk_ms_at[i] >= RF_SMK_MS) {
+            int type = i < 4u ? PLAT_SMK_FADER : i == 4u ? PLAT_SMK_BEND : i == 5u ? PLAT_SMK_MOD : PLAT_SMK_PEDAL;
+            rf_smk_due &= (uint8_t)~(1u << i);
+            rf_smk_ms_at[i] = now;
+            rf_smk_session(type, i < 4u ? (int)i : 0, plat_smk_level(type, i < 4u ? (int)i : 0));
+        }
+}
+#endif
+
 /* ------------------------------------------------------------------ the panel, once a millisecond --- */
 static uint32_t rf_usb_resets_seen;
 static uint8_t rf_ble_was;
@@ -1084,6 +1154,9 @@ static void rf_ms_step(void)
         steps[RF_ENC_OF_ROLE[e]] += roles[e];
     }
     sa_ms(lb, roles);                               /* standalone: the instrument; panel mode: its timeout */
+#if BOARD_SMK37
+    rf_smk_ms();                                    /* the SMK-37's extra controls */
+#endif
     {
         uint8_t ab[3];
         uint32_t at;

@@ -25,8 +25,17 @@
  * APP_STORE_OK (tests/store_window_test.c, tests/run_tests.sh). */
 
 #define SF_DIR0 SA_STORE_LO
+#if BOARD_SMK37
+/* the M-Vave SMK-37 (app.h): the directory at 0x9F000 / 0xA0000, the pool's 64 sectors in three ranges of the SMK's
+ * windows (app.h SA_POOL_SEC): 0xA1000..0xAEFFF, 0xB0000..0xB9FFF, 0xC2000..0xE9FFF (USRFLASH; tests/smk_flash_test.c) */
+#define SF_NPOOL SA_POOL_N
+_Static_assert(SF_DIR0 + 0x2000u == SA_POOL_SEC(0u) && SA_POOL_SEC(13u) == 0xAE000u && SA_POOL_SEC(14u) == 0xB0000u &&
+               SA_POOL_SEC(23u) == 0xB9000u && SA_POOL_SEC(24u) == 0xC2000u && SA_POOL_SEC(63u) == 0xE9000u,
+               "the SMK-37's pool: app.h's windows, the owner tag's sector and the stock marker's left out");
+#else
 #define SF_POOL (SA_STORE_LO + 0x2000u)
 #define SF_NPOOL ((SA_STORE_HI - SF_POOL) / 0x1000u)
+#endif
 #define SF_MAGIC 0x31444652u                 /* "RFD1" */
 #define SF_UB 16u                            /* user banks */
 #define SF_NL 16u                            /* loops (sa_loop.c SA_LOOPS) */
@@ -131,7 +140,11 @@ static int sf_write(uint32_t off, const void *src, uint32_t n)
     return plat_data_write(off, src, n);
 }
 
+#if BOARD_SMK37
+static uint32_t sf_sec(uint32_t s) { return SA_POOL_SEC(s); }
+#else
 static uint32_t sf_sec(uint32_t s) { return SF_POOL + 0x1000u * s; }
+#endif
 
 static int sf_dir_ok(const sf_dir_t *d)
 {

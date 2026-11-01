@@ -62,6 +62,11 @@ static void rf_sa_leds(uint32_t btns, uint32_t keys, uint32_t keys_root, uint32_
                                               * a scale's root (75 %), its notes (40 %) */
 
 #define SA_NOTE0 53u                         /* key 0 at octave 0: F3 */
+#if BOARD_SMK37
+#define SA_NKEYS (NKEYS + 10u)                /* the M-Vave SMK-37: the ten outer keys too, as keys 27..36 (sa_smk.c) */
+#else
+#define SA_NKEYS NKEYS
+#endif
 #define SA_HOST_MS 3000u                     /* a HELLO without a session: panel mode this long after its last message */
 #define SA_OVERLAY_MS 1000u
 #define SA_LED_REFRESH_MS 500u                /* the LEDs written again this often, changed or not */
@@ -125,8 +130,11 @@ static struct {
     char name[12];                           /* the voice's */
     uint32_t keys;                           /* keys held (as played: lib/touch) */
     uint32_t btns;                           /* buttons held (plat.h's B_*) */
-    uint8_t key_note[NKEYS], key_ch[NKEYS];  /* what each held key started (0xFF: nothing, after a panic) */
-    uint8_t key_arp[NKEYS];                  /* ... given to the arp */
+    uint8_t key_note[SA_NKEYS], key_ch[SA_NKEYS];   /* what each held key started (0xFF: nothing, after a panic) */
+    uint8_t key_arp[SA_NKEYS];               /* ... given to the arp */
+#if BOARD_SMK37
+    uint32_t okeys;                          /* the SMK-37's outer keys held: bit k - NKEYS (sa_smk.c) */
+#endif
     uint8_t held[128];                       /* the notes sounding from the keys and MIDI in, counted: the screen */
     uint8_t latch;                           /* LATCH (LFO held): the keys' notes held after they are let go */
     uint8_t rm_disp, rm_rel, rm_cc_ch, rm_key_ch, rm_keys, rm_octk;   /* the settings (SA_RMD_*, SA_RMR_*, 1..16,
@@ -331,14 +339,22 @@ static void sa_latch_release(void)           /* every latched note let go */
     sa.lat_n = 0;
 }
 
+#if BOARD_SMK37
+/* key k's place from F3: the 27 keys 0..26; the SMK-37's outer keys 27..31 C3..E3 (-5..-1), 32..36 G#5..C6 (27..31) */
+static int32_t sa_key_off(uint32_t k) { return k < NKEYS ? (int32_t)k : k < NKEYS + 5u ? (int32_t)k - 32 : (int32_t)k - 5; }
+#define SA_KEYS_HELD (sa.keys | sa.okeys)
+#else
+#define sa_key_off(k) ((int32_t)(k))
+#define SA_KEYS_HELD sa.keys
+#endif
 static void sa_key(uint32_t k, uint32_t vel)       /* a key down (vel) or up (0) */
 {
     if (vel) {
-        int32_t n = (int32_t)SA_NOTE0 + (int32_t)k + 12 * sa.oct;
+        int32_t n = (int32_t)SA_NOTE0 + sa_key_off(k) + 12 * sa.oct;
         n = (int32_t)sa_snap((uint32_t)clamp(n, 0, 127));   /* (the scale: SNAP) */
         if (sa.latch && sa.lat_n) {          /* LATCH: a new chord (no key held) replaces the one held; the same
                                               * note again is let go first */
-            if (!sa.keys) {
+            if (!SA_KEYS_HELD) {
                 sa_latch_release();
             } else {
                 uint32_t i, j;
@@ -402,6 +418,12 @@ static void sa_all_off(int now)
     for (k = 0; k < NKEYS; k++)
         if (sa.keys >> k & 1u)
             sa_key(k, 0);
+#if BOARD_SMK37
+    for (k = NKEYS; k < SA_NKEYS; k++)
+        if (sa.okeys >> (k - NKEYS) & 1u)
+            sa_key(k, 0);
+    sa.okeys = 0;
+#endif
     sa_latch_release();
     sa_remote_off_all();
     for (k = 0; k < 128u; k++)
@@ -1288,7 +1310,7 @@ static void sa_init(void)
     sl_init();
     sl_store_load();                         /* the loops kept (SAVE held) */
     sar_init();
-    for (k = 0; k < NKEYS; k++)
+    for (k = 0; k < SA_NKEYS; k++)
         sa.key_note[k] = 0xFFu;
     sa.led_b = sa.led_k = 0xFFFFFFFFu;
     sa_load();
@@ -1304,4 +1326,7 @@ static void sa_ui_init(void)                 /* (app_ui_init: the platform is up
         touch_on(1);
 }
 
+#if BOARD_SMK37
+#include "sa_smk.c"                          /* the M-Vave SMK-37's outer keys, faders, wheels, pedal and extra buttons */
+#endif
 #include "sa_ui.c"
