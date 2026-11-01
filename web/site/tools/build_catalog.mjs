@@ -31,7 +31,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { siteEntry, CATEGORIES, HUB, authorNative, preferNative, rfm1Entry, compareVersions } from "../js/live.js";
+import { siteEntry, CATEGORIES, HUB, authorNative, preferNative, rfm1Entry, compareVersions, isPrerelease } from "../js/live.js";
 import { inspect } from "../../engines/rfm1/engine.js";
 import { nativeAvailability, ungatedCores, annotate } from "./site_guard.mjs";
 
@@ -281,7 +281,7 @@ if (fwDir) {
     const m = /^([0-9a-f]{64})\s+\*?(\S+\.rfm1)\s*$/i.exec(line.trim());
     if (m) sums.set(m[2], m[1].toLowerCase());
   }
-  const ge = (a, b) => !b || compareVersions(a, b) >= 0;
+  const ge = (a, b) => !b || compareVersions(a, b) >= 0 || (isPrerelease(b) && !isPrerelease(a));   // (a stable .rfm1 over a beta)
   let added = 0, merged = 0, kept = 0;
   for (const [name, want] of [...sums].sort()) {
     const bytes = readFileSync(join(fwDir, name)), sha = createHash("sha256").update(bytes).digest("hex");

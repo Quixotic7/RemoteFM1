@@ -78,6 +78,12 @@ export function compareVersions(a, b) {
   }
   return suffixCompare(mx[2], my[2]);
 }
+// a pre-release (alpha, beta, rc, dev...) by its suffix: "1.6.0-rc.7", "0.2.20-beta", "Beta4"
+export function isPrerelease(v) {
+  const x = norm(v), m = /^(\d+(?:\.\d+)*)(.*)$/.exec(x);
+  if (!m) return /^(dev|snapshot|alpha|beta|preview|pre|test|rc)/.test(x);
+  return suffixKind(m[2].replace(/^[-._ ]+/, "")).k === "pre";
+}
 // the Hub's version is newer than the native core's; unsure counts as newer (prefer the Hub's)
 export function hubNewer(hubV, nativeV) {
   const c = compareVersions(hubV, nativeV);
@@ -92,7 +98,9 @@ export function hubNewer(hubV, nativeV) {
 export function newestWins(e) {
   // (this site's .rfm1 build of a Hub firmware: build_catalog.mjs --fw-catalog. The default while it is the Hub's version
   // or newer; behind it, the emulated package, as for a native core)
-  const rf = siteRfm1(e) && e.engines.includes("rfm1") && e.engines.includes("emu") ? compareVersions(e.rfm1.version, e.version) : null;
+  let rf = siteRfm1(e) && e.engines.includes("rfm1") && e.engines.includes("emu") ? compareVersions(e.rfm1.version, e.version) : null;
+  // (a stable .rfm1 wins over a newer pre-release on the Hub: the owner, 2026-10-31, "Prefer stable .rfm1")
+  if (rf !== null && !(rf >= 0) && isPrerelease(e.version) && !isPrerelease(e.rfm1.version)) rf = 0;
   if (rf !== null && !e.native && rf < 0) { e.defaultEngine = "emu"; return e; }
   if (!e.native || !e.engines.includes("native")) return e;
   e.nativeBehind = e.engines.includes("emu") && hubNewer(e.version, e.native.hubVersion || e.native.version);
