@@ -161,7 +161,7 @@ for f in hello_usb hello_bk hello_ble panel_idle panel_held; do
         { echo "FAILED: the SMK-37's $f differs from the FM-1's:"; cat "$OUT/smk_fm1/$f.txt" "$OUT/$f.txt"; exit 1; }
 done
 echo "   HELLO_R (USB, bulk, Bluetooth) and PANEL_R: the SMK-37's byte for byte the FM-1's"
-SMK_NO_TRIM=1 sim "$SIM/remotefm1-smk37_host" firmware/tests/smk_notrim.txt
+(export SMK_NO_TRIM=1; sim "$SIM/remotefm1-smk37_host" firmware/tests/smk_notrim.txt)   # (a subshell: sh keeps a function's VAR=)
 echo "== the SMK-37's signals decoded (felucca-bsp boards/smk37/smk_decode.h, patched in) and its flash map"
 $TCC $SAN -Ibuild/fm1-base/bsp/boards/smk37 -o "$H/smk_decode_test" tests/smk_decode_test.c
 "$H/smk_decode_test"
