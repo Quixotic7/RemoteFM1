@@ -143,10 +143,13 @@ print("wait 3100\nrf send usb 09 02\nwait 3000\nexpect sa_hash_state 3")
 print(f"expect sa_hash_one {s(sys.argv[1])}\nexpect sa_hash_two {s(sys.argv[2])}")
 PYEOF
 sim "$SIM/remotefm1_host" "$H/sa_hash.txt"
-echo "== the M-Vave SMK-37 (docs/SMK37.md): HELLO_R and PANEL_R from the FM-1 build, written out to compare"
+echo "== the M-Vave SMK-37 (docs/SMK37.md): HELLO_R and PANEL_R from the FM-1 build of the SMK-37's sources"
+echo "   (SMK_SOURCES=1 ./build.sh --host: firmware/patches/smk37 applied, BOARD unset), written out to compare"
+SMK_SOURCES=1 env -u CC ./build.sh --host >/dev/null
 mkdir -p "$OUT/smk_fm1"
-"$SIM/remotefm1_host" firmware/tests/smk_hello.txt "$OUT/smk_fm1" > "$OUT/log.txt" 2>&1 ||
+build/app-smk37/build/host/remotefm1_host firmware/tests/smk_hello.txt "$OUT/smk_fm1" > "$OUT/log.txt" 2>&1 ||
     { cat "$OUT/log.txt"; echo "FAILED: firmware/tests/smk_hello.txt (the FM-1 build)"; exit 1; }
+grep -q "FAIL" "$OUT/log.txt" && { cat "$OUT/log.txt"; echo "FAILED: firmware/tests/smk_hello.txt (the FM-1 build)"; exit 1; }
 echo "== the SMK-37 build of the simulator (BOARD=smk37 ./build.sh --host, firmware/patches/smk37): the panel as an"
 echo "   FM-1's (keys, pads as white keys, buttons, knobs, lights), the extras as MIDI, the flash map, the FM-1's scenarios"
 BOARD=smk37 env -u CC ./build.sh --host >/dev/null
@@ -162,7 +165,7 @@ SMK_NO_TRIM=1 sim "$SIM/remotefm1-smk37_host" firmware/tests/smk_notrim.txt
 echo "== the SMK-37's signals decoded (felucca-bsp boards/smk37/smk_decode.h, patched in) and its flash map"
 $TCC $SAN -Ibuild/fm1-base/bsp/boards/smk37 -o "$H/smk_decode_test" tests/smk_decode_test.c
 "$H/smk_decode_test"
-$TCC -Wno-int-to-pointer-cast -DBOARD_SMK37=1 -DPLAT_HOST -Ibuild/fm1-base/include -Ibuild/fm1-base/bsp/chip -Ifirmware \
+$TCC -Wno-int-to-pointer-cast -DBOARD_SMK37=1 -DPLAT_HOST -Ibuild/fm1-base/include -Ibuild/fm1-base/bsp/chip -Ibuild/app-smk37 \
     -o "$H/smk_flash_test" tests/smk_flash_test.c
 "$H/smk_flash_test"
 echo "== the SMK-37's update receiver (felucca-bsp ota.c, patched): the SMK's packages taken, an FM-1's refused"

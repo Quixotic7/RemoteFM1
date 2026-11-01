@@ -7,7 +7,7 @@
  * sharing a sector, none touching the unit's own ranges (0x0..0x3FFF, BTIF and USRTRIM 0xC0000..0xC1FFF, the stock
  * resources 0xF4000..0xFDFFF, key_mac 0xFF000..) nor the stock firmware's USRFLASH end marker's sector (0xEA000, only
  * ever erased); and felucca-bsp's driver's second net refusing those ranges whatever a caller allows.
- *   cc -DBOARD_SMK37=1 -DPLAT_HOST -Ibuild/fm1-base/include -Ibuild/fm1-base/bsp/chip -Ifirmware tests/smk_flash_test.c
+ *   cc -DBOARD_SMK37=1 -DPLAT_HOST -Ibuild/fm1-base/include -Ibuild/fm1-base/bsp/chip -Ibuild/app-smk37 tests/smk_flash_test.c
  * (build/fm1-base as BOARD=smk37 ./build.sh leaves it). tests/run_tests.sh. */
 #include <stdio.h>
 #include <string.h>

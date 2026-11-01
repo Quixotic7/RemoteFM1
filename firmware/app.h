@@ -12,9 +12,6 @@
 #define APP_PALETTE 2u                   /* gfx.c's CYAN */
 #define APP_BLOCK 256u                   /* the standalone DX7 (sa/sa_main.c sa_render): 8 of FM6's 32-frame blocks */
 #define APP_CANVAS_PX (240u * 32u)       /* the standalone screens' two 16-row bands (sa/sa_gfx.c) */
-#if BOARD_SMK37
-#define FM1B_TRS 0                       /* the M-Vave SMK-37 (docs/SMK37.md): its TRS jack is MIDI out, and PH8 a matrix row */
-#endif
 #ifndef FM1B_TRS
 #define FM1B_TRS 1                       /* MIDI in on the TRS jack (fm1-base device/midi_uart.c): standalone, it plays the
                                          * DX7 as USB and Bluetooth MIDI do; in a session it goes to the host (MIDI_IN) */
@@ -52,37 +49,12 @@
  * XDATA0 (0x93000..0x96FFF) are read once and taken over; XDATA0 is no longer written. APP_STORE_OK keeps fm1-base's
  * store and the app to exactly these windows (the device's st_erase / st_prog; the simulator refuses a save outside
  * them; tests/store_window_test.c). */
-enum { OBJ_PANEL, OBJ_BLE, OBJ_RF, OBJ_SA, OBJ_NOBJ };
-#if BOARD_SMK37
-/* the M-Vave SMK-37 (docs/SMK37.md "Flash map"): the same objects inside the SMK's allowed windows (fm1-base's plat.h
- * PLAT_DATA_OK: the stock VM 0x9D000..0xBAFFF but for the owner tag at 0xAF000, and USRFLASH 0xC2000..0xE9FFF), never
- * BTIF / USRTRIM 0xC0000..0xC1FFF, the stock resources 0xF4000..0xFDFFF or key_mac:
- *   0x9D000, 0x9E000     OBJ_RF (A / B)
- *   0x9F000, 0xA0000     the standalone's directory (sa/sa_store.c, A / B)
- *   0xA1000..0xAEFFF     its pool, sectors 0..13
- *   0xAF000              the store's owner tag (the platform's: "SMK37DATAREMOTE")
- *   0xB0000..0xB9FFF     the pool, sectors 14..23        (0xBA000: free; 0xBB000..0xBFFFF the update's staging)
- *   0xC2000..0xE9FFF     the pool, sectors 24..63 (USRFLASH: the stock firmware's mapping until the first save there,
- *                        which erases its end marker at 0xEA000 first)
- * No calibration on the SMK (OBJ_PANEL: no sectors). A start that finds another firmware's tag clears 0x9D000..0xAEFFF
- * and 0xB0000..0xBAFFF (fm1-base plat.h APP_SMK_CLEAR); USRFLASH is never cleared, only written over */
-#define SA_STORE_LO 0x9F000u
-#define SA_STORE_HI 0xA1000u                       /* (the directory; the pool's three ranges: SA_POOL_SEC) */
-#define SA_POOL_N 64u                              /* the pool's sectors (sa/sa_store.c) and where sector s is */
-#define SA_POOL_SEC(s) ((s) < 14u ? 0xA1000u + 0x1000u * (s) : (s) < 24u ? 0xB0000u + 0x1000u * ((s) - 14u) : \
-                        0xC2000u + 0x1000u * ((s) - 24u))
-#define APP_STORE_MAP {0u, 0u, 0x9D000u, 0u}
-#define APP_STORE_OK(off, n) (plat_in((off), (n), 0x9D000u, 0xAF000u) || plat_in((off), (n), 0xB0000u, 0xBA000u) || \
-                              plat_in((off), (n), 0xC2000u, 0xEA000u))
-#define APP_SMK_FAMILY "REMOTE"
-#define APP_SMK_CLEAR {0x9D000u, 0xAF000u, 0xB0000u, 0xBB000u}
-#else
 #define SA_STORE_LO 0x97000u
 #define SA_STORE_HI 0xD9000u
+enum { OBJ_PANEL, OBJ_BLE, OBJ_RF, OBJ_SA, OBJ_NOBJ };
 #define APP_STORE_MAP {0xFC000u, 0u, 0xF2000u, 0u}
 #define APP_STORE_OK(off, n) (plat_in((off), (n), 0xF2000u, 0xF4000u) || plat_in((off), (n), 0xFC000u, 0xFE000u) || \
                               plat_in((off), (n), SA_STORE_LO, SA_STORE_HI))
-#endif
 #define APP_STORE_MUX
 #define APP_STORE_VIRTUAL(obj) ((obj) == OBJ_BLE || (obj) == OBJ_SA)   /* records in OBJ_RF */
 int plat_store_raw_load(uint32_t obj, void *dst, uint32_t max);   /* (fm1-base's, under APP_STORE_MUX) */

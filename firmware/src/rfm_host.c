@@ -606,25 +606,6 @@ int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, c
         hb_run();
         return 1;
     }
-    if (!strcmp(a, "hello_dump") || !strcmp(a, "panel_dump")) {   /* rf hello_dump out:FILE: the last HELLO_R's (or
-                                                                    * PANEL_R's) bytes, in hex, a line (an FM-1 build's
-                                                                    * and an SMK-37 build's compared: tests/run_tests.sh) */
-        char path[512];
-        const uint8_t *p = a[0] == 'h' ? hs_hello : hs_panel;
-        uint32_t i, n = a[0] == 'h' ? RFM_HELLO_LEN : RFM_PANEL_LEN;
-        FILE *f;
-        snprintf(path, sizeof path, "%s/%s", plat_host_dir, !strncmp(b, "out:", 4) ? b + 4 : b);
-        f = fopen(path, "w");
-        if (!f) {
-            printf("rf %s: cannot write %s\n", a, path);
-            exit(2);
-        }
-        for (i = 0; i < n; i++)
-            fprintf(f, "%02X", p[i]);
-        fprintf(f, "\n");
-        fclose(f);
-        return 1;
-    }
     if (t < 0) {
         printf("rf %s: a transport (usb, bk, ble)\n", a);
         exit(2);
@@ -799,10 +780,8 @@ int app_expect(const char *what, int *got)
     else if (!strcmp(what, "rf_hello_sxq"))
         *got = (int)rf_rd16(hs_hello + 29);
     else if (!strcmp(what, "rf_hello_ident"))
-        *got = !memcmp(hs_hello + 43, RFA_IDENTITY, 8) && !memcmp(hs_hello, RFM_NAME, sizeof RFM_NAME - 1u) &&
+        *got = !memcmp(hs_hello + 43, FELUCCA_ID, 8) && !memcmp(hs_hello, RFM_NAME, sizeof RFM_NAME - 1u) &&
                hs_hello[16] == RFM_PROTO;
-    else if (!strcmp(what, "rf_hello_fm1"))         /* the identity hosts see is the FM-1's, "FM-1_520" (an SMK-37 too) */
-        *got = !memcmp(hs_hello + 43, "FM-1_520", 8);
     else if (!strcmp(what, "rf_panel_flags"))
         *got = hs_panel[RFM_PANEL_FLAGS];
     else if (!strcmp(what, "rf_panel_keys"))

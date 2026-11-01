@@ -60,9 +60,20 @@ for p in firmware/patches/felucca-bsp/*.patch; do
     GIT_CEILING_DIRECTORIES="$ROOT/build" git -C "$B/bsp" apply "$ROOT/$p" ||
         { echo "build.sh: $p does not apply to base/bsp (felucca-bsp moved on?)"; exit 1; }
 done
+# the M-Vave SMK-37 (docs/SMK37.md): its own series on top, for fm1-base and felucca-bsp (firmware/patches/smk37/), and
+# for the app: firmware/ is copied to build/app-smk37 and firmware/patches/smk37/app/*.patch applied there, so that
+# firmware/'s sources stay as they are (fm1-base's build hashes the app's sources into the image, FM1B_BUILD: an edit
+# of firmware/, even under #if BOARD_SMK37, would change the FM-1's packages). The SMK's packages and simulator are
+# copied to firmware/build/. SMK_SOURCES=1 (BOARD unset): the FM-1 built from those same patched sources, into
+# build/app-smk37/build/ (tests/run_tests.sh: its HELLO_R against the SMK-37's)
+SMK=0
 case "${BOARD:-fm1}" in
-fm1) ;;
-smk37)                                                  # the SMK-37's series, on top (firmware/patches/smk37/UPSTREAM.md)
+fm1) [ "${SMK_SOURCES:-0}" != 1 ] || SMK=1 ;;
+smk37) SMK=1 ;;
+*) echo "build.sh: BOARD=$BOARD: fm1 or smk37"; exit 1 ;;
+esac
+APPDIR=firmware
+if [ $SMK = 1 ]; then
     [ $BENCH = 0 ] || { echo "build.sh: --bench is the FM-1's"; exit 1; }
     for p in firmware/patches/smk37/fm1-base/*.patch; do
         GIT_CEILING_DIRECTORIES="$ROOT/build" git -C "$B" apply "$ROOT/$p" ||
@@ -71,9 +82,29 @@ smk37)                                                  # the SMK-37's series, o
     for p in firmware/patches/smk37/felucca-bsp/*.patch; do
         GIT_CEILING_DIRECTORIES="$ROOT/build" git -C "$B/bsp" apply "$ROOT/$p" ||
             { echo "build.sh: $p does not apply"; exit 1; }
-    done ;;
-*) echo "build.sh: BOARD=$BOARD: fm1 or smk37"; exit 1 ;;
-esac
+    done
+    APPDIR="$ROOT/build/app-smk37"
+    mkdir -p "$APPDIR" "$ROOT/build/proto"
+    rsync -a --delete --checksum proto/ "$ROOT/build/proto/"   # (the app's "../../proto/rfm1.h", beside the copy)
+    rsync -a --delete --checksum --exclude /build/ --exclude /patches/ firmware/ "$APPDIR/"
+    for p in firmware/patches/smk37/app/*.patch; do
+        GIT_CEILING_DIRECTORIES="$ROOT/build" git -C "$APPDIR" apply "$ROOT/$p" ||
+            { echo "build.sh: $p does not apply to firmware/"; exit 1; }
+    done
+    if [ "${BOARD:-fm1}" = smk37 ]; then
+        "$PY" "$B/tools/build.py" "$APPDIR" "$@"
+        mkdir -p firmware/build/host
+        for f in "$APPDIR"/build/remotefm1-smk37*.fwsc; do
+            [ ! -f "$f" ] || cp -p "$f" firmware/build/
+        done
+        for f in "$APPDIR"/build/host/remotefm1-smk37*_host; do
+            [ ! -f "$f" ] || cp "$f" firmware/build/host/
+        done
+        echo "(the SMK-37's packages and simulator copied to firmware/build/)"
+        exit 0
+    fi
+    exec "$PY" "$B/tools/build.py" "$APPDIR" "$@"
+fi
 if [ $BENCH = 0 ]; then
     exec "$PY" "$B/tools/build.py" firmware "$@"
 fi
