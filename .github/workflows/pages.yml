@@ -16,6 +16,8 @@
 #   remote/remote.js, build/remote/remotefm1.mjs                 W4 (Use my FM-1)
 #   installer/                                                   the RemoteFM1 installer and its packages (firmware/: every
 #                                                                release releases.json lists, checked against SHA256SUMS)
+#   installer/smk37/                                             the SMK-37 test installer (docs/SMK37.md): linked from no page,
+#                                                                noindex; its packages checked against its SHA256SUMS
 #   managers/<id>/ fm1-shim.js index.json                         the firmwares' own managers, hosted (web/managers; FM1VST's core trees)
 #   engines/native/ext/<id>/<version>/                           firmware authors' own native builds, checked (web/site/tools/native_sync.mjs)
 #   native/                                                      how authors publish one (web/site/native, docs/NATIVE-AUTHORS.md)
@@ -106,6 +108,7 @@ jobs:
           node web/site/test-wav.mjs
           node web/site/test-audio.mjs
           node web/installer/test_installer.mjs
+          node web/installer/smk37/test_smk_installer.mjs
           node web/managers/test.mjs
 
       - name: Which parts can be built
@@ -208,6 +211,12 @@ jobs:
                 web/installer/releases.json web/installer/firmware _site/installer/
           # the packages the page installs are the ones its release list names (each release, and its USB-only one)
           (cd _site/installer/firmware && sha256sum -c SHA256SUMS)
+          # the SMK-37 test installer (docs/SMK37.md): its page, its list and its packages, at installer/smk37/; no page of
+          # the site links it (the link goes to testers), and it is not indexed
+          mkdir -p _site/installer/smk37
+          cp -R web/installer/smk37/index.html web/installer/smk37/smk37.js web/installer/smk37/releases-smk37.json \
+                web/installer/smk37/firmware _site/installer/smk37/
+          (cd _site/installer/smk37/firmware && sha256sum -c SHA256SUMS)
           # the firmwares' own managers / editors (web/managers/build.mjs), copied from FM1VST's core trees at the commit it
           # pins, each with its licence, its source link and the player's Web MIDI shim; none of theirs is in this repo
           node web/managers/build.mjs --cores web/vendor/FM1VST/cores --out _site/managers
