@@ -35,6 +35,11 @@ else()
 endif()
 
 include(cmake/FM1Cores.cmake)
+# the glues' fm1_add_rfm1 calls (FM1VST cmake/FM1Rfm1.cmake: .rfm1 files) are no-ops here: FM1_RFM1 off
+if(EXISTS ${CMAKE_SOURCE_DIR}/cmake/FM1Rfm1.cmake)
+    set(FM1_RFM1 OFF CACHE BOOL "no .rfm1 files in the site's native build" FORCE)
+    include(cmake/FM1Rfm1.cmake)
+endif()
 set(FM1_COMMON_SOURCES ${FM1_COMMON_DIR}/nor.c ${FM1_COMMON_DIR}/fifo.c ${FM1WEB_CORO})
 set_source_files_properties(${FM1_COMMON_SOURCES} PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra;-fno-common")
 

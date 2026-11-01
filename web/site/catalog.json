@@ -1,6 +1,6 @@
 {
  "about": "Built by web/site/tools/build_catalog.mjs from the FM-1 Firmware Hub's catalog, FM1VST's cores, RemoteFM1's own release (web/installer/releases.json) and the site's .rfm1 files (data/site-rfm1.json). Edit those, not this file.",
- "generated": "2026-10-31",
+ "generated": "2026-11-01",
  "hubUpdated": "2026-10-18 17:01 UTC",
  "hubSource": "snapshot",
  "hub": "https://thefirmwarehub.com/",
@@ -48,13 +48,14 @@
    "name": "FM1VST",
    "license": "GPL-3.0-only",
    "source": "https://github.com/Quixotic7/FM1VST",
-   "commit": "ece0e44064d1cd7a12e1f1728074b3d408050946"
+   "commit": "36b4573027070a5149e358ab633c1a3c9c5487ef"
   },
   "hub": {
    "name": "The FM-1 Firmware Hub",
    "source": "https://thefirmwarehub.com/"
   }
  },
+ "fwCatalog": null,
  "nativeAuthors": null,
  "firmwares": [
   {
@@ -1280,10 +1281,10 @@
    "defaultEngine": "native",
    "native": {
     "core": "melodee",
-    "version": "1.4.5",
+    "version": "1.5.1",
     "wasm": "../build/native/melodee.wasm",
     "repo": "https://github.com/keremimo/melodee",
-    "commit": "398ada1e09d864c12f3b778a43e45c7c2a8031b8",
+    "commit": "6a608ba122ac42293908d394e26713e31ec52fb0",
     "glue": "melodee"
    },
    "emu": {
@@ -1488,10 +1489,10 @@
    "defaultEngine": "native",
    "native": {
     "core": "obervave",
-    "version": "1.5.3",
+    "version": "3.3",
     "wasm": "../build/native/obervave.wasm",
     "repo": "https://github.com/zvenson/obervave",
-    "commit": "7e1ccf9ca9e96a14a961e48ea8fe6efa907422df",
+    "commit": "25d463be127716af3f378c5302d2d84c3c89febd",
     "glue": "dinghy"
    },
    "emu": {
