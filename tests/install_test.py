@@ -12,6 +12,7 @@ writes), with the way there: V15, then M-UPGRADE.
 """
 import json
 import os
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -119,12 +120,55 @@ ok("official V15" in D("FM-1_015") and "RemoteFM1 0.1" in D("FM-1_015"), "--info
 ok(D("FM-1_016") == "running M-VAVE's official V16" and "update loader" in D("ota-FM-1_900"), "--info: V16, a loader")
 ok(D("FM-1_46000100") == "running" and D("FM-1_099") == "running" and D("FM-1_520") == "running",
    "--info: another firmware (FIZZ, m-bootloader's installer, a short 52) not named")
-# RemoteFM1 0.2's own package, when built (./build.sh): fm1-base's, with the loader marker, the app area's size
+# RemoteFM1 0.2's own package, when built (./build.sh): fm1-base's, with the loader marker, the app area's size; the
+# M-Vave SMK-37's (BOARD=smk37 ./build.sh, docs/SMK37.md): its model's identity in 36 blocks, the SMK's app area
 for pkg in sorted((ROOT / "firmware" / "build").glob("remotefm1*.fwsc")):
     r = pkg.read_bytes()
     product, _, off = I.load_package(str(pkg), False)
-    ok(product.startswith("FM-1_52") and off is None and I.package_damage(I.logical_image(r)) is None and
+    if "-smk37" in pkg.name:
+        model = "SMK-37 Elite" if "-elite" in pkg.name else "MKE-P37" if "-mke" in pkg.name else "SMK-37 Pro"
+        ok(product.startswith(model + "_52") and off is None and I.marker_blocks(r) == I.SMK_BLOCKS and
+           I.package_damage(I.logical_image(r)) is None and I.flash_size(I.logical_image(r)) == I.APP_HI_SMK,
+           f"the built {pkg.name}: {product}, 36 blocks, loads without --force, no damage, the SMK's app area")
+        continue
+    ok(product.startswith("FM-1_52") and off is None and I.marker_blocks(r) == I.BLOCKS and
+       I.package_damage(I.logical_image(r)) is None and
        I.flash_size(I.logical_image(r)) <= I.APP_HI, f"the built {pkg.name}: {product}, loads without --force, no damage")
+
+# the M-Vave SMK-37: any of its models' packages on any of them (one board), never an FM-1's on it or its on an FM-1;
+# the resume of an install cut off (the device in update mode) by the same rule, before anything is sent
+S = I.same_keyboard
+ok(S("SMK-37 Pro_016", "SMK-37 Elite_52000301") and S("MKE-P37_5200", "SMK-37 Pro_5200") and
+   S("ota-SMK-37 Elite_900", "SMK-37 Pro_52000301") and S("FM-1_015", "FM-1_52000301"),
+   "same_keyboard: an SMK-37's on any SMK-37 model, an FM-1's on an FM-1 (and their loaders)")
+ok(not S("FM-1_52000301", "SMK-37 Pro_52000301") and not S("SMK-37 Pro_016", "FM-1_52000301") and
+   not S("ota-FM-1_900", "SMK-37 Pro_5200") and not S("ota-SMK-37 Pro_900", "FM-1_5200"),
+   "same_keyboard: never an FM-1's on an SMK-37 or back, the loaders' too")
+class _Link:
+    def __init__(self):
+        self.sent = []
+    def send(self, p):
+        self.sent.append(p)
+        return True
+    def close(self):
+        pass
+for dev_id, product, what in (("SMK-37 Pro_016", "FM-1_52000301", "an FM-1 package at an SMK-37 (its stock firmware)"),
+                              ("ota-SMK-37 Pro_900", "FM-1_52000301", "an FM-1 package at an SMK-37's loader (resume)"),
+                              ("FM-1_52000301", "SMK-37 Pro_52000301", "an SMK-37 package at an FM-1"),
+                              ("ota-FM-1_900", "SMK-37 Elite_52000301", "an SMK-37 package at an FM-1's loader (resume)")):
+    link = _Link()
+    m = re.fullmatch(r"([^_]+)_(\d+)", dev_id)
+    try:
+        I.Updater(None).install(I.Device(link, I.Identity(dev_id, m[1], int(m[2])), "FM-1"), b"", product)
+        code = ""
+    except I.InstallError as e:
+        code = e.code
+    ok(code == "model" and not link.sent, f"install: {what}: refused (model), nothing sent")
+D = I.describe_identity
+ok(D("SMK-37 Pro_52000301") == "running RemoteFM1 0.3.1 on an SMK-37 Pro" and
+   "development" in D("SMK-37 Elite_5200") and D("SMK-37 Pro_016") == "running M-VAVE's official SMK-37 Pro V16" and
+   "update loader" in D("ota-SMK-37 Pro_900"), "--info: RemoteFM1 on an SMK-37, its stock firmware, a loader")
+ok(I.PORT_RE.search("SMK-37 Pro Midi") and I.PORT_RE.search("FM-1"), "the SMK-37's stock port is looked at, as RemoteFM1's")
 
 print(f"install tests: {fails} of {checks} FAILED" if fails else f"install tests passed ({checks})")
 sys.exit(1 if fails else 0)

@@ -22,6 +22,12 @@ Exit codes: 0 done, 1 cancelled or other error, 2 bad arguments or package,
 loader / no restart), 6 wrong model, another identity after the install, or the
 FM-1 is in the update mode of another firmware (only SLOOP's own loader,
 ota-FM-1_9XX, is resumed).
+
+The M-Vave SMK-37 (docs/SMK37.md): RemoteFM1's SMK-37 packages (identity "SMK-37 Pro_52...", "SMK-37 Elite_52...",
+"MKE-P37_52...": 36 identity blocks, as the SMK-37's stock packages) install on an SMK-37 of any model (one board),
+never on an FM-1, and an FM-1 package never on an SMK-37, on every path (the install and the resume of one cut off:
+the loader's model, ota-MODEL_9XX, is checked the same way). The keyboard is found by its port ("FM-1" while
+RemoteFM1 runs, "SMK-37 Pro ..." under its stock firmware).
 """
 import argparse
 import hashlib
@@ -35,6 +41,9 @@ UPGRADE = bytes([0xF0, 0x22, 0x24, 0x35, 0x7F, 0xF7])
 FINISH_CHECK, FINISH_WRITE = 0xE0000000, 0xF0000000
 MAXDATA = 512
 BLOCKS, BLK, KEEP = 20, 0x30, 0x2F
+SMK_BLOCKS = 36                    # an SMK-37 package's identity blocks (its stock v016's; RemoteFM1's SMK-37 ones)
+SMK_MODELS = ("SMK-37 Pro", "SMK-37 Elite", "MKE-P37", "STARRYKEY-37 PLAY")   # one keyboard: any model's on any
+APP_HI_SMK = 0x9D000               # the SMK-37's app area (its stock PRCT), which its update loader writes whole
 LOADER_MARK = b"FELUCCA-LOADER-1"
 # the unmodified official FM-1 V15 (FM-1.fwsc from M-VAVE): installed without --force (ChoralRoot's tools/fm1_install.py)
 STOCK_V15_SHA256 = "db1642b2b6fa5c2cccb11ffd13878068bb28601678d3644049f99dc40e7edb8a"
@@ -56,6 +65,16 @@ def describe_identity(text):
     """what an identity says the FM-1 runs, in words (--info): never "official" for RemoteFM1's own"""
     if text.lower().startswith("ota-"):
         return "update loader (update not finished)"
+    if is_smk(model_of(text)):
+        model, _, num = text.partition("_")
+        if num == "5200":
+            return f"running RemoteFM1 (a development build) on an {model}"
+        m = re.fullmatch(r"52(\d\d)(\d\d)(\d\d)", num)
+        if m:
+            return f"running RemoteFM1 {int(m[1])}.{int(m[2])}.{int(m[3])} on an {model}"
+        if re.fullmatch(r"0\d\d", num):
+            return f"running M-VAVE's official {model} V{int(num)}"
+        return f"running (an {model})"
     if text == "FM-1_5200":
         return "running RemoteFM1 (a development build)"
     m = re.fullmatch(r"FM-1_52(\d\d)(\d\d)(\d\d)", text)
@@ -67,7 +86,7 @@ def describe_identity(text):
                 (" (or RemoteFM1 0.1 / TransitFM1, which answer as V15)" if m[1] == "15" else ""))
     return "running"
 
-PORT_RE = re.compile(r"fm-1|felucca|ota|composite|sinco|usb-midi", re.I)   # never probe other gear
+PORT_RE = re.compile(r"fm-1|felucca|ota|composite|sinco|usb-midi|smk|mke|starrykey", re.I)   # never probe other gear
 
 # seconds; the tests shorten them
 DELAY = {"open": 0.3, "start": 2.0, "reply": 0.01, "loader": 3.0, "reboot": 3.0, "retry": 1.0,
@@ -152,23 +171,44 @@ def parse_identity(pkt):
 
 # --------------------------------------------------------------- package ---
 
-def product_of(raw):
-    """the package identity ("FM-1_906"): one marker byte after each of the first 20 blocks"""
+def marker_blocks(raw):
+    """how many blocks carry the identity: 20 (the FM-1's packages), or 36 (the SMK-37's): the count whose image is
+    whole (package_damage), 20 when neither is"""
+    for nb in (BLOCKS, SMK_BLOCKS):
+        if len(raw) >= nb * BLK and package_damage(logical_image(raw, nb)) is None:
+            return nb
+    return BLOCKS
+
+
+def product_of(raw, nb=None):
+    """the package identity ("FM-1_906"): one marker byte after each of the first 20 (36) blocks"""
     if len(raw) < BLOCKS * BLK:
         raise InstallError("badpkg", "not an FM-1 package (too short)")
-    return "".join(chr((m - i - 1) & 0xFF) for i in range(BLOCKS) if (m := raw[i * BLK + KEEP]) != 0x7D)
+    nb = nb or marker_blocks(raw)
+    return "".join(chr((m - i - 1) & 0xFF) for i in range(nb) if (m := raw[i * BLK + KEEP]) != 0x7D)
 
 
-def logical_image(raw):
-    """the image the device reads during an update: the package without the 20 marker bytes"""
+def logical_image(raw, nb=None):
+    """the image the device reads during an update: the package without the 20 (36) marker bytes"""
+    nb = nb or marker_blocks(raw)
     out = bytearray()
-    for i in range(BLOCKS):
+    for i in range(nb):
         out += raw[i * BLK:i * BLK + KEEP]
-    return bytes(out + raw[BLOCKS * BLK:])
+    return bytes(out + raw[nb * BLK:])
 
 
 def model_of(text):
     return text.split("_")[0].removeprefix("ota-")
+
+
+def is_smk(model):
+    return model.upper() in (m.upper() for m in SMK_MODELS)
+
+
+def same_keyboard(device, product):
+    """a package may go on the device (identities): the same model, or both an SMK-37 (any of its models: one board)"""
+    a, b = model_of(device), model_of(product)
+    return a == b or (is_smk(a) and is_smk(b))
 
 
 # ------------------------------------------------------------------ MIDI ---
@@ -391,10 +431,10 @@ class Updater:
         update mode only needs the write. official: the package is M-VAVE's V15, so an updater that answers
         ota-FM-1_015 (M-VAVE's own, cut off writing it) is resumed too: the return to stock. Our loader always
         answers ota-FM-1_9NN (TransitFM1 0.1.2's ota-FM-1_015 bricked a unit and was reverted in 0.1.3)"""
-        if model_of(dev.id.text) != model_of(product):
+        if not same_keyboard(dev.id.text, product):
             dev.link.close()
             raise InstallError("model", f"the device is {dev.id.text}, the package is for {product}")
-        if dev.id.loader and not re.fullmatch(r"ota-FM-1_9\d\d", dev.id.text, re.I) and \
+        if dev.id.loader and not re.fullmatch(r"ota-(FM-1|SMK-37 Pro|SMK-37 Elite|MKE-P37)_9\d\d", dev.id.text, re.I) and \
                 not (official and dev.id.text.lower() == "ota-fm-1_015"):
             dev.link.close()           # another firmware's loader: its image layout may differ
             raise InstallError("foreign", f"the FM-1 is in the update mode of another firmware ({dev.id.text}): "
@@ -421,7 +461,11 @@ def load_package(path, force):
         raise InstallError("badpkg", f"{path}: damaged package ({bad}); nothing was written. "
                                      "Download it again.")
     size = flash_size(image)
-    if size > APP_HI:              # not even with --force: RemoteFM1's loader refuses it (and would truncate it)
+    if is_smk(model_of(product)):  # the SMK-37's own app area (its loaders write [0x4000, 0x9D000))
+        if size > APP_HI_SMK:
+            raise InstallError("badpkg", f"{path}: flash.bin reaches {size:#x}, past the SMK-37's app area "
+                                         f"({APP_HI_SMK:#x})")
+    elif size > APP_HI:            # not even with --force: RemoteFM1's loader refuses it (and would truncate it)
         what = f"M-VAVE's official {official}" if official else "this firmware"
         then = ("update to it from V15 with M-VAVE's M-UPGRADE" if official
                 else "install it from V15 with its own installer")

@@ -1,0 +1,430 @@
+--- a/app.h
++++ b/app.h
+@@ -12,6 +12,9 @@
+ #define APP_PALETTE 2u                   /* gfx.c's CYAN */
+ #define APP_BLOCK 256u                   /* the standalone DX7 (sa/sa_main.c sa_render): 8 of FM6's 32-frame blocks */
+ #define APP_CANVAS_PX (240u * 32u)       /* the standalone screens' two 16-row bands (sa/sa_gfx.c) */
++#if BOARD_SMK37
++#define FM1B_TRS 0                       /* the M-Vave SMK-37 (docs/SMK37.md): its TRS jack is MIDI out, and PH8 a matrix row */
++#endif
+ #ifndef FM1B_TRS
+ #define FM1B_TRS 1                       /* MIDI in on the TRS jack (fm1-base device/midi_uart.c): standalone, it plays the
+                                          * DX7 as USB and Bluetooth MIDI do; in a session it goes to the host (MIDI_IN) */
+@@ -49,12 +52,37 @@
+  * XDATA0 (0x93000..0x96FFF) are read once and taken over; XDATA0 is no longer written. APP_STORE_OK keeps fm1-base's
+  * store and the app to exactly these windows (the device's st_erase / st_prog; the simulator refuses a save outside
+  * them; tests/store_window_test.c). */
++enum { OBJ_PANEL, OBJ_BLE, OBJ_RF, OBJ_SA, OBJ_NOBJ };
++#if BOARD_SMK37
++/* the M-Vave SMK-37 (docs/SMK37.md "Flash map"): the same objects inside the SMK's allowed windows (fm1-base's plat.h
++ * PLAT_DATA_OK: the stock VM 0x9D000..0xBAFFF but for the owner tag at 0xAF000, and USRFLASH 0xC2000..0xE9FFF), never
++ * BTIF / USRTRIM 0xC0000..0xC1FFF, the stock resources 0xF4000..0xFDFFF or key_mac:
++ *   0x9D000, 0x9E000     OBJ_RF (A / B)
++ *   0x9F000, 0xA0000     the standalone's directory (sa/sa_store.c, A / B)
++ *   0xA1000..0xAEFFF     its pool, sectors 0..13
++ *   0xAF000              the store's owner tag (the platform's: "SMK37DATAREMOTE")
++ *   0xB0000..0xB9FFF     the pool, sectors 14..23        (0xBA000: free; 0xBB000..0xBFFFF the update's staging)
++ *   0xC2000..0xE9FFF     the pool, sectors 24..63 (USRFLASH: the stock firmware's mapping until the first save there,
++ *                        which erases its end marker at 0xEA000 first)
++ * No calibration on the SMK (OBJ_PANEL: no sectors). A start that finds another firmware's tag clears 0x9D000..0xAEFFF
++ * and 0xB0000..0xBAFFF (fm1-base plat.h APP_SMK_CLEAR); USRFLASH is never cleared, only written over */
++#define SA_STORE_LO 0x9F000u
++#define SA_STORE_HI 0xA1000u                       /* (the directory; the pool's three ranges: SA_POOL_SEC) */
++#define SA_POOL_N 64u                              /* the pool's sectors (sa/sa_store.c) and where sector s is */
++#define SA_POOL_SEC(s) ((s) < 14u ? 0xA1000u + 0x1000u * (s) : (s) < 24u ? 0xB0000u + 0x1000u * ((s) - 14u) : \
++                        0xC2000u + 0x1000u * ((s) - 24u))
++#define APP_STORE_MAP {0u, 0u, 0x9D000u, 0u}
++#define APP_STORE_OK(off, n) (plat_in((off), (n), 0x9D000u, 0xAF000u) || plat_in((off), (n), 0xB0000u, 0xBA000u) || \
++                              plat_in((off), (n), 0xC2000u, 0xEA000u))
++#define APP_SMK_FAMILY "REMOTE"
++#define APP_SMK_CLEAR {0x9D000u, 0xAF000u, 0xB0000u, 0xBB000u}
++#else
+ #define SA_STORE_LO 0x97000u
+ #define SA_STORE_HI 0xD9000u
+-enum { OBJ_PANEL, OBJ_BLE, OBJ_RF, OBJ_SA, OBJ_NOBJ };
+ #define APP_STORE_MAP {0xFC000u, 0u, 0xF2000u, 0u}
+ #define APP_STORE_OK(off, n) (plat_in((off), (n), 0xF2000u, 0xF4000u) || plat_in((off), (n), 0xFC000u, 0xFE000u) || \
+                               plat_in((off), (n), SA_STORE_LO, SA_STORE_HI))
++#endif
+ #define APP_STORE_MUX
+ #define APP_STORE_VIRTUAL(obj) ((obj) == OBJ_BLE || (obj) == OBJ_SA)   /* records in OBJ_RF */
+ int plat_store_raw_load(uint32_t obj, void *dst, uint32_t max);   /* (fm1-base's, under APP_STORE_MUX) */
+--- a/sa/sa_main.c
++++ b/sa/sa_main.c
+@@ -62,6 +62,11 @@
+                                               * a scale's root (75 %), its notes (40 %) */
+ 
+ #define SA_NOTE0 53u                         /* key 0 at octave 0: F3 */
++#if BOARD_SMK37
++#define SA_NKEYS (NKEYS + 10u)                /* the M-Vave SMK-37: the ten outer keys too, as keys 27..36 (sa_smk.c) */
++#else
++#define SA_NKEYS NKEYS
++#endif
+ #define SA_HOST_MS 3000u                     /* a HELLO without a session: panel mode this long after its last message */
+ #define SA_OVERLAY_MS 1000u
+ #define SA_LED_REFRESH_MS 500u                /* the LEDs written again this often, changed or not */
+@@ -125,8 +130,11 @@
+     char name[12];                           /* the voice's */
+     uint32_t keys;                           /* keys held (as played: lib/touch) */
+     uint32_t btns;                           /* buttons held (plat.h's B_*) */
+-    uint8_t key_note[NKEYS], key_ch[NKEYS];  /* what each held key started (0xFF: nothing, after a panic) */
+-    uint8_t key_arp[NKEYS];                  /* ... given to the arp */
++    uint8_t key_note[SA_NKEYS], key_ch[SA_NKEYS];   /* what each held key started (0xFF: nothing, after a panic) */
++    uint8_t key_arp[SA_NKEYS];               /* ... given to the arp */
++#if BOARD_SMK37
++    uint32_t okeys;                          /* the SMK-37's outer keys held: bit k - NKEYS (sa_smk.c) */
++#endif
+     uint8_t held[128];                       /* the notes sounding from the keys and MIDI in, counted: the screen */
+     uint8_t latch;                           /* LATCH (LFO held): the keys' notes held after they are let go */
+     uint8_t rm_disp, rm_rel, rm_cc_ch, rm_key_ch, rm_keys, rm_octk;   /* the settings (SA_RMD_*, SA_RMR_*, 1..16,
+@@ -331,14 +339,22 @@
+     sa.lat_n = 0;
+ }
+ 
++#if BOARD_SMK37
++/* key k's place from F3: the 27 keys 0..26; the SMK-37's outer keys 27..31 C3..E3 (-5..-1), 32..36 G#5..C6 (27..31) */
++static int32_t sa_key_off(uint32_t k) { return k < NKEYS ? (int32_t)k : k < NKEYS + 5u ? (int32_t)k - 32 : (int32_t)k - 5; }
++#define SA_KEYS_HELD (sa.keys | sa.okeys)
++#else
++#define sa_key_off(k) ((int32_t)(k))
++#define SA_KEYS_HELD sa.keys
++#endif
+ static void sa_key(uint32_t k, uint32_t vel)       /* a key down (vel) or up (0) */
+ {
+     if (vel) {
+-        int32_t n = (int32_t)SA_NOTE0 + (int32_t)k + 12 * sa.oct;
++        int32_t n = (int32_t)SA_NOTE0 + sa_key_off(k) + 12 * sa.oct;
+         n = (int32_t)sa_snap((uint32_t)clamp(n, 0, 127));   /* (the scale: SNAP) */
+         if (sa.latch && sa.lat_n) {          /* LATCH: a new chord (no key held) replaces the one held; the same
+                                               * note again is let go first */
+-            if (!sa.keys) {
++            if (!SA_KEYS_HELD) {
+                 sa_latch_release();
+             } else {
+                 uint32_t i, j;
+@@ -402,6 +418,12 @@
+     for (k = 0; k < NKEYS; k++)
+         if (sa.keys >> k & 1u)
+             sa_key(k, 0);
++#if BOARD_SMK37
++    for (k = NKEYS; k < SA_NKEYS; k++)
++        if (sa.okeys >> (k - NKEYS) & 1u)
++            sa_key(k, 0);
++    sa.okeys = 0;
++#endif
+     sa_latch_release();
+     sa_remote_off_all();
+     for (k = 0; k < 128u; k++)
+@@ -1288,7 +1310,7 @@
+     sl_init();
+     sl_store_load();                         /* the loops kept (SAVE held) */
+     sar_init();
+-    for (k = 0; k < NKEYS; k++)
++    for (k = 0; k < SA_NKEYS; k++)
+         sa.key_note[k] = 0xFFu;
+     sa.led_b = sa.led_k = 0xFFFFFFFFu;
+     sa_load();
+@@ -1304,4 +1326,7 @@
+         touch_on(1);
+ }
+ 
++#if BOARD_SMK37
++#include "sa_smk.c"                          /* the M-Vave SMK-37's outer keys, faders, wheels, pedal and extra buttons */
++#endif
+ #include "sa_ui.c"
+--- a/sa/sa_remote.c
++++ b/sa/sa_remote.c
+@@ -111,13 +111,13 @@
+         for (b = 0; b < NB; b++)
+             if (((sa.btns & ~rm.mute) >> b & 1u) && sa_rm_btn_cc(b))
+                 sa_midi3(0xB0u | SA_RM_CC_CH(), SA_RM_BTN_CC[b], 0);
+-        for (k = 0; k < NKEYS; k++)
++        for (k = 0; k < SA_NKEYS; k++)
+             if (sa.key_note[k] != 0xFFu) {
+                 sa_midi3(0x80u | sa.key_ch[k], sa.key_note[k], 0x40u);
+                 sa.key_note[k] = 0xFFu;
+             }
+     }
+-    for (k = 0; k < NKEYS; k++)
++    for (k = 0; k < SA_NKEYS; k++)
+         sa.key_note[k] = 0xFFu;
+     rm.on = 0;
+     sa.led_b = sa.led_k = 0xFFFFFFFFu;
+--- a/sa/sa_smk.c
++++ b/sa/sa_smk.c
+@@ -0,0 +1,85 @@
++/* SPDX-License-Identifier: MPL-2.0
++ * Copyright (C) 2026 RemoteFM1 contributors */
++/* The M-Vave SMK-37's controls the FM-1 has not (docs/SMK37.md; fm1-base's plat_smk_take, BOARD_SMK37), standalone:
++ * the instrument's. Part of sa_main.c (its state, sa; MIDI REMOTE's rm).
++ *
++ *   outer keys     C3..E3 and G#5..C6 play as the 27 keys do (keys 27..36 of sa_key: the octave, the scale's SNAP,
++ *                  LATCH, the arp, the loop, the keys' velocity or VELOCITY's fixed one); MIDI REMOTE: notes on KEY CH
++ *   pitch wheel    pitch bend: the DX7's, and out on the channel
++ *   mod wheel      CC 1 (the DX7 hears it: its mod wheel), and out
++ *   pedal          CC 64, sustain (the DX7 holds its notes), and out
++ *   faders 1..4    CC 16..19 (General Purpose 1..4) out, and to the DX7 (which does not use them)
++ *   KNOB BANK, FADER BANK, <, >   CC 110..113 out, 127 down / 0 up
++ * In MIDI REMOTE the wheels, the pedal, the faders and the buttons go on CC CH, the outer keys on KEY CH (rm.oct). The
++ * session's side (a host's firmware gets the same as MIDI in) is src/rfm_main.c's rf_smk_ms. */
++
++#define SA_SMK_FADER_CC 16u                  /* fader f: CC 16 + f */
++#define SA_SMK_BTN_CC 110u                   /* PLAT_SMK_KNOB_BANK .. RIGHT: CC 110 .. 113 */
++
++static uint32_t sa_smk_slot(uint32_t key)   /* keybed key 0..36 (an outer one) -> sa_key's 27..36 */
++{
++    return key < SMK_KEY_F3 ? NKEYS + key : key;   /* (32..36 are G#5..C6 as they are) */
++}
++
++static void sa_smk_cc(uint32_t cc, uint32_t v)
++{
++    if (rm.on)
++        sa_rm_send(0xB0u | SA_RM_CC_CH(), cc, v, SA_RM_SRC_BTN, 0);
++    else
++        sa_cc_send(cc, v);                   /* out, the DX7, the loop being recorded */
++}
++
++static void sa_smk(const plat_smk_ev_t *e)
++{
++    if (sa.panel)
++        return;
++    switch (e->type) {
++    case PLAT_SMK_KEY: {
++        uint32_t k = sa_smk_slot(e->id), bit = 1u << (k - NKEYS), v = (uint32_t)e->v;
++        if (k < NKEYS || k >= SA_NKEYS)
++            return;
++        if (rm.on) {                         /* MIDI REMOTE: a note on KEY CH, the mode's octave */
++            if (v) {
++                int32_t n = clamp((int32_t)SA_NOTE0 + sa_key_off(k) + 12 * rm.oct, 0, 127);
++                if (sa_rm_kbd())
++                    n = (int32_t)sa_snap((uint32_t)n);
++                sa.key_note[k] = (uint8_t)n;
++                sa.key_ch[k] = (uint8_t)SA_RM_KEY_CH();
++                sa_rm_send(0x90u | sa.key_ch[k], (uint32_t)n, v, SA_RM_SRC_KEY, k);
++            } else if (sa.key_note[k] != 0xFFu) {
++                sa_rm_send(0x80u | sa.key_ch[k], sa.key_note[k], 0x40u, SA_RM_SRC_KEY, k);
++                sa.key_note[k] = 0xFFu;
++            }
++            return;
++        }
++        if (v && sa.base == SA_SCR_LOOPS)
++            return;                          /* (the loops' page: the 16 white keys pick; the outer keys nothing) */
++        if (v) {
++            if (sa.okeys & bit)
++                return;
++            sa_key(k, sa.vel_on ? v : SA_VEL_FIXED);   /* (before it counts as held: a LATCH's new chord, as the 27
++                                                         * keys', starts when no other key is held) */
++            sa.okeys |= bit;
++        } else if (sa.okeys & bit) {
++            sa.okeys &= ~bit;
++            sa_key(k, 0);
++        }
++        return;
++    }
++    case PLAT_SMK_BEND: {
++        uint32_t b = (uint32_t)(e->v + 8192);
++        if (rm.on) {
++            sa_rm_send(0xE0u | SA_RM_CC_CH(), b & 0x7Fu, b >> 7, SA_RM_SRC_BTN, 0);
++            return;
++        }
++        sa_ev(SA_EV_BEND, b, 0);
++        sa_midi3(0xE0u | (sa.ch - 1u), b & 0x7Fu, b >> 7);
++        return;
++    }
++    case PLAT_SMK_MOD: sa_smk_cc(1u, (uint32_t)e->v); return;
++    case PLAT_SMK_PEDAL: sa_smk_cc(64u, e->v ? 127u : 0u); return;
++    case PLAT_SMK_FADER: sa_smk_cc(SA_SMK_FADER_CC + e->id, (uint32_t)e->v); return;
++    case PLAT_SMK_BTN: sa_smk_cc(SA_SMK_BTN_CC + e->id, e->v ? 127u : 0u); return;
++    default: return;
++    }
++}
+--- a/sa/sa_store.c
++++ b/sa/sa_store.c
+@@ -25,8 +25,17 @@
+  * APP_STORE_OK (tests/store_window_test.c, tests/run_tests.sh). */
+ 
+ #define SF_DIR0 SA_STORE_LO
++#if BOARD_SMK37
++/* the M-Vave SMK-37 (app.h): the directory at 0x9F000 / 0xA0000, the pool's 64 sectors in three ranges of the SMK's
++ * windows (app.h SA_POOL_SEC): 0xA1000..0xAEFFF, 0xB0000..0xB9FFF, 0xC2000..0xE9FFF (USRFLASH; tests/smk_flash_test.c) */
++#define SF_NPOOL SA_POOL_N
++_Static_assert(SF_DIR0 + 0x2000u == SA_POOL_SEC(0u) && SA_POOL_SEC(13u) == 0xAE000u && SA_POOL_SEC(14u) == 0xB0000u &&
++               SA_POOL_SEC(23u) == 0xB9000u && SA_POOL_SEC(24u) == 0xC2000u && SA_POOL_SEC(63u) == 0xE9000u,
++               "the SMK-37's pool: app.h's windows, the owner tag's sector and the stock marker's left out");
++#else
+ #define SF_POOL (SA_STORE_LO + 0x2000u)
+ #define SF_NPOOL ((SA_STORE_HI - SF_POOL) / 0x1000u)
++#endif
+ #define SF_MAGIC 0x31444652u                 /* "RFD1" */
+ #define SF_UB 16u                            /* user banks */
+ #define SF_NL 16u                            /* loops (sa_loop.c SA_LOOPS) */
+@@ -131,7 +140,11 @@
+     return plat_data_write(off, src, n);
+ }
+ 
++#if BOARD_SMK37
++static uint32_t sf_sec(uint32_t s) { return SA_POOL_SEC(s); }
++#else
+ static uint32_t sf_sec(uint32_t s) { return SF_POOL + 0x1000u * s; }
++#endif
+ 
+ static int sf_dir_ok(const sf_dir_t *d)
+ {
+--- a/src/rfm_host.c
++++ b/src/rfm_host.c
+@@ -606,6 +606,25 @@
+         hb_run();
+         return 1;
+     }
++    if (!strcmp(a, "hello_dump") || !strcmp(a, "panel_dump")) {   /* rf hello_dump out:FILE: the last HELLO_R's (or
++                                                                    * PANEL_R's) bytes, in hex, a line (an FM-1 build's
++                                                                    * and an SMK-37 build's compared: tests/run_tests.sh) */
++        char path[512];
++        const uint8_t *p = a[0] == 'h' ? hs_hello : hs_panel;
++        uint32_t i, n = a[0] == 'h' ? RFM_HELLO_LEN : RFM_PANEL_LEN;
++        FILE *f;
++        snprintf(path, sizeof path, "%s/%s", plat_host_dir, !strncmp(b, "out:", 4) ? b + 4 : b);
++        f = fopen(path, "w");
++        if (!f) {
++            printf("rf %s: cannot write %s\n", a, path);
++            exit(2);
++        }
++        for (i = 0; i < n; i++)
++            fprintf(f, "%02X", p[i]);
++        fprintf(f, "\n");
++        fclose(f);
++        return 1;
++    }
+     if (t < 0) {
+         printf("rf %s: a transport (usb, bk, ble)\n", a);
+         exit(2);
+@@ -780,8 +799,10 @@
+     else if (!strcmp(what, "rf_hello_sxq"))
+         *got = (int)rf_rd16(hs_hello + 29);
+     else if (!strcmp(what, "rf_hello_ident"))
+-        *got = !memcmp(hs_hello + 43, FELUCCA_ID, 8) && !memcmp(hs_hello, RFM_NAME, sizeof RFM_NAME - 1u) &&
++        *got = !memcmp(hs_hello + 43, RFA_IDENTITY, 8) && !memcmp(hs_hello, RFM_NAME, sizeof RFM_NAME - 1u) &&
+                hs_hello[16] == RFM_PROTO;
++    else if (!strcmp(what, "rf_hello_fm1"))         /* the identity hosts see is the FM-1's, "FM-1_520" (an SMK-37 too) */
++        *got = !memcmp(hs_hello + 43, "FM-1_520", 8);
+     else if (!strcmp(what, "rf_panel_flags"))
+         *got = hs_panel[RFM_PANEL_FLAGS];
+     else if (!strcmp(what, "rf_panel_keys"))
+--- a/src/rfm_main.c
++++ b/src/rfm_main.c
+@@ -56,7 +56,16 @@
+ #define FELUCCA_ID "FM-1_5200"              /* (the host simulator; tools/build.py gives the FM-1's build its own) */
+ #endif
+ #define RFA_FW_VER APP_VERSION
++#if BOARD_SMK37
++/* the M-Vave SMK-37 (docs/SMK37.md): to every host exactly an FM-1, so HELLO_R's identity is the FM-1 build's of the
++ * same version (tools/build.py FM1B_FM1_ID: "FM-1_520..."); the update identity (FELUCCA_ID) names the model */
++#ifndef FM1B_FM1_ID
++#define FM1B_FM1_ID "FM-1_5200"
++#endif
++#define RFA_IDENTITY FM1B_FM1_ID
++#else
+ #define RFA_IDENTITY FELUCCA_ID
++#endif
+ #if RFM_SHADOW
+ #define RFA_CAPS (RFM_CAP_SHADOW | RFM_CAP_COPY | RFM_CAP_RLE | RFM_CAP_PAL | RFM_CAP_PLAY_GREEN | RFM_CAP_HOLD | \
+                   RFM_CAP_BLE_FAST | RFM_CAP_MIDI_IN | RFM_CAP_TOUCH)  /* (the radio's settings: fm1.toml ble_dle, ble_2m, ble_rx_bufs) */
+@@ -84,9 +93,10 @@
+ static uint32_t rp_bk_rx_n(void), rp_bk_tx_n(void); /* the vendor rings' sizes (HELLO_R) */
+ enum { RC_RESETS, RC_SETUPS, RC_EP1_RX, RC_EP1_TX, RC_EP3_RX, RC_EP3_TX, RC_EP3_HELD, RC_LCD_TIMEOUTS, RC_N };
+ static void rp_counters(uint32_t *c);               /* USB's and the panel's counters (STATS_R) */
+-#ifdef PLAT_HOST
++#if defined PLAT_HOST || BOARD_SMK37
+ /* felucca-bsp boards/fm1/fm1_input.h FM1_KEYMAP (Leo Kuroshita, Hügelton Instruments, MPL-2.0): the matrix id at
+- * (packed row bit, column), -1 none; the host simulator has no BSP */
++ * (packed row bit, column), -1 none; the host simulator has no BSP (and the M-Vave SMK-37's has another matrix: the
++ * protocol's is the FM-1's there too) */
+ static const int8_t RF_KEYMAP[6][RFM_NCOL] = {
+     {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}, {5, 11, 4, 10, 3, 9, 2, 8, -1, -1, -1},
+     {34, 35, 36, 37, 38, 40, 39, 13, 7, 6, 12},   {23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33},
+@@ -595,7 +605,10 @@
+     h[25] = (uint8_t)((rp_usb_cfg() ? 1u : 0u) | 2u | (uint32_t)(rf_heard & 3u) << 2 |
+                       (plat_ble_connected() ? 0x10u : 0u) | (rf_heard & 4u ? 0x20u : 0u));
+     h[26] = 1;                                      /* the main loop polls USB */
+-#ifdef LCD_BAUD
++#if BOARD_SMK37
++    h[27] = 0;                                      /* (the FM-1's LCD_BAUD: HELLO_R is the FM-1's byte for byte; the
++                                                     * SMK-37's panel runs at fm1-base's SMK default, 2) */
++#elif defined LCD_BAUD
+     h[27] = LCD_BAUD;
+ #else
+     h[27] = 0;
+@@ -1068,6 +1081,63 @@
+         rfm_app_activity();                         /* (SINK too: the keepalive counts every byte) */
+ }
+ 
++#if BOARD_SMK37
++/* the SMK-37's controls the FM-1 has not (fm1-base plat_smk_take; docs/SMK37.md): standalone, the instrument's
++ * (sa/sa_smk.c); in a session, to the host's firmware as MIDI it receives, on channel 1, as the FM-1's TRS jack's MIDI
++ * in goes (MIDI_IN: the SMK has no TRS MIDI in, so that path is free; caps bit 9 as on the FM-1): the outer keys their
++ * notes (C3..E3 48..52, G#5..C6 80..84) with velocity, the pitch wheel pitch bend, the mod wheel CC 1, the pedal CC 64,
++ * the faders CC 16..19, KNOB BANK / FADER BANK / < / > CC 110..113 (127 / 0). A fader, a wheel or the pedal at most
++ * every RF_SMK_MS (its latest then); waiting for a host (no session): nothing */
++#define RF_SMK_MS 6u
++static uint32_t rf_smk_ms_at[7], rf_smk_sent;
++static uint8_t rf_smk_due;                          /* bit: a control's latest still to send (0..3 faders, 4 bend, 5 mod,
++                                                     * 6 pedal) */
++static void rf_smk_session(int type, int id, int v)
++{
++    uint32_t st, d1, d2;
++    switch (type) {
++    case PLAT_SMK_KEY: st = v ? 0x90u : 0x80u, d1 = 48u + (uint32_t)id, d2 = v ? (uint32_t)v : 64u; break;
++    case PLAT_SMK_BTN: st = 0xB0u, d1 = 110u + (uint32_t)id, d2 = v ? 127u : 0u; break;
++    case PLAT_SMK_FADER: st = 0xB0u, d1 = 16u + (uint32_t)id, d2 = (uint32_t)v; break;
++    case PLAT_SMK_BEND: st = 0xE0u, d1 = (uint32_t)(v + 8192) & 0x7Fu, d2 = (uint32_t)(v + 8192) >> 7; break;
++    case PLAT_SMK_MOD: st = 0xB0u, d1 = 1u, d2 = (uint32_t)v; break;
++    case PLAT_SMK_PEDAL: st = 0xB0u, d1 = 64u, d2 = v ? 127u : 0u; break;
++    default: return;
++    }
++    rf_trs_in((st >> 4) | st << 8 | (d1 & 0x7Fu) << 16 | (d2 & 0x7Fu) << 24);
++    rf_smk_sent++;
++}
++static void rf_smk_ms(void)
++{
++    plat_smk_ev_t e;
++    uint32_t i, now = plat_ms();
++    while (plat_smk_take(&e)) {
++        if (!rfa.session) {
++            if (sa_standalone())
++                sa_smk(&e);
++            continue;
++        }
++        if (e.type == PLAT_SMK_KEY || e.type == PLAT_SMK_BTN) {
++            rf_smk_session(e.type, e.id, e.v);
++            continue;
++        }
++        i = e.type == PLAT_SMK_FADER ? e.id : e.type == PLAT_SMK_BEND ? 4u : e.type == PLAT_SMK_MOD ? 5u : 6u;
++        rf_smk_due |= (uint8_t)(1u << i);
++    }
++    if (!rfa.session) {
++        rf_smk_due = 0;
++        return;
++    }
++    for (i = 0; i < 7u; i++)
++        if ((rf_smk_due >> i & 1u) && now - rf_smk_ms_at[i] >= RF_SMK_MS) {
++            int type = i < 4u ? PLAT_SMK_FADER : i == 4u ? PLAT_SMK_BEND : i == 5u ? PLAT_SMK_MOD : PLAT_SMK_PEDAL;
++            rf_smk_due &= (uint8_t)~(1u << i);
++            rf_smk_ms_at[i] = now;
++            rf_smk_session(type, i < 4u ? (int)i : 0, plat_smk_level(type, i < 4u ? (int)i : 0));
++        }
++}
++#endif
++
+ /* ------------------------------------------------------------------ the panel, once a millisecond --- */
+ static uint32_t rf_usb_resets_seen;
+ static uint8_t rf_ble_was;
+@@ -1084,6 +1154,9 @@
+         steps[RF_ENC_OF_ROLE[e]] += roles[e];
+     }
+     sa_ms(lb, roles);                               /* standalone: the instrument; panel mode: its timeout */
++#if BOARD_SMK37
++    rf_smk_ms();                                    /* the SMK-37's extra controls */
++#endif
+     {
+         uint8_t ab[3];
+         uint32_t at;

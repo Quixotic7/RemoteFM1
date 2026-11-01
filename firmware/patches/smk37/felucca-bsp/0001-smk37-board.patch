@@ -1,0 +1,1231 @@
+--- a/boards/smk37/smk_decode.h
++++ b/boards/smk37/smk_decode.h
+@@ -0,0 +1,500 @@
++/* SPDX-License-Identifier: MPL-2.0
++ * Copyright (C) 2026 RemoteFM1 contributors */
++/* M-VAVE SMK-37 (SMK-37 Pro, SMK-37 Elite, MKE-P37: one board): its panel's signals decoded, with no register in
++ * sight. smk_input.h's scan feeds these from the timer interrupt; a host test feeds them by hand. The hardware facts
++ * (the matrix codes, the calibration record, the velocity method and the pads' thresholds) are from genkigenki's
++ * porting guide fm1-to-smk37 (M. Geisler, github.com/genkigenki/fm1-to-smk37: docs/01-hardware.md), confirmed on
++ * units by its ports; the code is written for felucca-bsp.
++ *
++ * The matrix: 16 columns x 8 rows, a position written col << 4 | row (as the guide's tables). Rows 0..4 the keybed
++ * (every key two contacts: the first early in the stroke, the second near the bottom), rows 5..6 the 18 buttons, row
++ * 7 the 8 encoders. One frame = all 16 columns (1.6 ms at the 10 kHz scan).
++ *
++ *   keys       37, k = 0 (C3) .. 36 (C6). A key sounds when its second contact makes, its velocity from the time
++ *              since its first: T = 10 + that time in 0.1 ms (10 when both make in one frame), x = 1023 - T, x
++ *              through the key's 5-point curve (the unit's factory record, else the defaults) to 1..1023, MIDI
++ *              velocity that / 8 (at least 1). It lets go when both contacts have been open SMK_KEY_REL frames
++ *              running (only the second one open: still held).
++ *   buttons    18, debounced: SMK_BTN_PRESS frames closed in a row a press, SMK_BTN_RELEASE open a release.
++ *   encoders   8 quadrature knobs: a state is taken once two frames in a row see it; the last three taken make a
++ *              6-bit history, and a count is made only when the last two moves went the same way (the stock
++ *              firmware's filter); a detent is a whole cycle. Steps are made on arriving back at the detent's state
++ *              (the one at power-on, or one the knob has rested in for ~1 s): the counts since rounded to whole
++ *              cycles, 2 or more one (the first detent of a turn has 3: its first move has no move before it), as
++ *              felucca-bsp's FM-1 decoder does. + = clockwise (B leads A).
++ *   pads       16 force sensors, read through the analog muxes: a baseline that follows the pad at rest; a hit
++ *              SMK_PAD_ON over it, its velocity the peak of the next SMK_PAD_PEAKN readings through the pad's curve;
++ *              released after two readings under SMK_PAD_OFF over the baseline; a pressure while held.
++ *   faders     4: a median of three (no lone spike), a slow signed smoothing, 0..127 with a dead band of one step
++ *              that still reaches both ends.
++ *   wheels     pitch (rest ~535, ~445..640 on the guide's unit) and mod (~474..629, up = a lower reading): each
++ *              unit's travel differs, so the centre is taken at power-on, follows a slow drift at rest, and each
++ *              range widens to the farthest readings seen.
++ *   pedal      the jack (~985 with nothing in): the reading at rest is learnt a moment after power-on; a switch
++ *              pedal is down while the reading is far from it (either polarity).
++ *   battery    the stock firmware's levels (raw 530, 560, 602): 0..3 bars. */
++#pragma once
++#include <stdint.h>
++
++#define SMK_NCOL 16u
++#define SMK_NKEY 37u
++#define SMK_NBTN 18u
++#define SMK_NENC 8u
++#define SMK_NPAD 16u
++#define SMK_NFADER 4u
++#define SMK_KEY_F3 5u              /* keybed key 5 is F3: keys 5..31 are the FM-1's 27 */
++#define SMK_KEY_REL 3u             /* frames with both contacts open: a key lets go (~5 ms) */
++#define SMK_BTN_PRESS 2u           /* frames closed in a row: a button press (~3 ms) */
++#define SMK_BTN_RELEASE 4u         /* frames open in a row: a release (~6 ms) */
++#define SMK_ENC_COUNTS 4           /* counts a detent (one whole quadrature cycle) */
++#define SMK_PAD_ON 24u             /* over the baseline: a hit */
++#define SMK_PAD_OFF 12u            /* under the baseline + this, twice: released */
++#define SMK_PAD_PEAKN 3u           /* readings after the hit for its peak */
++#define SMK_TICKS_01MS 2400u       /* TIMER4 (24 MHz) ticks in 0.1 ms: the velocity's unit */
++
++/* buttons by id, as the matrix has them (the guide's table; names printed on the panel) */
++enum { SMK_B_KNOB_BANK, SMK_B_FADER_BANK, SMK_B_LEFT, SMK_B_RIGHT, SMK_B_OCT_DN, SMK_B_OCT_UP, SMK_B_ARP,
++       SMK_B_NOTE_REPEAT, SMK_B_SCALE, SMK_B_CHORD, SMK_B_GLOBE, SMK_B_BT, SMK_B_PATCH, SMK_B_PARA, SMK_B_FX,
++       SMK_B_SEQ, SMK_B_PLAY, SMK_B_REC };
++_Static_assert(SMK_B_REC + 1 == (int)SMK_NBTN, "18 buttons");
++#define SMK_NLED 19u                /* the button lights: LED i is button i's, and 18 the red half of SEQ PLAY's */
++#define SMK_LED_PLAY_RED 18u        /* two-colour LED (16, PLAY's own, is its green half) */
++
++/* key k's two contacts: the first, the second (col << 4 | row) */
++static const uint8_t SMK_KEY_POS[SMK_NKEY][2] = {
++    {0x10, 0x52}, {0x20, 0x72}, {0x30, 0x92}, {0x40, 0xB2}, {0x50, 0xD2}, {0x60, 0xF2}, {0x70, 0xE2}, {0x80, 0xC2},
++    {0x90, 0xA2}, {0xA0, 0x82}, {0xC0, 0x62}, {0xD0, 0x42}, {0xE0, 0x22}, {0xF0, 0x12}, {0xB0, 0x32}, {0x11, 0x33},
++    {0x21, 0x43}, {0x31, 0x53}, {0x41, 0x63}, {0x51, 0x73}, {0x61, 0x83}, {0x71, 0x93}, {0x81, 0xA3}, {0x91, 0xB3},
++    {0xA1, 0xC3}, {0xB1, 0xD3}, {0xC1, 0xE3}, {0xD1, 0x23}, {0xE1, 0x13}, {0xF1, 0x14}, {0x64, 0x24}, {0x74, 0x34},
++    {0x84, 0x44}, {0x94, 0x54}, {0xA4, 0xD4}, {0xB4, 0xF4}, {0xC4, 0xE4},
++};
++static const uint8_t SMK_BTN_POS[SMK_NBTN] = {0x26, 0x76, 0x96, 0x56, 0x66, 0x36, 0x75, 0x65, 0x25,
++                                              0x45, 0x15, 0x86, 0x95, 0x55, 0x85, 0x35, 0x16, 0x46};
++/* K1..K8: A, B */
++static const uint8_t SMK_ENC_POS[SMK_NENC][2] = {{0x97, 0xA7}, {0x37, 0x47}, {0x17, 0x27}, {0xB7, 0xC7},
++                                                 {0x57, 0x67}, {0x77, 0x87}, {0xD7, 0xE7}, {0xF7, 0x07}};
++
++/* a position's contact in a frame of packed rows (raw[col] bit row: 1 = closed) */
++static inline uint32_t smk_closed(const uint8_t *raw, uint32_t pos) { return (uint32_t)raw[pos >> 4] >> (pos & 7u) & 1u; }
++
++/* ---------------------------------------------------------------- curves --- */
++/* the factory calibration record, USRTRIM (flash 0xC1000; read, never written): +0x008 16 pads x 5 u16, +0x0A8 37
++ * keys x 5 u16, +0x21A the pedal's 5, +0x224 "trimdat\0"; little endian. Taken only when the marker is there and
++ * every curve rises strictly (the stock firmware's own test); else the stock defaults */
++#define SMK_TRIM_OFF 0xC1000u
++#define SMK_TRIM_LEN 0x22Cu
++typedef struct {
++    uint16_t pad[SMK_NPAD][5], key[SMK_NKEY][5];
++    uint8_t factory;                           /* 1: the unit's own record; 0: the defaults */
++} smk_trim_t;
++
++static void smk_trim_defaults(smk_trim_t *t)
++{
++    static const uint16_t PAD[5] = {50, 550, 720, 850, 950}, KEY[5] = {5, 640, 800, 920, 980};
++    uint32_t i, j;
++    for (j = 0; j < 5u; j++) {
++        for (i = 0; i < SMK_NPAD; i++)
++            t->pad[i][j] = PAD[j];
++        for (i = 0; i < SMK_NKEY; i++)
++            t->key[i][j] = KEY[j];
++    }
++    t->factory = 0;
++}
++
++static uint32_t smk_rd16le(const uint8_t *p) { return (uint32_t)p[0] | (uint32_t)p[1] << 8; }
++
++/* rec: SMK_TRIM_LEN bytes from 0xC1000. 1 = the unit's curves taken, 0 = the defaults */
++static int smk_trim_parse(smk_trim_t *t, const uint8_t *rec)
++{
++    static const uint8_t MARK[8] = {'t', 'r', 'i', 'm', 'd', 'a', 't', 0};
++    uint32_t c, j;
++    smk_trim_defaults(t);
++    for (j = 0; j < 8u; j++)
++        if (rec[0x224u + j] != MARK[j])
++            return 0;
++    for (c = 0; c < SMK_NPAD + SMK_NKEY; c++) {    /* every curve, then take them all */
++        const uint8_t *p = rec + 8u + 10u * c;
++        for (j = 1; j < 5u; j++)
++            if (smk_rd16le(p + 2u * j) <= smk_rd16le(p + 2u * (j - 1u)))
++                return 0;
++    }
++    for (c = 0; c < SMK_NPAD + SMK_NKEY; c++)
++        for (j = 0; j < 5u; j++) {
++            uint16_t v = (uint16_t)smk_rd16le(rec + 8u + 10u * c + 2u * j);
++            if (c < SMK_NPAD)
++                t->pad[c][j] = v;
++            else
++                t->key[c - SMK_NPAD][j] = v;
++        }
++    t->factory = 1;
++    return 1;
++}
++
++/* x through a 5-point curve: 1..1023 (x at or under the first point 1, over the last 1023, else 256 a segment) */
++static uint32_t smk_curve(const uint16_t *pt, uint32_t x)
++{
++    uint32_t i, v;
++    if (x <= pt[0])
++        return 1u;
++    if (x > pt[4])
++        return 1023u;
++    for (i = 1; x > pt[i]; i++)
++        ;
++    v = (i - 1u) * 256u + (x - pt[i - 1u]) * 256u / (uint32_t)(pt[i] - pt[i - 1u]);
++    return v ? v : 1u;
++}
++static uint32_t smk_vel127(uint32_t v1023) { return v1023 >= 8u ? v1023 >> 3 : 1u; }
++
++/* a key's velocity from the time between its contacts (TIMER4 ticks) */
++static uint32_t smk_key_vel(const uint16_t *pt, uint32_t ticks)
++{
++    uint32_t T = 10u + ticks / SMK_TICKS_01MS;
++    return smk_vel127(smk_curve(pt, T <= 1022u ? 1023u - T : 1u));
++}
++
++/* ------------------------------------------------------------------ keys --- */
++typedef struct {
++    uint32_t down[2];                          /* held keys: bit k of down[k >> 5] */
++    uint8_t vel[SMK_NKEY];                     /* each key's last press, 1..127 */
++    uint8_t st[SMK_NKEY];                      /* 0 up, 1 the first contact made, 2 sounding */
++    uint8_t open[SMK_NKEY];                    /* frames with both contacts open */
++    uint32_t t1[SMK_NKEY];                     /* when the first contact made (TIMER4) */
++    uint32_t presses;
++} smk_keys_t;
++
++static void smk_keys_frame(smk_keys_t *s, const smk_trim_t *t, const uint8_t *raw, uint32_t now)
++{
++    uint32_t k;
++    for (k = 0; k < SMK_NKEY; k++) {
++        uint32_t c1 = smk_closed(raw, SMK_KEY_POS[k][0]), c2 = smk_closed(raw, SMK_KEY_POS[k][1]);
++        uint32_t bit = 1u << (k & 31u), *w = &s->down[k >> 5];
++        if (c1 | c2) {
++            s->open[k] = 0;
++            if (s->st[k] == 0u) {              /* the stroke begins (both at once: T = 10) */
++                s->st[k] = 1;
++                s->t1[k] = now;
++            }
++            if (c2 && s->st[k] == 1u) {        /* the bottom: it sounds */
++                s->vel[k] = (uint8_t)smk_key_vel(t->key[k], now - s->t1[k]);
++                s->st[k] = 2;
++                *w |= bit;
++                s->presses++;
++            }
++            continue;
++        }
++        if (s->st[k] && ++s->open[k] >= SMK_KEY_REL) {   /* both open long enough: up */
++            s->st[k] = 0;
++            s->open[k] = 0;
++            *w &= ~bit;
++        }
++    }
++}
++static int smk_key_down(const smk_keys_t *s, uint32_t k) { return k < SMK_NKEY && (s->down[k >> 5] >> (k & 31u) & 1u); }
++
++/* --------------------------------------------------------------- buttons --- */
++typedef struct {
++    uint32_t held, pressed, released;          /* bit i = button i (SMK_B_*); edges since they were last taken */
++    uint8_t n[SMK_NBTN];
++} smk_btns_t;
++
++static void smk_btns_frame(smk_btns_t *s, const uint8_t *raw)
++{
++    uint32_t i;
++    for (i = 0; i < SMK_NBTN; i++) {
++        uint32_t bit = 1u << i, on = (s->held & bit) != 0u, c = smk_closed(raw, SMK_BTN_POS[i]);
++        if (c == on) {
++            s->n[i] = 0;
++            continue;
++        }
++        if (++s->n[i] < (on ? SMK_BTN_RELEASE : SMK_BTN_PRESS))
++            continue;
++        s->n[i] = 0;
++        s->held ^= bit;
++        if (on)
++            s->released |= bit;
++        else
++            s->pressed |= bit;
++    }
++}
++
++/* -------------------------------------------------------------- encoders --- */
++typedef struct {
++    uint8_t seen[SMK_NENC];                    /* the state the last frame saw (0xFF: none yet) */
++    uint8_t hist[SMK_NENC];                    /* the last three states taken, 2 bits each (newest lowest) */
++    uint8_t rest[SMK_NENC];                    /* the detent's state */
++    uint16_t still[SMK_NENC];                  /* frames the state taken has not changed */
++    int8_t cnt[SMK_NENC];                      /* counts since the detent */
++    int16_t steps[SMK_NENC];                   /* detents, + = clockwise */
++} smk_encs_t;
++#define SMK_ENC_REST_FRAMES 625u               /* ~1 s still in a state that is not the detent's: it is (power-on) */
++
++static void smk_encs_init(smk_encs_t *s)
++{
++    uint32_t e;
++    for (e = 0; e < SMK_NENC; e++) {
++        s->seen[e] = 0xFF;
++        s->cnt[e] = 0;
++        s->steps[e] = 0;
++        s->still[e] = 0;
++    }
++}
++/* the moves of two transitions in a row that went the same way: x01 = the history (three states, 2 bits each) */
++static int smk_enc_move(uint32_t h)
++{
++    switch (h) {
++    case 0x0Bu: case 0x12u: case 0x2Du: case 0x34u: return 1;     /* 0 2 3 1 0 ...: B before A, clockwise */
++    case 0x07u: case 0x1Eu: case 0x21u: case 0x38u: return -1;    /* 0 1 3 2 0 ...: A before B */
++    default: return 0;
++    }
++}
++static void smk_encs_frame(smk_encs_t *s, const uint8_t *raw)
++{
++    uint32_t e;
++    for (e = 0; e < SMK_NENC; e++) {
++        uint32_t cur = smk_closed(raw, SMK_ENC_POS[e][0]) | smk_closed(raw, SMK_ENC_POS[e][1]) << 1;
++        int m;
++        if (s->seen[e] == 0xFFu) {             /* power-on: the knob rests here */
++            s->seen[e] = (uint8_t)cur;
++            s->hist[e] = (uint8_t)(cur * 0x15u);
++            s->rest[e] = (uint8_t)cur;
++            continue;
++        }
++        if (cur != s->seen[e]) {               /* new: taken if the next frame sees it too */
++            s->seen[e] = (uint8_t)cur;
++            continue;
++        }
++        if (cur == (s->hist[e] & 3u)) {        /* (steady) */
++            if (s->still[e] < 0xFFFFu && ++s->still[e] == SMK_ENC_REST_FRAMES && cur != s->rest[e]) {
++                s->rest[e] = (uint8_t)cur;     /* parked off the detent's state that long: that is it */
++                s->cnt[e] = 0;
++            }
++            continue;
++        }
++        s->still[e] = 0;
++        s->hist[e] = (uint8_t)((s->hist[e] << 2 | cur) & 0x3Fu);
++        m = smk_enc_move(s->hist[e]);
++        s->cnt[e] = (int8_t)(s->cnt[e] + m);
++        if (s->cnt[e] > 60 || s->cnt[e] < -60)
++            s->cnt[e] = 0;                     /* (never that far off the detent) */
++        if (cur == s->rest[e]) {               /* back on the detent: whole cycles (2 or more counts one) */
++            int32_t n = s->cnt[e] < 0 ? -s->cnt[e] : s->cnt[e];
++            n = n >= 2 ? (n + 2) / SMK_ENC_COUNTS : 0;
++            s->steps[e] = (int16_t)(s->steps[e] + (s->cnt[e] < 0 ? -n : n));
++            s->cnt[e] = 0;
++        }
++    }
++}
++
++/* ------------------------------------------------------------------ pads --- */
++typedef struct {
++    uint16_t base[SMK_NPAD], peak[SMK_NPAD], raw[SMK_NPAD];
++    uint8_t st[SMK_NPAD];                      /* 0 idle; 1..SMK_PAD_PEAKN the peak's readings; SMK_PAD_PEAKN + 1 held */
++    uint8_t low[SMK_NPAD];                     /* readings in a row under the release level */
++    uint8_t vel[SMK_NPAD], press[SMK_NPAD];    /* the last hit's velocity 1..127; the pressure while held 0..127 */
++    uint16_t down;                             /* bit p: pad p held */
++    uint32_t hits;
++} smk_pads_t;
++
++static void smk_pads_init(smk_pads_t *s)
++{
++    uint32_t p;
++    for (p = 0; p < SMK_NPAD; p++) {
++        s->base[p] = 100u;                     /* (the stock firmware's start) */
++        s->st[p] = 0;
++    }
++    s->down = 0;
++}
++static void smk_pad_reading(smk_pads_t *s, const smk_trim_t *t, uint32_t p, uint32_t v)
++{
++    uint32_t b = s->base[p];
++    s->raw[p] = (uint16_t)v;
++    if (s->st[p] == 0u) {
++        if (v > b + SMK_PAD_ON) {
++            s->st[p] = 1;
++            s->peak[p] = (uint16_t)v;
++        } else if (v < b) {
++            s->base[p] = (uint16_t)(b - 1u);   /* the baseline follows the pad at rest */
++        } else if (b < t->pad[p][0]) {
++            s->base[p] = (uint16_t)(b + 2u);
++        }
++        return;
++    }
++    if (s->st[p] <= SMK_PAD_PEAKN) {           /* the hit's peak */
++        if (v > s->peak[p])
++            s->peak[p] = (uint16_t)v;
++        if (s->st[p]++ < SMK_PAD_PEAKN)
++            return;
++        s->vel[p] = (uint8_t)smk_vel127(smk_curve(t->pad[p], s->peak[p]));
++        s->low[p] = 0;
++        s->down = (uint16_t)(s->down | 1u << p);
++        s->hits++;
++        return;
++    }
++    {   /* held: the pressure (the stock firmware's scale), and the release */
++        uint32_t q = v <= 512u ? v >> 4 : (v - 512u) / 4u + 32u;
++        s->press[p] = (uint8_t)(q > 127u ? 127u : q);
++    }
++    if (v < b + SMK_PAD_OFF) {
++        if (++s->low[p] >= 2u) {
++            s->st[p] = 0;
++            s->press[p] = 0;
++            s->down = (uint16_t)(s->down & ~(1u << p));
++        }
++    } else {
++        s->low[p] = 0;
++    }
++}
++
++/* --------------------------------------------------------------- faders --- */
++typedef struct {
++    uint16_t h[SMK_NFADER][2];                 /* the two readings before */
++    int32_t acc[SMK_NFADER];                   /* the smoothed reading x 16 */
++    uint8_t v[SMK_NFADER];                     /* 0..127 */
++    uint8_t seen[SMK_NFADER];                  /* readings so far (the first fill the history) */
++} smk_faders_t;
++
++static uint32_t smk_median3(uint32_t a, uint32_t b, uint32_t c)
++{
++    return a > b ? (b > c ? b : a > c ? c : a) : (a > c ? a : b > c ? c : b);
++}
++static void smk_fader_reading(smk_faders_t *s, uint32_t f, uint32_t raw)
++{
++    uint32_t m, q;
++    if (s->seen[f] < 2u) {                     /* (the start: the history and the smoothing from the first) */
++        s->h[f][0] = s->h[f][1] = (uint16_t)raw;
++        s->acc[f] = (int32_t)raw * 16;
++        s->seen[f]++;
++    }
++    m = smk_median3(raw, s->h[f][0], s->h[f][1]);
++    s->h[f][1] = s->h[f][0];
++    s->h[f][0] = (uint16_t)raw;
++    s->acc[f] += ((int32_t)m * 16 - s->acc[f]) / 4;
++    q = (uint32_t)(s->acc[f] < 0 ? 0 : s->acc[f]) / 128u;   /* (x16, /8: 0..127) */
++    if (q > 127u)
++        q = 127u;
++    if (q > s->v[f] + 1u || q + 1u < s->v[f] || (q != s->v[f] && (q == 0u || q == 127u)))
++        s->v[f] = (uint8_t)q;
++}
++
++/* --------------------------------------------------------------- wheels --- */
++typedef struct {
++    int32_t pv, mv;                            /* the smoothed readings x 4 */
++    int32_t centre, plo, phi;                  /* pitch: the rest, the travel seen */
++    int32_t mlo, mhi;                          /* mod: the travel seen (up = lower) */
++    uint32_t n;                                /* readings of the pitch wheel so far */
++    int16_t bend;                              /* -8192..8191 */
++    uint8_t mod;                               /* 0..127 */
++} smk_wheels_t;
++#define SMK_WHEEL_DEAD 12                      /* the pitch wheel's dead band around its rest (raw) */
++#define SMK_WHEEL_SETTLE 16u                   /* readings before the centre is taken (~40 ms) */
++
++static void smk_wheels_init(smk_wheels_t *s)
++{
++    s->n = 0;
++    s->centre = 535;                           /* the guide's unit, until this one's is read */
++    s->plo = 535 - 60, s->phi = 535 + 60;
++    s->mlo = 474 + 20, s->mhi = 629 - 20;      /* (narrower than seen: the ends widen as they are reached) */
++    s->bend = 0;
++    s->mod = 0;
++}
++static void smk_wheel_pitch(smk_wheels_t *s, uint32_t raw)
++{
++    int32_t r = (int32_t)raw, x, d;
++    s->pv = s->n ? s->pv + (r * 4 - s->pv) / 4 : r * 4;
++    x = s->pv / 4;
++    if (s->n < SMK_WHEEL_SETTLE) {
++        if (++s->n == SMK_WHEEL_SETTLE) {      /* the rest it was switched on at */
++            s->centre = x;
++            s->plo = x - 60;                   /* (the guide's unit travels ~90 down, ~105 up: widened as seen) */
++            s->phi = x + 60;
++        }
++        return;
++    }
++    if (x < s->plo)
++        s->plo = x;
++    if (x > s->phi)
++        s->phi = x;
++    d = x - s->centre;
++    if (d > -SMK_WHEEL_DEAD && d < SMK_WHEEL_DEAD) {   /* at rest: the centre follows a slow drift */
++        s->centre += d > 2 ? 1 : d < -2 ? -1 : 0;
++        s->bend = 0;
++        return;
++    }
++    if (d > 0) {
++        int32_t span = s->phi - s->centre - SMK_WHEEL_DEAD;
++        int32_t b = span > 0 ? (d - SMK_WHEEL_DEAD) * 8191 / span : 0;
++        s->bend = (int16_t)(b > 8191 ? 8191 : b);
++    } else {
++        int32_t span = s->centre - s->plo - SMK_WHEEL_DEAD;
++        int32_t b = span > 0 ? (d + SMK_WHEEL_DEAD) * 8192 / span : 0;
++        s->bend = (int16_t)(b < -8192 ? -8192 : b);
++    }
++}
++static void smk_wheel_mod(smk_wheels_t *s, uint32_t raw)
++{
++    int32_t r = (int32_t)raw, x, v, span;
++    s->mv = s->mv ? s->mv + (r * 4 - s->mv) / 4 : r * 4;
++    x = s->mv / 4;
++    if (x < s->mlo)
++        s->mlo = x;
++    if (x > s->mhi)
++        s->mhi = x;
++    span = s->mhi - s->mlo - 8;                /* (4 counts at each end read as the end) */
++    v = span > 0 ? (s->mhi - 4 - x) * 127 / span : 0;
++    s->mod = (uint8_t)(v < 0 ? 0 : v > 127 ? 127 : v);
++}
++
++/* ---------------------------------------------------------------- pedal --- */
++typedef struct {
++    int32_t rest;                              /* -1: not learnt yet */
++    uint32_t n;
++    uint8_t down;
++} smk_pedal_t;
++#define SMK_PEDAL_LEARN 200u                   /* readings before the rest is taken (~0.5 s) */
++#define SMK_PEDAL_ON 300                       /* that far from the rest: down; back under SMK_PEDAL_OFF: up */
++#define SMK_PEDAL_OFF 150
++
++static void smk_pedal_reading(smk_pedal_t *s, uint32_t raw)
++{
++    int32_t d;
++    if (s->n < SMK_PEDAL_LEARN) {
++        if (++s->n == SMK_PEDAL_LEARN)
++            s->rest = (int32_t)raw;
++        return;
++    }
++    d = (int32_t)raw - s->rest;
++    if (d < 0)
++        d = -d;
++    if (!s->down && d > SMK_PEDAL_ON)
++        s->down = 1;
++    else if (s->down && d < SMK_PEDAL_OFF)
++        s->down = 0;
++}
++
++/* -------------------------------------------------------------- battery --- */
++static int smk_battery_bars(uint32_t raw)      /* the stock firmware's levels; 0 = no reading */
++{
++    return !raw ? -1 : (raw >= 530u) + (raw >= 560u) + (raw >= 602u);
++}
++
++/* ------------------------------------------------------------ pad lights --- */
++/* 16 GRB LEDs on one line, one SPI byte a bit (0xF0 a one, 0xC0 a zero, msb first at ~6.67 MHz), after a reset of
++ * SMK_PADLED_RESET zero bytes (the guide's pitfall: longer than the stock firmware's 36 for newer parts). The chain's
++ * order is not the pads': pad p is LED slot SMK_PAD_SLOT[p] */
++#define SMK_PADLED_RESET 250u
++#define SMK_PADLED_LEN (SMK_PADLED_RESET + SMK_NPAD * 24u)
++static const uint8_t SMK_PAD_SLOT[SMK_NPAD] = {0, 15, 14, 13, 12, 11, 10, 9, 1, 2, 3, 4, 5, 6, 7, 8};
++
++/* rgb[p] = 0xRRGGBB for pad p -> the frame (SMK_PADLED_LEN bytes) */
++static void smk_padled_frame(uint8_t *f, const uint32_t *rgb)
++{
++    uint32_t i, p, b;
++    for (i = 0; i < SMK_PADLED_RESET; i++)
++        f[i] = 0;
++    for (p = 0; p < SMK_NPAD; p++) {
++        uint32_t c = rgb[p], grb = (c >> 8 & 0xFFu) << 16 | (c >> 16 & 0xFFu) << 8 | (c & 0xFFu);
++        uint8_t *o = f + SMK_PADLED_RESET + 24u * SMK_PAD_SLOT[p];
++        for (b = 0; b < 24u; b++)
++            o[b] = (grb >> (23u - b) & 1u) ? 0xF0u : 0xC0u;
++    }
++}
+--- a/boards/smk37/smk_input.h
++++ b/boards/smk37/smk_input.h
+@@ -0,0 +1,265 @@
++/* SPDX-License-Identifier: MPL-2.0
++ * Copyright (C) 2026 RemoteFM1 contributors */
++/* M-VAVE SMK-37 input HAL: the matrix (keys, buttons, encoders), the button lights and the analog inputs (pads,
++ * faders, wheels, pedal, battery), scanned from the 10 kHz timer interrupt; the signals are decoded by
++ * smk_decode.h. The wiring is the SMK-37's, from genkigenki's porting guide fm1-to-smk37 (docs/01-hardware.md,
++ * sections 5 and 6; github.com/genkigenki/fm1-to-smk37), confirmed on units by its ports:
++ *
++ *   - four 74HC595 (a 32-bit word) shifted by SPI2 group C (PA3 clock, PA4 data; IOMAP_CON1 bits 17..16 = 10) by DMA,
++ *     latched by a pulse on PA1; PA0 (output enable) low. The word's bits 31..24 select columns 0..7, 23..16 columns
++ *     8..15 (active low, one at a time); 15..0 the button lights' lines (active low), except bits 5..3: the address of
++ *     the three analog muxes.
++ *   - the rows, inputs with pull-ups (low = closed): PA2, PA5, PA6, PA7, PA9, PH6, PH8, PH9 = rows 0..7. These are
++ *     LED, MIDI and backlight pins on the FM-1: never outputs here (and PH8 never the UART).
++ *   - the lights' two commons: the second USB PHY's pads as GPIO, register 0x16A0C bits 17 (group 0) and 18 (group 1),
++ *     low = that group on, its GPIO-mode bits (0x1000F) kept set at every write; one group a frame.
++ *   - the converter: channel 1 PA8 (mux A: pads 0..7), channel 8 PC9 (mux B: pads 8..15), channel 2 PA10 (mux C:
++ *     faders, wheels, pedal, battery), the SMK's own clock setting (CON 0x400D: done in ~40 us, inside a tick).
++ *     PB1 (the charger's line, an 8 s reset when held low) and PC9's SPI function are never touched.
++ *
++ * Each tick, in this order (the codes of smk_decode.h's tables hold for it; another order moves them a column): the
++ * rows are read into raw[col]; at column 0 the frame's light group goes on; the word shifted last tick is latched;
++ * the conversion whose mux address has just been latched starts (its result is taken at the next tick), and the next
++ * one's address goes into the next word; after column 15 the frame is decoded; then the next word goes out by DMA
++ * (~3 us). A frame is 16 ticks (1.6 ms); the analog inputs go round in 24 ticks (8 addresses x 3 channels). */
++#pragma once
++#include <stdint.h>
++#include "fm1_cc.h"
++#include "fm1_gpio.h"
++#include "fm1_time.h"
++#include "smk_decode.h"
++
++#define SMK_SPI2_CON (*(volatile uint32_t *)0x11E00u)
++#define SMK_SPI2_BAUD (*(volatile uint32_t *)0x11E04u)
++#define SMK_SPI2_ADR (*(volatile uint32_t *)0x11E0Cu)
++#define SMK_SPI2_CNT (*(volatile uint32_t *)0x11E10u)
++#define SMK_IOMAP_CON1 (*(volatile uint32_t *)0x51020u)
++#define SMK_USBIO_CON (*(volatile uint32_t *)0x16A0Cu)
++#define SMK_ADC_CON_R (*(volatile uint32_t *)0x13100u)
++#define SMK_ADC_RES (*(volatile uint32_t *)0x13104u)
++#define SMK_WLA_CON0 (*(volatile uint32_t *)0x11900u)
++#define SMK_ADC_CON_SMK 0x400Du                  /* start delay 4, divider 5 (the stock SMK firmware's) */
++
++/* the analog inputs: the muxes' address a (0..7) -> what is on it (the guide's table 6.2) */
++static const uint8_t SMK_MUX_PAD[8] = {1, 2, 3, 0, 4, 7, 5, 6};      /* mux A: pad (mux B: the same + 8) */
++static const uint8_t SMK_MUX_FADER[4] = {1, 2, 3, 0};                /* mux C 0..3: fader */
++enum { SMK_MUXC_PITCH = 4, SMK_MUXC_MOD = 5, SMK_MUXC_PEDAL = 6, SMK_MUXC_BATT = 7 };
++static const uint8_t SMK_ADC_CH[3] = {1, 8, 2};                       /* mux A, B, C's channels */
++
++/* the button lights: LED i's line, group << 4 | the bit of the word's low half. Buttons 0..17 by id, then 18: the
++ * red half of SEQ PLAY's two-colour LED (16 is its green). REC is 0x1B and PLAY's red 0x1E as seen on a unit (the
++ * guide's table has these two the other way round: genkigenki's notes, and ChoralRoot's port, confirm 0x1B for REC) */
++static const uint8_t SMK_LED_LINE[SMK_NLED] = {0x0C, 0x12, 0x00, 0x10, 0x0D, 0x1D, 0x02, 0x01, 0x09, 0x08,
++                                               0x0B, 0x0A, 0x11, 0x19, 0x18, 0x1A, 0x1C, 0x1B, 0x1E};
++
++static volatile struct {
++    smk_keys_t keys;
++    smk_btns_t btns;
++    smk_encs_t encs;
++    smk_pads_t pads;
++    smk_faders_t faders;
++    smk_wheels_t wheels;
++    smk_pedal_t pedal;
++    uint32_t batt;                               /* mux C 7, smoothed x 16 */
++    uint32_t frames, adc_done, adc_late;
++} smk_in;
++static smk_trim_t smk_trim;                       /* the curves: the unit's factory record, else the defaults */
++static uint8_t smk_raw[SMK_NCOL];                 /* the last frame, rows packed, 1 = closed */
++static uint32_t smk_led_on;                       /* bit i: LED i lit (main loop writes, the scan reads) */
++static uint32_t smk__lw[2] = {0xFFFFFFFFu, 0xFFFFFFFFu};   /* the two groups' low halves (bits 3..5 set) */
++static uint32_t smk__mux = 0xFFFFFFC7u;           /* AND mask: the next word's mux address */
++static uint32_t smk__word;                        /* the word the DMA sends (RAM, static) */
++static uint8_t smk__col, smk__grp, smk__slot, smk__pend = 0xFF;
++
++static void smk__pins(uint32_t port, uint32_t m, int out, int pu)
++{
++    FM1_PR(port, FM1_PD) &= ~m;
++    if (pu)
++        FM1_PR(port, FM1_PU) |= m;
++    else
++        FM1_PR(port, FM1_PU) &= ~m;
++    FM1_PR(port, FM1_DIE) |= m;
++    if (out) {
++        FM1_PR(port, FM1_OUT) &= ~m;
++        FM1_PR(port, FM1_DIR) &= ~m;
++    } else {
++        FM1_PR(port, FM1_DIR) |= m;
++    }
++}
++static void smk__analog_pin(uint32_t port, uint32_t m)
++{
++    FM1_PR(port, FM1_PU) &= ~m;
++    FM1_PR(port, FM1_PD) &= ~m;
++    FM1_PR(port, FM1_DIE) &= ~m;
++    FM1_PR(port, FM1_DIR) |= m;
++}
++FM1_INLINE void smk__group(uint32_t g)            /* light group g (0, 1) on, the other off; 2: both off */
++{
++    uint32_t v = SMK_USBIO_CON | 0x1000Fu | 1u << 17 | 1u << 18;
++    if (g < 2u)
++        v &= ~(1u << (17u + g));
++    SMK_USBIO_CON = v;
++}
++FM1_INLINE uint32_t smk__rows(void)               /* rows 0..7, 1 = closed */
++{
++    uint32_t a = FM1_PR(FM1_PA, FM1_IN), h = FM1_PR(FM1_PH, FM1_IN);
++    uint32_t r = (a >> 2 & 1u) | (a >> 5 & 1u) << 1 | (a >> 6 & 1u) << 2 | (a >> 7 & 1u) << 3 | (a >> 9 & 1u) << 4 |
++                 (h >> 6 & 1u) << 5 | (h >> 8 & 1u) << 6 | (h >> 9 & 1u) << 7;
++    return ~r & 0xFFu;
++}
++FM1_INLINE void smk__send(uint32_t col)           /* column col's word out by DMA */
++{
++    uint32_t sel = col < 8u ? 0x01000000u << col : 0x00010000u << (col - 8u);
++    smk__word = ~sel & smk__lw[smk__grp] & smk__mux;
++    SMK_SPI2_CON |= 0x4000u;                       /* (the pending flag cleared) */
++    SMK_SPI2_ADR = (uint32_t)(uintptr_t)&smk__word;
++    SMK_SPI2_CNT = 4u;
++}
++FM1_INLINE void smk__latch(void)
++{
++    FM1_PR(FM1_PA, FM1_OUT) |= 1u << 1;
++    FM1_PR(FM1_PA, FM1_OUT) &= ~(1u << 1);
++}
++FM1_INLINE void smk__adc_start(uint32_t ch)
++{
++    SMK_ADC_CON_R = 0;
++    if (SMK_WLA_CON0 & (1u << 14))
++        SMK_WLA_CON0 &= ~(1u << 14);
++    SMK_ADC_CON_R = SMK_ADC_CON_SMK | (ch & 0xFu) << 8;
++    SMK_ADC_CON_R |= 0x10u;                        /* enable */
++    SMK_ADC_CON_R |= 0x40u;                        /* start */
++}
++
++/* trim: SMK_TRIM_LEN bytes of the unit's record (smk_decode.h), or 0 for the defaults */
++static void smk_input_init(const uint8_t *trim)
++{
++    uint32_t i;
++    if (!trim || !smk_trim_parse(&smk_trim, trim))
++        smk_trim_defaults(&smk_trim);
++    smk_encs_init((smk_encs_t *)&smk_in.encs);
++    smk_pads_init((smk_pads_t *)&smk_in.pads);
++    smk_wheels_init((smk_wheels_t *)&smk_in.wheels);
++    smk_in.pedal.rest = -1;
++    for (i = 0; i < SMK_NCOL; i++)
++        smk_raw[i] = 0;
++    smk__pins(FM1_PA, 1u << 0 | 1u << 1 | 1u << 3 | 1u << 4, 1, 0);   /* /OE and the latch low; SPI2's pins */
++    smk__pins(FM1_PA, 1u << 2 | 1u << 5 | 1u << 6 | 1u << 7 | 1u << 9, 0, 1);
++    smk__pins(FM1_PH, 1u << 6 | 1u << 8 | 1u << 9, 0, 1);
++    smk__analog_pin(FM1_PA, 1u << 8 | 1u << 10);
++    smk__analog_pin(FM1_PC, 1u << 9);
++    smk__group(2);
++    SMK_IOMAP_CON1 = (SMK_IOMAP_CON1 & ~0x30000u) | 0x20000u;   /* SPI2 on group C */
++    SMK_SPI2_CON = 0x4020u;                        /* master, transmit, no interrupt */
++    SMK_SPI2_BAUD = 5u;
++    SMK_SPI2_CON |= 1u;
++    smk__col = 0;
++    smk__slot = 0;
++    smk__pend = 0xFF;
++    smk__mux = 0xFFFFFFC7u;                        /* address 0 for the first slot */
++    smk__send(0);
++}
++
++static void smk__analog(uint32_t slot, uint32_t v)   /* a conversion's result: slot = address * 3 + mux */
++{
++    uint32_t a = slot / 3u, m = slot % 3u;
++    smk_in.adc_done++;
++    if (m < 2u) {
++        smk_pad_reading((smk_pads_t *)&smk_in.pads, &smk_trim, SMK_MUX_PAD[a] + 8u * m, v);
++        return;
++    }
++    if (a < 4u)
++        smk_fader_reading((smk_faders_t *)&smk_in.faders, SMK_MUX_FADER[a], v);
++    else if (a == SMK_MUXC_PITCH)
++        smk_wheel_pitch((smk_wheels_t *)&smk_in.wheels, v);
++    else if (a == SMK_MUXC_MOD)
++        smk_wheel_mod((smk_wheels_t *)&smk_in.wheels, v);
++    else if (a == SMK_MUXC_PEDAL)
++        smk_pedal_reading((smk_pedal_t *)&smk_in.pedal, v);
++    else
++        smk_in.batt = smk_in.batt ? smk_in.batt + ((v << 4) - smk_in.batt) / 16u : v << 4;
++}
++
++static void smk__frame(void)                      /* every 16 ticks: the matrix decoded, the next frame's lights */
++{
++    uint32_t i, w[2] = {0xFFFFu, 0xFFFFu}, on = smk_led_on;
++    smk_keys_frame((smk_keys_t *)&smk_in.keys, &smk_trim, smk_raw, fm1_ticks());
++    smk_btns_frame((smk_btns_t *)&smk_in.btns, smk_raw);
++    smk_encs_frame((smk_encs_t *)&smk_in.encs, smk_raw);
++    for (i = 0; i < SMK_NLED; i++)
++        if (on >> i & 1u)
++            w[SMK_LED_LINE[i] >> 4] &= ~(1u << (SMK_LED_LINE[i] & 15u));
++    smk__lw[0] = 0xFFFF0000u | w[0] | 0x38u;      /* (bits 5..3: the mux's, ANDed in) */
++    smk__lw[1] = 0xFFFF0000u | w[1] | 0x38u;
++    smk__grp ^= 1u;
++    smk_in.frames++;
++}
++
++static void smk_input_tick(void)
++{
++    uint32_t col = smk__col, next = (col + 1u) & 15u, s = smk__slot;
++    if (smk__pend != 0xFF) {                       /* last tick's conversion */
++        if (SMK_ADC_CON_R & 0x80u)
++            smk__analog(smk__pend, SMK_ADC_RES & 0x3FFu);
++        else
++            smk_in.adc_late++;
++        SMK_ADC_CON_R = 0x40u;
++        SMK_ADC_CON_R = 0;
++        smk__pend = 0xFF;
++    }
++    smk_raw[col] = (uint8_t)smk__rows();
++    if (col == 0u)
++        smk__group(smk__grp);
++    smk__latch();
++    smk__adc_start(SMK_ADC_CH[s % 3u]);           /* this slot's address went out with the word just latched */
++    smk__pend = (uint8_t)s;
++    s = s + 1u == 24u ? 0u : s + 1u;
++    smk__slot = (uint8_t)s;
++    smk__mux = 0xFFFFFFC7u | (s / 3u) << 3;
++    smk__col = (uint8_t)next;
++    if (next == 0u)
++        smk__frame();
++    smk__send(next);
++}
++
++/* the main loop's side: a look at the state with the scan held off a moment */
++FM1_INLINE uint32_t smk__lock(void)
++{
++    __asm__ volatile("cli" ::: "memory");
++    return 0;
++}
++FM1_INLINE void smk__unlock(uint32_t v)
++{
++    (void)v;
++    __asm__ volatile("csync\n\tsti" ::: "memory");
++}
++static int32_t smk_enc_take(uint32_t e)           /* detents since the last call, + = clockwise */
++{
++    uint32_t k = smk__lock();
++    int32_t s = smk_in.encs.steps[e];
++    smk_in.encs.steps[e] = 0;
++    smk__unlock(k);
++    return s;
++}
++static uint32_t smk_btn_edges(uint32_t *released)  /* buttons pressed (and released) since the last call */
++{
++    uint32_t k = smk__lock(), p = smk_in.btns.pressed;
++    if (released)
++        *released = smk_in.btns.released;
++    smk_in.btns.pressed = smk_in.btns.released = 0;
++    smk__unlock(k);
++    return p;
++}
++/* polled, one frame (before the timer runs: the power-on combos); FM1_INPUT_IDLE() while it waits */
++#ifndef FM1_INPUT_IDLE
++#define FM1_INPUT_IDLE() ((void)0)
++#endif
++static void smk_input_scan(void)
++{
++    uint32_t i;
++    for (i = 0; i < SMK_NCOL; i++) {
++        uint32_t t0 = fm1_ticks();
++        smk_input_tick();
++        while ((uint32_t)(fm1_ticks() - t0) < 100u * FM1_TICKS_PER_US)
++            FM1_INPUT_IDLE();
++    }
++}
+--- a/boards/smk37/smk_lcd_hw.h
++++ b/boards/smk37/smk_lcd_hw.h
+@@ -0,0 +1,114 @@
++/* SPDX-License-Identifier: MPL-2.0
++ * Copyright (C) 2026 RemoteFM1 contributors */
++/* M-VAVE SMK-37 LCD and pad lights: fm1_lcd_hw.h's functions for the SMK's wiring (genkigenki's porting guide
++ * fm1-to-smk37, docs/01-hardware.md sections 3 and 4), so fm1-base's lcd.c drives it unchanged.
++ *
++ *   the panel   ST7789V, 240 x 240, on SPI1 group A (IOMAP_CON1 bit 4 = 0): PB6 clock, PB7 data; PC8 chip select
++ *               (low), PB5 data / command (low = command); no backlight control (always on) and no reset line.
++ *               PA2 (the FM-1's backlight) is a matrix row here: never driven.
++ *   the pads    16 WS2812-class LEDs on PC10, SPI1's data pin in group B (IOMAP_CON1 bit 4 = 1). The LEDs and the
++ *               panel share SPI1: the pins are switched to group B only between two panel transfers (the panel
++ *               deselected, the last DMA over), at BAUD 8 (~6.67 MHz: one SPI byte a LED bit), and back. PC9, group
++ *               B's clock pin, stays an analog input (the pads' mux B): never an output. PC10 is a low output
++ *               between frames (the LEDs' latch).
++ *
++ *   fm1_lcd_hw_init()          pins, SPI1 master at BAUD 4
++ *   fm1_lcd_baud(b)            SPI1 clock = lsb / (b + 1), for the panel
++ *   fm1_lcd_send_cmd(c), fm1_lcd_send_data(p, n), fm1_lcd_wait(), fm1_lcd_done(), fm1_lcd_deselect()   as on the FM-1
++ *   fm1_lcd_backlight(on)      nothing (the SMK's is always on)
++ *   smk_padled_send(p, n)      the panel idle and deselected: n bytes from RAM p to the pads, waited for; 0 = sent */
++#pragma once
++#include <stdint.h>
++#include "fm1_cc.h"
++
++#define SMK_LCD_PB_OUT (*(volatile uint32_t *)0x50040u)
++#define SMK_LCD_PB_DIR (*(volatile uint32_t *)0x50048u)
++#define SMK_LCD_PC_OUT (*(volatile uint32_t *)0x50080u)
++#define SMK_LCD_PC_DIR (*(volatile uint32_t *)0x50088u)
++#define SMK_LCD_IOMAP_CON1 (*(volatile uint32_t *)0x51020u)
++#define SMK_LCD_SPI_CON (*(volatile uint32_t *)0x11D00u)
++#define SMK_LCD_SPI_BAUD (*(volatile uint32_t *)0x11D04u)
++#define SMK_LCD_SPI_BUF (*(volatile uint32_t *)0x11D08u)
++#define SMK_LCD_SPI_ADR (*(volatile uint32_t *)0x11D0Cu)
++#define SMK_LCD_SPI_CNT (*(volatile uint32_t *)0x11D10u)
++#define SMK_LCD_DC (1u << 5)                      /* PB5 */
++#define SMK_LCD_CLK (1u << 6)                     /* PB6 */
++#define SMK_LCD_DO (1u << 7)                      /* PB7 */
++#define SMK_LCD_CS (1u << 8)                      /* PC8 */
++#define SMK_PADLED_DO (1u << 10)                  /* PC10 */
++#define SMK_PADLED_BAUD 8u
++
++static uint32_t fm1_lcd_timeouts;
++static uint8_t smk_lcd_baud = 4u;                 /* the panel's, put back after the pads' frame */
++
++FM1_INLINE void fm1_lcd_hw_init(void)
++{
++    SMK_LCD_IOMAP_CON1 &= ~0x10u;                  /* SPI1 group A */
++    SMK_LCD_PC_OUT |= SMK_LCD_CS;
++    SMK_LCD_PC_OUT &= ~SMK_PADLED_DO;
++    SMK_LCD_PC_DIR &= ~(SMK_LCD_CS | SMK_PADLED_DO);
++    SMK_LCD_PB_OUT &= ~(SMK_LCD_DC | SMK_LCD_CLK | SMK_LCD_DO);
++    SMK_LCD_PB_DIR &= ~(SMK_LCD_DC | SMK_LCD_CLK | SMK_LCD_DO);
++    SMK_LCD_SPI_CON = 0x4021u;
++    SMK_LCD_SPI_BAUD = 4u;
++    smk_lcd_baud = 4u;
++}
++
++FM1_INLINE void fm1_lcd_backlight(uint32_t on) { (void)on; }
++
++FM1_INLINE void fm1_lcd_baud(uint32_t b)
++{
++    SMK_LCD_SPI_BAUD = b;
++    smk_lcd_baud = (uint8_t)b;
++}
++
++static void fm1_lcd_wait(void)
++{
++    uint32_t n;
++    for (n = 0; n < 4000000u && !(SMK_LCD_SPI_CON & 0x8000u); n++)
++        ;
++    if (n == 4000000u)
++        fm1_lcd_timeouts++;
++    SMK_LCD_SPI_CON |= 0x4000u;
++}
++
++FM1_INLINE uint32_t fm1_lcd_done(void) { return SMK_LCD_SPI_CON & 0x8000u; }   /* the transfer is over (no wait) */
++
++FM1_INLINE void fm1_lcd_deselect(void) { SMK_LCD_PC_OUT |= SMK_LCD_CS; }
++
++FM1_INLINE void fm1_lcd_send_cmd(uint8_t c)
++{
++    SMK_LCD_PB_OUT &= ~SMK_LCD_DC;
++    SMK_LCD_PC_OUT &= ~SMK_LCD_CS;
++    SMK_LCD_SPI_CON |= 0x4000u;
++    SMK_LCD_SPI_BUF = c;
++}
++
++FM1_INLINE void fm1_lcd_send_data(const void *p, uint32_t n)
++{
++    SMK_LCD_PB_OUT |= SMK_LCD_DC;
++    SMK_LCD_PC_OUT &= ~SMK_LCD_CS;
++    SMK_LCD_SPI_CON |= 0x4000u;
++    SMK_LCD_SPI_ADR = (uint32_t)(uintptr_t)p;
++    SMK_LCD_SPI_CNT = n;
++}
++
++/* the pads' frame: the caller has finished the panel's transfer and deselected it (lcd.c lcd_sync) */
++static int smk_padled_send(const void *p, uint32_t n)
++{
++    uint32_t t;
++    if (!n || !(SMK_LCD_PC_OUT & SMK_LCD_CS))
++        return -1;                                 /* (the panel selected: not now) */
++    SMK_LCD_IOMAP_CON1 |= 0x10u;                   /* SPI1 group B: PC10 */
++    SMK_LCD_SPI_BAUD = SMK_PADLED_BAUD;
++    SMK_LCD_SPI_CON |= 0x4000u;
++    SMK_LCD_SPI_ADR = (uint32_t)(uintptr_t)p;
++    SMK_LCD_SPI_CNT = n;
++    for (t = 0; t < 400000u && !(SMK_LCD_SPI_CON & 0x8000u); t++)   /* (~0.8 ms) */
++        ;
++    SMK_LCD_SPI_CON |= 0x4000u;
++    SMK_LCD_PC_OUT &= ~SMK_PADLED_DO;
++    SMK_LCD_IOMAP_CON1 &= ~0x10u;                  /* back to the panel's pins and clock */
++    SMK_LCD_SPI_BAUD = smk_lcd_baud;
++    return t < 400000u ? 0 : -2;
++}
+--- a/chip/fm1_flash.h
++++ b/chip/fm1_flash.h
+@@ -36,6 +36,69 @@
+ #define T4_CNT          REG32(0x10804u)            /* TIMER4, 24 MHz free-running */
+ 
+ #define FL_XIP(off)     FM1_XIP(off)              /* fm1_xip.h */
++#if BOARD_SMK37
++/* M-VAVE SMK-37 (genkigenki's porting guide fm1-to-smk37, docs/01-hardware.md section 2): the same 1 MiB of flash
++ * laid out otherwise, with ranges that are the unit's own and cannot be had again. Never erased or programmed here,
++ * whatever FL_RANGE_OK a caller brings (the second net in fl_erase4k_ram / fl_prog_ram, FL_SMK_PROTECTED):
++ *   0x00000-0x03FFF  the flash header, the SPL, the boot config
++ *   0xC0000-0xC0FFF  BTIF: Bluetooth pairing          0xC1000-0xC1FFF  USRTRIM: the factory key, pad and wheel curves
++ *   0xF4000-0xFDFFF  USR: the stock resources (a return to stock needs them)
++ *   0xFF000-0xFFFFF  key_mac
++ * What a firmware may write (FL_RANGE_OK below; an app narrows it further):
++ *   0x9D000-0xBAFFF  the stock VM (key-value settings): a firmware's store          FL_DATA
++ *   0xBB000-0xBFFFF  the last five sectors of the VM: the update's staging and record (ota.c)   FL_OTA
++ *   0xC2000-0xE9FFF  USRFLASH, the stock firmware's key / knob / fader mapping: a firmware's big data, once the stock
++ *                    firmware's end marker is gone (below)                         FL_USRFLASH
++ *   0xEA000-0xEAFFF  USRFLASH's last sector, the stock end marker ("usrdata" at 0xEAFF8): while it stands the stock
++ *                    firmware trusts USRFLASH as its mapping, so it is erased (whole, never programmed) before a
++ *                    firmware's first write there, and the stock firmware builds its factory mapping again after a
++ *                    return to stock                                               FL_SMK_MARK
++ * The app area 0x04000-0x9CFFF is the update loader's alone. */
++#define FL_SMK_HEAD_HI  0x00004000u
++#define FL_SMK_CAL_LO   0x000C0000u
++#define FL_SMK_CAL_HI   0x000C2000u
++#define FL_SMK_USR_LO   0x000F4000u
++#define FL_SMK_USR_HI   0x000FE000u
++#define FL_SMK_KEY_LO   0x000FF000u
++#define FL_DATA_LO      0x0009D000u
++#define FL_DATA_HI      0x000BB000u
++#define FL_OTA_LO       0x000BB000u
++#define FL_OTA_HI       0x000C0000u
++#define FL_USRFLASH_LO  0x000C2000u
++#define FL_USRFLASH_HI  0x000EA000u
++#define FL_SMK_MARK_LO  0x000EA000u
++#define FL_SMK_MARK_HI  0x000EB000u
++#define FL_SMK_MARK_AT 0x000EAFF8u               /* "usrdata\0" */
++/* [off, off + n) and [lo, hi) share a byte: neither lies wholly before the other (n counted from off, so a range
++ * that would wrap round the 1 MiB part, whose high address bits it ignores, counts as reaching everything above) */
++#define FL_SMK_TOUCHES(off, n, lo, hi) (!((uint32_t)(off) >= (hi) || \
++                                        ((uint32_t)(off) < (lo) && (uint32_t)(n) <= (lo) - (uint32_t)(off))))
++#define FL_SMK_PROTECTED(off, n) (FL_SMK_TOUCHES(off, n, 0u, FL_SMK_HEAD_HI) || \
++                                  FL_SMK_TOUCHES(off, n, FL_SMK_CAL_LO, FL_SMK_CAL_HI) || \
++                                  FL_SMK_TOUCHES(off, n, FL_SMK_USR_LO, FL_SMK_USR_HI) || \
++                                  FL_SMK_TOUCHES(off, n, FL_SMK_KEY_LO, 0xFFFFFFFFu) || \
++                                  (uint32_t)(n) > 0xFFFFFFFFu - (uint32_t)(off))
++/* a window [lo, hi): whole sectors, clear of every protected range */
++#define FL_SMK_WIN_OK(lo, hi) ((lo) % 0x1000u == 0u && (hi) % 0x1000u == 0u && (lo) < (hi) && (lo) >= FL_SMK_HEAD_HI && \
++                               (hi) <= FL_SMK_KEY_LO && ((hi) <= FL_SMK_CAL_LO || (lo) >= FL_SMK_CAL_HI) && \
++                               ((hi) <= FL_SMK_USR_LO || (lo) >= FL_SMK_USR_HI))
++_Static_assert(FL_SMK_WIN_OK(FL_DATA_LO, FL_DATA_HI) && FL_SMK_WIN_OK(FL_OTA_LO, FL_OTA_HI) &&
++               FL_SMK_WIN_OK(FL_USRFLASH_LO, FL_USRFLASH_HI) && FL_SMK_WIN_OK(FL_SMK_MARK_LO, FL_SMK_MARK_HI) &&
++               FL_SMK_WIN_OK(0x4000u, 0x9D000u), "SMK-37: a window overlaps a protected range");
++_Static_assert(FL_DATA_HI == FL_OTA_LO && FL_OTA_HI == FL_SMK_CAL_LO && FL_USRFLASH_HI == FL_SMK_MARK_LO &&
++               FL_SMK_MARK_AT + 8u == FL_SMK_MARK_HI, "SMK-37: the map");
++#define FL_IN(off, n, lo, hi) ((uint32_t)(off) >= (lo) && (uint32_t)(off) <= (hi) && \
++                               (uint32_t)(n) <= (hi) - (uint32_t)(off))
++#define FL_STORE_OK(off, n) (FL_IN(off, n, FL_DATA_LO, FL_DATA_HI) || FL_IN(off, n, FL_USRFLASH_LO, FL_USRFLASH_HI))
++#define FL_SMK_MARK_OK(off, n) ((uint32_t)(off) == FL_SMK_MARK_LO && (uint32_t)(n) == 0x1000u)   /* (an erase) */
++#ifndef FL_RANGE_OK
++#define FL_RANGE_OK(off, n) (FL_STORE_OK(off, n) || FL_IN(off, n, FL_OTA_LO, FL_OTA_HI) || FL_SMK_MARK_OK(off, n))
++#endif
++#define FL_GUARD(off, n) (FL_RANGE_OK(off, n) && !FL_SMK_PROTECTED(off, n))
++#define FL_JEDEC_OK(id) ((id) == 0xEB6014u || (id) == 0x856014u)   /* the SMK-37's part on the guide's unit; the
++                                                                     * FM-1's (some units may carry it); the driver
++                                                                     * uses generic SPI NOR commands only */
++#else
+ #define FL_DATA_LO      0x00097000u                /* Felucca main store */
+ #define FL_DATA_HI      0x000E0000u
+ #define FL_GLOB_LO      0x000FC000u                /* Felucca superblock / globals */
+@@ -65,6 +128,10 @@
+ #ifndef FL_RANGE_OK
+ #define FL_RANGE_OK(off, n) (FL_STORE_OK(off, n) || FL_XDATA_OK(off, n) || FL_IN(off, n, FL_OTA_LO, FL_OTA_HI))
+ #endif
++#define FL_GUARD(off, n) FL_RANGE_OK(off, n)
++#define FL_JEDEC_OK(id) ((id) == 0x856014u)
++#endif /* BOARD_SMK37 */
++#ifndef FL_MAP_ONLY                               /* (a host test of the map: the macros above, no driver) */
+ 
+ typedef struct { uint32_t sfc_con, spi_con; } fl_saved_t;
+ 
+@@ -196,7 +263,7 @@
+ static RAMFN int fl_erase4k_ram(uint32_t off, uint32_t *took_us)
+ {
+     fl_saved_t s; int rc;
+-    if (!FL_RANGE_OK(off, 0x1000u) || (off & 0xFFFu))
++    if (!FL_GUARD(off, 0x1000u) || (off & 0xFFFu))
+         return -1;
+     if (fl_enter(&s)) return -2;
+     fl_wren();
+@@ -213,7 +280,7 @@
+ static RAMFN int fl_prog_ram(uint32_t off, const uint8_t *src, uint32_t n, uint32_t *took_us)
+ {
+     fl_saved_t s; int rc; uint32_t i;
+-    if (!FL_RANGE_OK(off, n) ||
++    if (!FL_GUARD(off, n) ||
+         n == 0 || n > 256u || ((off & 0xFFu) + n) > 256u) return -1;    /* one page, no wrap */
+     if (fl_enter(&s)) return -2;
+     fl_wren();
+@@ -291,3 +358,4 @@
+     for (i = 0; i < n; i++) if (p[i] != ref[i]) return -(int)(i + 1);
+     return 0;
+ }
++#endif /* FL_MAP_ONLY */
+--- a/chip/ota.c
++++ b/chip/ota.c
+@@ -22,9 +22,39 @@
+  *   ota_show(step, code)       progress / result for the screen
+  *   ota_commit(parm)           write RAM record + reset (never returns on hardware)
+  */
++#if BOARD_SMK37
++/* M-VAVE SMK-37 (fm1_flash.h): the staging is the stock VM's last five sectors, its record at their end (0xBFF00, the
++ * VM's last sector as on the FM-1, whose stock record is at 0xE8F00), below BTIF and USRTRIM. The record names the
++ * model's own update loader (SMK_MODEL: tools/build.py), so M-VAVE's tool finds the stock loader under the name it
++ * expects when the stock package is installed over this firmware. A package is taken only if it is one for the
++ * SMK-37: its flash image's region table is the SMK's (ota_board_ok) */
++#ifndef SMK_MODEL
++#define SMK_MODEL "SMK-37 Pro"
++#endif
++/* OTA_BOARD_ANY(): the app's word that this unit is not an SMK-37 after all (no factory calibration record: an FM-1
++ * given the SMK's build by mistake). Then the update is the FM-1 build's: any package, staged where the FM-1's SPL
++ * and loaders look (0xE0000, the record at 0xE4F00), the record naming the FM-1's loader, an FM-1 boot area */
++#ifndef OTA_BOARD_ANY
++#define OTA_BOARD_ANY() 0
++#endif
++#define OTA_SMK_AREA 0x000BB000u
++#define OTA_AREA (OTA_BOARD_ANY() ? 0x000E0000u : OTA_SMK_AREA)   /* staged loader, 5 x 4 KiB */
++#define OTA_AREA_LEN 0x5000u
++#define OTA_RES (OTA_AREA + OTA_AREA_LEN - 0x100u)  /* 0xBFF00 (0xE4F00) */
++#define OTA_PARM_SMK "ota-" SMK_MODEL "_016"     /* (the stock loader's name: 15..20 bytes, zeros after) */
++#define OTA_PARM_ID (OTA_BOARD_ANY() ? "ota-FM-1_015" : OTA_PARM_SMK)
++#define OTA_BOARD (OTA_BOARD_ANY() ? "fm1" : "smk37")   /* an m-bootloader container's board */
++#define OTA_BOARD_LEN (OTA_BOARD_ANY() ? 4u : 6u)       /* (with its NUL) */
++_Static_assert(OTA_SMK_AREA >= FL_OTA_LO && OTA_SMK_AREA + OTA_AREA_LEN <= FL_OTA_HI, "SMK-37: the staging is FL_OTA");
++_Static_assert(sizeof OTA_PARM_SMK - 1u <= 20u, "SMK-37: the stock loader's name, at most 20 bytes from +8");
++#else
+ #define OTA_AREA 0x000E0000u                     /* staged loader, 5 x 4 KiB */
+ #define OTA_AREA_LEN 0x5000u
+ #define OTA_RES (OTA_AREA + OTA_AREA_LEN - 0x100u)  /* 0xE4F00 = 4K boundary - 256: SPL scan */
++#define OTA_PARM_ID "ota-FM-1_015"
++#define OTA_BOARD "fm1"
++#define OTA_BOARD_LEN 4u
++#endif
+ #define OTA_FRAME_MAX 640u                       /* 512-B response = 605 wire bytes */
+ 
+ static int ota_wire_send(const uint8_t *p, uint32_t n);
+@@ -252,12 +282,84 @@
+         pcrc = ota_crc16(b + h, n - h, pcrc);
+         fcrc = ota_crc16(b + h, n - h, fcrc);
+         if (!i && ota_memeq(b + 16 + 0x40, (const uint8_t *)"AC79BLID", 8) &&
+-            !ota_memeq(b + 16 + 0x48, (const uint8_t *)"fm1", 4))
++            !ota_memeq(b + 16 + 0x48, (const uint8_t *)OTA_BOARD, OTA_BOARD_LEN))
+             return -5;                                      /* another board's */
+     }
+     return pcrc == pwant && fcrc == dcrc ? 0 : -5;
+ }
+ 
++#if BOARD_SMK37
++/* the chip key from this unit's own flash head (the JLFS entry isd_config.ini, its blob): -1 when it is not there */
++static int ota_own_key(uint32_t *key)
++{
++    uint8_t e[32], blob[34];
++    uint32_t off, i, sum, k;
++    for (off = 32; off < 0x400u; off += 32u) {
++        if (ota_fread(off, e, 32))
++            return -1;
++        ota_jl_enc(e, 32);
++        if (ota_crc16(e + 2, 30, 0) != ota_rd16(e))
++            return -1;
++        if (!ota_memeq(e + 16, (const uint8_t *)"isd_config.ini", 15)) {
++            if (ota_rd16(e + 14))
++                return -1;
++            continue;
++        }
++        if (ota_fread(ota_rd32(e + 4), blob, 34) || ota_crc16(blob, 32, 0) != ota_rd16(blob + 32))
++            return -1;
++        for (i = 0, sum = 0; i < 16u; i++)
++            sum += blob[i];
++        sum &= 0xFFu;
++        sum = sum >= 0xE0u ? 0xAAu : sum <= 0x10u ? 0x55u : sum;
++        for (i = 0, k = 0; i < 16u; i++)
++            if ((uint32_t)(blob[16 + i] ^ blob[15 - i]) < sum)
++                k |= 1u << i;
++        *key = k;
++        return 0;
++    }
++    return -1;
++}
++
++/* the package is one for the SMK-37: its flash image's app area (from 0x4000, the SFC cipher with this chip's key)
++ * opens with the app_area_head directory, and the directory's region entries name the SMK's map: VM at 0x9D000 and
++ * USRTRIM at 0xC1000 (the stock SMK packages', the SMK-37 ports' and ours; an FM-1 package has VM at 0x93000 and no
++ * USRTRIM: refused before anything is erased, as is a package with no flash image). 0 = the SMK's, -15 not, -4 read */
++#ifndef OTA_BOARD_ANY
++#define OTA_BOARD_ANY() 0                                   /* (the app's: 1 when this is not an SMK-37 after all) */
++#endif
++static int ota_board_ok(uint32_t fl_off, uint32_t fl_len, uint8_t *b)
++{
++    uint32_t key, i, j, vm = 0, trim = 0;
++    if (OTA_BOARD_ANY())
++        return 0;
++    if (!fl_off || fl_len < 0x4000u + 512u)
++        return -15;
++    if (ota_own_key(&key))
++        key = 0x980Fu;                                      /* (the AC791N's of every FM-1 and SMK-37 seen) */
++    if (ota_read(fl_off + 0x4000u, b, 512))
++        return -4;
++    for (i = 0; i < 512u; i += 32u) {                       /* the SFC cipher: key ^ (block offset >> 2) */
++        uint32_t k = key ^ (i >> 2);
++        for (j = 0; j < 32u; j++) {
++            b[i + j] ^= (uint8_t)k;
++            k = ((k << 1) ^ (k & 0x8000u ? 0x1021u : 0u)) & 0xFFFFu;
++        }
++    }
++    if (ota_crc16(b + 2, 30, 0) != ota_rd16(b))           /* (the head entry: the update loader's own check) */
++        return -15;
++    for (i = 32; i < 512u; i += 32u) {                      /* the directory's entries, while they hold */
++        const uint8_t *e = b + i;
++        if (ota_crc16(e + 2, 30, 0) != ota_rd16(e))
++            break;
++        if (ota_memeq(e + 16, (const uint8_t *)"VM", 3))
++            vm = ota_rd32(e + 4) == 0x9D000u;
++        if (ota_memeq(e + 16, (const uint8_t *)"USRTRIM", 8))
++            trim = ota_rd32(e + 4) == 0xC1000u;
++    }
++    return vm && trim ? 0 : -15;
++}
++#endif
++
+ /* JLFS head "LOADER.BIN" in front of the staged loader (vm_update_defrag), written last */
+ static int ota_stage_head(uint32_t len)
+ {
+@@ -328,6 +430,11 @@
+         return -7;
+     for (i = 0x48, own = 0; i + 16u <= 0x48u + 64u && !own; i++)    /* first LZ4 literals: crt0_ldr.S */
+         own = ota_memeq(b + i, (const uint8_t *)"FELUCCA-LOADER-1", 16) && ota_rd32(b + 0x20 + 4) <= 0x14000u;
++#if BOARD_SMK37
++    /* 2b. a package for the SMK-37 (any writer's: its flash image says) */
++    if ((rc = ota_board_ok(fl_off, fl_len, b)) != 0)
++        return rc;
++#endif
+     /* 3. a flash image with it: Felucca's writer never writes its head (the app area only); any other may,
+      *    so its boot area must be a bootable one for the FM-1 (no flash.bin: the writer brings its own) */
+     if (fl_off && !own) {
+@@ -401,8 +508,11 @@
+     ota_wr16(parm + 2, 0x5A0Du);
+     ota_wr16(parm + 4, 0x5A01u);
+     ota_wr16(parm + 6, 0x5441u);
+-    for (i = 0; i < 12u; i++)
+-        parm[8 + i] = (uint8_t)"ota-FM-1_015"[i];    /* the loader's own USB identity */
++    {
++        const char *id = OTA_PARM_ID;                 /* the loader's own USB identity */
++        for (i = 0; id[i]; i++)
++            parm[8 + i] = (uint8_t)id[i];
++    }
+     ota_wr32(parm + 72, OTA_AREA);
+     ota_wr16(parm, ota_crc16(parm + 2, 78, 0));
+ #if FELUCCA_OTA_DRYRUN
+--- a/loader/ldr_core.c
++++ b/loader/ldr_core.c
+@@ -28,12 +28,26 @@
+  *   ldr_record_clear()    forget the RAM update record
+  *   ldr_progress(done, total)  both passes on one scale: the check (2b, flash.bin) then the write (3, the app area)
+  * plus the ota.c hooks (frames, time, idle). */
++#if BOARD_SMK37
++/* M-VAVE SMK-37: the app area is the stock PRCT [0x4000, 0x9D000) (written whole: what the stock app left above an
++ * app shorter than its own goes too), records in the stock VM [0x9D000, 0xC0000) only, below BTIF and USRTRIM (ours at
++ * 0xBFF00; the stock firmware's place is not known, so the whole VM is looked at, CRC-checked: a firmware's data
++ * there must not read as a record, as on the FM-1's XDATA windows). The package must be one for the SMK-37 (ota.c
++ * ota_board_ok), checked before anything is erased */
+ #define LDR_APP_LO 0x4000u
++#define LDR_APP_HI 0x9D000u
++#define LDR_REC_LO 0x9D000u
++#define LDR_REC_HI 0xC0000u
++#define LDR_DATA_LO 0u                          /* (no window skipped) */
++#define LDR_DATA_HI 0u
++#else
++#define LDR_APP_LO 0x4000u
+ #define LDR_APP_HI 0x93000u
+ #define LDR_REC_LO 0x93000u                     /* update records live above the app ... */
+ #define LDR_REC_HI 0xFC000u                     /* ... and below Felucca's globals (Felucca's records: 0xE4F00, */
+ #define LDR_DATA_LO 0x97000u                    /* the stock firmware's: 0xE8F00), never in Felucca's store, whose */
+ #define LDR_DATA_HI 0xE0000u                    /* bytes (user samples) the host writes */
++#endif
+ #define LDR_NSEC ((LDR_APP_HI - LDR_APP_LO) >> 12)
+ #define LDR_FL_MAX 0x100000u                    /* flash.bin: at most the 1 MiB part */
+ 
+@@ -129,6 +143,10 @@
+     ldr_sfc(sec, 32, 0, key);
+     if (ota_crc16(sec + 2, 30, 0) != ota_rd16(sec))
+         return -6;                                       /* package for another chip key */
++#if BOARD_SMK37
++    if (ota_board_ok(fl_off, fl_size, sec))
++        return -15;                                      /* a package for another board (an FM-1's) */
++#endif
+     /* 2b. the whole package first: nothing is erased for a damaged one */
+     if ((rc = ldr_check(fl_off, fl_size, want, sc, sec)) != 0)
+         return rc;
+--- a/loader/ldr_screen.c
++++ b/loader/ldr_screen.c
+@@ -4,7 +4,11 @@
+  * (ldr_progress), in the installer page's colours. The panel is started as the app's lcd.c does (fm1-base
+  * device/lcd.c: reset, sleep out, RGB565, IPS inversion), polled, at Felucca's SPI1 rate (BAUD 4).
+  * Part of loader.c's single unit; every buffer is in RAM (the SPI DMA reads RAM only). */
++#if BOARD_SMK37
++#include "../boards/smk37/smk_lcd_hw.h"            /* the SMK-37's panel pins (PA2, PC9 never driven) */
++#else
+ #include "../boards/fm1/fm1_lcd_hw.h"
++#endif
+ 
+ #define SCR_BG 0xFFBDu                              /* #faf4e8 cream */
+ #define SCR_FG 0x49C5u                              /* #48392f brown */
+--- a/loader/loader.c
++++ b/loader/loader.c
+@@ -12,13 +12,26 @@
+ #define FELUCCA_OTA 1
+ #define FELUCCA_OTA_DRYRUN 0
+ #define FELUCCA_USB_PID 0x0002
++#if BOARD_SMK37
++#ifndef SMK_MODEL
++#define SMK_MODEL "SMK-37 Pro"
++#endif
++#define FELUCCA_ID "ota-" SMK_MODEL "_900"         /* (installers take the model before the underscore, after "ota-") */
++#else
+ #define FELUCCA_ID "ota-FM-1_900"
++#endif
+ #define RING_PUBLISH() __asm__ volatile("" ::: "memory")
+ #include "fm1_time.h"
+ #include "fm1_sys.h"
+ /* the loader may write the app area and erase update records; never the head, nor Felucca's store
+  * [0x97000, 0xE0000) (user data, never a record: ldr_core.c) */
++#if BOARD_SMK37
++/* SMK-37: the app area [0x4000, 0x9D000) and records in the stock VM [0x9D000, 0xC0000), below BTIF; fm1_flash.h's
++ * FL_SMK_PROTECTED holds the unit's own ranges off whatever this allows */
++#define FL_RANGE_OK(off, n) (FL_IN(off, n, 0x4000u, 0x9D000u) || FL_IN(off, n, 0x9D000u, 0xC0000u))
++#else
+ #define FL_RANGE_OK(off, n) (FL_IN(off, n, 0x4000u, 0x97000u) || FL_IN(off, n, 0xE0000u, 0xFC000u))
++#endif
+ #include "fm1_flash.h"
+ #include "../chip/libc.c"
+ #include "../chip/usb.c"

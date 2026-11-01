@@ -1,0 +1,1563 @@
+--- a/device/lcd.c
++++ b/device/lcd.c
+@@ -7,6 +7,10 @@
+  * a write to its source buffer (lcd_sync), waits for it, so the main loop works
+  * while the last strip of a frame goes out. */
+ /* pins and SPI1: hal/fm1_lcd_hw.h */
++#if BOARD_SMK37 && !defined LCD_BAUD
++#define LCD_BAUD 2u                /* the M-VAVE SMK-37's panel: 20 MHz, as ChoralRoot's SMK-37 build runs it (its testers'
++                                    * units); the FM-1's 60 MHz has not been tried on one */
++#endif
+ #ifndef LCD_BAUD
+ #define LCD_BAUD 0u                /* lsb/(BAUD+1): 0 = 60 MHz (~44 MHz effective, measured). Felucca's
+                                     * 4 (12 MHz) took 23 ms for a 240x72 strip, longer than the panel's
+@@ -122,7 +126,30 @@
+ /* ST7789V init: reset, then 16-bit colour, scan direction and IPS inversion;
+  * voltage and gamma stay at the defaults. Format: cmd, n, n data bytes;
+  * cmd 0x00 = wait (data byte: ~ms). */
++#if BOARD_SMK37
++/* the M-VAVE SMK-37's ST7789V, set up as its stock firmware does (genkigenki's porting guide fm1-to-smk37,
++ * docs/01-hardware.md section 3: the table the panel was tuned with); no reset line, so no SWRESET wait needed but the
++ * power-on's */
+ static const uint8_t LCD_SEQ[] = {
++    0x00, 1, 100,
++    0x11, 0,                     /* SLPOUT */
++    0x00, 1, 120,
++    0x36, 1, 0x00,               /* MADCTL */
++    0x3A, 1, 0x05,               /* COLMOD: 16 bits */
++    0xB2, 5, 0x0C, 0x0C, 0x00, 0x33, 0x33,   /* PORCTRL */
++    0xB7, 1, 0x35,               /* GCTRL */
++    0xBB, 1, 0x32,               /* VCOMS */
++    0xC2, 1, 0x01,               /* VDVVRHEN */
++    0xC3, 1, 0x15,               /* VRHS */
++    0xC4, 1, 0x20,               /* VDVS */
++    0xC6, 1, 0x0F,               /* FRCTRL2 */
++    0xD0, 2, 0xA4, 0xA1,         /* PWCTRL1 */
++    0xE0, 14, 0xD0, 0x08, 0x0E, 0x09, 0x09, 0x05, 0x31, 0x33, 0x48, 0x17, 0x14, 0x15, 0x31, 0x34,   /* gamma + */
++    0xE1, 14, 0xD0, 0x08, 0x0E, 0x09, 0x09, 0x05, 0x31, 0x33, 0x48, 0x17, 0x14, 0x15, 0x31, 0x34,   /* gamma - */
++    0x21, 0,                     /* INVON */
++};
++#else
++static const uint8_t LCD_SEQ[] = {
+     0x01, 0,                     /* SWRESET */
+     0x00, 1, 150,
+     0x11, 0,                     /* SLPOUT */
+@@ -132,6 +159,7 @@
+     0x21, 0,                     /* INVON: IPS panel */
+     0x13, 0,                     /* NORON */
+ };
++#endif
+ 
+ static void lcd_init(void)
+ {
+--- a/device/main_fm1.c
++++ b/device/main_fm1.c
+@@ -147,7 +147,11 @@
+     fm1b_dbg.timer_irqs++;
+     if (fm1b_dbg.in_audio)
+         fm1b_dbg.nested++;
++#if BOARD_SMK37
++    smk_input_tick();                               /* the SMK-37's matrix and analog inputs (boards/smk37) */
++#else
+     fm1_input_tick();
++#endif
+     /* 2 kHz: all USB SIE traffic lives here. This ISR now nests into the audio render (so the key
+      * matrix keeps its rhythm, below); USB shares the MIDI queues with the audio ISR, so a poll that
+      * falls inside the render waits for the first tick outside it, as it did before the nesting. */
+@@ -759,21 +763,32 @@
+         hexs(b + 3, fm1_crash.pc);
+         sys_box(0, 208, 240, SYS_S, b, C_GRAY, 1);
+     }
++#if BOARD_SMK37
++    smk_input_init(0);                              /* (no velocity needed here: the curves' defaults) */
++#else
+     fm1_input_init();
++#endif
+     panel_init();
+     usb_start();
+     fm1_timer5_start(isr_timer5, 1);
+     fm1_guard_lock_top();
+     fm1_irq_enable_all();
++#if BOARD_SMK37
++    play = 1u << SMK_B_PLAY;                        /* SEQ PLAY, SEQ REC */
++    rec = 1u << SMK_B_REC;
++#define SAFE_BUTTONS smk_in.btns.held
++#else
+     play = 1u << panel.btn[B_PLAY];
+     rec = 1u << panel.btn[B_REC];
++#define SAFE_BUTTONS fm1_in.buttons
++#endif
+     t0 = fm1_ms;
+     for (;;) {
+         fm1_wdt_feed();
+         usb_retry(fm1_ms);
+         if (bootguard.pending && fm1_ms - t0 > 10000u)
+             bootguard.pending = 0;                  /* safe mode itself is up: not another failed boot */
+-        if ((fm1_in.buttons & play) && fm1_ms - t0 > 500u) {
++        if ((SAFE_BUTTONS & play) && fm1_ms - t0 > 500u) {
+             bootguard.failed = 0;                   /* try the app again, from scratch */
+             bootguard.pending = 0;
+             sys_box(0, 172, 240, SYS_S, "STARTING " APP_NAME "...", C_HI, 1);
+@@ -795,7 +810,7 @@
+         }
+         if (usb.uboot_req)
+             enter_uboot("UBOOT (USB)");
+-        if ((fm1_in.buttons & rec) && fm1_ms - t0 > 500u)
++        if ((SAFE_BUTTONS & rec) && fm1_ms - t0 > 500u)
+             enter_uboot("UPDATE MODE (REC)");
+     }
+ }
+@@ -818,6 +833,9 @@
+     lcd_sync();
+ }
+ 
++#if BOARD_SMK37
++static uint8_t smk_trim_rec[SMK_TRIM_LEN], smk_trim_ok;   /* USRTRIM, as read at the start */
++#endif
+ static void fm1_main(void)
+ {
+     int32_t knob = 512 * 16;
+@@ -844,7 +862,11 @@
+                                                      * VDDIO 3.2 V, WiFi's regulator automatic (fm1_sys.h) */
+         fm1_clock_read(clock_boot);
+         clock_fix = (int8_t)fm1_clock_stock();      /* the stock 360 MHz, whichever bootloader started us (fm1_clock.h) */
++#if BOARD_SMK37
++        flash_ok = FL_JEDEC_OK(FL_FAR(fl_jedec_ram)());  /* the SMK-37's part (or the FM-1's), else RAM only */
++#else
+         flash_ok = FL_FAR(fl_jedec_ram)() == 0x856014u;   /* the expected 1 MiB part, else RAM only */
++#endif
+ #if FM1B_WIFI || FM1B_BLE
+         if (flash_ok)
+             FL_FAR(fl_uid_ram)(flash_uid);
+@@ -854,8 +876,17 @@
+ #if FM1B_BACKUP
+             rs_boot();                              /* a restore's commit cut short by a power loss: finished */
+ #endif
++#if BOARD_SMK37
++            smk_trim_ok = !st_read(SMK_TRIM_OFF, smk_trim_rec, sizeof smk_trim_rec);   /* the factory curves: read only */
++            smk_board_seen = smk_trim_ok && !memcmp(smk_trim_rec + 0x224u, "trimdat", 8);   /* (unity.c; first:
++                                                                                         * the staging's place) */
++#endif
+             ota_boot_cleanup();
+             fl_plain_window_init();                 /* the data area read in place, unencrypted (plat_data) */
++#if BOARD_SMK37
++            if (smk_board_seen)
++                smk_owner_boot();                   /* another firmware's data in the app's windows: cleared once */
++#endif
+         }
+     }
+     lcd_init();
+@@ -884,10 +915,15 @@
+     }
+     fm1b_dbg.boots++;
+     fm1b_dbg.max_us = 0;
++#if BOARD_SMK37
++    smk_input_init(smk_trim_ok ? smk_trim_rec : 0);   /* (PB6 is the panel's clock, PB1 never touched: no fm1_adc_init) */
++    panel_init();
++#else
+     fm1_input_init();
+     fm1_adc_init();
+     panel_init();
+     led_pos_init();
++#endif
+ #if FM1B_CPU2
+     cpu2_boot();
+     cpu2_booting = 1;                               /* (plat_cpu2_set: the second core starts in app_init or never) */
+@@ -907,12 +943,19 @@
+     fm1_guard_lock_top();
+     fm1_irq_enable_all();
+     fm1_delay_ms(30);
++#if BOARD_SMK37
++    if ((smk_in.btns.held & (1u << SMK_B_OCT_DN | 1u << SMK_B_OCT_UP)) == 1u << SMK_B_OCT_DN)
++        enter_uboot("UPDATE MODE (OCTAVE-)");       /* OCTAVE- held at power-on (alone): the chip's update mode, the
++                                                     * SMK-37's key for it (its stock firmware's and its ports'); no
++                                                     * calibration (the SMK's panel is the same on every unit) */
++#else
+     if ((fm1_in.buttons & 3u) == 3u)
+         panel_setup();                              /* OCT- + OCT+ held at power-on */
+     if (fm1_in.buttons & (1u << panel.btn[B_REC]))
+         enter_uboot("UPDATE MODE (REC)");           /* REC held at power-on: the chip's update mode, the same key as
+                                                      * m-bootloader's (which takes it first when it is installed): a way
+                                                      * in when this firmware starts but its USB cannot be reached */
++#endif
+     fm1_delay_ms(400);
+     radio_boot_note();                                /* what ended the last Bluetooth run, into its log */
+     if (!radio_last_bad && APP_BLE_AT_BOOT)
+@@ -933,6 +976,12 @@
+             bootguard.pending = 0;
+             bootguard.failed = 0;
+         }
++#if BOARD_SMK37
++        smk_master_step();                          /* MASTER on K1 */
++        smk_lights_step();                          /* the button lights to the scan, the pads' frame when it changed */
++        (void)knob;
++        (void)batt_t;
++#else
+         {   /* MASTER: smoothed, 0..4092; with the keys' readings on, the scan owns the converter and reads it too */
+             int32_t a = fm1_an.con || fm1_an.pend ? (int32_t)fm1_an.master : fm1_adc_read(FM1_ADC_MASTER);
+             if (a >= 0) {
+@@ -946,6 +995,7 @@
+             if (b > 0)
+                 batt_raw = batt_raw ? batt_raw + (b - batt_raw) / 16 : b;
+         }
++#endif
+         fm1b_dbg.stage = 2;                         /* (breadcrumbs: where a watchdog reset found the loop) */
+         ble_poll();                                 /* Bluetooth's tasks, once started */
+ #if FM1B_WIFI
+--- a/device/panel.c
++++ b/device/panel.c
+@@ -9,6 +9,11 @@
+ static const char *const E_NAME[NE] = {"SELECT", "ALGORITHM", "PRESETS", "KNOB 1", "KNOB 2",
+                                         "KNOB 3", "KNOB 4"};
+ #define PANEL_MAGIC 0x50414E35u          /* "PAN5": Felucca's layout, so its calibration stays valid */
++#if BOARD_SMK37
++/* the M-VAVE SMK-37: its panel is the same on every unit (the matrix codes, felucca-bsp boards/smk37), so it has no
++ * calibration and nothing kept (device/smk_panel.c maps it); OBJ_PANEL is never read or written */
++static void panel_init(void) {}
++#else
+ 
+ typedef struct {
+     uint32_t magic;
+@@ -108,3 +113,4 @@
+     panel = old;
+     lcd_fill(0, 0, 240, 240, C_BLACK);
+ }
++#endif /* BOARD_SMK37 */
+--- a/device/plat_fm1.c
++++ b/device/plat_fm1.c
+@@ -13,6 +13,9 @@
+     volatile int32_t master;                     /* -1: the pot's own */
+ } remote = {0, 0, {0}, -1};
+ 
++#if BOARD_SMK37
++#include "plat_smk37.c"                           /* the M-VAVE SMK-37's panel and lights */
++#else
+ uint32_t plat_buttons(void)
+ {
+     uint32_t raw = fm1_in.buttons, out = 0, i;
+@@ -154,6 +157,7 @@
+     }
+     plat_lights(b, keys, dim, 0, glow_on ? 2 : 0);
+ }
++#endif /* BOARD_SMK37 */
+ 
+ /* the 1 kHz tick (app_tick) runs in the timer interrupt: the main loop locks it out around what they share. The lock
+  * nests; MIDI sent from the tick itself needs none (nothing that sends interrupts it) */
+@@ -187,8 +191,14 @@
+ /* the data area and its two more windows (plat.h): read through the unencrypted XIP window (main_fm1.c
+  * fl_plain_window_init, from 0x93000 up); erased and written by felucca-bsp's RAM driver (FL_RANGE_OK: the store, its
+  * FL_XDATA windows) */
++#if BOARD_SMK37
++_Static_assert(PLAT_DATA_LO == FL_DATA_LO && PLAT_DATA_HI == FL_DATA_HI && PLAT_XDATA1_LO == FL_USRFLASH_LO &&
++               PLAT_XDATA1_HI == FL_USRFLASH_HI && PLAT_SMK_TAG >= FL_DATA_LO && PLAT_SMK_TAG < FL_DATA_HI,
++               "plat.h's windows are felucca-bsp's (the SMK-37's)");
++#else
+ _Static_assert(FL_XDATA0_LO == PLAT_XDATA0_LO && FL_XDATA0_HI == PLAT_XDATA0_HI && FL_XDATA1_HI == PLAT_XDATA1_HI &&
+                FL_AUTO_LO == PLAT_XDATA1_LO && FL_AUTO_HI == FL_XDATA1_LO, "plat.h's windows are felucca-bsp's");
++#endif
+ const uint8_t *plat_data(uint32_t off)
+ {
+     return flash_ok && PLAT_DATA_OK(off, 1u) ? (const uint8_t *)FL_XIP(off) : 0;
+@@ -196,7 +206,7 @@
+ int plat_data_erase(uint32_t off)
+ {
+     uint32_t took;
+-    if (!flash_ok || (off & 0xFFFu) || !PLAT_DATA_OK(off, 0x1000u))
++    if (!flash_ok || (off & 0xFFFu) || !PLAT_DATA_OK(off, 0x1000u) || smk_stock_release(off, 0x1000u))
+         return -1;
+     fm1_wdt_feed();                               /* (a run of erases: tens of ms each) */
+     audio_silence();
+@@ -204,7 +214,7 @@
+ }
+ int plat_data_write(uint32_t off, const void *src, uint32_t n)
+ {
+-    return flash_ok && PLAT_DATA_OK(off, n) ? fl_write(off, src, n) : -1;
++    return flash_ok && PLAT_DATA_OK(off, n) && !smk_stock_release(off, n) ? fl_write(off, src, n) : -1;
+ }
+ /* a pull from the host in the update's framing (ota.c ota_read), and how long it may take */
+ int plat_host_read(uint32_t addr, uint8_t *dst, uint32_t n) { return n > 512u ? -1 : ota_read(addr, dst, n); }
+@@ -311,6 +321,7 @@
+     return 1;
+ }
+ 
++#if !BOARD_SMK37
+ /* the keys' velocity and pressure (APP_KEY_SENSE): felucca-bsp's analog rows, as fm1-ctl and fm1-monk read them (the
+  * converter's clock, a held key driven, the top row probed). Off, the converter is the main loop's (MASTER). */
+ void plat_sense(int on)
+@@ -337,6 +348,7 @@
+                 m |= 1u << (FM1_KEYMAP[r][c] - 14);
+     return m;
+ }
++#endif
+ 
+ #if FM1B_WIFI || FM1B_BLE
+ const uint8_t *plat_chip_uid(void) { return flash_ok ? flash_uid : 0; }
+--- a/device/plat_smk37.c
++++ b/device/plat_smk37.c
+@@ -0,0 +1,117 @@
++/* SPDX-License-Identifier: MPL-2.0
++ * Copyright (C) 2026 RemoteFM1 contributors */
++/* fm1-base on the M-VAVE SMK-37 (BOARD_SMK37): plat.h's panel on felucca-bsp's boards/smk37 scan, through
++ * smk_panel.c's map (shared with the host simulator); MASTER on K1; the battery from the analog muxes; the pads' lights
++ * sent between two panel transfers; the store's owner tag and the stock firmware's end marker (plat.h). Part of
++ * plat_fm1.c (the unity build), in place of the FM-1's panel and lights. */
++
++#include "smk_panel.c"
++
++static void smk_raw_get(smk_raw_t *r)              /* the scan's state, its interrupt held off a moment */
++{
++    uint32_t f = plat_lock(), i;
++    r->keys[0] = smk_in.keys.down[0];
++    r->keys[1] = smk_in.keys.down[1];
++    for (i = 0; i < SMK_NKEY; i++)
++        r->key_vel[i] = smk_in.keys.vel[i];
++    r->pads = smk_in.pads.down;
++    for (i = 0; i < SMK_NPAD; i++)
++        r->pad_vel[i] = smk_in.pads.vel[i];
++    r->btns = smk_in.btns.held;
++    for (i = 0; i < SMK_NFADER; i++)
++        r->fader[i] = smk_in.faders.v[i];
++    r->bend = smk_in.wheels.bend;
++    r->mod = smk_in.wheels.mod;
++    r->pedal = smk_in.pedal.down;
++    plat_unlock(f);
++}
++
++void plat_lights(uint32_t buttons, uint32_t keys, uint32_t dim_buttons, uint32_t dim_keys, int glow)
++{
++    smk_lights_set(buttons, keys, dim_buttons, dim_keys, glow);
++    {   /* the mirror's view, as on the FM-1: PLAY lit (either LED), and bit 15 PLAY lit red */
++        uint32_t play = 1u << B_PLAY, lit = buttons & ((1u << NB) - 1u);
++        mirror_leds((lit & ~play) | (buttons & (play | LED_PLAY_GREEN) ? play : 0u) | (buttons & play ? 1u << 15 : 0u),
++                    keys);
++    }
++}
++void plat_lights_mid(uint32_t buttons, uint32_t keys) { smk_lights_mid_set(buttons, keys); }
++void plat_lights_levels(uint32_t ka, uint32_t a8, uint32_t kb, uint32_t b8) { smk_lights_levels_set(ka, a8, kb, b8); }
++static uint8_t glow_on = 1, play_red;
++void plat_glow(int on) { glow_on = (uint8_t)(on != 0); }
++void plat_play_red(int red) { play_red = (uint8_t)(red != 0); }
++void plat_leds(uint32_t buttons, uint32_t keys)    /* as the FM-1's: PLAY green, unless red (recording); the glow */
++{
++    uint32_t play = 1u << B_PLAY, b = buttons, dim = glow_on ? ((1u << NB) - 1u) & ~buttons : 0u;
++    if (!play_red) {
++        b = (b & ~play) | (buttons & play ? LED_PLAY_GREEN : 0u);
++        dim = (dim & ~play) | (dim & play ? LED_PLAY_GREEN : 0u);
++    }
++    plat_lights(b, keys, dim, 0, glow_on ? 2 : 0);
++}
++
++uint32_t plat_buttons(void) { return smk_fm1_buttons(smk_in.btns.held) | remote.btn | mirror_in_buttons(); }
++
++uint32_t plat_keys(void)
++{
++    smk_panel_poll();
++    return (smk_fm1_keys() | remote.keys | mirror_in_keys()) & ((1u << NKEYS) - 1u);
++}
++static uint32_t plat_remote_keys(void) { return remote.keys; }
++static uint8_t plat_smk_vel(uint32_t k) { return smk_fm1_vel(k); }   /* lib/touch (touch_smk.c) */
++
++int32_t plat_enc(int role)
++{
++    int32_t r;
++    if (role < 0 || role >= NE)
++        return 0;
++    r = remote.enc[role];
++    remote.enc[role] = 0;
++    r += smk_enc_take(SMK_ENC_OF_ROLE[role]) + mirror_in_enc(role);
++    if (r)
++        mirror_enc(role, r);
++    return r;
++}
++
++static volatile uint32_t master_pos = 2896;   /* MASTER's position, 0..4096: K1's (half the level, m * m >> 12, at
++                                               * power-on), the remote's or the mirror's when they set it */
++static int32_t smk_master = 2896;
++uint32_t plat_master(void) { return master_pos; }
++static void smk_master_step(void)             /* (main loop) K1's detents into MASTER */
++{
++    int32_t d = smk_enc_take(SMK_ENC_MASTER);
++    if (d) {
++        smk_master += d * SMK_MASTER_STEP;
++        smk_master = smk_master < 0 ? 0 : smk_master > 4096 ? 4096 : smk_master;
++    }
++    master_pos = mirror_in_master(remote.master >= 0 ? (uint32_t)remote.master : (uint32_t)smk_master);
++}
++
++int plat_battery(void)                        /* mux C 7 (the stock firmware's levels); a USB host means power */
++{
++    if (usb.config && !usb.suspended)
++        return 4;
++    return smk_battery_bars(smk_in.batt >> 4);
++}
++
++void plat_sense(int on) { (void)on; }         /* (the SMK's keys are always read with their velocity) */
++uint32_t plat_analog_mask(void) { return (1u << NKEYS) - 1u; }
++
++/* the pads' frame, from the main loop: when a light changed, between two panel transfers (lcd.c: the last one over;
++ * never waits for one), ~0.6 ms with the LEDs' long reset; at most every 10 ms */
++static uint8_t smk_padbuf[SMK_PADLED_LEN] __attribute__((aligned(4)));
++static void smk_lights_step(void)
++{
++    static uint32_t last;
++    if (smk_lights_dirty & 2u) {              /* the button LEDs: the scan takes them at its next frame */
++        smk_led_on = smk_led_lit;
++        smk_lights_dirty &= (uint8_t)~2u;
++    }
++    if (!(smk_lights_dirty & 1u) || fm1_ms - last < 10u || !lcd_idle())
++        return;
++    lcd_sync();
++    smk_padled_frame(smk_padbuf, smk_pad_rgb);
++    if (!smk_padled_send(smk_padbuf, sizeof smk_padbuf))   /* (the scan's interrupt runs on: it has SPI2) */
++        smk_lights_dirty &= (uint8_t)~1u;
++    last = fm1_ms;
++}
+--- a/device/smk_panel.c
++++ b/device/smk_panel.c
+@@ -0,0 +1,227 @@
++/* SPDX-License-Identifier: MPL-2.0
++ * Copyright (C) 2026 RemoteFM1 contributors */
++/* The M-VAVE SMK-37's panel as an FM-1's (BOARD_SMK37): plat.h's buttons, keys, encoders and lights on the SMK's
++ * controls, and the controls the FM-1 has not as plat_smk_take's changes. The same code on the device (plat_smk37.c,
++ * the scan's state) and in the host simulator (host/plat_host.c, the script's), so the simulator's tests are the
++ * device's mapping. Part of the unity build (device/unity.c; host/plat_host.c), after plat.h and felucca-bsp's
++ * boards/smk37/smk_decode.h; the platform gives it smk_raw_get.
++ *
++ *   keys      keybed keys 5..31 (F3..G5) are the FM-1's 27, with their velocity; the 10 outer ones (C3..E3, G#5..C6)
++ *             are changes (PLAT_SMK_KEY)
++ *   pads      the FM-1's 16 white keys (F3 G3 ... F5 G5) in reading order: the top row white keys 1..8, the bottom
++ *             row 9..16 (hardware pads 0..7 and 8..15: the guide's 6.3); a hit presses the key at the pad's velocity,
++ *             and the pad shows that key's light. A key is held while its pad or its keybed key is; its velocity is
++ *             its last press's
++ *   buttons   as printed (the guide's 04 / 06, as SLOOP, X0X, ChoralRoot and AMB-1 map them): SCALE SEL, CHORD ENV,
++ *             NOTE REPEAT LFO, PARA EDIT, GLOBE GLO, PATCH HOME, BT SAVE, FX, ARP, SEQ, SEQ PLAY PLAY, SEQ REC REC,
++ *             OCTAVE- / + OCT- / OCT+; KNOB BANK, FADER BANK, < and > are changes (PLAT_SMK_BTN)
++ *   knobs     K1 MASTER (the platform's virtual pot), K2 SELECT, K3 ALGORITHM, K4 PRESETS, K5..K8 KNOB 1..4
++ *   lights    a button's LED lit while the FM-1's is lit (the SMK's are on or off: the FM-1's dim glow and its mid
++ *             level do not show); SEQ PLAY's two halves are PLAY's red and green; a pad at its white key's level
++ *             (lit, the two steady levels, the mid level, the glow), in the warm white of the FM-1's key LEDs
++ *   the rest  faders 0..127, the pitch wheel -8192..8191, the mod wheel 0..127, the pedal down / up: changes */
++
++static const uint8_t SMK_BTN_OF_LABEL[NB] = {                /* plat.h's B_* -> the SMK's button */
++    SMK_B_FX, SMK_B_SCALE, SMK_B_CHORD, SMK_B_NOTE_REPEAT, SMK_B_PARA, SMK_B_GLOBE, SMK_B_PATCH, SMK_B_BT,
++    SMK_B_ARP, SMK_B_SEQ, SMK_B_PLAY, SMK_B_REC, SMK_B_OCT_DN, SMK_B_OCT_UP};
++static const uint8_t SMK_ENC_OF_ROLE[NE] = {1, 2, 3, 4, 5, 6, 7};   /* EN_* -> K2..K8 (K1 is MASTER) */
++#define SMK_ENC_MASTER 0u
++#define SMK_MASTER_STEP 96                                    /* MASTER's position (0..4096) a detent of K1 */
++static const uint8_t SMK_WHITE_K[16] = PLAT_WHITE_KEYS;       /* white key w (= the pad in reading order) -> key */
++static const uint8_t SMK_EXTRA_BTN[4] = {SMK_B_KNOB_BANK, SMK_B_FADER_BANK, SMK_B_LEFT, SMK_B_RIGHT};
++_Static_assert(PLAT_SMK_KNOB_BANK == 0 && PLAT_SMK_FADER_BANK == 1 && PLAT_SMK_LEFT == 2 && PLAT_SMK_RIGHT == 3,
++               "plat.h's extra buttons in SMK_EXTRA_BTN's order");
++#define SMK_PAD_RGB 0xFFE6A8u                                 /* the FM-1's key LEDs' warm white */
++#define SMK_PAD_LIT 72u                                       /* a lit pad's brightness, /255 of the LEDs' full */
++
++/* the board's state now (device: the scan's; host: the script's) */
++typedef struct {
++    uint32_t keys[2];                                         /* keybed: bit k of keys[k >> 5] */
++    uint8_t key_vel[SMK_NKEY];
++    uint16_t pads;                                            /* bit p: hardware pad p held */
++    uint8_t pad_vel[SMK_NPAD];
++    uint32_t btns;                                            /* SMK_B_* held */
++    uint8_t fader[SMK_NFADER], mod, pedal;
++    int16_t bend;
++} smk_raw_t;
++static void smk_raw_get(smk_raw_t *r);
++
++static struct {
++    smk_raw_t was;                                            /* the state the last poll saw */
++    uint32_t kb, pad;                                         /* the FM-1's keys held by the keybed, by the pads */
++    uint8_t vel[NKEYS];                                       /* each FM-1 key's last press */
++    uint16_t q[32];                                           /* outer keys and extra buttons: kind << 14 | id << 7 | v */
++    uint8_t qw, qr;
++    uint8_t dirty;                                            /* bit f: fader f; 4 bend, 5 mod, 6 pedal */
++    uint8_t started;
++} smk_pn;
++
++static uint32_t smk_fm1_buttons(uint32_t smk)                /* the SMK's buttons -> plat.h's B_* */
++{
++    uint32_t b = 0, i;
++    for (i = 0; i < NB; i++)
++        if (smk >> SMK_BTN_OF_LABEL[i] & 1u)
++            b |= 1u << i;
++    return b;
++}
++
++static void smk_q_put(uint32_t kind, uint32_t id, uint32_t v)
++{
++    if ((uint8_t)(smk_pn.qw - smk_pn.qr) >= 32u)
++        return;                                               /* (full: dropped; a key's release is never lost
++                                                               * behind a press within 32) */
++    smk_pn.q[smk_pn.qw++ & 31u] = (uint16_t)(kind << 14 | id << 7 | (v & 0x7Fu));
++}
++
++/* the state again: the FM-1's keys (and each one's velocity at its press), the changes of the rest */
++static void smk_panel_poll(void)
++{
++    smk_raw_t r;
++    uint32_t kb = 0, pad = 0, k, i;
++    smk_raw_get(&r);
++    for (k = 0; k < NKEYS; k++)
++        if (r.keys[(SMK_KEY_F3 + k) >> 5] >> ((SMK_KEY_F3 + k) & 31u) & 1u)
++            kb |= 1u << k;
++    for (i = 0; i < 16u; i++)
++        if (r.pads >> i & 1u)
++            pad |= 1u << SMK_WHITE_K[i];
++    for (k = 0; k < NKEYS; k++) {                             /* a press, from either: its velocity */
++        uint32_t m = 1u << k;
++        if ((kb & m) && !(smk_pn.kb & m))
++            smk_pn.vel[k] = r.key_vel[SMK_KEY_F3 + k];
++        if ((pad & m) && !(smk_pn.pad & m)) {
++            for (i = 0; i < 16u && SMK_WHITE_K[i] != k; i++)
++                ;
++            smk_pn.vel[k] = r.pad_vel[i];
++        }
++    }
++    smk_pn.kb = kb;
++    smk_pn.pad = pad;
++    if (!smk_pn.started) {                                    /* (the first look: what is held starts nothing) */
++        smk_pn.started = 1;
++        smk_pn.was = r;
++        smk_pn.dirty = 0;
++        return;
++    }
++    for (k = 0; k < SMK_NKEY; k++) {                          /* the outer keys */
++        uint32_t on = r.keys[k >> 5] >> (k & 31u) & 1u, was = smk_pn.was.keys[k >> 5] >> (k & 31u) & 1u;
++        if ((k < SMK_KEY_F3 || k >= SMK_KEY_F3 + NKEYS) && on != was)
++            smk_q_put(PLAT_SMK_KEY, k, on ? r.key_vel[k] : 0u);
++    }
++    for (i = 0; i < 4u; i++) {
++        uint32_t b = SMK_EXTRA_BTN[i], on = r.btns >> b & 1u;
++        if (on != (smk_pn.was.btns >> b & 1u))
++            smk_q_put(PLAT_SMK_BTN, i, on);
++    }
++    for (i = 0; i < SMK_NFADER; i++)
++        if (r.fader[i] != smk_pn.was.fader[i])
++            smk_pn.dirty |= (uint8_t)(1u << i);
++    if (r.bend != smk_pn.was.bend)
++        smk_pn.dirty |= 1u << 4;
++    if (r.mod != smk_pn.was.mod)
++        smk_pn.dirty |= 1u << 5;
++    if (r.pedal != smk_pn.was.pedal)
++        smk_pn.dirty |= 1u << 6;
++    smk_pn.was = r;
++}
++
++static uint32_t smk_fm1_keys(void) { return smk_pn.kb | smk_pn.pad; }
++static uint8_t smk_fm1_vel(uint32_t k) { return k < NKEYS && smk_pn.vel[k] ? smk_pn.vel[k] : 100u; }
++
++int plat_smk_take(plat_smk_ev_t *e)
++{
++    uint32_t i;
++    smk_panel_poll();
++    if (smk_pn.qr != smk_pn.qw) {
++        uint32_t x = smk_pn.q[smk_pn.qr++ & 31u];
++        e->type = (uint8_t)(x >> 14);
++        e->id = (uint8_t)(x >> 7 & 0x7Fu);
++        e->v = (int16_t)(x & 0x7Fu);
++        return 1;
++    }
++    for (i = 0; i < 7u; i++)
++        if (smk_pn.dirty >> i & 1u) {
++            smk_pn.dirty &= (uint8_t)~(1u << i);
++            e->id = (uint8_t)(i < 4u ? i : 0u);
++            e->type = (uint8_t)(i < 4u ? PLAT_SMK_FADER : i == 4u ? PLAT_SMK_BEND : i == 5u ? PLAT_SMK_MOD : PLAT_SMK_PEDAL);
++            e->v = (int16_t)(i < 4u ? smk_pn.was.fader[i] : i == 4u ? smk_pn.was.bend : i == 5u ? smk_pn.was.mod :
++                             smk_pn.was.pedal);
++            return 1;
++        }
++    return 0;
++}
++int plat_smk_level(int type, int id)                          /* where a continuous control is now */
++{
++    smk_raw_t *w = &smk_pn.was;
++    return type == PLAT_SMK_FADER && id >= 0 && id < (int)SMK_NFADER ? w->fader[id] : type == PLAT_SMK_BEND ? w->bend :
++           type == PLAT_SMK_MOD ? w->mod : type == PLAT_SMK_PEDAL ? w->pedal : 0;
++}
++
++/* --------------------------------------------------------------- lights --- */
++static uint32_t smk_led_lit;                                  /* the SMK's LEDs (bit i: LED i, smk_input.h) */
++static uint32_t smk_pad_rgb[SMK_NPAD];                        /* 0xRRGGBB a pad */
++static uint8_t smk_pad_lvl[SMK_NPAD];                         /* its level /255 of lit (the simulator's view) */
++static uint8_t smk_lights_dirty = 3;                    /* (the first frame goes out: the pads dark, whatever was on them) */
++static struct {
++    uint32_t b, k, db, dk, mb, mk, la, lb;
++    uint8_t a8, b8;
++    int glow;
++} smk_lt;
++
++static void smk_lights_update(void)
++{
++    uint32_t led = 0, i, rgb;
++    uint8_t lvl;
++    for (i = 0; i < NB; i++)
++        if (smk_lt.b >> i & 1u)
++            led |= 1u << SMK_BTN_OF_LABEL[i];
++    led &= ~(1u << SMK_B_PLAY);                               /* PLAY: B_PLAY its red half, LED_PLAY_GREEN its green */
++    if (smk_lt.b >> B_PLAY & 1u)
++        led |= 1u << SMK_LED_PLAY_RED;
++    if (smk_lt.b & LED_PLAY_GREEN)
++        led |= 1u << SMK_B_PLAY;
++    for (i = 0; i < SMK_NPAD; i++) {
++        uint32_t m = 1u << SMK_WHITE_K[i], r, g, b;
++        lvl = smk_lt.k & m ? 255u : smk_lt.la & m ? (uint8_t)(smk_lt.a8 * 255u / 8u) :
++              smk_lt.lb & m ? (uint8_t)(smk_lt.b8 * 255u / 8u) : smk_lt.mk & m ? 32u :
++              smk_lt.glow > 0 && (smk_lt.dk & m) ? 10u : 0u;
++        r = (SMK_PAD_RGB >> 16) * SMK_PAD_LIT * lvl / (255u * 255u);
++        g = (SMK_PAD_RGB >> 8 & 0xFFu) * SMK_PAD_LIT * lvl / (255u * 255u);
++        b = (SMK_PAD_RGB & 0xFFu) * SMK_PAD_LIT * lvl / (255u * 255u);
++        if (lvl && !(r | g | b))
++            r = g = 1u;                                       /* (the faintest still lit) */
++        rgb = r << 16 | g << 8 | b;
++        if (rgb != smk_pad_rgb[i])
++            smk_lights_dirty = 1;
++        smk_pad_rgb[i] = rgb;
++        smk_pad_lvl[i] = lvl;
++    }
++    if (led != smk_led_lit)
++        smk_lights_dirty |= 2u;
++    smk_led_lit = led;
++}
++
++/* plat.h's lights in (plat_smk37.c's plat_lights / _mid / _levels; the simulator's) */
++static void smk_lights_set(uint32_t buttons, uint32_t keys, uint32_t dim_buttons, uint32_t dim_keys, int glow)
++{
++    smk_lt.b = buttons;
++    smk_lt.k = keys;
++    smk_lt.db = dim_buttons & ~buttons;
++    smk_lt.dk = dim_keys & ~keys;
++    smk_lt.glow = glow;
++    smk_lights_update();
++}
++static void smk_lights_mid_set(uint32_t buttons, uint32_t keys)
++{
++    smk_lt.mb = buttons & ~smk_lt.b;
++    smk_lt.mk = keys & ~smk_lt.k;
++    smk_lights_update();
++}
++static void smk_lights_levels_set(uint32_t ka, uint32_t a8, uint32_t kb, uint32_t b8)
++{
++    smk_lt.la = ka & ~smk_lt.k;
++    smk_lt.lb = kb & ~smk_lt.k & ~ka;
++    smk_lt.a8 = (uint8_t)(a8 > 8u ? 8u : a8);
++    smk_lt.b8 = (uint8_t)(b8 > 8u ? 8u : b8);
++    smk_lights_update();
++}
+--- a/device/smk_store.c
++++ b/device/smk_store.c
+@@ -0,0 +1,88 @@
++/* SPDX-License-Identifier: MPL-2.0
++ * Copyright (C) 2026 RemoteFM1 contributors */
++/* The M-VAVE SMK-37's flash, the app's side of it (BOARD_SMK37; plat.h): the same code on the device (unity.c, on
++ * felucca-bsp's driver) and in the host simulator (host/plat_host.c, on its simulated flash), through three hooks:
++ *   smk_fl_read(off, p, n)   smk_fl_erase(off)   smk_fl_write(off, p, n)   0 = done
++ *
++ *   the board      smk_board_seen: the unit's factory calibration record is there ("trimdat" at 0xC1224; every SMK-37
++ *                  has one: its stock firmware writes the defaults when it is missing). Without it this is not an
++ *                  SMK-37 (an FM-1 given this build by mistake): nothing of the app's is written, the owner tag is not
++ *                  looked at, and the update takes the FM-1's packages (felucca-bsp ota.c OTA_BOARD_ANY)
++ *   the marker     the stock firmware keeps its key / knob / fader mapping in USRFLASH (0xC2000..0xE9FFF) and trusts it
++ *                  while its end marker ("usrdata" at 0xEAFF8) stands. Before the app's first erase or write there the
++ *                  marker's sector (0xEA000) is erased, whole, never programmed: a return to the stock firmware then
++ *                  rebuilds its factory mapping instead of reading the app's data as it. Until then (no save that
++ *                  lands in USRFLASH) the stock mapping is kept as it was
++ *   the owner      at a start, the tag at PLAT_SMK_TAG ("SMK37DATA" + APP_SMK_FAMILY): another one (another
++ *                  firmware's, or none: the stock firmware's VM) and APP_SMK_CLEAR's windows are erased first (never
++ *                  USRFLASH: the stock mapping stays until the marker goes), then the tag written */
++
++static uint8_t smk_board_seen, smk_stock_gone;
++static uint32_t smk_stock_erases, smk_owner_clears;   /* (the simulator's checks) */
++static int smk_fl_read(uint32_t off, void *p, uint32_t n);
++static int smk_fl_erase(uint32_t off);
++static int smk_fl_write(uint32_t off, const void *p, uint32_t n);
++#define SMK_MARK_AT (PLAT_SMK_MARK + 0xFF8u)
++
++static int smk_hits(uint32_t off, uint32_t n, uint32_t lo, uint32_t hi)   /* [off, off + n) touches [lo, hi) */
++{
++    return off < hi && (off >= lo || n > lo - off);
++}
++
++/* before an erase or a write of the app's at [off, off + n): 0 = it may go on */
++static int smk_stock_release(uint32_t off, uint32_t n)
++{
++    uint8_t m[8];
++    uint32_t i, blank = 1;
++    if (!smk_board_seen)
++        return -1;
++    if (smk_stock_gone || !smk_hits(off, n, PLAT_XDATA1_LO, PLAT_XDATA1_HI))
++        return 0;
++    if (smk_fl_read(SMK_MARK_AT, m, 8))
++        return -1;
++    for (i = 0; i < 8u; i++)
++        blank &= m[i] == 0xFFu;
++    if (!blank) {
++        smk_stock_erases++;
++        if (smk_fl_erase(PLAT_SMK_MARK) || smk_fl_read(SMK_MARK_AT, m, 8))
++            return -1;
++        for (i = 0; i < 8u; i++)
++            if (m[i] != 0xFFu)
++                return -1;                    /* (not erased: nothing of the app's written there) */
++    }
++    smk_stock_gone = 1;
++    return 0;
++}
++
++/* at a start, before the app's: 1 when another firmware's data (or the stock firmware's) was cleared */
++static int smk_owner_boot(void)
++{
++#if defined APP_SMK_FAMILY && defined APP_SMK_CLEAR
++    static const uint32_t W[] = APP_SMK_CLEAR;
++    static const char FAM[] = APP_SMK_FAMILY;
++    uint8_t tag[16], have[16];
++    uint32_t i, o;
++    _Static_assert(sizeof FAM >= 2u && sizeof FAM <= 8u, "APP_SMK_FAMILY: 1..7 characters");
++    _Static_assert(sizeof W / sizeof W[0] % 2u == 0u, "APP_SMK_CLEAR: lo, hi pairs");
++    if (!smk_board_seen)
++        return 0;
++    for (i = 0; i < 16u; i++)
++        tag[i] = i < 9u ? (uint8_t)"SMK37DATA"[i] : i - 9u < sizeof FAM - 1u ? (uint8_t)FAM[i - 9u] : 0u;
++    if (smk_fl_read(PLAT_SMK_TAG, have, 16))
++        return 0;
++    for (i = 0; i < 16u && have[i] == tag[i]; i++)
++        ;
++    if (i == 16u)
++        return 0;
++    for (i = 0; i < sizeof W / sizeof W[0]; i += 2u)
++        for (o = W[i]; o < W[i + 1u]; o += 0x1000u)
++            if (PLAT_DATA_OK(o, 0x1000u) && !smk_hits(o, 0x1000u, PLAT_XDATA1_LO, PLAT_XDATA1_HI))
++                smk_fl_erase(o);              /* (the app's own windows only, never USRFLASH) */
++    if (!smk_fl_erase(PLAT_SMK_TAG))
++        smk_fl_write(PLAT_SMK_TAG, tag, 16);
++    smk_owner_clears++;
++    return 1;
++#else
++    return 0;
++#endif
++}
+--- a/device/unity.c
++++ b/device/unity.c
+@@ -45,11 +45,25 @@
+ #include "fm1_sys.h"
+ #include "fm1_irq.h"
+ #include "fm1_guard.h"
++#if BOARD_SMK37                  /* the M-VAVE SMK-37: felucca-bsp's boards/smk37 (its scan, its panel and pad lights) */
++#include "smk_input.h"
++#include "fm1_timer.h"
++#include "fm1_audio.h"
++#include "smk_lcd_hw.h"
++#ifdef FM1B_TRS
++#if FM1B_TRS
++#error "BOARD_SMK37: no TRS MIDI in (PH8 is a matrix row); FM1B_TRS 0"
++#endif
++#else
++#define FM1B_TRS 0
++#endif
++#else
+ #include "fm1_input.h"
+ #include "fm1_timer.h"
+ #include "fm1_audio.h"
+ #include "fm1_adc.h"
+ #include "fm1_lcd_hw.h"
++#endif
+ #if FM1B_WIFI || FM1B_BLE
+ #define FL_UID 1                          /* the flash's unique ID: the WiFi MAC, the Bluetooth name (plat_chip_uid) */
+ #endif
+@@ -152,17 +166,35 @@
+ #ifndef APP_STORE_OK
+ #define APP_STORE_OK(off, n) FL_STORE_OK(off, n)
+ #endif
++#if BOARD_SMK37
++/* the SMK-37's flash, the app's side (device/smk_store.c): the board (its factory record), the stock firmware's
++ * USRFLASH end marker, the store's owner tag; on felucca-bsp's driver. Without the record (not an SMK-37: an FM-1 given
++ * this build) the update is the FM-1 build's (ota.c OTA_BOARD_ANY) */
++static int smk_fl_read(uint32_t off, void *p, uint32_t n) { return st_read(off, p, n); }
++static int smk_fl_erase(uint32_t off)
++{
++    uint32_t took;
++    fm1_wdt_feed();
++    audio_silence();
++    return fl_erase4k(off, &took);
++}
++static int smk_fl_write(uint32_t off, const void *p, uint32_t n) { return fl_write(off, p, n); }
++#include "smk_store.c"
++#define OTA_BOARD_ANY() (!smk_board_seen)
++#else
++static int smk_stock_release(uint32_t off, uint32_t n) { (void)off, (void)n; return 0; }
++#endif
+ static int st_erase(uint32_t off)
+ {
+     uint32_t took;
+-    if (!APP_STORE_OK(off, 0x1000u))
++    if (!APP_STORE_OK(off, 0x1000u) || smk_stock_release(off, 0x1000u))
+         return -8;
+     audio_silence();
+     return fl_erase4k(off, &took);
+ }
+ static int st_prog(uint32_t off, const void *src, uint32_t n)
+ {
+-    if (!APP_STORE_OK(off, n))
++    if (!APP_STORE_OK(off, n) || smk_stock_release(off, n))
+         return -8;
+     return fl_write(off, src, n);
+ }
+@@ -359,7 +391,11 @@
+ static void bu_hold(int on) { app_backup_hold(on); }
+ #endif
+ #ifdef APP_TOUCH
++#if BOARD_SMK37
++#include "touch_smk.c"            /* the SMK-37's keys and pads: their velocity from the scan */
++#else
+ #include "touch.c"
++#endif
+ #endif
+ #ifdef APP_BTDEV
+ #include "btdev.c"                /* Bluetooth MIDI devices for an app's page (lib/btdev.h) */
+--- a/host/plat_host.c
++++ b/host/plat_host.c
+@@ -156,17 +156,46 @@
+ static void mirror_enc(int role, int32_t n) { (void)role, (void)n; }
+ static void mirror_leds(uint32_t buttons, uint32_t keys) { (void)buttons, (void)keys; }
+ #endif
++#if BOARD_SMK37
++static uint32_t now_ms, held_btn, held_keys, master = 2896;   /* (the SMK-37's K1 starts there: device/plat_smk37.c) */
++#else
+ static uint32_t now_ms, held_btn, held_keys, master = 2048;
++#endif
+ static int32_t enc_acc[NE];
+ static uint32_t lit_btn, lit_keys, dim_btn, dim_keys;
+ 
+ uint32_t plat_ms(void) { return now_ms; }
+-uint32_t plat_buttons(void) { return held_btn | mirror_in_buttons(); }   /* (+ the host's: the mirror's remote) */
+-uint32_t plat_keys(void) { return held_keys | mirror_in_keys(); }
++#if BOARD_SMK37
++/* the M-VAVE SMK-37's panel (BOARD_SMK37): the script's "smk ..." controls through the device's own map
++ * (device/smk_panel.c), beside the FM-1's commands (press, key, turn: the FM-1's controls, as the map makes them) */
++#include "smk_decode.h"
++#include "smk_panel.c"
++static struct {
++    smk_raw_t r;
++    int32_t enc[SMK_NENC];
++} smk_sim;
++static void smk_raw_get(smk_raw_t *r) { *r = smk_sim.r; }
++static uint8_t plat_smk_vel(uint32_t k) { return smk_fm1_vel(k); }
++static int32_t smk_sim_enc(uint32_t e)
++{
++    int32_t v = smk_sim.enc[e];
++    smk_sim.enc[e] = 0;
++    return v;
++}
++#define SMK_SIM_BUTTONS() smk_fm1_buttons(smk_sim.r.btns)
++#define SMK_SIM_KEYS() (smk_panel_poll(), smk_fm1_keys())
++#define SMK_SIM_ENC(role) smk_sim_enc(SMK_ENC_OF_ROLE[role])
++#else
++#define SMK_SIM_BUTTONS() 0u
++#define SMK_SIM_KEYS() 0u
++#define SMK_SIM_ENC(role) 0
++#endif
++uint32_t plat_buttons(void) { return held_btn | SMK_SIM_BUTTONS() | mirror_in_buttons(); }   /* (+ the host's: the mirror's remote) */
++uint32_t plat_keys(void) { return held_keys | SMK_SIM_KEYS() | mirror_in_keys(); }
+ static uint32_t plat_remote_keys(void) { return 0; }   /* (the device's remote control: the script is this one's) */
+ int32_t plat_enc(int role)
+ {
+-    int32_t v = enc_acc[role] + mirror_in_enc(role);
++    int32_t v = enc_acc[role] + SMK_SIM_ENC(role) + mirror_in_enc(role);
+     enc_acc[role] = 0;
+     if (v)
+         mirror_enc(role, v);
+@@ -182,6 +211,9 @@
+     db = (db & ((1u << NB) - 1u)) | (db & LED_PLAY_GREEN ? 1u << B_PLAY : 0u);
+     dim_btn = glow ? db & ~lit_btn : 0u;
+     dim_keys = glow ? dk & ~k : 0u;
++#if BOARD_SMK37
++    smk_lights_set(b, k, db, dk, glow);
++#endif
+     {   /* the mirror's view: PLAY lit (either LED), and bit 15 PLAY lit red */
+         uint32_t play = 1u << B_PLAY;
+         mirror_leds((b & ((1u << NB) - 1u) & ~play) | (b & (play | LED_PLAY_GREEN) ? play : 0u) |
+@@ -194,6 +226,9 @@
+ {
+     (void)b;
+     mid_keys = k & ~lit_keys;
++#if BOARD_SMK37
++    smk_lights_mid_set(b, k);
++#endif
+ }
+ static uint32_t lv_keys[2], lv_8[2];   /* plat_lights_levels' keys and levels: "leds" shows them as the glow */
+ void plat_lights_levels(uint32_t ka, uint32_t a8, uint32_t kb, uint32_t b8)
+@@ -201,6 +236,9 @@
+     lv_keys[0] = ka & ~lit_keys;
+     lv_keys[1] = kb & ~lit_keys & ~ka;
+     lv_8[0] = a8, lv_8[1] = b8;
++#if BOARD_SMK37
++    smk_lights_levels_set(ka, a8, kb, b8);
++#endif
+ }
+ static int glow_on = 1;                 /* the device's button glow (plat_glow) */
+ void plat_glow(int on) { glow_on = on; }
+@@ -494,7 +532,12 @@
+ /* the data area and its two more windows (plat.h): a simulated flash from the first window to the last (the gap
+  * between, the update's staging, refused as on the device), erased at the start, kept across a simulated reboot */
+ #define DATA_BASE PLAT_XDATA0_LO
+-static uint8_t data_area[PLAT_XDATA1_HI - DATA_BASE];
++#if BOARD_SMK37                                 /* (the SMK-37: the stock firmware's marker sector after USRFLASH too) */
++#define DATA_END (PLAT_SMK_MARK + 0x1000u)
++#else
++#define DATA_END PLAT_XDATA1_HI
++#endif
++static uint8_t data_area[DATA_END - DATA_BASE];
+ static uint8_t data_ready;
+ static void data_init(void)
+ {
+@@ -503,6 +546,44 @@
+         data_ready = 1;
+     }
+ }
++#if BOARD_SMK37
++/* the SMK-37's flash, the app's side (device/smk_store.c, as on the device), on this simulated flash: the factory
++ * record there unless SMK_NO_TRIM=1 (an FM-1 given the SMK's build) */
++static uint32_t smk_fl_erases;
++static int smk_fl_read(uint32_t off, void *p, uint32_t n)
++{
++    data_init();
++    if (off < DATA_BASE || off + n > DATA_END)
++        return -1;
++    memcpy(p, &data_area[off - DATA_BASE], n);
++    return 0;
++}
++static int smk_fl_erase(uint32_t off)
++{
++    data_init();
++    if ((off & 0xFFFu) || off < DATA_BASE || off + 0x1000u > DATA_END)
++        return -1;
++    memset(&data_area[off - DATA_BASE], 0xFF, 0x1000u);
++    smk_fl_erases++;
++    return 0;
++}
++static int smk_fl_write(uint32_t off, const void *p, uint32_t n)
++{
++    uint32_t i;
++    data_init();
++    if (off < DATA_BASE || off + n > DATA_END)
++        return -1;
++    for (i = 0; i < n; i++)
++        data_area[off - DATA_BASE + i] &= ((const uint8_t *)p)[i];
++    return 0;
++}
++#include "smk_store.c"
++static uint32_t smk_data_ops;                  /* the app's erases and writes done (expect smk_data_ops) */
++#define SMK_DATA_OP() (smk_data_ops++)
++#else
++static int smk_stock_release(uint32_t off, uint32_t n) { (void)off, (void)n; return 0; }
++#define SMK_DATA_OP() ((void)0)
++#endif
+ const uint8_t *plat_data(uint32_t off)
+ {
+     data_init();
+@@ -511,19 +592,21 @@
+ int plat_data_erase(uint32_t off)
+ {
+     data_init();
+-    if ((off & 0xFFFu) || !PLAT_DATA_OK(off, 0x1000u))
++    if ((off & 0xFFFu) || !PLAT_DATA_OK(off, 0x1000u) || smk_stock_release(off, 0x1000u))
+         return -1;
+     memset(&data_area[off - DATA_BASE], 0xFF, 0x1000u);
++    SMK_DATA_OP();
+     return 0;
+ }
+ int plat_data_write(uint32_t off, const void *src, uint32_t n)
+ {
+     uint32_t i;
+     data_init();
+-    if (!PLAT_DATA_OK(off, n))
++    if (!PLAT_DATA_OK(off, n) || smk_stock_release(off, n))
+         return -1;
+     for (i = 0; i < n; i++)                       /* as flash: bits only go from 1 to 0 */
+         data_area[off - DATA_BASE + i] &= ((const uint8_t *)src)[i];
++    SMK_DATA_OP();
+     return 0;
+ }
+ void plat_sysex_send(const uint8_t *frame, uint32_t n) { (void)frame, (void)n; }
+@@ -680,8 +763,12 @@
+     return 0;
+ }
+ #ifdef APP_TOUCH
++#if BOARD_SMK37
++#include "touch_smk.c"
++#else
+ #include "touch.c"
+ #endif
++#endif
+ #ifdef APP_BTDEV
+ #include "btdev.c"
+ #endif
+@@ -974,6 +1061,11 @@
+ static void boot(void)
+ {
+     palette_set(APP_PALETTE);                       /* as the device does at boot */
++#if BOARD_SMK37
++    smk_board_seen = !(getenv("SMK_NO_TRIM") && getenv("SMK_NO_TRIM")[0] == '1');
++    smk_stock_gone = 0;                             /* (a start looks again) */
++    smk_owner_boot();                               /* (device/smk_store.c, before the app: main_fm1.c) */
++#endif
+     app_init();
+     lcd_fill(0, 0, 240, 240, 0);
+     ble_state = BLE_OFF;                            /* Bluetooth starts at every boot, as on the device */
+@@ -1108,6 +1200,115 @@
+     return 1;
+ }
+ 
++#if BOARD_SMK37
++/* the SMK-37's controls in a script (BOARD_SMK37):
++ *   smk key K down [VEL] | up      keybed key K 0..36 (0 = C3, 5 = F3 .. 31 = G5, 36 = C6), VEL 1..127 (default 100)
++ *   smk pad P down [VEL] | up      pad P 1..16 in reading order (1..8 the top row)
++ *   smk press|release|tap NAME     a button: KNOB-BANK FADER-BANK < > OCT- OCT+ ARP NOTE-REPEAT SCALE CHORD GLOBE BT
++ *                                  PATCH PARA FX SEQ PLAY REC
++ *   smk turn K N                   knob K1..K8, N detents (K1: MASTER, 96 of 4096 a detent), 80 ms apart
++ *   smk fader F V | smk bend V | smk mod V | smk pedal 0|1    F 1..4, V 0..127; bend -8192..8191
++ *   smk leds                       the SMK's lights: the button LEDs lit, the pads' levels (# lit, 0-9 tenths, . off)
++ * and expect smk_led NAME (0, 1; PLAY-RED the red half), smk_pad P (0..255 of lit), smk_pads (bit p-1: lit) */
++static const char *const SMK_BTN_NAME[SMK_NBTN + 1] = {"KNOB-BANK", "FADER-BANK", "<", ">", "OCT-", "OCT+", "ARP",
++    "NOTE-REPEAT", "SCALE", "CHORD", "GLOBE", "BT", "PATCH", "PARA", "FX", "SEQ", "PLAY", "REC", "PLAY-RED"};
++static int smk_cmd(const char *a, const char *b, const char *c, const char *d, int lineno)
++{
++    int i, n;
++    if (!strcmp(a, "key") || !strcmp(a, "pad")) {
++        int pad = a[0] == 'p', k = atoi(b) - pad, down = !strcmp(c, "down"), vel = d[0] ? atoi(d) : 100;
++        if (k < 0 || k >= (pad ? (int)SMK_NPAD : (int)SMK_NKEY)) {
++            printf("line %d: no %s %s\n", lineno, a, b);
++            return 2;
++        }
++        vel = vel < 1 ? 1 : vel > 127 ? 127 : vel;
++        if (pad) {
++            smk_sim.r.pad_vel[k] = (uint8_t)vel;
++            smk_sim.r.pads = (uint16_t)(down ? smk_sim.r.pads | 1u << k : smk_sim.r.pads & ~(1u << k));
++        } else {
++            smk_sim.r.key_vel[k] = (uint8_t)vel;
++            if (down)
++                smk_sim.r.keys[k >> 5] |= 1u << (k & 31);
++            else
++                smk_sim.r.keys[k >> 5] &= ~(1u << (k & 31));
++        }
++        run_ms(2);
++    } else if (!strcmp(a, "press") || !strcmp(a, "release") || !strcmp(a, "tap")) {
++        i = find_name(SMK_BTN_NAME, (int)SMK_NBTN, b);
++        if (i < 0) {
++            printf("line %d: no SMK button %s\n", lineno, b);
++            return 2;
++        }
++        if (a[0] != 'r')
++            smk_sim.r.btns |= 1u << i;
++        if (a[0] == 't')
++            run_ms(40);
++        if (a[0] != 'p')
++            smk_sim.r.btns &= ~(1u << i);
++        run_ms(a[0] == 't' ? 40 : 2);
++    } else if (!strcmp(a, "turn")) {
++        int e = b[0] == 'K' ? atoi(b + 1) - 1 : -1, s1;
++        if (e < 0 || e >= (int)SMK_NENC) {
++            printf("line %d: no knob %s\n", lineno, b);
++            return 2;
++        }
++        for (n = atoi(c), s1 = n > 0 ? 1 : -1; n; n -= s1) {
++            if (e == (int)SMK_ENC_MASTER) {
++                int32_t m = (int32_t)master + s1 * SMK_MASTER_STEP;
++                master = (uint32_t)(m < 0 ? 0 : m > 4096 ? 4096 : m);
++            } else {
++                smk_sim.enc[e] += s1;
++            }
++            run_ms(80);
++        }
++    } else if (!strcmp(a, "fader")) {
++        i = atoi(b) - 1;
++        if (i < 0 || i >= (int)SMK_NFADER) {
++            printf("line %d: no fader %s\n", lineno, b);
++            return 2;
++        }
++        smk_sim.r.fader[i] = (uint8_t)atoi(c);
++        run_ms(2);
++    } else if (!strcmp(a, "bend")) {
++        smk_sim.r.bend = (int16_t)atoi(b);
++        run_ms(2);
++    } else if (!strcmp(a, "mod")) {
++        smk_sim.r.mod = (uint8_t)atoi(b);
++        run_ms(2);
++    } else if (!strcmp(a, "pedal")) {
++        smk_sim.r.pedal = (uint8_t)(atoi(b) != 0);
++        run_ms(2);
++    } else if (!strcmp(a, "stock")) {               /* smk stock: the stock firmware's mapping in USRFLASH, its marker */
++        static const uint8_t M[8] = {'u', 's', 'r', 'd', 'a', 't', 'a', 0};
++        data_init();
++        memset(&data_area[PLAT_XDATA1_LO - DATA_BASE], 0x5A, 0x200u);
++        memcpy(&data_area[PLAT_SMK_MARK + 0xFF8u - DATA_BASE], M, 8);
++    } else if (!strcmp(a, "foreign")) {             /* smk foreign: another firmware's tag and data in the VM */
++        data_init();
++        memset(&data_area[PLAT_DATA_LO - DATA_BASE], 0xA5, 0x100u);
++        memset(&data_area[PLAT_SMK_TAG - DATA_BASE], 0xFF, 0x1000u);
++        memcpy(&data_area[PLAT_SMK_TAG - DATA_BASE], "SMK37DATAOTHER", 15);
++    } else if (!strcmp(a, "leds")) {
++        printf("  smk leds:");
++        for (i = 0; i <= (int)SMK_NBTN; i++)
++            if (smk_led_lit >> i & 1u)
++                printf(" %s", SMK_BTN_NAME[i]);
++        printf(" | pads ");
++        for (i = 0; i < (int)SMK_NPAD; i++) {
++            if (i == 8)
++                printf(" ");
++            n = smk_pad_lvl[i];
++            printf("%c", n == 255 ? '#' : !n ? '.' : (char)('0' + n * 10 / 255));
++        }
++        printf("\n");
++    } else {
++        printf("line %d: smk %s?\n", lineno, a);
++        return 2;
++    }
++    return 0;
++}
++#endif
++
+ static int expect(const char *what, const char *val)
+ {
+     int got;
+@@ -1128,6 +1329,43 @@
+     else if (!strcmp(what, "restore_rc"))
+         got = restore_rc;
+ #endif
++#if BOARD_SMK37
++    else if (!strncmp(what, "smk_led_", 8)) {         /* expect smk_led_NAME 0|1: an SMK button LED */
++        int i = find_name(SMK_BTN_NAME, (int)SMK_NBTN + 1, what + 8);
++        got = i < 0 ? -1 : (int)(smk_led_lit >> i & 1u);
++    } else if (!strncmp(what, "smk_pad_", 8)) {       /* expect smk_pad_P LEVEL: pad P's level, 0..255 of lit */
++        int p = atoi(what + 8) - 1;
++        got = p < 0 || p >= (int)SMK_NPAD ? -1 : smk_pad_lvl[p];
++    } else if (!strcmp(what, "smk_pads")) {           /* the pads lit: bit p - 1 */
++        int i;
++        for (got = 0, i = 0; i < (int)SMK_NPAD; i++)
++            got |= smk_pad_lvl[i] == 255 ? 1 << i : 0;
++    } else if (!strcmp(what, "smk_master"))
++        got = (int)master;
++    else if (!strcmp(what, "smk_stock_erases"))     /* the stock marker's sector erased (device/smk_store.c) */
++        got = (int)smk_stock_erases;
++    else if (!strcmp(what, "smk_data_ops"))         /* the app's erases and writes in the data windows, done */
++        got = (int)smk_data_ops;
++    else if (!strcmp(what, "smk_owner_clears"))     /* starts that cleared another firmware's data */
++        got = (int)smk_owner_clears;
++    else if (!strcmp(what, "smk_marker"))           /* the stock marker stands */
++        got = data_area[PLAT_SMK_MARK + 0xFF8u - DATA_BASE] == 'u';
++    else if (!strcmp(what, "smk_mapping"))          /* the stock mapping ("smk stock") is as it was */
++        got = data_area[PLAT_XDATA1_LO - DATA_BASE] == 0x5A && data_area[PLAT_XDATA1_LO + 0x1FFu - DATA_BASE] == 0x5A;
++    else if (!strcmp(what, "smk_foreign"))          /* another firmware's data ("smk foreign") still in the VM */
++        got = data_area[PLAT_DATA_LO - DATA_BASE] == 0xA5;
++    else if (!strcmp(what, "smk_tag_ours"))         /* the owner tag is RemoteFM1's family */
++        got = !memcmp(&data_area[PLAT_SMK_TAG - DATA_BASE], "SMK37DATA" APP_SMK_FAMILY, sizeof "SMK37DATA" APP_SMK_FAMILY);
++    else if (!strcmp(what, "smk_usrflash_used")) {  /* sectors of USRFLASH not erased */
++        uint32_t o, i;
++        for (got = 0, o = PLAT_XDATA1_LO; o < PLAT_XDATA1_HI; o += 0x1000u)
++            for (i = 0; i < 0x1000u; i++)
++                if (data_area[o + i - DATA_BASE] != 0xFFu) {
++                    got++;
++                    break;
++                }
++    }
++#endif
+     else if (!strcmp(what, "clocks_out"))
+         got = (int)clock_out_count;
+     else if (!strcmp(what, "midi_out"))
+@@ -1326,6 +1564,12 @@
+ #endif
+         if (!strcmp(cmd, "wait"))
+             run_ms((uint32_t)atoi(a));
++#if BOARD_SMK37
++        else if (!strcmp(cmd, "smk")) {
++            if (smk_cmd(a, b, c, d, lineno))
++                return 2;
++        }
++#endif
+         else if (!strcmp(cmd, "press") || !strcmp(cmd, "release") || !strcmp(cmd, "tap")) {
+             int i = find_name(BTN_N, NB, a);
+             if (i < 0) {
+--- a/include/plat.h
++++ b/include/plat.h
+@@ -176,6 +176,24 @@
+  * from 0xF02), so in these two an app keeps bytes 0xF00..0xF07 of every sector erased (0xFF), or else makes sure
+  * those bytes never read as a record: never "AT" at 0xF06 (LOOM-8's sample bank moves its data so, and refuses a
+  * bank that has it) */
++#if BOARD_SMK37
++/* the M-VAVE SMK-37 (felucca-bsp chip/fm1_flash.h's map): the data area is the stock VM, 0x9D000..0xBAFFF, but for
++ * 0xAF000 (the store's owner tag: the platform's, APP_SMK_FAMILY below); XDATA1 is USRFLASH, 0xC2000..0xE9FFF (its
++ * first write erases the stock firmware's end marker at 0xEA000 first, so a return to the stock firmware rebuilds its
++ * factory mapping there); there is no XDATA0 (the SMK's app area). The update loader looks for its records in the
++ * whole VM: an app keeps bytes 0xF00..0xF07 of each VM sector from reading as one (as in XDATA0 / XDATA1 above) */
++#define PLAT_DATA_LO 0x9D000u
++#define PLAT_DATA_HI 0xBB000u
++#define PLAT_SMK_TAG 0xAF000u
++#define PLAT_SMK_MARK 0xEA000u           /* the stock firmware's USRFLASH end marker's sector (device/smk_store.c) */
++#define PLAT_XDATA0_LO 0x9D000u
++#define PLAT_XDATA0_HI 0x9D000u
++#define PLAT_XDATA1_LO 0xC2000u
++#define PLAT_XDATA1_HI 0xEA000u
++#define PLAT_DATA_OK(off, n) (plat_in((off), (n), PLAT_DATA_LO, PLAT_SMK_TAG) || \
++                              plat_in((off), (n), PLAT_SMK_TAG + 0x1000u, PLAT_DATA_HI) || \
++                              plat_in((off), (n), PLAT_XDATA1_LO, PLAT_XDATA1_HI))
++#else
+ #define PLAT_DATA_LO 0x97000u
+ #define PLAT_DATA_HI 0xE0000u
+ #define PLAT_XDATA0_LO 0x93000u
+@@ -185,6 +203,7 @@
+ #define PLAT_DATA_OK(off, n) (plat_in((off), (n), PLAT_DATA_LO, PLAT_DATA_HI) || \
+                               plat_in((off), (n), PLAT_XDATA0_LO, PLAT_XDATA0_HI) || \
+                               plat_in((off), (n), PLAT_XDATA1_LO, PLAT_XDATA1_HI))
++#endif
+ static inline int plat_in(uint32_t off, uint32_t n, uint32_t lo, uint32_t hi)   /* [off, off + n) in [lo, hi) */
+ {
+     return off >= lo && off <= hi && n <= hi - off;
+@@ -231,6 +250,30 @@
+  * ends with OBJ_NOBJ, and APP_STORE_MAP, each object's flash offset: two 4 KiB sectors (A/B) from there, inside the
+  * data area (0x97000..0xDFFFF) or Felucca's settings sector pair at 0xFC000. An object's number is written in its
+  * record, so an app keeps its numbering from one release to the next. */
++
++#if BOARD_SMK37
++/* The M-VAVE SMK-37 (BOARD_SMK37: felucca-bsp boards/smk37, device/smk_panel.c): an FM-1's panel to the app, the
++ * buttons, keys, knobs and lights above on the SMK's (keybed keys 5..31 and the 16 pads the 27 keys and the 16 white
++ * keys, K1 MASTER, K2..K8 the encoders, the printed buttons; lib/touch the keys' and pads' velocity). What the FM-1 has
++ * not comes as changes, one a call (main loop): */
++enum { PLAT_SMK_KEY, PLAT_SMK_BTN, PLAT_SMK_FADER, PLAT_SMK_BEND, PLAT_SMK_MOD, PLAT_SMK_PEDAL };
++enum { PLAT_SMK_KNOB_BANK, PLAT_SMK_FADER_BANK, PLAT_SMK_LEFT, PLAT_SMK_RIGHT };   /* PLAT_SMK_BTN's id */
++typedef struct {
++    uint8_t type, id;   /* KEY: keybed key 0..36 (one of the ten outer ones: 0..4 C3..E3, 32..36 G#5..C6); BTN: the
++                         * PLAT_SMK_* button; FADER: 0..3 */
++    int16_t v;          /* KEY: velocity 1..127, 0 up; BTN: 1 down, 0 up; FADER, MOD 0..127; BEND -8192..8191 (0 at
++                         * rest); PEDAL 1 down, 0 up */
++} plat_smk_ev_t;
++int plat_smk_take(plat_smk_ev_t *e);   /* 1: the next change in e; 0: none (main loop; faders, wheels and the pedal
++                                        * give their latest only) */
++int plat_smk_level(int type, int id);  /* where a fader, a wheel or the pedal is now */
++/* The store's owner (app.h, the SMK's flash: another firmware's data must not be read as the app's, nor the app's by
++ * another): APP_SMK_FAMILY "NAME" (1..7 capitals or digits) and APP_SMK_CLEAR {lo, hi, ...} (the data windows: sector
++ * aligned pairs, inside PLAT_DATA_OK). At a start that finds another tag (or none: the stock firmware's VM) at
++ * PLAT_SMK_TAG, the platform erases those windows, then writes its own tag ("SMK37DATA" and the family): before
++ * app_init, a second or two once. USRFLASH (XDATA1) is not cleared: the stock firmware's mapping stays until the app's
++ * first write there */
++#endif
+ 
+ /* audio load in % of the render budget, and xruns since boot (device: from the ISR) */
+ uint32_t plat_cpu_pct(void);
+--- a/lib/touch_smk.c
++++ b/lib/touch_smk.c
+@@ -0,0 +1,82 @@
++/* SPDX-License-Identifier: MPL-2.0
++ * Copyright (C) 2026 RemoteFM1 contributors */
++/* lib/touch.h on the M-VAVE SMK-37 (BOARD_SMK37), in place of touch.c: every one of the 27 keys has its velocity, from
++ * the keybed key's two contacts or the pad that stands in for a white key (the platform's smk_panel.c: the last
++ * press's), and no pressure (the SMK's keys have none; the pads are keys here). Nothing to switch: the keys are read
++ * with their velocity whether this is on or not; on and off only say whether the app takes them from here.
++ * The host simulator's "key K down VEL": app_host_key, an FM-1 key held at VEL (beside the SMK's own controls). */
++
++static uint8_t tch_on;
++static uint32_t tch_keys, tch_prev;
++static uint8_t tch_vel[NKEYS];
++static uint32_t tch_host;                         /* the simulator's FM-1 keys (app_host_key) */
++static uint8_t tch_host_vel[NKEYS];
++static touch_ev_t tch_q[16];
++static uint8_t tch_qw, tch_qr;
++
++void touch_on(int on)
++{
++    tch_on = (uint8_t)(on != 0);
++    tch_prev = tch_keys;
++    tch_qr = tch_qw;
++}
++int touch_is_on(void) { return tch_on; }
++void touch_curve(int curve) { (void)curve; }      /* (the unit's factory curves: smk_decode.h) */
++void touch_sens(int sens) { (void)sens; }
++int touch_sensed(uint32_t key) { return key < NKEYS; }
++
++static uint8_t tch_vel_of(uint32_t k)
++{
++    return tch_host >> k & 1u ? tch_host_vel[k] : plat_smk_vel(k);
++}
++void touch_poll(void)
++{
++    uint32_t k, now = plat_keys() | tch_host, ch = now ^ tch_prev;
++    for (k = 0; ch && k < NKEYS; k++) {
++        if (!(ch >> k & 1u))
++            continue;
++        if (now >> k & 1u)
++            tch_vel[k] = tch_vel_of(k);
++        if ((uint8_t)(tch_qw - tch_qr) < 16u) {
++            touch_ev_t *e = &tch_q[tch_qw++ & 15u];
++            e->type = now >> k & 1u ? TOUCH_PRESS : TOUCH_RELEASE;
++            e->key = (uint8_t)k;
++            e->vel = tch_vel[k];
++        }
++    }
++    tch_prev = tch_keys = now;
++}
++int touch_take(touch_ev_t *e)
++{
++    if (tch_qr == tch_qw)
++        touch_poll();
++    if (tch_qr == tch_qw)
++        return 0;
++    *e = tch_q[tch_qr++ & 15u];
++    return 1;
++}
++void touch_update(void) {}
++uint32_t touch_keys(void) { return tch_keys; }
++uint8_t touch_vel(uint32_t key) { return key < NKEYS && tch_vel[key] ? tch_vel[key] : 100u; }
++uint8_t touch_vel_contact(uint32_t key) { return touch_vel(key); }
++uint8_t touch_pressure(uint32_t key) { (void)key; return 0; }
++int touch_down(uint32_t key) { return key < NKEYS && (tch_keys >> key & 1u); }
++
++/* the FM-1's scan hooks (lib/touch.h APP_KEY_SENSE): the SMK's scan has none */
++void app_key_sample(uint32_t key, uint32_t v, uint32_t ticks, int driven) { (void)key, (void)v, (void)ticks, (void)driven; }
++int app_key_drive(uint32_t key) { (void)key; return 0; }
++void app_key_probe(uint32_t key, uint32_t v, uint32_t pressed) { (void)key, (void)v, (void)pressed; }
++int app_key_led_ok(uint32_t key) { (void)key; return 1; }
++void app_host_key(uint32_t k, uint32_t vel, uint32_t press)
++{
++    (void)press;
++    if (k >= NKEYS)
++        return;
++    if (vel) {
++        tch_host |= 1u << k;
++        tch_host_vel[k] = (uint8_t)(vel > 127u ? 127u : vel);
++    } else {
++        tch_host &= ~(1u << k);
++    }
++}
++void app_host_tick(void) {}
+--- a/tools/build.py
++++ b/tools/build.py
+@@ -90,6 +90,12 @@
+ interrupts off).
+ Outputs in APP_DIR/build/: NAME.bin (app), loader/ota.bin (update loader), NAME.fwsc (package).
+ 
++The board: BOARD=smk37 in the environment builds for the M-VAVE SMK-37 (felucca-bsp boards/smk37, -DBOARD_SMK37=1;
++genkigenki's porting guide fm1-to-smk37), MODEL=pro (the default; also the Starrykey 37 Play), elite or mke its model:
++the package NAME-smk37[-elite|-mke][-usb][-X.Y.Z].fwsc, its identity the model's name and the firmware's own number
++("SMK-37 Pro_" + id_prefix's digits + "00" or XXYYZZ), the SMK's flash layout and region table (fm1pkg_make
++--board smk37). -DFM1B_FM1_ID gives the app the identity the FM-1 build of the same version has.
++
+ The JieLi toolchain is Linux x86-64 only. JIELI_TOOLCHAIN points at it; on
+ macOS (or with JIELI_DOCKER=1) each tool runs in a linux/amd64 container.
+ """
+@@ -137,6 +143,10 @@
+ WIFI = False                        # fm1.toml wifi = true
+ CPU2 = False                        # fm1.toml cpu2 = true (FM1B_CPU2=0 / 1 in the environment: without / with)
+ STEM = None                         # the build's file names: NAME, or NAME-usb (--no-ble)
++SMK_MODELS = {"pro": ("SMK-37 Pro", ""), "elite": ("SMK-37 Elite", "-elite"), "mke": ("MKE-P37", "-mke")}
++SMK = os.environ.get("BOARD", "fm1") == "smk37"     # the M-VAVE SMK-37 (see the top)
++SMK_MODEL = None                    # its model's name ("SMK-37 Pro")
++FM1_PRODUCT = None                  # the FM-1 build's identity of the same version (FM1B_FM1_ID)
+ BT_SYMS = ("btstack_init", "bt_ble_init", "bt_max_pwr_set", "le_controller_set_mac", "lmp_set_sniff_disable",
+            "shim_os_init", "ble_midi_send_many")
+ 
+@@ -294,10 +304,16 @@
+     return ldr_head(crc16(body), 0x20, len(body), 0x41, LOADER_NAME) + body
+ 
+ 
++def smk_flags():
++    """the SMK-37's: the board and its model (the app, the loader, the host)"""
++    return ["-DBOARD_SMK37=1", f'-DSMK_MODEL="{SMK_MODEL}"'] if SMK else []
++
++
+ def build_loader():
+     LDR.mkdir(parents=True, exist_ok=True)
+     src = BSP / "loader"
+-    flags = [*CFLAGS, *inc(BSP / "chip", BSP / "boards" / "fm1")]
++    flags = [*CFLAGS, *smk_flags(), *inc(BSP / "chip", BSP / "boards" / "fm1",
++                                          *([BSP / "boards" / "smk37"] if SMK else []))]
+     tc_all(("cc", "-c", src / "crt0_ldr.S", "-o", LDR / "crt0_ldr.o"),
+            ("cc", *flags, "-c", src / "loader.c", "-o", LDR / "loader.o"))
+     elf = LDR / "loader.elf"
+@@ -590,8 +606,9 @@
+ 
+ 
+ def build_app():
+-    flags = [*CFLAGS, *FPU, *inc(BSP / "chip", BSP / "boards" / "fm1", SRC / "device", SRC / "include", SRC / "lib", APP, GEN,
+-                                 *(APP / d for d in CONF.get("include", []) + CONF.get("device_include", [])))]
++    flags = [*CFLAGS, *FPU, *smk_flags(), *inc(BSP / "chip", BSP / "boards" / "fm1", *([BSP / "boards" / "smk37"] if SMK else []),
++                                               SRC / "device", SRC / "include", SRC / "lib", APP, GEN,
++                                               *(APP / d for d in CONF.get("include", []) + CONF.get("device_include", [])))]
+     if BLE:
+         flags += ["-DFM1B_BLE=1", *inc(SRC / "ble" / "shim")]
+         if CONF.get("ble_central"):
+@@ -607,6 +624,8 @@
+         if v in ("0", "1"):
+             flags.append(f"-D{flag}={v}")
+     flags.append(f'-DFELUCCA_ID="{PRODUCT}"')
++    if SMK:
++        flags.append(f'-DFM1B_FM1_ID="{FM1_PRODUCT}"')
+     for key, macro in (("usb_manufacturer", "FELUCCA_USB_MANUFACTURER"), ("usb_product", "FELUCCA_USB_PRODUCT")):
+         if CONF.get(key):
+             flags.append(f'-D{macro}="{CONF[key]}"')
+@@ -839,7 +858,7 @@
+         s = re.sub(r"/\*.*?\*/", lambda m: "\n" * m.group(0).count("\n"), s, flags=re.S)
+         return re.sub(r"//[^\n]*", "", s)
+     defs = {}
+-    for h in sorted([*(BSP / "chip").glob("*.h"), *(BSP / "boards" / "fm1").glob("*.h")]):
++    for h in sorted([*(BSP / "chip").glob("*.h"), *(BSP / "boards" / "fm1").glob("*.h"), *(BSP / "boards" / "smk37").glob("*.h")]):
+         for m in re.finditer(r"^#define\s+(\w+)(?:\([^)]*\))?\s+(.*)$", strip(h.read_text()), re.M):
+             defs[m.group(1)] = m.group(2)
+     regs = {n for n, b in defs.items() if re.search(r"\bvolatile\b", b)}
+@@ -918,12 +937,14 @@
+     out = OUT / "host"
+     out.mkdir(parents=True, exist_ok=True)
+     exe = out / (STEM + "_host")                  # NAME_host; NAME-usb_host with --no-ble
+-    inc_dirs = [f"-I{d}" for d in (SRC / "device", SRC / "include", SRC / "lib", APP, GEN, *(APP / d for d in CONF.get("include", [])))]
+-    o2_objs = o2_objects(os.environ.get("CC", "cc"), ["-O2", "-ffp-contract=off", "-std=c99", "-w", "-DPLAT_HOST", *inc_dirs],
++    inc_dirs = [f"-I{d}" for d in (SRC / "device", SRC / "include", SRC / "lib", APP, GEN, *(APP / d for d in CONF.get("include", [])),
++                                   *([BSP / "boards" / "smk37"] if SMK else []))]
++    smk = [*smk_flags(), *([f'-DFELUCCA_ID="{PRODUCT}"', f'-DFM1B_FM1_ID="{FM1_PRODUCT}"'] if SMK else [])]
++    o2_objs = o2_objects(os.environ.get("CC", "cc"), ["-O2", "-ffp-contract=off", "-std=c99", "-w", "-DPLAT_HOST", *smk, *inc_dirs],
+                          out / "o2")
+     cmd = [os.environ.get("CC", "cc"), "-O2", "-ffp-contract=off", "-std=c99", "-Wall", "-Wextra",
+-           "-Wno-unused-function", "-Wno-unused-parameter", "-DPLAT_HOST", *opt_flags(), *["-DFM1B_BLE=1"] * BLE, *["-DFM1B_BLE_CENTRAL=1"] * (BLE and bool(CONF.get("ble_central"))), *["-DFM1B_WIFI=1"] * WIFI,
+-           *(f"-I{d}" for d in (SRC / "device", SRC / "include", SRC / "lib", APP, GEN, *(APP / d for d in CONF.get("include", [])))),
++           "-Wno-unused-function", "-Wno-unused-parameter", "-DPLAT_HOST", *smk, *opt_flags(), *["-DFM1B_BLE=1"] * BLE, *["-DFM1B_BLE_CENTRAL=1"] * (BLE and bool(CONF.get("ble_central"))), *["-DFM1B_WIFI=1"] * WIFI,
++           *inc_dirs,
+            "-o", str(exe), str(SRC / "host" / "plat_host.c"), *o2_objs, "-lm"]
+     r = subprocess.run(cmd, capture_output=True, text=True)
+     sys.stderr.write(r.stderr)
+@@ -980,7 +1001,7 @@
+ 
+ 
+ def main():
+-    global PRODUCT, VERSION, APP, OUT, GEN, LDR, ROOT, CONF, NAME, BLE, WIFI, CPU2, STEM
++    global PRODUCT, VERSION, APP, OUT, GEN, LDR, ROOT, CONF, NAME, BLE, WIFI, CPU2, STEM, SMK_MODEL, FM1_PRODUCT
+     ap = argparse.ArgumentParser()
+     ap.add_argument("app", type=Path, help="the app's directory (with fm1.toml)")
+     ap.add_argument("--release", metavar="X.Y[.Z]", help="release build: identity id_prefix + XXYYZZ, version string X.Y[.Z]")
+@@ -997,7 +1018,14 @@
+     CPU2 = (bool(CONF.get("cpu2")) and os.environ.get("FM1B_CPU2") != "0") or os.environ.get("FM1B_CPU2") == "1"
+     if BLE and WIFI:
+         raise SystemExit("fm1.toml: ble and wifi together are not supported yet (one radio a build; --no-ble for WiFi)")
+-    STEM = NAME + ("-usb" if CONF.get("ble") and not BLE else "")
++    if os.environ.get("BOARD", "fm1") not in ("fm1", "smk37"):
++        raise SystemExit(f"BOARD={os.environ['BOARD']}: fm1 or smk37")
++    model = os.environ.get("MODEL", "pro") if SMK else None
++    if SMK and model not in SMK_MODELS:
++        raise SystemExit(f"MODEL={model}: {', '.join(SMK_MODELS)}")
++    if SMK:
++        SMK_MODEL = SMK_MODELS[model][0]
++    STEM = NAME + ("-smk37" + SMK_MODELS[model][1] if SMK else "") + ("-usb" if CONF.get("ble") and not BLE else "")
+     OUT = APP / "build"
+     GEN, LDR = OUT / "gen", OUT / "loader"
+     ROOT = Path(os.path.commonpath([SRC, APP]))
+@@ -1005,6 +1033,7 @@
+     if not re.fullmatch(r"FM-1_\d+", prefix):
+         raise SystemExit(f"fm1.toml id_prefix {prefix!r}: FM-1_ and digits only (the update tools parse it)")
+     PRODUCT = prefix + "00"
++    digits = ""
+     name = STEM + ".fwsc"
+     if a.release:
+         # identity: the prefix + major, minor, patch as two digits each (0.1 -> FM-1_0000100): FM-1 is the
+@@ -1013,8 +1042,15 @@
+         if not m:
+             raise SystemExit(f"--release {a.release}: use X.Y[.Z][-suffix], up to two digits each")
+         PRODUCT = prefix + "%02d%02d%02d" % (int(m[1]), int(m[2]), int(m[3] or 0))
++        digits = "%02d%02d%02d" % (int(m[1]), int(m[2]), int(m[3] or 0))
+         VERSION = a.release.upper()
+         name = f"{STEM}-{a.release}.fwsc"
++    if SMK:                                       # the model's name, the firmware's own number
++        FM1_PRODUCT = PRODUCT
++        PRODUCT = SMK_MODEL + "_" + prefix[len("FM-1_"):] + (digits or "00")
++        fm1pkg_make.set_board("smk37")
++        if a.web:
++            raise SystemExit("build: --web is the FM-1's (BOARD=smk37: the device and --host)")
+     if a.host or a.web:
+         generate()
+         return build_host() if a.host else build_web()
+--- a/tools/fm1pkg_make.py
++++ b/tools/fm1pkg_make.py
+@@ -15,7 +15,7 @@
+ The SDK files come from the JieLi AC79 SDK (AC79_SDK, or --sdk).
+ All integrity checks in the format are CRC16 (poly 0x1021, init 0).
+ 
+-  fm1pkg_make.py APP.bin OTA.bin OUT.fwsc [--product FM-1_9XY] [--sdk DIR]
++  fm1pkg_make.py APP.bin OTA.bin OUT.fwsc [--product FM-1_9XY] [--sdk DIR] [--board fm1|smk37]
+ """
+ import argparse
+ import os
+@@ -25,6 +25,34 @@
+ APP_SLOT = 0x8DFBC
+ FLASH_SIZE = 0x93000
+ KEY = 0x980F
++# the board (set_board): the FM-1's layout, or the M-VAVE SMK-37's (genkigenki's porting guide fm1-to-smk37,
++# docs/02-update-and-recovery.md 2.3): the app area to 0x9D000 (the stock PRCT; the update loader writes all of it,
++# app.bin's slot stays where the FM-1 has it) and the stock v016 package's region table, so the SPL and M-VAVE's tools
++# see the SMK's own map; and 36 identity blocks, as the stock v016 package has, for the models' longer names
++BOARD = "fm1"
++MARK_BLOCKS = 20
++REGIONS = {
++    # (offset, size or None for FLASH_SIZE, flags, reserved, index, name: 16 raw bytes or a string)
++    "fm1": [(0x93000, 352256, 0x12, 0x80, 0, bytes.fromhex("564d00ffffffffffffffffff00800000")),     # VM
++            (0, None, 0x92, 0x82, 0, bytes.fromhex("5052435400ffffffffffffff434f4445")),         # PRCT
++            (0xE9000, 0x1000, 0x92, 0x80, 0, bytes.fromhex("4254494600ffffffffffffff4155544f")),  # BTIF
++            (0xEA000, 0x12000, 0x92, 0x81, 1, "USR")],
++    "smk37": [(0x9D000, 0x23000, 0x12, 0x81, 0, bytes.fromhex("564d00ffffffffffffffffff00800000")),   # VM
++              (0, None, 0x92, 0x82, 0, bytes.fromhex("5052435400ffffffffffffff434f4445")),       # PRCT
++              (0xC0000, 0x1000, 0x92, 0x82, 0, bytes.fromhex("4254494600ffffffffffffff4155544f")),  # BTIF
++              (0xC1000, 0x1000, 0x92, 0x81, 0, bytes.fromhex("5553525452494d00ffffffffffffffff")),  # USRTRIM
++              (0xC2000, 0x29000, 0x92, 0x81, 0, bytes.fromhex("555352464c41534800ffffffffffffff")),  # USRFLASH
++              (0xF4000, 0xA000, 0x92, 0x81, 1, "USR")],
++}
++BOARDS = {"fm1": (0x93000, 20), "smk37": (0x9D000, 36)}   # FLASH_SIZE (the end of the app area), identity blocks
++
++
++def set_board(board):
++    global BOARD, FLASH_SIZE, MARK_BLOCKS
++    if board not in BOARDS:
++        raise SystemExit(f"fm1pkg_make: unknown board {board!r} ({', '.join(BOARDS)})")
++    BOARD = board
++    FLASH_SIZE, MARK_BLOCKS = BOARDS[board]
+ # flash header: JieLi SDK defaults (burner_size 544, VID "0.01", flash_size 0xFF000,
+ # fs_ver 0x10, PID "AC791N_STORY"), plain, without its CRC
+ FLASH_HDR = bytes.fromhex("20022f104cc900f00f001010a4ff4e5d0b41e0cd781dc856417fb367cf9f")
+@@ -131,10 +159,8 @@
+     ents = [entry(crc16(app), 0x120, APP_SLOT, 0x82, 0xFF, 0, "app.bin"),
+             entry(crc16(cfg_tool), 0x120 + APP_SLOT, len(cfg_tool), 0x82, 0xFF, 0, "cfg_tool.bin"),
+             # region descriptors; the bytes after the names are SDK packer fields (VM size, "CODE", "AUTO")
+-            entry(0xFFFF, 0x93000, 352256, 0x12, 0x80, 0, bytes.fromhex("564d00ffffffffffffffffff00800000")),
+-            entry(0xFFFF, 0, FLASH_SIZE, 0x92, 0x82, 0, bytes.fromhex("5052435400ffffffffffffff434f4445")),
+-            entry(0xFFFF, 0xE9000, 0x1000, 0x92, 0x80, 0, bytes.fromhex("4254494600ffffffffffffff4155544f")),
+-            entry(0xFFFF, 0xEA000, 0x12000, 0x92, 0x81, 1, "USR")]
++            *(entry(0xFFFF, o, FLASH_SIZE if sz is None else sz, fl, rs, ix, nm)
++              for o, sz, fl, rs, ix, nm in REGIONS[BOARD])]
+     area[32:32 + len(b"".join(ents))] = b"".join(ents)
+     area[0:32] = entry(crc16(area[32:blk]), 0x02000120, blk, 0x83, 0xFF, 0, "app_area_head")
+     # nested cfg directory right after the block: SDK default EQ table
+@@ -175,15 +201,17 @@
+     logical[0x40:0x40 + len(lst)] = lst
+     for e, o, d in ents:
+         logical[o:o + len(d)] = d
+-    # .fwsc: one marker byte after each of the first 20 0x2F-byte blocks (the identity)
+-    if len(product) > 20 or any((ord(c) + i + 1) & 0xFF == 0x7D for i, c in enumerate(product)):
+-        raise SystemExit(f"product {product!r}: at most 20 characters, none encoding to the unused marker")
++    # .fwsc: one marker byte after each of the first MARK_BLOCKS 0x2F-byte blocks (the identity; 20, or 36 on the
++    # SMK-37 as its stock packages; never more than the 27 bytes a device's identity reply holds)
++    nb = MARK_BLOCKS
++    if len(product) > min(nb, 27) or any((ord(c) + i + 1) & 0xFF == 0x7D for i, c in enumerate(product)):
++        raise SystemExit(f"product {product!r}: at most {min(nb, 27)} characters, none encoding to the unused marker")
+     raw = bytearray()
+-    for i in range(20):
++    for i in range(nb):
+         ch = product[i] if i < len(product) else None
+         m = (ord(ch) + i + 1) & 0xFF if ch else 0x7D
+         raw += logical[i * 0x2F:(i + 1) * 0x2F] + bytes([m])
+-    raw += logical[20 * 0x2F:]
++    raw += logical[nb * 0x2F:]
+     return bytes(raw)
+ 
+ 
+@@ -195,9 +223,11 @@
+     ap.add_argument("--product", default="FM-1_900")
+     ap.add_argument("--key", type=lambda s: int(s, 0), default=KEY)
+     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
++    ap.add_argument("--board", choices=sorted(BOARDS), default="fm1")
+     a = ap.parse_args()
+     global SDK
+     SDK = a.sdk
++    set_board(a.board)
+     pkg = ufw(flash_image(a.app.read_bytes(), a.key), a.ota.read_bytes(), a.product)
+     a.out.write_bytes(pkg)
+     print(f"package {a.out}: {len(pkg)} B, identity {a.product}, chip key {a.key:#06x}")

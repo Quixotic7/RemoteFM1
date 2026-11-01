@@ -1,0 +1,191 @@
+# SPDX-License-Identifier: MPL-2.0
+# The M-Vave SMK-37's controls the FM-1 has not (docs/SMK37.md; fm1-base plat_smk_take, firmware/sa/sa_smk.c,
+# src/rfm_main.c rf_smk_ms), in the SMK-37 build of the simulator: standalone the instrument's (the outer keys play
+# as the 27 keys do; the wheels bend and modulate, the pedal sustains, the faders and the four extra buttons send CCs);
+# in a host's session the host's firmware gets them as MIDI it receives (MIDI_IN, as the FM-1's TRS jack's), channel 1.
+wait 400
+expect sa_panel 0
+# the outer keys: C3..E3 (keybed 0..4) 48..52, G#5..C6 (32..36) 80..84, with velocity, the octave too
+out
+smk key 0 down 70
+wait 10
+expect_out USB 90 30 46
+expect sa_held 1
+smk key 0 up
+wait 10
+expect_out USB 80 30 40
+expect sa_held 0
+smk key 4 down 20
+wait 10
+expect_out USB 90 34 14
+smk key 4 up
+smk key 32 down 90
+wait 10
+expect_out USB 90 50 5A
+smk key 32 up
+smk key 36 down 127
+wait 10
+expect_out USB 90 54 7F
+smk key 36 up
+wait 10
+expect sa_held 0
+smk tap OCT+
+out
+smk key 0 down 64
+wait 10
+expect_out USB 90 3C 40
+smk key 0 up
+smk tap OCT-
+wait 10
+expect sa_oct 0
+# LATCH (NOTE REPEAT held: LFO): an outer key's chord replaces the one latched, as the 27 keys' do
+smk press NOTE-REPEAT
+wait 600
+smk release NOTE-REPEAT
+wait 10
+expect sa_latch 1
+smk key 0 down 80
+wait 10
+smk key 0 up
+wait 10
+expect sa_lat_n 1
+smk key 36 down 80
+wait 10
+smk key 36 up
+wait 10
+expect sa_lat_n 1
+smk press NOTE-REPEAT
+wait 600
+smk release NOTE-REPEAT
+wait 10
+expect sa_latch 0
+expect sa_held 0
+# the wheels, the pedal, the faders, the extra buttons
+out
+smk bend 4096
+wait 10
+expect_out USB E0 00 60
+smk bend 0
+wait 10
+expect_out USB E0 00 40
+smk mod 64
+wait 10
+expect_out USB B0 01 40
+smk mod 0
+smk pedal 1
+wait 10
+expect_out USB B0 40 7F
+smk pedal 0
+wait 10
+expect_out USB B0 40 00
+smk fader 1 100
+smk fader 4 3
+wait 10
+expect_out USB B0 10 64
+expect_out USB B0 13 03
+smk tap KNOB-BANK
+expect_out USB B0 6E 7F
+expect_out USB B0 6E 00
+smk tap >
+expect_out USB B0 71 7F
+# the pedal holds the DX7's notes (CC 64 to it): a key let go under it still sounds
+smk pedal 1
+wait 10
+smk key 10 down 90
+wait 20
+smk key 10 up
+wait 300
+expect sa_sounding >0
+smk pedal 0
+wait 10
+
+# a host's session: the same as MIDI the host's firmware receives (MIDI_IN), channel 1; no plain panel MIDI for them
+rf hello usb
+rf session usb 1 3000
+wait 50
+expect rf_mi_n 0
+out
+smk key 0 down 70
+wait 10
+expect rf_mi_msgs 1
+expect rf_mi_n 3
+expect rf_mi_b0 144
+expect rf_mi_b1 48
+expect rf_mi_b2 70
+expect_no_out USB 9F 30 64
+smk key 0 up
+wait 10
+expect rf_mi_b3 128
+expect rf_mi_b4 48
+expect rf_mi_b5 64
+smk key 36 down 99
+wait 10
+expect rf_mi_b6 144
+expect rf_mi_b7 84
+expect rf_mi_b8 99
+smk key 36 up
+wait 10
+expect rf_mi_n 12
+smk fader 2 77
+wait 20
+expect rf_mi_b12 176
+expect rf_mi_b13 17
+expect rf_mi_b14 77
+smk bend -8192
+wait 20
+expect rf_mi_b15 224
+expect rf_mi_b16 0
+expect rf_mi_b17 0
+smk mod 127
+wait 20
+expect rf_mi_b18 176
+expect rf_mi_b19 1
+expect rf_mi_b20 127
+smk pedal 1
+wait 20
+expect rf_mi_b21 176
+expect rf_mi_b22 64
+expect rf_mi_b23 127
+smk tap FADER-BANK
+wait 10
+expect rf_mi_b24 176
+expect rf_mi_b25 111
+expect rf_mi_b26 127
+expect rf_mi_b29 0
+# a fader swept: its latest at most every 6 ms (no flood), and where it ends
+smk fader 3 10
+wait 1
+smk fader 3 20
+wait 1
+smk fader 3 30
+wait 1
+smk fader 3 40
+wait 20
+expect rf_mi_n <45
+expect rf_mi_bad 0
+expect rf_midi_drop 0
+# the keybed's middle keys are still the panel's (plain MIDI), not MIDI_IN
+out
+smk key 5 down 90
+wait 10
+expect_out USB 9F 35 64
+smk key 5 up
+wait 10
+rf session usb 0
+wait 50
+# MIDI REMOTE (GLO + FX): the extras on its channels as the panel's own
+smk press GLOBE
+smk tap FX
+smk release GLOBE
+wait 20
+expect sa_remote 1
+out
+smk fader 1 5
+wait 10
+expect_out USB B0 10 05
+smk key 0 down 70
+wait 10
+expect_out USB 90 30 46
+smk key 0 up
+wait 10
+expect_out USB 80 30 40
