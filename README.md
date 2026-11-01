@@ -14,6 +14,8 @@ MASTER pot to the computer, and shows whatever the computer sends back on its LE
 computer, an FM-1 firmware built for the emulator runs at full speed and uses the real FM-1 as its panel. That lets
 you try firmware changes without reflashing the unit, and run things the FM-1's own CPU and memory couldn't hold.
 
+**M-Vave SMK-37:** see [docs/SMK37.md](docs/SMK37.md) (a build for it, untested on a unit; to hosts it is an FM-1).
+
 > **Status: 0.3.1 released on the site (2026-10-31): the FM-1 on its own.** 0.3.1 adds 16 user cartridges (list,
 > replace, delete), loops saved on the unit, a VELOCITY setting, and velocity and pressure for hosts. Without a host, 0.3 is an instrument: a
 > DX7 (saadet's FM6, Yamaha's 256 ROM voices and your own cartridges), a MIDI controller over USB, Bluetooth and the
