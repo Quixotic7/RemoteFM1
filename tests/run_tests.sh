@@ -143,6 +143,50 @@ print("wait 3100\nrf send usb 09 02\nwait 3000\nexpect sa_hash_state 3")
 print(f"expect sa_hash_one {s(sys.argv[1])}\nexpect sa_hash_two {s(sys.argv[2])}")
 PYEOF
 sim "$SIM/remotefm1_host" "$H/sa_hash.txt"
+echo "== the M-Vave SMK-37 (docs/SMK37.md): HELLO_R and PANEL_R from the FM-1 build, written out to compare"
+mkdir -p "$OUT/smk_fm1"
+"$SIM/remotefm1_host" firmware/tests/smk_hello.txt "$OUT/smk_fm1" > "$OUT/log.txt" 2>&1 ||
+    { cat "$OUT/log.txt"; echo "FAILED: firmware/tests/smk_hello.txt (the FM-1 build)"; exit 1; }
+echo "== the SMK-37 build of the simulator (BOARD=smk37 ./build.sh --host, firmware/patches/smk37): the panel as an"
+echo "   FM-1's (keys, pads as white keys, buttons, knobs, lights), the extras as MIDI, the flash map, the FM-1's scenarios"
+BOARD=smk37 env -u CC ./build.sh --host >/dev/null
+SMK_FM1_TESTS="firmware/tests/session.txt firmware/tests/bulk_ota.txt firmware/tests/ble.txt firmware/tests/hold.txt firmware/tests/standalone.txt firmware/tests/standalone_ble.txt $(echo $SA_TESTS | tr ' ' '\n' | grep -v standalone_velocity | tr '\n' ' ')"
+sim "$SIM/remotefm1-smk37_host" firmware/tests/smk_panel.txt firmware/tests/smk_extras.txt firmware/tests/smk_flash.txt \
+    firmware/tests/smk_hello.txt $SMK_FM1_TESTS        # (standalone_velocity: no aftertouch on the SMK's keys, by design)
+for f in hello_usb hello_bk hello_ble panel_idle panel_held; do
+    cmp -s "$OUT/smk_fm1/$f.txt" "$OUT/$f.txt" ||
+        { echo "FAILED: the SMK-37's $f differs from the FM-1's:"; cat "$OUT/smk_fm1/$f.txt" "$OUT/$f.txt"; exit 1; }
+done
+echo "   HELLO_R (USB, bulk, Bluetooth) and PANEL_R: the SMK-37's byte for byte the FM-1's"
+SMK_NO_TRIM=1 sim "$SIM/remotefm1-smk37_host" firmware/tests/smk_notrim.txt
+echo "== the SMK-37's signals decoded (felucca-bsp boards/smk37/smk_decode.h, patched in) and its flash map"
+$TCC $SAN -Ibuild/fm1-base/bsp/boards/smk37 -o "$H/smk_decode_test" tests/smk_decode_test.c
+"$H/smk_decode_test"
+$TCC -Wno-int-to-pointer-cast -DBOARD_SMK37=1 -DPLAT_HOST -Ibuild/fm1-base/include -Ibuild/fm1-base/bsp/chip -Ifirmware \
+    -o "$H/smk_flash_test" tests/smk_flash_test.c
+"$H/smk_flash_test"
+echo "== the SMK-37's update receiver (felucca-bsp ota.c, patched): the SMK's packages taken, an FM-1's refused"
+for m in pro elite mke; do
+    case $m in pro) model="SMK-37 Pro"; sfx="" ;; elite) model="SMK-37 Elite"; sfx="-elite" ;; *) model="MKE-P37"; sfx="-mke" ;; esac
+    $TCC "-DBOARD_SMK37=1" "-DSMK_MODEL=\"$model\"" -Ibuild/fm1-base/bsp/chip -o "$H/smk_ota_test_$m" tests/smk_ota_test.c
+    pkg=$(ls firmware/build/remotefm1-smk37$sfx.fwsc firmware/build/remotefm1-smk37$sfx-[0-9]*.fwsc 2>/dev/null | head -1)
+    fm1=$(ls firmware/build/remotefm1.fwsc firmware/build/remotefm1-[0-9]*.fwsc 2>/dev/null | head -1)
+    if [ -n "$pkg" ] && [ -n "$fm1" ]; then
+        stock=""
+        for p in "${V15_PKG:-}" "${V16_PKG:-}" ../../../../MVaveOfficial/V15-FM-1.fwsc ../../../../MVaveOfficial/V16-FM-1.fwsc \
+                 ../MVaveOfficial/V15-FM-1.fwsc ../MVaveOfficial/V16-FM-1.fwsc; do
+            [ -n "$p" ] && [ -f "$p" ] && stock="$stock $p"
+        done
+        "$H/smk_ota_test_$m" "$pkg" "$model" "$fm1" $stock
+    else
+        echo "(no built $model package and FM-1 package in firmware/build: BOARD=smk37 MODEL=$m ./build.sh, ./build.sh)"
+    fi
+done
+echo "== the SMK-37 build, USB only (--no-ble)"
+BOARD=smk37 env -u CC ./build.sh --host --no-ble >/dev/null
+sim "$SIM/remotefm1-smk37-usb_host" firmware/tests/smk_panel.txt firmware/tests/smk_extras.txt firmware/tests/smk_flash.txt \
+    firmware/tests/session.txt firmware/tests/standalone.txt
+env -u CC ./build.sh --host >/dev/null                  # (the simulator as it should be left: the FM-1's)
 if [ -n "${SAADET:-}" ]; then
     echo "== the standalone DX7 against saadet's own (SAADET=$SAADET)"
     tests/fm6_parity.sh "$SAADET"

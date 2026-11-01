@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: MPL-2.0
+# HELLO_R and PANEL_R as hosts get them, written out (rf hello_dump, rf panel_dump) by the FM-1 build and by the
+# M-Vave SMK-37 build of the simulator from this same script: tests/run_tests.sh compares the two byte for byte (the
+# SMK-37 is an FM-1 to every host: docs/SMK37.md). Over USB SysEx, the vendor bulk pair and Bluetooth.
+wait 1100
+master 2048
+rf hello usb
+expect rf_hello_fm1 1
+expect rf_hello_caps 1967
+rf hello_dump out:hello_usb.txt
+rf hello bk
+rf hello_dump out:hello_bk.txt
+ble connect
+wait 10
+rf hello ble
+wait 50
+rf hello_dump out:hello_ble.txt
+rf session usb 1 3000
+wait 50
+rf panelreq usb
+rf panel_dump out:panel_idle.txt
+press SEL
+key 3 down
+turn K2 2
+master 3000
+rf panelreq usb
+rf panel_dump out:panel_held.txt
+release SEL
+key 3 up
+rf session usb 0
+wait 50

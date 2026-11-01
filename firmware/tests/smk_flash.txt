@@ -1,0 +1,90 @@
+# SPDX-License-Identifier: MPL-2.0
+# The M-Vave SMK-37's flash (docs/SMK37.md "Flash map"; fm1-base device/smk_store.c, firmware/app.h, sa/sa_store.c),
+# in the SMK-37 build of the simulator: the store's owner tag (a start with none, or another firmware's, clears the
+# VM windows once, never USRFLASH); the stock firmware's mapping and its end marker in USRFLASH kept until a save
+# lands there, which erases the marker first (so the stock firmware rebuilds its factory mapping after a return to it);
+# the 16 user banks and 16 loops in the SMK's windows, refused nowhere, read back after a power cycle.
+wait 400
+# the first start on a blank flash: no tag, cleared, ours now
+expect smk_owner_clears 1
+expect smk_tag_ours 1
+# the stock firmware's mapping and marker (as it leaves them)
+smk stock
+expect smk_marker 1
+expect smk_mapping 1
+reboot
+wait 400
+expect smk_owner_clears 1
+expect smk_marker 1
+# a bank: its sector is the pool's first (0xA1000, the VM): the stock mapping untouched
+sa dx7bank 1 usb
+wait 300
+expect sa_ubanks 1
+expect smk_stock_erases 0
+expect smk_marker 1
+expect smk_usrflash_used 1
+# the other 15 banks and three loops of three sectors: the pool reaches USRFLASH (its sectors 24..63: the first is the
+# stock mapping's own sector), the marker goes first, whole, once
+sa dx7bank 2 usb
+sa dx7bank 3 usb
+sa dx7bank 4 usb
+sa dx7bank 5 usb
+sa dx7bank 6 usb
+sa dx7bank 7 usb
+sa dx7bank 8 usb
+sa dx7bank 9 usb
+sa dx7bank 10 usb
+sa dx7bank 11 usb
+sa dx7bank 12 usb
+sa dx7bank 13 usb
+sa dx7bank 14 usb
+sa dx7bank 15 usb
+sa dx7bank 16 usb
+wait 300
+expect sa_ubanks 16
+sa loopfill 0 1194
+sa loopfill 1 1194
+sa loopfill 2 1194
+press SAVE
+wait 600
+release SAVE
+wait 4000
+expect sa_sf_busy 0
+expect sa_ub_refused 0
+expect store_outside 0
+expect smk_stock_erases 1
+expect smk_marker 0
+expect smk_mapping 0
+expect smk_usrflash_used >0
+# a power cycle: all of it back, the tag ours (nothing cleared)
+reboot
+wait 400
+expect smk_owner_clears 1
+expect sa_ubanks 16
+expect sa_sf_loads 3
+expect sa_sf_lbad 0
+sa loopcheck 0 1194
+sa loopcheck 1 1194
+sa loopcheck 2 1194
+# another save: the marker is gone already (no second erase)
+sa loopfill 0 500
+press SAVE
+wait 600
+release SAVE
+wait 3000
+expect smk_stock_erases 1
+# another firmware's tag and data at the next start: the VM windows cleared (the directory with them: no banks, no
+# loops), the tag ours again; USRFLASH as it was (written over later, never cleared)
+smk foreign
+expect smk_foreign 1
+reboot
+wait 400
+expect smk_owner_clears 2
+expect smk_foreign 0
+expect smk_tag_ours 1
+expect sa_ubanks 0
+expect sa_sf_loads 0
+expect smk_usrflash_used >0
+reboot
+wait 400
+expect smk_owner_clears 2

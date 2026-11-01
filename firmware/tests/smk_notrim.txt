@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: MPL-2.0
+# The SMK-37 build on a unit with no factory calibration record (SMK_NO_TRIM=1: no "trimdat" at 0xC1224; every SMK-37
+# has one, so this is an FM-1 that was given the SMK's build by mistake; fm1-base device/smk_store.c): nothing of the
+# app's is written (the FM-1's own data and resources lie in the SMK's windows), the owner tag is not looked at, the
+# stock marker not touched; it plays on (and its update takes FM-1 packages: tests/smk_ota_test.c).
+wait 400
+expect smk_owner_clears 0
+expect smk_tag_ours 0
+smk stock
+sa dx7bank 1 usb
+wait 300
+sa loopfill 0 600
+press SAVE
+wait 600
+release SAVE
+wait 2000
+expect smk_data_ops 0
+expect smk_marker 1
+expect smk_mapping 1
+expect smk_stock_erases 0
+reboot
+wait 400
+expect sa_ubanks 0
+expect smk_owner_clears 0
+out
+smk key 5 down 90
+wait 10
+expect_out USB 90 35 5A
+smk key 5 up

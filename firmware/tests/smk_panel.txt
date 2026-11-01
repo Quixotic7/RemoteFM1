@@ -1,0 +1,206 @@
+# SPDX-License-Identifier: MPL-2.0
+# The M-Vave SMK-37 as an FM-1's panel (docs/SMK37.md; fm1-base device/smk_panel.c, BOARD_SMK37), in the SMK-37 build
+# of fm1-base's host simulator (BOARD=smk37 ./build.sh --host; tests/run_tests.sh): the keybed's middle 27 keys and
+# the 16 pads as the FM-1's keys and white keys, with velocity, the printed buttons, K1 MASTER and K2..K8 the
+# encoders, standalone and in a host's session (the panel as plain MIDI, by the FM-1's matrix numbers), and the
+# lights: the button LEDs and the pads as the FM-1's key LEDs.
+wait 400
+expect sa_panel 0
+# standalone: keybed key 5 (F3) is the FM-1's key 0 with its velocity; the DX7 and MIDI out (channel 1)
+out
+smk key 5 down 90
+wait 10
+expect sa_held 1
+expect_out USB 90 35 5A
+smk key 5 up
+wait 10
+expect sa_held 0
+expect_out USB 80 35 40
+# key 31 (G5) is the FM-1's key 26
+smk key 31 down 40
+wait 10
+expect_out USB 90 4F 28
+smk key 31 up
+wait 10
+# the pads are the 16 white keys in reading order: pad 1 F3, pad 8 F4 (top row), pad 9 G4, pad 16 G5 (bottom row)
+out
+smk pad 1 down 70
+wait 10
+expect_out USB 90 35 46
+smk pad 1 up
+smk pad 8 down 30
+wait 10
+expect_out USB 90 41 1E
+smk pad 8 up
+smk pad 9 down 100
+wait 10
+expect_out USB 90 43 64
+smk pad 9 up
+smk pad 16 down 127
+wait 10
+expect_out USB 90 4F 7F
+smk pad 16 up
+wait 10
+expect sa_held 0
+# a pad and its keybed key: one key, held while either is (no second note)
+out
+smk key 5 down 80
+smk pad 1 down 60
+wait 10
+expect sa_held 1
+smk key 5 up
+wait 10
+expect sa_held 1
+smk pad 1 up
+wait 10
+expect sa_held 0
+# the pads light as the white keys' LEDs: a held key lit (standalone lights the keys that sound)
+smk key 5 down 80
+wait 30
+expect smk_pad_1 255
+expect smk_pads 1
+smk key 5 up
+wait 600
+expect smk_pad_1 0
+# buttons: OCTAVE+ is OCT+ (the octave, its LED lit while above 0), OCTAVE- OCT-
+smk tap OCT+
+wait 20
+expect sa_oct 1
+expect smk_led_OCT+ 1
+expect smk_led_OCT- 0
+smk tap OCT-
+wait 20
+expect sa_oct 0
+expect smk_led_OCT+ 0
+# K4 is PRESETS (the voice), K3 ALGORITHM (the channel)
+expect sa_voice 0
+smk turn K4 2
+wait 20
+expect sa_voice 2
+smk turn K4 -2
+smk turn K3 1
+wait 20
+expect sa_ch 2
+smk turn K3 -1
+wait 20
+expect sa_ch 1
+# K1 is MASTER: 96 of 4096 a detent, from 2896
+smk turn K1 -3
+expect smk_master 2608
+smk turn K1 3
+expect smk_master 2896
+# the FX bank's light: FX is lit (the CC bank A); PARA (EDIT) picks bank E
+expect smk_led_FX 1
+smk tap PARA
+wait 20
+expect sa_ccbank 4
+expect smk_led_PARA 1
+expect smk_led_FX 0
+smk tap FX
+wait 20
+expect sa_ccbank 0
+
+# a host's session: the panel as plain MIDI by the FM-1's matrix numbers (docs/PROTOCOL.md section 4)
+rf hello usb
+rf session usb 1 3000
+expect rf_session 1
+wait 50
+out
+smk key 5 down 90
+wait 10
+expect_out USB 9F 35 64
+smk key 5 up
+wait 10
+expect_out USB 8F 35 00
+smk pad 16 down 50
+wait 10
+expect_out USB 9F 4F 64
+smk pad 16 up
+wait 10
+# each printed button is its FM-1 button (matrix: OCT- 0, OCT+ 1, FX 2, SEL 3, ENV 4, LFO 5, EDIT 6, GLO 7, HOME 8,
+# SAVE 9, ARP 10, SEQ 11, PLAY 12, REC 13)
+smk tap OCT-
+expect_out USB 9E 00 7F
+smk tap OCT+
+expect_out USB 9E 01 7F
+smk tap FX
+expect_out USB 9E 02 7F
+smk tap SCALE
+expect_out USB 9E 03 7F
+smk tap CHORD
+expect_out USB 9E 04 7F
+smk tap NOTE-REPEAT
+expect_out USB 9E 05 7F
+smk tap PARA
+expect_out USB 9E 06 7F
+smk tap GLOBE
+expect_out USB 9E 07 7F
+smk tap PATCH
+expect_out USB 9E 08 7F
+smk tap BT
+expect_out USB 9E 09 7F
+smk tap ARP
+expect_out USB 9E 0A 7F
+smk tap SEQ
+expect_out USB 9E 0B 7F
+smk tap PLAY
+expect_out USB 9E 0C 7F
+smk tap REC
+expect_out USB 9E 0D 7F
+# the four extra buttons are no FM-1 button: no panel MIDI for them
+out
+smk tap KNOB-BANK
+smk tap FADER-BANK
+smk tap <
+smk tap >
+expect_no_out USB 9E 00 7F
+expect_no_out USB 9E 0E 7F
+# the knobs: K2 SELECT (matrix 0), K3 ALGORITHM (1), K4 PRESETS (6), K5..K8 KNOB 1..4 (2..5)
+out
+smk turn K2 1
+wait 5
+expect_out USB BE 10 41
+smk turn K3 1
+wait 5
+expect_out USB BE 11 41
+smk turn K4 1
+wait 5
+expect_out USB BE 16 41
+smk turn K5 1
+wait 5
+expect_out USB BE 12 41
+smk turn K8 -1
+wait 5
+expect_out USB BE 15 3F
+# PANEL_R: the buttons held by matrix bit, MASTER from K1 (2896 >> 2)
+smk press SCALE
+rf panelreq usb
+expect rf_panel_buttons 8
+smk release SCALE
+expect rf_panel_master 724
+# the host's LEDS: a white key's lit / mid / faint on its pad; a button's lit on its LED; PLAY's green and red halves
+rf led usb 0 lit
+expect smk_pad_1 255
+rf led usb 2 mid
+expect smk_pad_2 32
+rf led usb 4 faint
+expect smk_pad_3 10
+rf led usb 26 lit
+expect smk_pad_16 255
+rf led usb 1 lit
+expect smk_pads 32769
+rf led usb b3 lit
+expect smk_led_SCALE 1
+rf led usb b3 mid
+expect smk_led_SCALE 0
+rf led usb b12 lit
+expect smk_led_PLAY-RED 1
+expect smk_led_PLAY 0
+rf led usb b12 off
+rf led usb green lit
+expect smk_led_PLAY 1
+expect smk_led_PLAY-RED 0
+smk leds
+rf session usb 0
+wait 50
+expect rf_session 0
