@@ -1462,12 +1462,20 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   for (const [n, b] of Object.entries(files)) { writeFileSync(new URL(n, dir), b); sums += `${createHash("sha256").update(b).digest("hex")}  ${n}\n`; }
   writeFileSync(new URL("SHA256SUMS", dir), sums);
   writeFileSync(new URL("release.json", dir), JSON.stringify({ repo: "Quixotic7/RemoteFM1FW", tag: "fixture", url: "https://github.com/Quixotic7/RemoteFM1FW/releases/tag/fixture" }));
+  // its catalog/catalog.json (fetch_fw_catalog.mjs puts it beside the files): editors and USB port names by id
+  writeFileSync(new URL("catalog.json", dir), JSON.stringify({ schema: 1, firmwares: {
+    zzz: { editor: "https://z.example/webapp/editor/", port: "Zzz FM-1" }, clipper: { editor: "https://c.example/editor/", port: "Clipper" },
+    skiff: { editor: "https://illuminus5.github.io/skiff/webapp/editor/", port: "Felucca" }, sloop: { port: "bad\u0001port", editor: "javascript:alert(1)" } } }));
   const out = join(tmpdir(), `fwcat-${process.pid}.json`), bc = fileURLToPath(new URL("./tools/build_catalog.mjs", import.meta.url));
   const log = execFileSync(process.execPath, [bc, "--fw-catalog", dirPath, "--out", out], { encoding: "utf8" });
   const c = JSON.parse(readFileSync(out, "utf8")), by = new Map(c.firmwares.map((f) => [f.id, f])), rel = `.test-fw-${process.pid}`;
   const sl = by.get("sloop"), ji = by.get("jiant"), cl = by.get("clipper"), zz = by.get("zzz"), s1 = by.get("s1vave");
   ok(c.firmwares.length === cat.firmwares.length + 2 && c.fwCatalog.tag === "fixture" && /5 \.rfm1 files, 2 new entries, 2 merged, 1 kept/.test(log),
      "fw catalog: five files -> two new entries, two merged, S1Vave's own kept");
+  ok(zz.editor === "https://z.example/webapp/editor/" && zz.port === "Zzz FM-1" && cl.port === "Clipper" && cl.editor === "https://c.example/editor/"
+     && by.get("skiff").editor === "https://illuminus5.github.io/skiff/" && by.get("skiff").liveEditor === "https://illuminus5.github.io/skiff/webapp/editor/"
+     && sl.port === undefined && sl.editor === "https://isod89.github.io/sloop-fm1/webapp/editor/" && /RemoteFM1FW's catalog: 2 editors filled in, 3 ports/.test(log),
+     "fw catalog: RemoteFM1FW's catalog.json: an editor where none, liveEditor where the Hub's differs, the port; junk left out");
   ok(sl.defaultEngine === "rfm1" && sl.engines.join() === "rfm1,emu" && sl.rfm1.file === `${rel}/sloop-9.9.rfm1` && sl.rfm1.version === "9.9" && L.siteRfm1(sl) && sl.emu.pkg,
      "fw catalog: a newer .rfm1 of a Hub firmware is its default; the Hub's package stays emulated");
   ok(ji.defaultEngine === by.get("jiant").defaultEngine && ji.defaultEngine !== "rfm1" && ji.engines.at(-1) === "rfm1" && ji.native,
@@ -1497,7 +1505,7 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   writeFileSync(new URL("zzz-0.1.rfm1", dir), Buffer.from("bad"));
   let bad = "";
   try { execFileSync(process.execPath, [ff, "--from", dirPath, "--out", fout + "-bad"], { encoding: "utf8", stdio: "pipe" }); } catch (e) { bad = String(e.stderr); }
-  ok(/5 \.rfm1 files/.test(r1) && existsSync(join(fout, "release.json")) && /zzz-0\.1\.rfm1: SHA-256 .* SHA256SUMS says/.test(bad) && !existsSync(fout + "-bad"),
+  ok(/5 \.rfm1 files/.test(r1) && existsSync(join(fout, "release.json")) && JSON.parse(readFileSync(join(fout, "catalog.json"), "utf8")).firmwares.zzz.port === "Zzz FM-1" && /zzz-0\.1\.rfm1: SHA-256 .* SHA256SUMS says/.test(bad) && !existsSync(fout + "-bad"),
      "fetch_fw_catalog: --from copies and checks; a file not its SHA256SUMS line fails, writing nothing");
   // the browser: native (.rfm1 / native core) first, the emulated-only (.fwsc) below
   const sec = L.browseSections(c.firmwares);

@@ -10,8 +10,14 @@
 //   PIGEON (engine only: its loader has no simulator): a fresh PIGEON is silent; the sample loader connects (negotiate,
 //           INFO), opens FM1VST's test bank (tests/fixtures/pigeon/bank.kob), sends it (Send bank, verified by its
 //           read-back), and then the keys sound (the player's output, through an AnalyserNode)
+//   --live  the author's live editor page instead of the hosted copy (engine mode; web/site/js/live-editor.js): fetched
+//           from the author's site (the network), in the panel's sandboxed iframe (an opaque origin, reached here through
+//           its own execution context), then the same checks; ids without a hosted manager too (rainbow, hortator: their
+//           catalog editor, on --engine rfm1); popped out: managers/live.html relays it to the player tab. A page that
+//           falls back to the hosted copy is reported (its reason), not failed
+//           Without --live the hosted copies are tested: the player is told to prefer them (its "Use hosted copy").
 // Screenshots: web/build/test/editor-<id>-<mode>.png (and SHOTS_DIR when set).
-//   node web/managers/e2e.mjs [id ...] [--mode engine|double|notes|both] [--engine native|rfm1]     (after node web/managers/build.mjs; the native
+//   node web/managers/e2e.mjs [id ...] [--mode engine|double|notes|both] [--engine native|rfm1] [--live]     (after node web/managers/build.mjs; the native
 //   cores in web/build/native: web/engines/native/build.sh)
 // Exit 1 when a check fails. "engine" without an answering core reports "no reply" (expected until sysex-glue lands)
 // and fails only if the manager's bytes did not reach the engine.
@@ -28,7 +34,8 @@ const OUT = join(WEB, "build", "test"), SHOTS = process.env.SHOTS_DIR || null;
 const argv = process.argv.slice(2), mi = argv.indexOf("--mode");
 const MODE = mi >= 0 ? argv[mi + 1] : "both";
 const ei = argv.indexOf("--engine"), ENGINE = ei >= 0 ? argv[ei + 1] : "native";     // rfm1: the firmware's .rfm1 file
-const IDS = argv.filter((a, i) => !a.startsWith("--") && i !== mi + 1 && i !== ei + 1);
+const IDS = argv.filter((a, i) => !a.startsWith("--") && (mi < 0 || i !== mi + 1) && (ei < 0 || i !== ei + 1));
+const LIVE = argv.includes("--live");
 const INDEX = JSON.parse(readFileSync(join(WEB, "build", "managers", "index.json"), "utf8"));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 mkdirSync(OUT, { recursive: true });
@@ -82,6 +89,55 @@ const hex = (a) => (a ? Array.from(a.slice ? a.slice(0, 12) : a, (v) => v.toStri
 // expressions run in the player page; F = the manager's window (the panel's iframe, same origin)
 const FR = `var F = document.querySelector(".ed-frame") && document.querySelector(".ed-frame").contentWindow;`;
 const felucca = (id) => id !== "choralroot";
+const PREF = (id) => `remotefm1-editor-src:${id}`;
+
+// the execution contexts of a page and of its frames (a sandboxed srcdoc iframe may be a process of its own, an OOPIF:
+// auto-attached; or a context of the page's own session): evaluate in the newest frame context of an opaque origin
+function frameContexts(cdp, rootSession) {
+  const ctx = [];                                      // { session, id, frameId, origin, n }
+  let n = 0;
+  const sessions = new Set([rootSession]);
+  cdp.handlers.push((m) => {
+    if (!sessions.has(m.sessionId)) return;
+    if (m.method === "Runtime.executionContextCreated") {
+      const c = m.params.context;
+      if (c.auxData && c.auxData.isDefault) ctx.push({ session: m.sessionId, id: c.id, frameId: c.auxData.frameId, origin: c.origin, n: ++n });
+    } else if (m.method === "Runtime.executionContextDestroyed") {
+      const i = ctx.findIndex((c) => c.session === m.sessionId && c.id === m.params.executionContextId); if (i >= 0) ctx.splice(i, 1);
+    } else if (m.method === "Runtime.executionContextsCleared") {
+      for (let i = ctx.length - 1; i >= 0; i--) if (ctx[i].session === m.sessionId) ctx.splice(i, 1);
+    } else if (process.env.E2E_DEBUG && m.sessionId !== rootSession && (m.method === "Runtime.exceptionThrown" || (m.method === "Runtime.consoleAPICalled" && /error|warn/.test(m.params.type)))) {
+      console.log("    [frame]", m.method === "Runtime.exceptionThrown" ? (m.params.exceptionDetails.exception?.description || m.params.exceptionDetails.text).slice(0, 300) : m.params.args.map((a) => a.value ?? a.description).join(" ").slice(0, 300));
+    } else if (m.method === "Target.attachedToTarget" && m.params.targetInfo.type === "iframe") {
+      const s = m.params.sessionId; sessions.add(s);
+      cdp.send("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }, s).catch(() => {});
+      cdp.send("Runtime.enable", {}, s).catch(() => {});
+    }
+  });
+  // (the newest opaque-origin frame context that has the shim: the editor's, not a frame of its own, a challenge's)
+  let chosen = null;
+  const pick = async () => {
+    if (chosen && ctx.includes(chosen)) return chosen;
+    chosen = null;
+    for (const c of ctx.filter((x) => x.origin === "null" || x.origin === "" || x.origin === "://").sort((a, b) => b.n - a.n)) {
+      const r = await cdp.send("Runtime.evaluate", { expression: "!!window.__fm1shim", contextId: c.id, returnByValue: true }, c.session).catch(() => null);
+      if (r && r.result && r.result.value === true) return (chosen = c);
+    }
+    return null;
+  };
+  return {
+    start: () => cdp.send("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }, rootSession),
+    pick,
+    async ev(expr) {
+      const c = await pick();
+      if (!c) throw new Error("no live frame context");
+      if (process.env.E2E_DEBUG) console.log("    [ctx]", JSON.stringify(ctx));
+      const r = await cdp.send("Runtime.evaluate", { expression: expr, contextId: c.id, awaitPromise: true, returnByValue: true, userGesture: true }, c.session);
+      if (r.exceptionDetails) throw new Error((r.exceptionDetails.exception?.description || r.exceptionDetails.text).split("\n")[0]);
+      return r.result.value;
+    },
+  };
+}
 
 async function session(id, mode) {
   const { p, wsUrl } = await launch();
@@ -105,6 +161,11 @@ async function session(id, mode) {
       return r.result.value;
     };
     const until = async (expr, ms, step = 100) => { const t0 = Date.now(); for (;;) { let v; try { v = await ev(expr); } catch (_) { v = null; } if (v) return v; if (Date.now() - t0 > ms) return null; await sleep(step); } };
+    // F: the manager's window. Hosted: the panel's iframe, same origin, from the player page; live: the sandbox's own context
+    const fc = frameContexts(cdp, sessionId);
+    if (LIVE) await fc.start();
+    const evF = (expr) => (LIVE ? fc.ev("((F) => (" + expr + "))(window)") : ev(FR + " " + expr));
+    const untilF = async (expr, ms, step = 100) => { const t0 = Date.now(); for (;;) { let v; try { v = await evF(expr); } catch (_) { v = null; } if (v) return v; if (Date.now() - t0 > ms) return null; await sleep(step); } };
     const shot = async (name) => {
       const s = await S("Page.captureScreenshot", { format: "png" });
       const b = Buffer.from(s.data, "base64");
@@ -116,7 +177,7 @@ async function session(id, mode) {
     // the player's Autosave of this firmware (IndexedDB "remotefm1-player"): when it was saved, and a hash of its bytes
     const autosave = () => ev(`(async () => { const d = await new Promise((res) => { const q = indexedDB.open("remotefm1-player"); q.onsuccess = () => res(q.result); });
       const all = await new Promise((res) => { const q = d.transaction("saves").objectStore("saves").getAll(); q.onsuccess = () => res(q.result); });
-      const a = all.find((x) => x.fw === "${id}" && x.engine === "native" && x.name === "Autosave"); if (!a) return null;
+      const a = all.find((x) => x.fw === "${id}" && x.engine === "${ENGINE}" && x.name === "Autosave"); if (!a) return null;
       let h = 2166136261; for (let i = 0; i < a.bytes.length; i++) h = Math.imul(h ^ a.bytes[i], 16777619);
       return a.saved + " " + (h >>> 0).toString(16); })()`);
     // a flash write the manager made must reach the Autosave as the firmware's own saves do (main.js: the flash's seq
@@ -130,7 +191,7 @@ async function session(id, mode) {
     await S("Page.navigate", { url: `${BASE}site/?fw=${id}&engine=${ENGINE}` });
     const up = await until(`window.FM1Editor && FM1Editor.bridge.target.connected && FM1Editor.bridge.target.port`, 25000);
     ok(up, `${id}: the ${ENGINE} engine runs, the in-page port is "${up}"`);
-    if (!up) return;
+    if (!up) { console.log("    state:", await ev(`(() => { const s = FM1Editor.d.getState(); return JSON.stringify({ entry: s.entry && s.entry.id, engine: s.engine, want: s.wantEngine, st: s.engineState, info: s.info, port: s.entry && s.entry.port }); })()`).catch((e) => e.message)); for (const l of logs.slice(0, 6)) console.log("    " + l); return; }
     const r = { id, mode, port: up };
     // the double: the manager's own simulator in place of the core, behind the same bridge (installed before the
     // panel opens: ChoralRoot's manager connects by itself)
@@ -149,19 +210,48 @@ async function session(id, mode) {
     // every request the manager makes, by command (F0 7D 46 4C cmd ...), whatever answers it
     await ev(`(() => { window.__cmds = {}; const t = FM1Editor.bridge.toEngine; FM1Editor.bridge.toEngine = (b) => {
       if (b[0] === 0xf0 && b[1] === 0x7d) { const k = b[1] === 0x7d && b[2] === 0x46 ? b[4] : "7d-" + b[2]; __cmds[k] = (__cmds[k] || 0) + 1; } return (window.__double || t)(b); }; return true; })()`);
+    await ev(`(() => { try { ${LIVE ? `localStorage.removeItem("${PREF(id)}")` : `localStorage.setItem("${PREF(id)}", "hosted")`}; } catch (_) {} return true; })()`);
     await ev(`document.getElementById("ed-btn").click()`);
-    const loaded = await until(`${FR} !!(F && F.__fm1shim && F.document.readyState === "complete")`, 15000);
-    ok(loaded, `${id}: the Editor panel shows ${INDEX.managers.find((m) => m.id === id).title}, the shim in it`);
+    const title = (INDEX.managers.find((m) => m.id === id) || {}).title || `${id}'s editor`;
+    if (LIVE) {
+      const want = await ev(`FM1Editor.editor && FM1Editor.editor.live`);
+      const got = await until(`FM1Editor.showingLive && FM1Editor.live.ready ? "live" : FM1Editor.editor && FM1Editor.liveFail.has(FM1Editor.editor.live) ? "fail" : null`, 15000);
+      r.live = got === "live" ? `live (${await ev(`FM1Editor.live.host`)})` : `fell back: ${got ? await ev(`FM1Editor.liveFail.get(FM1Editor.editor.live)`) : "no hello, no failure in 15 s"}`;
+      if (!want) r.live = "no live page (not https, a fragment, or none)";
+      ok(got === "live" || got === "fail", `${id}: the author's live page ${want || "-"}: ${r.live}`);
+      if (got !== "live") {
+        const fb = await ev(`FM1Editor.frameFor`);
+        console.log(`  --    ${id}: the panel shows ${fb || "a note"} instead`);
+        await shot(`editor-${id}-live-fallback.png`);
+        rows.push(r);
+        return;
+      }
+      ok(await ev(`(() => { const f = document.querySelector(".ed-frame"); return f.getAttribute("sandbox").split(" ").indexOf("allow-same-origin") < 0 && f.hasAttribute("srcdoc"); })()`),
+         `${id}: the live page runs in a sandbox without allow-same-origin (srcdoc)`);
+      ok(await ev(`(() => { try { return !document.querySelector(".ed-frame").contentWindow.document; } catch (_) { return true; } })()`),
+         `${id}: the player cannot reach into the live page (an opaque origin)`);
+    }
+    const loaded = await untilF(`!!(F && F.__fm1shim && F.document.readyState === "complete")`, 15000);
+    ok(loaded, `${id}: the Editor panel shows ${title}${LIVE ? " (live)" : ""}, the shim in it${LIVE ? ` (transport ${loaded ? await evF("F.__fm1shim.transport") : "-"})` : ""}`);
+    if (LIVE && loaded) {
+      const st = await evF(`(() => { const o = {}; try { localStorage.setItem("e2e-k", "v1"); o.ls = localStorage.getItem("e2e-k"); } catch (e) { o.ls = "threw " + e.name; }
+        o.idb = typeof indexedDB; try { history.replaceState(null, "", location.pathname + location.search + "#e2e"); o.hist = location.hash; } catch (e) { o.hist = "threw " + e.name; }
+        o.base = document.baseURI; return o; })()`);
+      await sleep(200);
+      const kept = await ev(`Object.keys(localStorage).filter((k) => k.startsWith("remotefm1-ed:") && k.endsWith("|e2e-k")).map((k) => localStorage.getItem(k)).join()`);
+      ok(st.ls === "v1" && kept === "v1" && st.hist === "#e2e", `${id}: in the sandbox: localStorage a stand-in kept by the player (${st.ls}/${kept}), indexedDB ${st.idb}, replaceState ${st.hist}, base ${st.base}`);
+    }
     if (!loaded) {
-      console.log("    panel:", await ev(`${FR} JSON.stringify({ shim: typeof (F && F.__fm1shim), ready: F && F.document.readyState, nav: F && String(F.navigator.requestMIDIAccess).slice(0, 60), index: !!FM1Editor.index, btn: !document.getElementById("ed-btn").hidden, open: FM1Editor.open, body: document.getElementById("ed-body").innerHTML.slice(0, 300) })`));
+      if (LIVE) console.log("    live frame:", await evF(`JSON.stringify({ shim: typeof F.__fm1shim, ready: F.document.readyState, href: location.href, title: document.title, body: document.body && document.body.innerText.slice(0, 200) })`).catch((e) => e.message));
+      if (!LIVE) console.log("    panel:", await evF(`JSON.stringify({ shim: typeof (F && F.__fm1shim), ready: F && F.document.readyState, nav: F && String(F.navigator.requestMIDIAccess).slice(0, 60), index: !!FM1Editor.index, btn: !document.getElementById("ed-btn").hidden, open: FM1Editor.open, body: document.getElementById("ed-body").innerHTML.slice(0, 300) })`));
       await shot(`editor-${id}-${mode}-fail.png`);
       return;
     }
     await sleep(600);
-    const names = await ev(`${FR} F.navigator.requestMIDIAccess().then((a) => [...a.inputs.values(), ...a.outputs.values()].map((p) => p.type + ":" + p.name + ":" + p.state))`);
+    const names = await evF(`F.navigator.requestMIDIAccess().then((a) => [...a.inputs.values(), ...a.outputs.values()].map((p) => p.type + ":" + p.name + ":" + p.state))`);
     ok(names.length === 2 && names.every((n) => n.endsWith(":" + up + ":connected")), `${id}: the manager sees ${names.join(", ")}`);
     if (mode === "double" && felucca(id)) {
-      await ev(`${FR} (() => { const mock = F.__mock = F.makeMockDevice({ auto: false });
+      await evF(`(() => { const mock = F.__mock = F.makeMockDevice({ auto: false });
         const mi = [...mock.access.inputs.values()][0], mo = [...mock.access.outputs.values()][0];
         mi.onmidimessage = (e) => FM1Editor.bridge.fromEngine(e.data);
         window.__double = (b) => mo.send(Array.from(b));
@@ -170,17 +260,31 @@ async function session(id, mode) {
 
     // ---- connect + INFO
     let answered = false;
-    if (felucca(id)) {
-      await ev(`${FR} F.document.getElementById("connect").click(), true`);
+    // (Felucca's own editor since 1.8: a header chip, #state-t "live · 1.8.1" once it read the firmware; no #version)
+    const felucca2 = felucca(id) && await evF(`!F.document.getElementById("version") && !!F.document.getElementById("state-t")`);
+    // (an editor this test does not know (a live page only: GR!MM, Caravel, DUELL ...): its own Connect button, if it has
+    // one; it answered when the firmware's replies reached it and its page shows the firmware's version)
+    const generic = LIVE && felucca(id) && !felucca2 && await evF(`!F.document.getElementById("version") || !F.document.getElementById("status")`);
+    if (generic) {
+      await evF(`(() => { const b = F.document.getElementById("connect") || [...F.document.querySelectorAll("button")].find((x) => /^\\s*connect/i.test(x.textContent)); if (b) b.click(); return !!b; })()`);
+      answered = !!(await until(`FM1Editor.bridge.stats.toManagers > 0 || null`, 9000));
+      await sleep(1500);
+      r.status = r.version = await evF(`((F.document.body.innerText.match(/v?\\d+\\.\\d+(\\.\\d+)?[\\w.-]*/) || [""])[0])`);
+    } else if (felucca2) {
+      await evF(`F.document.getElementById("connect").click(), true`);
+      answered = !!(await untilF(`!F.document.getElementById("state-dot").classList.contains("off") && /·/.test(F.document.getElementById("state-t").textContent) || null`, 9000));
+      r.status = r.version = await evF(`F.document.getElementById("state-t").textContent`);
+    } else if (felucca(id)) {
+      await evF(`F.document.getElementById("connect").click(), true`);
       // (the editor's state lives in a closure: its own page tells, #version filled and the status "Connected")
-      answered = !!(await until(`${FR} F.document.getElementById("version").textContent && /^(Connected|接続しました)$/.test(F.document.getElementById("status").textContent) || null`, mode === "double" ? 15000 : 9000));
+      answered = !!(await untilF(`F.document.getElementById("version").textContent && /^(Connected|接続しました)$/.test(F.document.getElementById("status").textContent) || null`, mode === "double" ? 15000 : 9000));
       if (!answered) await sleep(500);
-      r.status = await ev(`${FR} F.document.getElementById("status").textContent`);
-      r.version = await ev(`${FR} F.document.getElementById("version").textContent`);
+      r.status = await evF(`F.document.getElementById("status").textContent`);
+      r.version = await evF(`F.document.getElementById("version").textContent`);
     } else {
-      answered = !!(await until(`${FR} /read:/.test(F.document.getElementById("status").textContent)`, mode === "double" ? 15000 : 9000));
-      r.status = await ev(`${FR} F.document.getElementById("conn").textContent + " | " + F.document.getElementById("status").textContent`);
-      r.version = await ev(`${FR} F.document.getElementById("fw").textContent`);
+      answered = !!(await untilF(`/read:/.test(F.document.getElementById("status").textContent)`, mode === "double" ? 15000 : 9000));
+      r.status = await evF(`F.document.getElementById("conn").textContent + " | " + F.document.getElementById("status").textContent`);
+      r.version = await evF(`F.document.getElementById("fw").textContent`);
     }
     const st = await ev(`({ toEngine: FM1Editor.bridge.stats.toEngine, toManagers: FM1Editor.bridge.stats.toManagers, first: FM1Editor.bridge.stats.lastIn && Array.from(FM1Editor.bridge.stats.lastIn) })`);
     r.toEngine = st.toEngine; r.toManagers = st.toManagers;
@@ -190,14 +294,14 @@ async function session(id, mode) {
     else console.log(`  ${answered ? "ok  " : "--  "}  ${id}: INFO ${answered ? `answered: "${r.version}"` : "not answered (the core has no SysEx service yet: FM1VST sysex-glue)"}; status "${r.status}"`);
 
     // ---- a backup get, a put and the get-back
-    if (answered && felucca(id) && await ev(`${FR} !!F.document.getElementById("backup-export")`)) {
-      const caps = await ev(`${FR} (F.document.getElementById("backup-export").disabled ? 0 : 1) | (F.document.getElementById("backup-import").disabled ? 0 : 2)`);
+    if (answered && felucca(id) && !felucca2 && !generic && await evF(`!!F.document.getElementById("backup-export")`)) {
+      const caps = await evF(`(F.document.getElementById("backup-export").disabled ? 0 : 1) | (F.document.getElementById("backup-import").disabled ? 0 : 2)`);
       if (caps & 1) {
         const save = async () => {
-          await ev(`${FR} (() => { F.__blobs = []; if (!F.__hooked) { F.__hooked = 1; const o = F.URL.createObjectURL.bind(F.URL); F.URL.createObjectURL = (b) => { F.__blobs.push(b); return o(b); }; } return true; })()`);
-          await ev(`${FR} F.document.getElementById("backup-export").click(), true`);
-          const done = await until(`${FR} F.__blobs.length ? true : null`, 60000, 200);
-          return done ? ev(`${FR} F.__blobs[0].text()`) : null;
+          await evF(`(() => { F.__blobs = []; if (!F.__hooked) { F.__hooked = 1; const o = F.URL.createObjectURL.bind(F.URL); F.URL.createObjectURL = (b) => { F.__blobs.push(b); return o(b); }; } return true; })()`);
+          await evF(`F.document.getElementById("backup-export").click(), true`);
+          const done = await untilF(`F.__blobs.length ? true : null`, 60000, 200);
+          return done ? evF(`F.__blobs[0].text()`) : null;
         };
         const a1 = await save();
         r.get = !!a1;
@@ -206,12 +310,12 @@ async function session(id, mode) {
         if (a1 && caps & 2) {
           const flashBefore = await autosave();
           // (the status line says "restored" until the next push overwrites it: watched, not polled)
-          await ev(`${FR} (() => { F.__said = []; new F.MutationObserver(() => F.__said.push(F.document.getElementById("status").textContent))
+          await evF(`(() => { F.__said = []; new F.MutationObserver(() => F.__said.push(F.document.getElementById("status").textContent))
             .observe(F.document.getElementById("status"), { childList: true, characterData: true, subtree: true }); return true; })()`);
-          await ev(`${FR} (() => { F.confirm = () => true; const dt = new F.DataTransfer(); dt.items.add(new F.File([${JSON.stringify(a1)}], "e2e-backup.json", { type: "application/json" }));
+          await evF(`(() => { F.confirm = () => true; const dt = new F.DataTransfer(); dt.items.add(new F.File([${JSON.stringify(a1)}], "e2e-backup.json", { type: "application/json" }));
             const i = F.document.getElementById("backup-file"); i.files = dt.files; i.dispatchEvent(new F.Event("change")); return true; })()`);
-          const restored = await until(`${FR} F.__said.find((t) => /restored|復元しました/i.test(t)) || null`, 90000, 250);
-          r.said = await ev(`${FR} [...new Set(F.__said.filter((t) => !/%$|^Reading|^読み/.test(t)))].join(" / ")`);
+          const restored = await untilF(`F.__said.find((t) => /restored|復元しました/i.test(t)) || null`, 90000, 250);
+          r.said = await evF(`[...new Set(F.__said.filter((t) => !/%$|^Reading|^読み/.test(t)))].join(" / ")`);
           ok(restored, `${id}: backup PUT (Restore backup): the editor said "${r.said}"`);
           await sleep(1500);
           const a2 = await save();
@@ -229,16 +333,16 @@ async function session(id, mode) {
     if (answered && !felucca(id)) {
       r.get = true;
       ok(true, `${id}: backup GET: the device read (LIST + GET of every object): "${r.status}"`);
-      const before = await ev(`${FR} F.document.querySelectorAll("#dev-rows li.user").length`);
+      const before = await evF(`F.document.querySelectorAll("#dev-rows li.user").length`);
       const flashBefore = await autosave();
-      await ev(`${FR} (() => { const s = F.document.getElementById("lib-src"); s.value = "factory-fm6.json"; s.dispatchEvent(new F.Event("change")); return true; })()`);
-      const libOk = await until(`${FR} F.document.querySelector("#lib-rows li.user") ? true : null`, 5000);
+      await evF(`(() => { const s = F.document.getElementById("lib-src"); s.value = "factory-fm6.json"; s.dispatchEvent(new F.Event("change")); return true; })()`);
+      const libOk = await untilF(`F.document.querySelector("#lib-rows li.user") ? true : null`, 5000);
       if (libOk) {
-        await ev(`${FR} F.document.querySelector("#lib-rows li.user").click(), true`);
-        await until(`${FR} !F.document.getElementById("place").disabled || null`, 3000);
-        await ev(`${FR} F.document.getElementById("place").click(), true`);
-        const placed = await until(`${FR} /^Placed/.test(F.document.getElementById("status").textContent) ? F.document.getElementById("status").textContent : null`, 30000, 200);
-        const after = await ev(`${FR} F.document.querySelectorAll("#dev-rows li.user").length`);
+        await evF(`F.document.querySelector("#lib-rows li.user").click(), true`);
+        await untilF(`!F.document.getElementById("place").disabled || null`, 3000);
+        await evF(`F.document.getElementById("place").click(), true`);
+        const placed = await untilF(`/^Placed/.test(F.document.getElementById("status").textContent) ? F.document.getElementById("status").textContent : null`, 30000, 200);
+        const after = await evF(`F.document.querySelectorAll("#dev-rows li.user").length`);
         r.put = !!placed && after === before + 1;
         ok(r.put, `${id}: PUT (Place a pack sound) and the read-back: ${before} -> ${after} user sounds ("${placed}")`);
         if (mode === "engine") await autosaveMoved(flashBefore, "the Place");
@@ -253,8 +357,9 @@ async function session(id, mode) {
       await ev(`dispatchEvent(new KeyboardEvent("keyup", { code: "KeyD", key: "d", bubbles: true })), true`);
       const f1 = await until(`FM1Editor.d.getState().frameSeq !== ${f0} ? FM1Editor.d.getState().frameSeq : null`, 3000);
       const ctx = await ev(`FM1Editor.d.getState().running && FM1Editor.d.getState().engineState`);
-      // (SLOOP's home screen does not redraw for a key, with or without the editor: there the engine's state tells)
-      const still = id === "sloop" ? ctx === "running" : f1 && ctx === "running";
+      // (SLOOP's, Skiff's and DUELL's home screens do not redraw for that key, with or without the editor: there the
+      // engine's state tells)
+      const still = ["sloop", "skiff", "duell"].includes(id) ? ctx === "running" : f1 && ctx === "running";
       ok(still, `${id}: the firmware keeps running with the editor open (screen frame ${f0} -> ${f1}, engine ${ctx})`);
     }
     r.cmds = await ev(`JSON.stringify(window.__cmds)`);
@@ -269,21 +374,23 @@ async function session(id, mode) {
     if (mode === "engine" && answered) {
       // ---- RESTART (72) from the manager's port: the firmware halts, the page boots it again from its flash as it
       // stands (main.js halted), the port goes and comes back, the manager finds it again
-      const users = !felucca(id) ? await ev(`${FR} F.document.querySelectorAll("#dev-rows li.user").length`) : null;
+      const users = !felucca(id) ? await evF(`F.document.querySelectorAll("#dev-rows li.user").length`) : null;
       await ev(`window.__halts = 0; new MutationObserver(() => { if (/restarted/.test(document.getElementById("toast").textContent)) window.__halts++; })
         .observe(document.getElementById("toast"), { childList: true, characterData: true, subtree: true }); true`);
-      await ev(`${FR} F.navigator.requestMIDIAccess().then((a) => { [...a.outputs.values()][0].send([0xf0, 0x7d, 0x46, 0x4c, 72, 0xf7]); return true; })`);
+      await evF(`F.navigator.requestMIDIAccess().then((a) => { [...a.outputs.values()][0].send([0xf0, 0x7d, 0x46, 0x4c, 72, 0xf7]); return true; })`);
       const halted = await until(`window.__halts > 0 || null`, 5000);
       if (!halted) console.log(`  --    ${id}: RESTART (72): the firmware did not halt (its glue does not map it)`);
       else {
         const back = await until(`FM1Editor.bridge.target.connected && FM1Editor.bridge.target.port || null`, 20000);
         ok(back, `${id}: RESTART (72): the firmware halted, booted again from its flash; the port "${back}" is back`);
         if (!felucca(id)) {
-          const again = await until(`${FR} /read:/.test(F.document.getElementById("status").textContent) && F.document.querySelectorAll("#dev-rows li.user").length === ${users} ? F.document.getElementById("status").textContent : null`, 20000, 250);
+          const again = await untilF(`/read:/.test(F.document.getElementById("status").textContent) && F.document.querySelectorAll("#dev-rows li.user").length === ${users} ? F.document.getElementById("status").textContent : null`, 20000, 250);
           ok(again, `${id}: after the reboot the manager found the port again and read ${users} user sound(s) back from the flash ("${again}")`);
         }
       }
-      // ---- popped out: the manager in a tab of its own, over the BroadcastChannel to this player tab
+      // ---- popped out: the manager in a tab of its own, over the BroadcastChannel to this player tab (live: managers/
+      // live.html, opened by the panel's Pop out with its token, relays its sandbox)
+      if (LIVE) { await livePopOut(cdp, ev, id); cdp.ws.close(); return; }
       await ev(`document.getElementById("ed-close").click(), true`);
       const pid = await ev(`FM1Editor.bridge.pid`);
       const { targetId: t2 } = await cdp.send("Target.createTarget", { url: `${BASE}build/managers/${id}/` });
@@ -313,6 +420,47 @@ async function session(id, mode) {
   }
 }
 
+// ---- a live editor popped out: the panel's Pop out opens managers/live.html (its token), which loads the author's page
+// in its own sandbox and relays it to this player tab over the BroadcastChannel; the editor connects from there
+async function livePopOut(cdp, ev, id) {
+  const r = rows.find((x) => x.id === id && x.mode === "engine");
+  await ev(`document.getElementById("ed-pop").click(), true`);
+  let tid = null;
+  for (let i = 0; i < 80 && !tid; i++) {
+    const { targetInfos } = await cdp.send("Target.getTargets");
+    const t = targetInfos.find((x) => x.type === "page" && /\/managers\/live\.html\?t=/.test(x.url));
+    if (t) tid = t.targetId; else await sleep(100);
+  }
+  if (!ok(tid, `${id}: Pop out opened managers/live.html`)) { if (r) r.pop = "no tab"; return; }
+  const { sessionId: s2 } = await cdp.send("Target.attachToTarget", { targetId: tid, flatten: true });
+  const fc2 = frameContexts(cdp, s2);
+  await fc2.start();
+  await cdp.send("Runtime.enable", {}, s2);
+  await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1200, height: 900, deviceScaleFactor: 1, mobile: false }, s2).catch(() => {});
+  const ev2 = async (expr) => { const x = await cdp.send("Runtime.evaluate", { expression: expr, awaitPromise: true, returnByValue: true, userGesture: true }, s2); return x.exceptionDetails ? null : x.result.value; };
+  const until2 = async (f, ms) => { const t0 = Date.now(); for (;;) { const v = await f().catch(() => null); if (v) return v; if (Date.now() - t0 > ms) return null; await sleep(150); } };
+  const port = await until2(() => ev2(`window.__fm1live && __fm1live.port`), 15000);
+  ok(port, `${id}: popped out live: the relay's page is bound to the player tab, port "${port}" (${await ev2(`document.getElementById("sub").textContent`)})`);
+  const fe = (expr) => fc2.ev("((F) => (" + expr + "))(window)");
+  let said;
+  if (felucca(id)) {
+    await until2(() => fe(`F.document.readyState === "complete" || null`), 8000);
+    const out0 = await ev(`FM1Editor.bridge.stats.toManagers`);
+    await fe(`(() => { const b = F.document.getElementById("connect") || [...F.document.querySelectorAll("button")].find((x) => /^\\s*connect/i.test(x.textContent)); if (b) b.click(); return true; })()`).catch(() => {});
+    const gen = await fe(`!F.document.getElementById("state-t") && (!F.document.getElementById("version") || !F.document.getElementById("status"))`).catch(() => false);
+    if (gen) said = await until2(() => ev(`FM1Editor.bridge.stats.toManagers > ${out0} ? "replies: " + (FM1Editor.bridge.stats.toManagers - ${out0}) : null`), 15000);
+    else if (await fe(`!F.document.getElementById("version")`).catch(() => false))
+      said = await until2(() => fe(`!F.document.getElementById("state-dot").classList.contains("off") && /·/.test(F.document.getElementById("state-t").textContent) ? F.document.getElementById("state-t").textContent : null`), 15000);
+    else said = await until2(() => fe(`F.document.getElementById("version").textContent && /^(Connected|接続しました)$/.test(F.document.getElementById("status").textContent) ? F.document.getElementById("version").textContent : null`), 15000);
+  } else said = await until2(() => fe(`/read:/.test(F.document.getElementById("status").textContent) ? F.document.getElementById("status").textContent : null`), 20000);
+  const tabs = await ev(`[...FM1Editor.bridge.sessions.values()].filter((s) => s.via === "tab").length`);
+  ok(said && tabs >= 1, `${id}: popped out live: the editor talks to the firmware from managers/live.html ("${said}", ${tabs} tab session(s))`);
+  if (r) r.pop = said ? "ok" : "FAIL";
+  const s = await cdp.send("Page.captureScreenshot", { format: "png" }, s2);
+  writeFileSync(join(OUT, `editor-${id}-live-tab.png`), Buffer.from(s.data, "base64"));
+  if (SHOTS) writeFileSync(join(SHOTS, `editor-${id}-live-tab.png`), Buffer.from(s.data, "base64"));
+}
+
 // the site's catalog lists the firmware on an .rfm1 (the dev catalog built with --fw-catalog)
 const rfm1Of = (id) => { try { return JSON.parse(readFileSync(join(WEB, "site", "catalog.json"), "utf8")).firmwares.some((f) => f.id === id && f.engines.includes("rfm1")); } catch (_) { return false; } };
 // the panel without a manager to show: an emulated firmware ("switch Engine to Native"), an emulated-only
@@ -330,9 +478,10 @@ async function notes() {
     const cases = [
       { name: "emu", url: "site/?fw=felucca&engine=emu", w: 1600, h: 900, want: /switch Engine to (Native|\.rfm1)/ },
       { name: "real", url: "site/?fw=zp12", w: 1600, h: 900, want: /needs a real FM-1/ },
-      // with the .rfm1 files (build_catalog --fw-catalog): SLOOP's editor on its .rfm1, Skiff's only on its own site
+      // with the .rfm1 files (build_catalog --fw-catalog): SLOOP's editor on its .rfm1, Mutable Dreams' only on its own
+      // site (its editor is an app of its own, a #fragment: never loaded live)
       ...(rfm1Of("sloop") ? [{ name: "rfm1", url: "site/?fw=sloop", w: 1600, h: 900, want: /SLOOP editor/, frame: true }] : []),
-      ...(rfm1Of("skiff") ? [{ name: "rfm1-link", url: "site/?fw=skiff&engine=rfm1", w: 1600, h: 900, want: /not hosted on this site yet/ }] : []),
+      ...(rfm1Of("mutabledreams") ? [{ name: "rfm1-link", url: "site/?fw=mutabledreams&engine=rfm1", w: 1600, h: 900, want: /not hosted on this site yet/ }] : []),
       { name: "phone", url: "site/?fw=jiant&engine=native", w: 390, h: 844, mobile: true, want: /JIANT FM editor/, frame: true },
     ];
     for (const c of cases) {
@@ -379,7 +528,12 @@ async function pigeonSession() {
       return r.result.value;
     };
     const until = async (expr, ms, step = 100) => { const t0 = Date.now(); for (;;) { let v; try { v = await ev(expr); } catch (_) { v = null; } if (v) return v; if (Date.now() - t0 > ms) return null; await sleep(step); } };
-    const status = () => ev(`${FR} F.document.getElementById("status").textContent`);
+    const fc = frameContexts(cdp, sessionId);
+    if (LIVE) await fc.start();
+    let liveF = LIVE;
+    const evF = (expr) => (liveF ? fc.ev("((F) => (" + expr + "))(window)") : ev(FR + " " + expr));
+    const untilF = async (expr, ms, step = 100) => { const t0 = Date.now(); for (;;) { let v; try { v = await evF(expr); } catch (_) { v = null; } if (v) return v; if (Date.now() - t0 > ms) return null; await sleep(step); } };
+    const status = () => evF(`F.document.getElementById("status").textContent`);
     await S("Page.navigate", { url: `${BASE}site/?fw=${id}&engine=${ENGINE}` });
     const up = await until(`window.FM1Editor && FM1Editor.bridge.target.connected && FM1Editor.bridge.target.port`, 25000);
     ok(up === "PIGEON", `${id}: the ${ENGINE} engine runs, the in-page port is "${up}"`);
@@ -403,25 +557,40 @@ async function pigeonSession() {
     const before = await play();
     ok(before < 0.002, `${id}: a fresh PIGEON is silent: no samples (keys A..G, peak ${before.toFixed(4)})`);
 
+    await ev(`(() => { try { ${LIVE ? `localStorage.removeItem("${PREF(id)}")` : `localStorage.setItem("${PREF(id)}", "hosted")`}; } catch (_) {} return true; })()`);
     await ev(`document.getElementById("ed-btn").click()`);
-    const loaded = await until(`${FR} !!(F && F.__fm1shim && F.document.readyState === "complete" && F.document.getElementById("send-help")
+    let liveSaid = null;
+    if (LIVE && !(await ev(`FM1Editor.editor && FM1Editor.editor.live`))) {
+      liveSaid = "no live page (managers.json live: false): the hosted copy";
+      liveF = false;
+      console.log(`  --    ${id}: ${liveSaid}`);
+    } else if (LIVE) {
+      const got = await until(`FM1Editor.showingLive && FM1Editor.live.ready ? "live" : FM1Editor.editor && FM1Editor.liveFail.has(FM1Editor.editor.live) ? "fail" : null`, 15000);
+      liveSaid = got === "live" ? `live (${await ev(`FM1Editor.live.host`)})` : `fell back: ${got ? await ev(`FM1Editor.liveFail.get(FM1Editor.editor.live)`) : "no hello in 15 s"}`;
+      ok(got === "live" || got === "fail", `${id}: the author's live page: ${liveSaid}`);
+      if (got !== "live") { rows.push({ id, mode: "engine", live: liveSaid, port: up }); return; }
+    }
+    const loaded = await untilF(`!!(F && F.__fm1shim && F.document.readyState === "complete" && F.document.getElementById("send-help")
       && F.document.getElementById("send-help").textContent !== "Preparing the tool…")`, 30000);
-    ok(loaded, `${id}: the Editor panel shows the PIGEON sample loader, the shim in it, ready (${loaded ? await ev(`${FR} F.document.getElementById("offline").textContent`) : "not ready"})`);
+    if (!loaded && LIVE) console.log("    live frame:", await evF(`JSON.stringify({ shim: typeof F.__fm1shim, ready: F.document.readyState, help: (F.document.getElementById("send-help") || {}).textContent, offline: (F.document.getElementById("offline") || {}).textContent, status: (F.document.getElementById("status") || {}).textContent })`).catch((e) => e.message));
+    ok(loaded, `${id}: the Editor panel shows the PIGEON sample loader, the shim in it, ready (${loaded ? await evF(`F.document.getElementById("offline").textContent`) : "not ready"})`);
     if (!loaded) return;
-    await ev(`${FR} (F.confirm = () => true, F.document.getElementById("connect").click(), true)`);
-    const conn = await until(`${FR} /PIGEON connected/.test(F.document.getElementById("status").textContent) ? F.document.getElementById("firmware-version").textContent : null`, 20000);
-    ok(conn, `${id}: Connect FM1: negotiated through the shim, "${conn || await status()}" on "${await ev(`${FR} F.document.getElementById("connection").textContent`)}"`);
+    await evF(`(F.confirm = () => true, F.document.getElementById("connect").click(), true)`);
+    const conn = await untilF(`/PIGEON connected/.test(F.document.getElementById("status").textContent) ? F.document.getElementById("firmware-version").textContent : null`, 20000);
+    ok(conn, `${id}: Connect FM1: negotiated through the shim, "${conn || await status()}" on "${await evF(`F.document.getElementById("connection").textContent`)}"`);
     if (!conn) return;
-    await ev(`${FR} (async () => { const b = await (await F.fetch("${PIGEON_BANK}")).arrayBuffer(); const dt = new F.DataTransfer();
+    // (the bank: read by the player page, this site; the live page's own fetch would be cross-origin to this test server)
+    const bank64 = await ev(`(async () => { const b = new Uint8Array(await (await fetch("${PIGEON_BANK}")).arrayBuffer()); let s = ""; for (const v of b) s += String.fromCharCode(v); return btoa(s); })()`);
+    await evF(`(async () => { const s = atob("${bank64}"), b = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i); const dt = new F.DataTransfer();
       dt.items.add(new F.File([b], "bank.kob")); const i = F.document.getElementById("open"); i.files = dt.files; i.dispatchEvent(new F.Event("change")); return true; })()`);
-    const opened = await until(`${FR} !F.document.getElementById("upload").disabled || null`, 20000);
+    const opened = await untilF(`!F.document.getElementById("upload").disabled || null`, 20000);
     ok(opened, `${id}: FM1VST's test bank opened in the loader ("${await status()}")`);
     if (!opened) return;
     const t0 = Date.now();
-    await ev(`${FR} (F.document.getElementById("upload").click(), true)`);
-    await until(`${FR} !F.document.getElementById("send-review").hidden || null`, 5000);
-    await ev(`${FR} (F.document.getElementById("send-confirm").click(), true)`);
-    const sent = await until(`${FR} /Bank sent and verified/.test(F.document.getElementById("status").textContent) || F.document.getElementById("status").parentElement.classList.contains("error") || null`, 180000, 250);
+    await evF(`(F.document.getElementById("upload").click(), true)`);
+    await untilF(`!F.document.getElementById("send-review").hidden || null`, 5000);
+    await evF(`(F.document.getElementById("send-confirm").click(), true)`);
+    const sent = await untilF(`/Bank sent and verified/.test(F.document.getElementById("status").textContent) || F.document.getElementById("status").parentElement.classList.contains("error") || null`, 180000, 250);
     const said = await status();
     ok(sent && /Bank sent and verified/.test(said), `${id}: Send bank to FM1: "${said}" (${((Date.now() - t0) / 1000).toFixed(1)} s)`);
     const after = await play();
@@ -430,7 +599,7 @@ async function pigeonSession() {
     writeFileSync(join(OUT, `editor-${id}-engine.png`), Buffer.from(s.data, "base64"));
     if (SHOTS) writeFileSync(join(SHOTS, `editor-${id}-engine.png`), Buffer.from(s.data, "base64"));
     console.log(`  shot  ${join(OUT, `editor-${id}-engine.png`)}`);
-    rows.push({ id, mode: "engine", port: up, info: !!conn, get: !!sent, put: after > 0.01, ...(await ev(`({ toEngine: FM1Editor.bridge.stats.toEngine, toManagers: FM1Editor.bridge.stats.toManagers })`)) });
+    rows.push({ id, mode: "engine", live: liveSaid, port: up, info: !!conn, get: !!sent, put: after > 0.01, ...(await ev(`({ toEngine: FM1Editor.bridge.stats.toEngine, toManagers: FM1Editor.bridge.stats.toManagers })`)) });
     cdp.ws.close();
   } finally {
     for (const l of logs.slice(0, 8)) console.log("    " + l);
@@ -440,19 +609,19 @@ async function pigeonSession() {
 }
 
 const ids = MODE === "notes" ? [] : IDS.length ? IDS : INDEX.managers.map((m) => m.id);
-if (MODE === "notes" || (MODE === "both" && !IDS.length)) { console.log("== the panel's notes"); try { await notes(); } catch (e) { ok(false, `notes: ${e.message}`); } }
+if (MODE === "notes" || (MODE === "both" && !IDS.length && !LIVE)) { console.log("== the panel's notes"); try { await notes(); } catch (e) { ok(false, `notes: ${e.message}`); } }
 for (const id of ids) {
   const core = INDEX.managers.find((m) => m.id === id);
-  if (!core) { ok(false, `${id}: no such hosted manager`); continue; }
+  if (!core && !LIVE) { ok(false, `${id}: no such hosted manager`); continue; }
   if (ENGINE === "native" && !existsSync(join(WEB, "build", "native", `${id}.wasm`))) { ok(false, `${id}: no web/build/native/${id}.wasm (web/engines/native/build.sh)`); continue; }
-  for (const mode of MODE === "both" ? ["double", "engine"] : [MODE]) {
+  for (const mode of LIVE ? ["engine"] : MODE === "both" ? ["double", "engine"] : [MODE]) {
     console.log(`== ${id} (${mode})`);
     if (id === "pigeon" && mode === "double") { console.log("  --    pigeon: no double (the loader has no simulator of its own)"); continue; }
     try { await (id === "pigeon" ? pigeonSession() : session(id, mode)); } catch (e) { ok(false, `${id} (${mode}): ${e.message}`); }
   }
 }
 server.kill("SIGTERM");
-console.log("\n| manager | mode | port | INFO | backup GET | PUT + get-back | messages in / out |\n|---|---|---|---|---|---|---|");
-for (const r of rows) console.log(`| ${r.id} | ${r.mode} | ${r.port} | ${r.info ? "answered" : "no reply"} | ${r.get ? "ok" : "-"} | ${r.put ? "ok" : "-"} | ${r.toEngine} / ${r.toManagers} |`);
+console.log(`\n| manager | mode |${LIVE ? " live page |" : ""} port | INFO | backup GET | PUT + get-back | pop out | messages in / out |\n|---|---|${LIVE ? "---|" : ""}---|---|---|---|---|---|`);
+for (const r of rows) console.log(`| ${r.id} | ${r.mode} |${LIVE ? ` ${r.live} |` : ""} ${r.port} | ${r.info ? "answered" : "no reply"} | ${r.get ? "ok" : "-"} | ${r.put ? "ok" : "-"} | ${r.pop || "-"} | ${r.toEngine ?? "-"} / ${r.toManagers ?? "-"} |`);
 console.log(`\n${checks - fails} / ${checks} checks passed`);
 process.exit(fails ? 1 : 0);

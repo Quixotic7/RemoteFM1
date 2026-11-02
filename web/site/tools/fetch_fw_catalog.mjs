@@ -3,9 +3,12 @@
 // the latest release's (or --tag's) .rfm1 assets and its SHA256SUMS, every file checked against SHA256SUMS, written to
 // --out (default web/site/fw/rfm1/, ignored by git: the binaries are never committed, the Pages build fetches them at
 // deploy) with SHA256SUMS and release.json ({ repo, tag, url, files }). build_catalog.mjs --fw-catalog <dir> lists them.
-//   node web/site/tools/fetch_fw_catalog.mjs [--repo OWNER/NAME] [--tag TAG] [--out DIR]
+// Also the repository's catalog/catalog.json (catalog/SCHEMA.md: per firmware id its card, its author's editor page and
+// its USB MIDI port name, checked against the firmware's USB settings), from --meta-ref (default main), as catalog.json in
+// --out: build_catalog.mjs takes each firmware's editor and port from it. Not fetched: a warning, the rest stands.
+//   node web/site/tools/fetch_fw_catalog.mjs [--repo OWNER/NAME] [--tag TAG] [--meta-ref REF] [--out DIR]
 //   node web/site/tools/fetch_fw_catalog.mjs --from DIR [--out DIR]     a local copy (offline, a fixture): DIR has the
-//                                                                       .rfm1 files and SHA256SUMS
+//                                                                       .rfm1 files and SHA256SUMS (and catalog.json)
 // GITHUB_TOKEN / GH_TOKEN is used for the API when set (the release is public: it is not needed). Any file that is not
 // its SHA256SUMS line, or a .rfm1 SHA256SUMS does not list (or the other way round), fails it (exit 1), writing nothing.
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync } from "node:fs";
@@ -15,7 +18,7 @@ import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const arg = (n, d) => { const i = process.argv.indexOf(n); return i > 0 ? process.argv[i + 1] : d; };
-const repo = arg("--repo", "Quixotic7/RemoteFM1FW"), tag = arg("--tag", null), from = arg("--from", null);
+const repo = arg("--repo", "Quixotic7/RemoteFM1FW"), tag = arg("--tag", null), from = arg("--from", null), metaRef = arg("--meta-ref", "main");
 const out = arg("--out", join(HERE, "..", "fw", "rfm1"));
 const die = (m) => { console.error(`fetch_fw_catalog: ${m}`); process.exit(1); };
 const sha = (b) => createHash("sha256").update(b).digest("hex");
@@ -31,8 +34,9 @@ export function parseSums(text) {
 }
 
 async function main() {
-  let sumsText, files = new Map(), rel = { repo, tag: null, url: null };
+  let sumsText, files = new Map(), rel = { repo, tag: null, url: null }, meta = null;
   if (from) {
+    try { meta = readFileSync(join(from, "catalog.json"), "utf8"); } catch (_) { meta = null; }
     sumsText = readFileSync(join(from, "SHA256SUMS"), "utf8");
     for (const n of readdirSync(from)) if (n.endsWith(".rfm1")) files.set(n, readFileSync(join(from, n)));
     try { rel = { ...rel, ...JSON.parse(readFileSync(join(from, "release.json"), "utf8")) }; } catch (_) { rel.tag = "local"; }
@@ -53,6 +57,16 @@ async function main() {
     if (!sumsAsset) die(`${repo} ${j.tag_name} has no SHA256SUMS`);
     sumsText = (await get(sumsAsset)).toString("utf8");
     for (const a of j.assets) if (a.name.endsWith(".rfm1")) files.set(a.name, await get(a));
+    const mu = `https://raw.githubusercontent.com/${repo}/${metaRef}/catalog/catalog.json`;
+    try {
+      const res = await fetch(mu, { headers: { "User-Agent": "remotefm1-site" }, signal: AbortSignal.timeout(30000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      meta = await res.text();
+    } catch (e) { console.warn(`fetch_fw_catalog: ${mu}: ${e.message || e} (no editors / ports from it)`); meta = null; }
+  }
+  if (meta !== null) {
+    try { const m = JSON.parse(meta); if (!m || typeof m.firmwares !== "object") throw new Error("no firmwares"); }
+    catch (e) { console.warn(`fetch_fw_catalog: its catalog.json is not one (${e.message}): left out`); meta = null; }
   }
   const sums = parseSums(sumsText);
   const listed = [...sums.keys()].filter((n) => n.endsWith(".rfm1"));
@@ -64,11 +78,12 @@ async function main() {
   }
   // (all checked: replace what --out had)
   mkdirSync(out, { recursive: true });
-  for (const n of readdirSync(out)) if (n.endsWith(".rfm1") || n === "SHA256SUMS" || n === "release.json") unlinkSync(join(out, n));
+  for (const n of readdirSync(out)) if (n.endsWith(".rfm1") || n === "SHA256SUMS" || n === "release.json" || n === "catalog.json") unlinkSync(join(out, n));
   const names = [...files.keys()].sort();
   for (const n of names) writeFileSync(join(out, n), files.get(n));
   writeFileSync(join(out, "SHA256SUMS"), names.map((n) => `${sums.get(n)}  ${n}\n`).join(""));
-  writeFileSync(join(out, "release.json"), JSON.stringify({ ...rel, files: names }, null, 1) + "\n");
+  writeFileSync(join(out, "release.json"), JSON.stringify({ ...rel, files: names, ...(meta !== null ? { catalog: `catalog/catalog.json@${from ? "local" : metaRef}` } : {}) }, null, 1) + "\n");
+  if (meta !== null) writeFileSync(join(out, "catalog.json"), meta);
   console.log(`fetch_fw_catalog: ${names.length} .rfm1 files of ${rel.repo} ${rel.tag}, checked against SHA256SUMS -> ${out}`);
 }
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) await main();

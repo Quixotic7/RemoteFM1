@@ -5,7 +5,16 @@
 // firmware's USB port ("ChoralRoot FM-1", "Felucca", "Melodee FM-1", "JIANT FM" ...), sysexEnabled, wired to the firmware
 // that runs in the player page instead of a USB device:
 //   - in the player's Editor panel (an iframe of the same origin): window.postMessage to the parent;
-//   - in its own tab ("pop out"): a BroadcastChannel ("remotefm1-managers") to the player tab.
+//   - in its own tab ("pop out"): a BroadcastChannel ("remotefm1-managers") to the player tab;
+//   - an author's live editor page (data-transport="sandbox": the player fetched the page from its author's site and
+//     runs it in a sandboxed iframe, an opaque origin, srcdoc with <base href> the author's page and this script inline,
+//     web/site/js/live-editor.js): window.postMessage to the parent with target "*", and only the parent's messages
+//     are heard (e.source === parent). The parent is the player's Editor panel or managers/live.html (pop out), which
+//     relays to the player tab. In a sandbox the page has no storage of its own: localStorage and sessionStorage are
+//     stand-ins (localStorage seeded from data-storage and its writes posted to the parent, which keeps them under
+//     a prefix of its own), indexedDB is taken away (the editors then keep their library in memory), history
+//     pushState / replaceState keep to the srcdoc's own URL, new URL(x, location.href) resolves against the page's
+//     address, and links that would navigate the frame open in a tab.
 // The player (web/site/js/managers.js ManagerBridge) feeds what the page sends into the engine's MIDI in, and the
 // firmware's MIDI out (whole messages: SysEx replies, its notes) back here. The page never hears its own requests.
 //
@@ -29,6 +38,7 @@
   const me = doc && doc.currentScript;
   const MANAGER = (me && me.dataset && me.dataset.manager) || "";
   const UPSTREAM = (me && me.dataset && me.dataset.upstream) || "";
+  const SANDBOX = !!(me && me.dataset && me.dataset.transport === "sandbox") && !!G.parent && G.parent !== G;
   const CHANNEL = "remotefm1-managers";
   const HELLO_WAIT_MS = 700;
   const rnd = () => Math.random().toString(36).slice(2, 10);
@@ -42,10 +52,14 @@
   let pid = null, bc = null, onMsg = null;
   function post(m) {
     const msg = Object.assign({ __fm1mgr: 1, sid, pid, manager: MANAGER }, m);
-    if (sameOriginParent) G.parent.postMessage(msg, G.location.origin);
+    if (SANDBOX) G.parent.postMessage(msg, "*");
+    else if (sameOriginParent) G.parent.postMessage(msg, G.location.origin);
     else if (bc) bc.postMessage(msg);
   }
-  if (sameOriginParent) {
+  if (SANDBOX) {
+    // (an opaque origin: e.origin says nothing; the parent window is the one voice heard)
+    G.addEventListener("message", (e) => { if (e.source === G.parent) receive(e.data); });
+  } else if (sameOriginParent) {
     G.addEventListener("message", (e) => { if (e.source === G.parent && e.origin === G.location.origin) receive(e.data); });
   } else if (typeof G.BroadcastChannel === "function") {
     bc = new G.BroadcastChannel(CHANNEL);
@@ -53,13 +67,13 @@
   }
   function receive(m) {
     if (!m || m.__fm1mgr !== 1 || (m.sid !== sid && m.sid !== "*") || m.from !== "player") return;
-    if (bc) {                                        // (a tab: the first player that shows a port is ours)
+    if (bc || SANDBOX) {                             // (a tab, or relayed: the first player that shows a port is ours)
       if (pid && m.pid !== pid) return;
       if (!pid) { if (m.type !== "state" || !m.connected) { if (m.type === "state") pending(m); return; } pid = m.pid; }
     }
     if (m.type === "state") setState(m);
     else if (m.type === "midi") deliver(m.bytes);
-    else if (m.type === "bye") { pid = null; setState({ connected: false }); if (bc) post({ type: "hello" }); }
+    else if (m.type === "bye") { pid = null; setState({ connected: false }); if (bc || SANDBOX) post({ type: "hello" }); }
   }
 
   // ---- events: MIDIMessageEvent / MIDIConnectionEvent where the browser has them
@@ -191,8 +205,76 @@
   post({ type: "hello" });
   if (G.addEventListener) G.addEventListener("pagehide", () => post({ type: "bye" }));
 
+  // ---- in a sandbox: storage stand-ins, history kept to the srcdoc's URL
+  if (SANDBOX) sandboxed();
+  function sandboxed() {
+    let seed = {};
+    try { seed = JSON.parse((me && me.dataset && me.dataset.storage) || "{}") || {}; } catch (_) { seed = {}; }
+    const works = (name) => { try { const s = G[name]; return !!s && typeof s.length === "number"; } catch (_) { return false; } };
+    const put = (name, value) => { try { Object.defineProperty(G, name, { value, configurable: true, enumerable: true, writable: true }); } catch (_) { /* (kept) */ } };
+    if (!works("localStorage")) put("localStorage", memoryStorage(seed, (op, key, value) => post({ type: "storage", op, key, value })));
+    if (!works("sessionStorage")) put("sessionStorage", memoryStorage({}, null));
+    // (indexedDB.open throws in an opaque origin: without it, the editors keep their library in memory)
+    let idb = false;
+    try { if (G.indexedDB) { G.indexedDB.open("__fm1shim_probe"); G.indexedDB.deleteDatabase("__fm1shim_probe"); idb = true; } } catch (_) { idb = false; }
+    if (!idb) put("indexedDB", undefined);
+    // new URL("conv/conv.wasm", location.href): location.href is about:srcdoc, no base for a relative name; the page's
+    // own address (<base>) stands in for it
+    const U = G.URL;
+    if (typeof U === "function" && doc) {
+      class PageURL extends U {
+        constructor(url, base) { super(url, base !== undefined && /^about:srcdoc/.test(String(base)) ? doc.baseURI : base); }
+      }
+      put("URL", PageURL);
+    }
+    // history.replaceState(null, "", location.pathname + "#tab"): resolved against <base> (the author's site), another
+    // origin than about:srcdoc, so it throws; kept to the srcdoc's URL with the fragment
+    const H = G.history;
+    for (const k of ["pushState", "replaceState"]) {
+      const orig = H && H[k];
+      if (typeof orig !== "function") continue;
+      H[k] = function (st, title, url) {
+        if (url === undefined || url === null) return orig.call(H, st, title);
+        try { return orig.call(H, st, title, url); } catch (_) {
+          const s = String(url), i = s.indexOf("#");
+          return orig.call(H, st, title, G.location.href.split("#")[0] + (i >= 0 ? s.slice(i) : ""));
+        }
+      };
+    }
+  }
+  // a Storage of its own: getItem / setItem / removeItem / clear / key / length; changes told to onChange (persisted)
+  function memoryStorage(seed, onChange) {
+    const m = new Map();
+    for (const k of Object.keys(seed)) if (typeof seed[k] === "string") m.set(k, seed[k]);
+    return {
+      get length() { return m.size; },
+      key(i) { return [...m.keys()][i] ?? null; },
+      getItem(k) { k = String(k); return m.has(k) ? m.get(k) : null; },
+      setItem(k, v) { k = String(k); v = String(v); m.set(k, v); if (onChange) onChange("set", k, v); },
+      removeItem(k) { k = String(k); if (m.delete(k) && onChange) onChange("remove", k); },
+      clear() { m.clear(); if (onChange) onChange("clear"); },
+    };
+  }
+
   // ---- links out of the manager's folder: on its own site; images that do not load: hidden
-  if (doc && doc.addEventListener) {
+  if (doc && doc.addEventListener && SANDBOX) {
+    // the author's live page: a link that would navigate the frame (a fragment resolves against <base>, the author's
+    // page, too) is followed here instead: a fragment in the srcdoc, anything else in a new tab. Last in line (window,
+    // bubbling), so the page's own handlers come first
+    G.addEventListener("click", (e) => {
+      if (e.defaultPrevented || e.button !== 0) return;
+      const a = e.target && e.target.closest ? e.target.closest("a[href]") : null;
+      if (!a || a.hasAttribute("download")) return;
+      const raw = a.getAttribute("href") || "";
+      if (/^(javascript|blob|data|mailto):/i.test(raw)) return;
+      const tgt = (a.getAttribute("target") || "").toLowerCase();
+      if (tgt && !/^_(self|top|parent)$/.test(tgt)) return;            // (_blank, a named one: a popup, allowed)
+      e.preventDefault();
+      if (raw.startsWith("#")) { if (raw.length > 1) G.location.hash = raw.slice(1); return; }
+      G.open(a.href, "_blank", "noopener");
+    });
+    doc.addEventListener("error", (e) => { const t = e.target; if (t && t.tagName === "IMG") t.style.visibility = "hidden"; }, true);
+  } else if (doc && doc.addEventListener) {
     const folder = new URL(".", G.location.href);
     doc.addEventListener("click", (e) => {
       const a = e.target && e.target.closest ? e.target.closest("a[href]") : null;
@@ -214,5 +296,6 @@
   }
 
   // (tests, and the player's diagnostics)
-  G.__fm1shim = { sid, get pid() { return pid; }, get state() { return state; }, get pair() { return pair; }, manager: MANAGER, framed: sameOriginParent };
+  G.__fm1shim = { sid, get pid() { return pid; }, get state() { return state; }, get pair() { return pair; }, manager: MANAGER, framed: sameOriginParent || SANDBOX,
+                  transport: SANDBOX ? "sandbox" : sameOriginParent ? "frame" : bc ? "channel" : "none" };
 })(typeof window !== "undefined" ? window : globalThis);

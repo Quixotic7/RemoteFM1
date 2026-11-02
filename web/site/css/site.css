@@ -523,7 +523,7 @@ body.learning #device { cursor: crosshair; }
   #top nav a:last-child, #top nav #vst-link, #install-link .long, #ios-link .long, #android-link .long { display: none; }
   .src-link { width: 34px; padding: 0; justify-content: center; }
   .src-link .src-text, .src-link .src-arrow { display: none; }
-  .ed-sub, .ed-src { display: none; }
+  .ed-sub, .ed-src, .ed-mode { display: none; }
   .ed-head { gap: 8px; }
   .ed-head b { flex: 1; overflow: hidden; text-overflow: ellipsis; }
   .src-link svg { width: 16px; height: 16px; }

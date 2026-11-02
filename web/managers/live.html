@@ -1,0 +1,98 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<!-- The FM-1 Player's pop-out for an author's live editor page (web/site/js/editor-panel.js "Pop out"): the player tab
+     hands the page over under a token in this site's localStorage (live-editor.js stashPop; this page never opens an
+     address from its own URL). The page is loaded as in the Editor panel (fetched from its author's site, the shim put
+     in, a sandboxed iframe without allow-same-origin) and relayed to the player tab over the BroadcastChannel
+     "remotefm1-managers": the iframe's messages (from that window only) to the channel, the player's to the iframe.
+     Its storage writes are kept here, under the same prefix as in the panel. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live editor · FM-1 Player</title>
+<style>
+  :root { color-scheme: light dark; --bg: #f4f4f2; --text: #1d1d1f; --muted: #6b6b70; --line: #d8d8d4; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #1b1b1d; --text: #eee; --muted: #9a9aa0; --line: #333; } }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.5 system-ui, sans-serif; }
+  body { display: flex; flex-direction: column; }
+  header { flex: none; display: flex; gap: 10px; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--line); min-width: 0; }
+  header b { white-space: nowrap; }
+  #sub { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+  header a { color: var(--muted); font-weight: 600; text-decoration: none; }
+  iframe { flex: 1; width: 100%; border: 0; background: #fff; }
+  .note { margin: auto; max-width: 460px; padding: 24px; }
+  .note a { font-weight: 600; }
+</style>
+</head>
+<body>
+<header><b id="title">Live editor</b><span id="sub"></span><a id="src" target="_blank" rel="noopener" hidden>Author's page ↗</a></header>
+<div id="body" class="note"><p>Loading…</p></div>
+<script type="module">
+import { LIVE_SANDBOX, HELLO_MS, fetchLive, injectLive, EditorStore, takePop } from "./live-editor.js";
+const $ = (id) => document.getElementById(id);
+const CHANNEL = "remotefm1-managers";
+const qs = new URLSearchParams(location.search);
+// (a reload of this tab: what it was handed is kept in its own sessionStorage)
+let info = null;
+try { info = JSON.parse(sessionStorage.getItem("remotefm1-live-pop") || "null"); } catch (_) { info = null; }
+if (!info || info.token !== qs.get("t")) {
+  const v = takePop(qs.get("t"));
+  info = v ? { ...v, token: qs.get("t") } : null;
+  try { if (info) sessionStorage.setItem("remotefm1-live-pop", JSON.stringify(info)); } catch (_) {}
+}
+const host = (u) => { try { return new URL(u).host; } catch (_) { return u; } };
+const say = (lead, ...links) => {
+  const b = $("body"); b.className = "note"; b.replaceChildren();
+  const p = document.createElement("p"); p.textContent = lead; b.append(p);
+  for (const [text, href] of links) { if (!href) continue; const q = document.createElement("p"), a = document.createElement("a"); a.href = href; a.textContent = text; a.target = "_self"; q.append(a); b.append(q); }
+};
+if (!info) say("Open the editor from the FM-1 Player's Editor panel (Pop out).", ["The FM-1 Player", "../"]);
+else start(info).catch((e) => fail(e.message || String(e)));
+
+function fail(why) {
+  $("sub").textContent = "did not load";
+  say(`${info.title} did not load live from ${host(info.url)}: ${why}.`,
+      ["Its hosted copy, on this site", info.hosted], [`Its own page on ${host(info.url)} (for an FM-1 on USB) ↗`, info.url]);
+}
+
+async function start(info) {
+  document.title = `${info.title} · live · FM-1 Player`;
+  $("title").textContent = info.title;
+  $("sub").textContent = `live · ${host(info.url)} · loading`;
+  const src = $("src"); src.href = info.url; src.hidden = false;
+  const [page, shim] = await Promise.all([fetchLive(info.url), fetch("fm1-shim.js", { cache: "no-cache" }).then((r) => { if (!r.ok) throw new Error("the shim: HTTP " + r.status); return r.text(); })]);
+  const store = new EditorStore(info.url);
+  const f = document.createElement("iframe");
+  f.title = info.title;
+  f.setAttribute("sandbox", LIVE_SANDBOX);
+  f.setAttribute("referrerpolicy", "no-referrer");
+  f.srcdoc = injectLive(page.html, { base: page.url, shim, manager: info.manager, storage: store.seed() });
+  const body = $("body"); body.className = ""; body.style.cssText = "flex:1;display:flex;min-height:0"; body.replaceChildren(f);
+  const win = f.contentWindow;
+  const bc = new BroadcastChannel(CHANNEL);
+  let sid = null, port = null;
+  window.__fm1live = { get sid() { return sid; }, get port() { return port; }, frame: f };
+  // the sandbox -> the player tab (that window only; its storage stays here)
+  addEventListener("message", (e) => {
+    const m = e.data;
+    if (e.source !== win || !m || m.__fm1mgr !== 1 || m.from === "player" || typeof m.sid !== "string") return;
+    if (m.type === "storage") { store.apply(m); return; }
+    sid = m.sid;
+    bc.postMessage(m);
+  });
+  // the player tab -> the sandbox (its session's, or everyone's)
+  bc.onmessage = (e) => {
+    const m = e.data;
+    if (!m || m.__fm1mgr !== 1 || m.from !== "player" || !sid || (m.sid !== sid && m.sid !== "*")) return;
+    if (m.type === "state") { port = m.connected ? m.port : null; $("sub").textContent = `live · ${host(page.url)} · ${port ? `port "${port}"` : "no port"}`; }
+    win.postMessage(m, "*");
+  };
+  addEventListener("pagehide", () => { if (sid) bc.postMessage({ __fm1mgr: 1, sid, type: "bye" }); });
+  const t0 = Date.now();
+  await new Promise((res, rej) => { const tick = () => (sid ? res() : Date.now() - t0 > HELLO_MS ? rej(new Error(`its page did not start the player's MIDI in ${HELLO_MS / 1000} s`)) : setTimeout(tick, 100)); tick(); });
+  if (!port) $("sub").textContent = `live · ${host(page.url)} · waiting for the player tab`;
+}
+</script>
+</body>
+</html>

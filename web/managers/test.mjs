@@ -5,11 +5,15 @@
 //     tabs, one of them running a native firmware);
 //   - the port's name and state, onmidimessage / addEventListener, send(data, timestamp), open() / close(), statechange
 //     on a firmware switch or the emulated engine; whole messages in (SysEx split across chunks, clock dropped);
-//   - no echo: nothing a manager sends comes back to a manager.
+//   - no echo: nothing a manager sends comes back to a manager;
+//   - an author's live page (live-editor.js): the shim's sandbox transport (an opaque origin: postMessage "*" to the
+//     parent, only the parent heard), its storage stand-ins kept by the player (EditorStore), history kept to the
+//     srcdoc; the bridge hears origin "null" only from the live frame it was given; liveUrlOf, injectLive, the pop-out token.
 //   node web/managers/test.mjs
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
-import { ManagerBridge, MidiAssembler, editorOf, portOf } from "../site/js/managers.js";
+import { ManagerBridge, MidiAssembler, editorOf, portOf, liveUrlOf } from "../site/js/managers.js";
+import { injectLive, EditorStore, stashPop, takePop } from "../site/js/live-editor.js";
 
 let fails = 0, checks = 0;
 const ok = (c, what) => { checks++; if (!c) fails++; console.log(`${what.padEnd(84)} ${c ? "ok" : "FAIL"}`); };
@@ -167,6 +171,114 @@ function stubEngine() {
   ok(editorOf({ id: "felucca" }, index).kind === "hosted" && editorOf({ id: "sloop", editor: "https://x/" }, index).kind === "real"
      && editorOf({ id: "amb" }, index) === null && portOf({ id: "ghoulbox" }, index) === "Felucca" && portOf({ id: "sloop" }, index) === null,
      "editorOf / portOf: hosted, on its site (a real FM-1), none; the port names");
+}
+
+// ---- an author's live page: the sandbox transport (srcdoc, an opaque origin: messages come with origin "null")
+// a Storage as the browser has it (the player's localStorage)
+function fakeStorage() {
+  const m = new Map();
+  return { get length() { return m.size; }, key: (i) => [...m.keys()][i] ?? null, getItem: (k) => (m.has(k) ? m.get(k) : null),
+           setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k), _m: m };
+}
+{
+  const ls = fakeStorage();
+  const URL1 = "https://hugelton.github.io/Felucca/webapp/editor/";
+  const store = new EditorStore(URL1, ls);
+  ls.setItem(store.prefix + "felucca-tab", "seq");
+  ls.setItem("remotefm1-ed:https://other.example/|felucca-tab", "other");
+  const player = fakeWindow(ORIGIN + "/RemoteFM1/?fw=felucca");
+  const frame = fakeWindow("about:srcdoc");
+  frame.document.currentScript.dataset = { manager: "felucca", transport: "sandbox", storage: JSON.stringify(store.seed()) };
+  frame.parent = player;
+  // history as in a srcdoc with <base>: a URL that resolves to the author's site is another origin than about:srcdoc
+  frame.history = { url: null, replaceState(st, title, url) {
+    if (!String(url).startsWith("about:srcdoc")) throw new DOMException("cannot be created in a document with origin 'null'", "SecurityError");
+    this.url = url; } };
+  const sent = [];
+  // the browser: the frame posts with target "*" (an opaque origin has no name); the player's replies arrive from it
+  const frameProxy = { postMessage: (data, origin) => { sent.push(origin); setTimeout(() => frame.dispatchEvent(msgEvent(data, ORIGIN, player)), 0); } };
+  player.postMessage = (data, origin) => { if (origin === "*") setTimeout(() => player.dispatchEvent(msgEvent(data, "null", frameProxy)), 0); };
+  const engine = stubEngine();
+  const stored = [];
+  const bridge = new ManagerBridge({ toEngine: (b) => engine.in(b), win: player, BC: null, onStorage: (m, w) => { stored.push(w); store.apply(m); } });
+  engine.out = (b) => bridge.fromEngine(b);
+  bridge.setTarget({ port: "Felucca", firmware: "Felucca 1.8.1", engine: "rfm1" });
+  // not yet allowed: the bridge does not hear the sandbox (origin "null" from a window it was not given)
+  runShim(frame);
+  await sleep(20);
+  ok(bridge.count === 0 && frame.__fm1shim.transport === "sandbox" && frame.__fm1shim.framed, "sandbox: origin \"null\" from a window the panel did not name: not heard");
+  bridge.allowFrame(frameProxy);
+  // (the shim said hello at load, unheard; in the panel the frame is allowed before its page loads: its hello, again)
+  bridge.win.dispatchEvent(msgEvent({ __fm1mgr: 1, sid: frame.__fm1shim.sid, manager: "felucca", type: "hello" }, "null", frameProxy));
+  const access = await frame.navigator.requestMIDIAccess({ sysex: true });
+  await sleep(20);
+  const inp = [...access.inputs.values()][0], out = [...access.outputs.values()][0];
+  ok(bridge.hasFrame(frameProxy) && inp && inp.name === "Felucca" && frame.__fm1shim.pid === bridge.pid, "sandbox: allowed, the live page's shim binds to the player and gets the port");
+  const heard = [];
+  inp.onmidimessage = (e) => heard.push(Array.from(e.data));
+  out.send(INFO);
+  await sleep(60);
+  ok(engine.got.length === 1 && heard.length === 2 && eq(heard[0], INFO_REPLY) && sent.length > 0 && sent.every((o) => o === "*"),
+     "sandbox: INFO there and back; the replies go to that window with target \"*\"");
+  // another window says it is the parent: the shim hears only its parent
+  frame.dispatchEvent(msgEvent({ __fm1mgr: 1, from: "player", pid: bridge.pid, sid: frame.__fm1shim.sid, type: "midi", bytes: Uint8Array.of(0x90, 1, 2) }, ORIGIN, { postMessage() {} }));
+  await sleep(10);
+  ok(heard.length === 2, "sandbox: a message from a window other than the parent is not heard");
+  // storage: the stand-in, seeded with this editor's keys only, writes kept by the player under its prefix
+  ok(frame.localStorage.getItem("felucca-tab") === "seq" && frame.localStorage.length === 1 && frame.indexedDB === undefined && typeof frame.sessionStorage.setItem === "function",
+     "sandbox: localStorage seeded with this editor's keys only; indexedDB taken away; a sessionStorage");
+  frame.localStorage.setItem("felucca-tab", "mix");
+  frame.localStorage.setItem("big", "x".repeat(70000));
+  await sleep(20);
+  ok(ls.getItem(store.prefix + "felucca-tab") === "mix" && ls.getItem(store.prefix + "big") === null && frame.localStorage.getItem("big").length === 70000
+     && ls.getItem("remotefm1-ed:https://other.example/|felucca-tab") === "other" && stored.every((w) => w === frameProxy),
+     "sandbox: a write reaches the player's storage under the editor's prefix; an oversized one stays in the page");
+  // a storage message from a window not allowed: dropped
+  bridge.win.dispatchEvent(msgEvent({ __fm1mgr: 1, sid: "x", type: "storage", op: "set", key: "felucca-tab", value: "evil" }, "null", { postMessage() {} }));
+  await sleep(10);
+  ok(ls.getItem(store.prefix + "felucca-tab") === "mix", "sandbox: a storage write from another opaque window: dropped");
+  frame.history.replaceState(null, "", "srcdoc#seq");
+  ok(frame.history.url === "about:srcdoc#seq", "sandbox: history.replaceState kept to the srcdoc's URL (the fragment)");
+  // the panel drops the frame: the window is no longer heard
+  bridge.disallowFrame(frameProxy);
+  const n = engine.got.length;
+  bridge.win.dispatchEvent(msgEvent({ __fm1mgr: 1, sid: frame.__fm1shim.sid, type: "midi", bytes: Uint8Array.from(INFO) }, "null", frameProxy));
+  await sleep(20);
+  ok(bridge.count === 0 && engine.got.length === n, "sandbox: disallowed (the panel closed): its session gone, its bytes reach nothing");
+  bridge.dispose();
+}
+
+// ---- the live page's address, the srcdoc, the pop-out token
+{
+  const up = "https://hugelton.github.io/Felucca/webapp/editor/";
+  ok(liveUrlOf({ id: "felucca", editor: "https://x.example/e/" }, { upstream: up }) === up
+     && liveUrlOf({ id: "ghoulbox" }, { upstream: "https://a.example/e/", live: "https://b.example/e/" }) === "https://b.example/e/"
+     && liveUrlOf({ id: "pigeon", editor: "https://x.example/" }, { upstream: "https://a.example/", live: false }) === null
+     && liveUrlOf({ id: "rainbow", editor: "https://r.example/webapp/editor/" }, null) === "https://r.example/webapp/editor/"
+     && liveUrlOf({ id: "mutable", editor: "https://m.example/#editor" }, null) === null
+     && liveUrlOf({ id: "x", editor: "http://x.example/" }, null) === null && liveUrlOf({ id: "y" }, null) === null,
+     "liveUrlOf: managers.json live, its upstream, the catalog's editor; never false, a fragment, plain http");
+  const index = { managers: [{ id: "felucca", firmwares: ["felucca"], path: "felucca/", upstream: up }], ports: {} };
+  ok(editorOf({ id: "felucca" }, index).live === up && editorOf({ id: "rainbow", editor: "https://r.example/e/" }, index).live === "https://r.example/e/",
+     "editorOf: the live page with the hosted manager, and with a catalog-only editor");
+  const ports = { ports: { jiant: "JIANT FM", karma: "Felucca", felucca: "Felucca", hortator: "Felucca" }, managers: [{ id: "jiant", firmwares: ["jiant"] }] };
+  ok(portOf({ id: "jiant", port: "FM-1" }, ports) === "JIANT FM" && portOf({ id: "hortator", port: "Hortator" }, ports) === "Hortator"
+     && portOf({ id: "caravel", port: "Caravel" }, ports) === "Caravel" && portOf({ id: "felucca" }, ports) === "Felucca"
+     && portOf({ id: "caravel", port: "Caravel" }, null) === "Caravel" && portOf({ id: "nope" }, ports) === null,
+     "portOf: a hosted manager's tested port first, else the catalog's port, either where the other has none");
+  ok(liveUrlOf({ id: "skiff", editor: "https://s.example/", liveEditor: "https://s.example/webapp/editor/" }, null) === "https://s.example/webapp/editor/",
+     "liveUrlOf: the catalog's liveEditor over its editor");
+  const html = `<!doctype html><html><head><meta charset="utf-8"><script>window.page = 1</script></head><body></body></html>`;
+  const doc = injectLive(html, { base: up, shim: "/* shim */ if (a</script>) {}", manager: "felucca", storage: { k: `"<v>"` } });
+  const i0 = doc.indexOf("<head>") + 6;
+  ok(doc.slice(i0).startsWith(`<base href="${up}"><script data-manager="felucca" data-transport="sandbox" data-storage="{&quot;k&quot;:&quot;\\&quot;&lt;v&gt;\\&quot;&quot;}">`)
+     && doc.indexOf("<\\/script>) {}") > 0 && doc.indexOf("window.page") > doc.indexOf("data-transport"),
+     "injectLive: <base> and the shim first in <head>, attributes escaped, </script in the shim broken");
+  ok(injectLive(`<!doctype html><meta charset="utf-8"><p>x`, { base: up, shim: "" }).startsWith(`<!doctype html><base href=`), "injectLive: a page without <head>: after the doctype");
+  const ls = fakeStorage();
+  const tok = stashPop({ url: up, manager: "felucca", title: "Felucca editor" }, ls);
+  const got = takePop(tok, ls);
+  ok(tok && got && got.url === up && takePop(tok, ls) === null && takePop("../evil", ls) === null, "pop out: the token hands the page over once; nothing else opens");
 }
 
 console.log(`\n${checks - fails} / ${checks} checks passed`);

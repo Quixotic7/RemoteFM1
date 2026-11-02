@@ -9,6 +9,8 @@
 //
 // What goes out (managers.json lists them):
 //   <out>/fm1-shim.js            the Web MIDI shim (this folder): a fake navigator.requestMIDIAccess wired to the player
+//   <out>/live.html, live-editor.js   the pop-out page for an author's live editor (the Editor panel loads the author's own
+//                                page from its site, in a sandbox: web/site/js/live-editor.js); nothing of theirs is copied
 //   <out>/index.json             the managers, their sources and the native firmwares' USB port names (the player reads it)
 //   <out>/<id>/index.html        the manager's page as its own site build makes it, plus one line: the shim's <script>,
 //                                first in <head>. Nothing else of the page is changed, except what managers.json "strip"
@@ -86,6 +88,8 @@ function injectShim(html, m, what) {
 
 mkdirSync(OUT, { recursive: true });
 copyFileSync(join(HERE, "fm1-shim.js"), join(OUT, "fm1-shim.js"));
+copyFileSync(join(HERE, "live.html"), join(OUT, "live.html"));
+copyFileSync(join(HERE, "..", "site", "js", "live-editor.js"), join(OUT, "live-editor.js"));
 const fm1vst = commitOf(join(CORES, ".."));
 const index = { about: "The firmwares' own managers hosted by the FM-1 Player (web/managers/build.mjs).", fm1vst,
                 ports: SPEC.ports, managers: [] };
@@ -138,7 +142,7 @@ for (const m of SPEC.managers) {
       ``,
     ].join("\n"));
     index.managers.push({ id: m.id, title: m.title, firmwares: m.firmwares, path: `${m.id}/${m.at || ""}`, author: m.author, license: m.licence,
-                          source, commit, upstream: m.upstream, files: [...new Set([`${m.at || ""}index.html`, ...copied, "NOTICE.txt"])] });
+                          source, commit, upstream: m.upstream, ...("live" in m ? { live: m.live } : {}), files: [...new Set([`${m.at || ""}index.html`, ...copied, "NOTICE.txt"])] });
     console.log(`managers: ${m.id}: ${m.tree}@${(commit || "?").slice(0, 7)} -> ${dir} (${html.length} B${notes.length ? "; " + notes.join("; ") : ""})`);
   } catch (e) { bad++; console.error(`managers: ${m.id}: ${e.message}`); }
 }

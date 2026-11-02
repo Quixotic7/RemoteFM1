@@ -1,5 +1,5 @@
 {
-  "about": "The firmwares' own preset managers / editors the site hosts (web/managers/build.mjs copies them from FM1VST's core trees at the commit it pins, web/vendor/FM1VST/cores). ports: each native firmware's real USB MIDI port name (FM1VST research/managers-2026-10-19/MANAGERS.md section 3), the name the in-page port takes.",
+  "about": "The firmwares' own preset managers / editors the site hosts (web/managers/build.mjs copies them from FM1VST's core trees at the commit it pins, web/vendor/FM1VST/cores). ports: each native firmware's real USB MIDI port name (FM1VST research/managers-2026-10-19/MANAGERS.md section 3), the name the in-page port takes. upstream: the manager's page on its author's site (the hosted copy's original); the Editor panel loads that page live (web/site/js/live-editor.js, in a sandbox) and falls back to the hosted copy. live: the live page's address where it differs from upstream (an upstream that redirects without CORS), or false: never live.",
   "ports": {
     "choralroot": "ChoralRoot FM-1",
     "purplemonkey": "ChoralRoot FM-1",
@@ -95,7 +95,8 @@
       "licence": "GPL-3.0-only",
       "author": "Jason Persinger, a fork of Felucca by Leo Kuroshita, Hügelton Instruments",
       "repo": "https://github.com/jasonpersinger/ghoulbox-fm1-dungeon-synth",
-      "upstream": "https://jasonpersinger.me/ghoulbox-fm1-dungeon-synth/webapp/editor/"
+      "upstream": "https://jasonpersinger.me/ghoulbox-fm1-dungeon-synth/webapp/editor/",
+      "live": "https://ghoulbox.messy.quest/webapp/editor/"
     },
     {
       "id": "sloop",
@@ -141,7 +142,9 @@
       "licence": "GPL-3.0-only (its MP3 encoder, lamejs 1.2.1: LGPL-3.0, webapp/pigeon/vendor/ with its source)",
       "author": "The Shrimp Blimp, on Felucca by Leo Kuroshita, Hügelton Instruments",
       "repo": "https://github.com/TheShrimpBlimp/pigeon",
-      "upstream": "https://theshrimpblimp.com/pigeon/webapp/pigeon/"
+      "upstream": "https://theshrimpblimp.com/pigeon/webapp/pigeon/",
+      "live": false,
+      "liveWhy": "the loader keeps the bank it opens in IndexedDB and encodes in a Worker of its own site: neither works in the sandbox (an opaque origin), so the hosted copy stays"
     }
   ]
 }
