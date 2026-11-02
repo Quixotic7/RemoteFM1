@@ -268,11 +268,29 @@ for (const d of JSON.parse(readFileSync(join(SITE, "data", "site-rfm1.json"), "u
 //     same version the committed one (one entry, one file);
 //   - a Hub firmware or an FM1VST core: the .rfm1 joins its engines; it is the default when its version is the Hub's and
 //     the native core's or newer (unsure counts as older), else it is an alternative and the default stays;
-//   - anything else: a new entry, its card text from data/fw-catalog.json (else category Other).
+//   - anything else: a new entry, its card text from data/fw-catalog.json, else RemoteFM1FW's catalog.json (else Other).
 const fwDir = arg("--fw-catalog", null);
 let fwRelease = null;
 if (fwDir) {
-  const meta = JSON.parse(readFileSync(join(SITE, "data", "fw-catalog.json"), "utf8")).firmwares;
+  const own = JSON.parse(readFileSync(join(SITE, "data", "fw-catalog.json"), "utf8")).firmwares;
+  // card text: data/fw-catalog.json's, else RemoteFM1FW's catalog/catalog.json (--fw-meta FILE, or the folder's
+  // catalog.json): author, category (one of the site's, else Other), tag, what, site, beta
+  let fwCards = {};
+  try {
+    const f = arg("--fw-meta", join(fwDir, "catalog.json"));
+    if (existsSync(f)) fwCards = JSON.parse(readFileSync(f, "utf8")).firmwares || {};
+  } catch (e) { console.warn(`build_catalog: RemoteFM1FW's catalog.json: ${e.message} (no card text from it)`); }
+  const str = (v, n) => (typeof v === "string" && v.trim() && v.length <= n ? v.trim() : undefined);
+  const cardOf = (id) => {
+    if (own[id]) return own[id];
+    const c = fwCards[id];
+    if (!c || typeof c !== "object") return null;
+    const card = { author: str(c.author, 80), category: CATEGORIES.includes(c.category) && c.category !== "All" ? c.category : "Other",
+                   tag: str(c.tag, 60), what: str(c.what, 600), site: /^https:\/\/[^\s"<>]+$/.test(c.site || "") ? c.site : undefined,
+                   beta: c.beta === true || undefined };
+    for (const k of Object.keys(card)) if (card[k] === undefined) delete card[k];
+    return card;
+  };
   const rel = relative(SITE, fwDir).split(sep).join("/");
   if (rel.startsWith("..")) { console.error(`build_catalog: --fw-catalog ${fwDir} is not inside web/site`); process.exit(1); }
   try { fwRelease = JSON.parse(readFileSync(join(fwDir, "release.json"), "utf8")); } catch (_) { fwRelease = null; }
@@ -288,11 +306,12 @@ if (fwDir) {
     if (sha !== want) { console.error(`build_catalog: ${rel}/${name} has SHA-256 ${sha}, its SHA256SUMS says ${want}`); process.exit(1); }
     let m;
     try { m = inspect(new Uint8Array(bytes)).manifest; } catch (e) { console.error(`build_catalog: ${rel}/${name}: ${e.message || e}`); process.exit(1); }
-    const d = { file: `${rel}/${name}`, release: fwRelease && fwRelease.url, ...(meta[m.id] || {}) };
+    const card = cardOf(m.id);
+    const d = { file: `${rel}/${name}`, release: fwRelease && fwRelease.url, ...(card || {}) };
     const r = rfm1Entry(d, m, { sha256: sha, size: bytes.length });
     const i = firmwares.findIndex((f) => f.id === r.id);
     if (i < 0) {
-      if (!meta[m.id]) console.log(`build_catalog: ${r.id} (${name}) has no card text in data/fw-catalog.json: category Other`);
+      if (!card) console.log(`build_catalog: ${r.id} (${name}) has no card text in data/fw-catalog.json or RemoteFM1FW's catalog: category Other`);
       if (!r.what) r.what = `${r.name} by ${r.authorFull}, built to WebAssembly (.rfm1) and run natively here.`;
       firmwares.push(r); added++; continue;
     }
