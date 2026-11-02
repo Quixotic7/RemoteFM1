@@ -1,20 +1,34 @@
 # RemoteFM1
 
-https://quixotic7.github.io/RemoteFM1/
-
-Install here:
-
-https://quixotic7.github.io/RemoteFM1/installer/
-
-
 **The firmware for your firmware so you can run firmwares without installing firmwares**
+
+| | |
+|---|---|
+| **Play in the browser** | [remotefm1.com](https://remotefm1.com/): the FM-1 Player |
+| **Install RemoteFM1 on an FM-1** | [remotefm1.com/installer](https://remotefm1.com/installer/) (Chrome or Edge, USB) |
+| **iPhone and iPad** (app and AUv3) | [TestFlight beta](https://testflight.apple.com/join/e6A47Xap) ([RemoteFM1IOS](https://github.com/Quixotic7/RemoteFM1IOS)) |
+| **Android** | [the APK](https://github.com/Quixotic7/RemoteFM1Android/releases/latest), sideloaded ([RemoteFM1Android](https://github.com/Quixotic7/RemoteFM1Android)) |
+| **Mac plugin and desktop app** (VST3 / AU) | [FM1VST](https://github.com/Quixotic7/FM1VST/releases/latest) |
+| **The firmwares** (.rfm1) | [RemoteFM1FW](https://github.com/Quixotic7/RemoteFM1FW/releases/latest): every app and the site read it |
 
 RemoteFM1 is a firmware for the FM-1 that does almost nothing by itself. It sends every key, button, encoder and the
 MASTER pot to the computer, and shows whatever the computer sends back on its LEDs and its 240×240 screen. On the
-computer, an FM-1 firmware built for the emulator runs at full speed and uses the real FM-1 as its panel. That lets
-you try firmware changes without reflashing the unit, and run things the FM-1's own CPU and memory couldn't hold.
+computer, phone or browser, an FM-1 firmware runs at full speed and uses the real FM-1 as its panel. That lets you
+try firmware changes without reflashing the unit, switch firmwares in a click, and run things the FM-1's own CPU and
+memory couldn't hold. Without a host, it is an instrument of its own: a DX7, a MIDI controller and a looper
+(see "Using it").
 
-**M-Vave SMK-37:** see [docs/SMK37.md](docs/SMK37.md) (a build for it, untested on a unit; to hosts it is an FM-1).
+**What the hosts run.** The FM-1 Player at [remotefm1.com](https://remotefm1.com/) lists about 160 FM-1 firmwares.
+Over 70 run as `.rfm1` files, a firmware's own code built to WebAssembly (from [RemoteFM1FW](https://github.com/Quixotic7/RemoteFM1FW),
+the same files the iOS and Android apps use), and about 20 as native cores built by the site. The rest run in the
+FM-1 emulator (`.fwsc` packages from the [FM-1 Firmware Hub](https://thefirmwarehub.com/)). Each plays on screen with
+the keyboard, mouse, touch or a MIDI keyboard, or on your own FM-1 running RemoteFM1. The stock M-VAVE firmware can't
+run on a host.
+
+**M-Vave SMK-37:** RemoteFM1 also builds for the SMK-37 (SMK-37 Pro, Elite, MKE-P37), which every host sees as an
+FM-1. It is in testing: a hidden tester page at [remotefm1.com/installer/smk37](https://remotefm1.com/installer/smk37/)
+and a browser emulator of it at [installer/smk37/emu](https://remotefm1.com/installer/smk37/emu/). See
+[docs/SMK37.md](docs/SMK37.md).
 
 > **Status: 0.3.1 released on the site (2026-10-31): the FM-1 on its own.** 0.3.1 adds 16 user cartridges (list,
 > replace, delete), loops saved on the unit, a VELOCITY setting, and velocity and pressure for hosts. Without a host, 0.3 is an instrument: a
@@ -54,20 +68,23 @@ you try firmware changes without reflashing the unit, and run things the FM-1's 
   (USB-MIDI for a USB session, Bluetooth for a Bluetooth one).
 - The protocol is in [docs/PROTOCOL.md](docs/PROTOCOL.md), with its constants in [proto/rfm1.h](proto/rfm1.h).
 
-On the host side, any firmware that exists as an **fm1core** can run: ChoralRoot, Felucca and Melodee today (through
-[FM1VST](https://github.com/Quixotic7/FM1VST)'s engine). The stock M-VAVE firmware can't run on the host, because no
-emulator exists for the FM-1's CPU.
+On the host side, any firmware that exists as an **fm1core** can run, through
+[FM1VST](https://github.com/Quixotic7/FM1VST)'s engine: natively in FM1VST and `fm1remote`, and as an `.rfm1` (the same
+core built to WebAssembly) on the site and in the iOS and Android apps. Firmwares built only as `.fwsc` packages run in
+the site's FM-1 emulator. The stock M-VAVE firmware can't run on a host.
 
 ## Using it
 
-1. **Install RemoteFM1** on the FM-1 with [its web installer](https://quixotic7.github.io/RemoteFM1/installer/)
+1. **Install RemoteFM1** on the FM-1 with [its web installer](https://remotefm1.com/installer/)
    (USB + Bluetooth MIDI, or USB only) or any Felucca-family installer, for example
    `python3 tools/fm1_install.py web/installer/firmware/remote-0.3.1.fwsc` (USB only: `remote-usb-0.3.1.fwsc`).
    0.2 answers installers as itself, `FM-1_52XXYYZZ` (release X.Y.Z; fm1-base's scheme), on the USB device "FM-1";
    0.1 answered as the official V15 (`FM-1_015`).
 2. **Without a host**, the screen reads REMOTE FM1 / WAITING FOR HOST, with USB's state, the Bluetooth name it
    advertises ("FM-1 1F2D") and whether a computer is connected, and the battery; the key lights glow dim.
-3. **Run a firmware on the Mac:**
+3. **Run a firmware.** The easiest host is the site: open [remotefm1.com](https://remotefm1.com/), pick a firmware,
+   then **Play on my FM-1** (or Settings > Use my FM-1), in Chrome or Edge over USB or Bluetooth MIDI. The iOS and
+   Android apps and FM1VST connect the same way. From the command line on a Mac:
 
    ```sh
    cmake -S host -B host/build -DCMAKE_BUILD_TYPE=Release && cmake --build host/build -j
@@ -152,8 +169,11 @@ Firefox (its output chooser); in Safari, pick FM-1 as the Mac's output. The FM-1
 USB interfaces are 0 audio control, 1 MIDI, 2 audio in, 3 audio out and 4 the vendor bulk pair (2 in 0.1 and 0.2.0);
 hosts find the vendor interface by its class (0xFF), not its number.
 
-**On an iPhone or iPad**, Safari and Chrome play the site's firmwares, but they have no Web MIDI, so the FM-1 can't
-be their panel. [MIDIWeb Browser](https://apps.apple.com/us/app/midiweb-browser/id6757226617), an iOS browser that
+**On an iPhone or iPad**, the [RemoteFM1 app](https://testflight.apple.com/join/e6A47Xap) (TestFlight beta; also an
+AUv3 plugin) runs the `.rfm1` firmwares and takes the FM-1 as its panel over USB or Bluetooth. **On
+Android**, the [RemoteFM1 APK](https://github.com/Quixotic7/RemoteFM1Android/releases/latest) does the same. In a
+browser on iOS, Safari and Chrome play the site's firmwares, but they have no Web MIDI, so the FM-1 can't
+be their panel there. [MIDIWeb Browser](https://apps.apple.com/us/app/midiweb-browser/id6757226617), an iOS browser that
 adds Web MIDI, runs the whole site: the FM-1 as the panel over Bluetooth or USB, and its USB audio. Tested on an
 iPhone 13 Pro Max on 2026-10-28. In any iOS browser, an FM-1 plugged in by USB becomes the phone's sound output by
 itself (a Lightning iPhone needs a Lightning to USB camera adapter).
@@ -180,11 +200,27 @@ says how to rebuild it for a new release.
 committed; `web/site/fw/rfm1/` is ignored). `build_catalog.mjs --fw-catalog web/site/fw/rfm1` lists each by its own
 manifest: a Hub firmware or an FM1VST core gets the `.rfm1` as its default engine when it is the Hub's and the native
 core's version or newer (else as an alternative); a firmware already hosted in `fw/` (S1Vave) keeps the committed file
-unless the release's is newer; anything else is a new entry, with card text from `web/site/data/fw-catalog.json`. The
-browser lists the firmwares with an `.rfm1` or a native core first; the ones that only run emulated (`.fwsc`) are
-folded below. For local work, `node web/site/tools/fetch_fw_catalog.mjs` (or `--from DIR` offline) then
-`node web/site/tools/build_catalog.mjs --fw-catalog web/site/fw/rfm1`; the deploy guard checks every fetched file's
-SHA-256 and that the catalog lists it.
+unless the release's is newer; anything else is a new entry, with card text from `web/site/data/fw-catalog.json`, else
+from RemoteFM1FW's own `catalog/catalog.json` (fetched beside the files). That catalog also gives each firmware its
+editor page and its USB MIDI port name. The browser lists the firmwares with an `.rfm1` or a native core first; the
+ones that only run emulated (`.fwsc`) are folded below. For local work, `node web/site/tools/fetch_fw_catalog.mjs` (or
+`--from DIR` offline) then `node web/site/tools/build_catalog.mjs --fw-catalog web/site/fw/rfm1`; the deploy guard
+checks every fetched file's SHA-256 and that the catalog lists it.
+
+**The firmwares' own editors.** The player's **Editor** button opens the running firmware's own web editor or preset
+manager beside the FM-1, talking to the firmware playing in the page (native or `.rfm1`) through a stand-in Web MIDI
+port named as the firmware's USB port. No FM-1 is needed. The panel loads the author's live editor page
+(`web/site/js/live-editor.js`: fetched from the author's site, run in a sandbox without the site's origin, with the
+Web MIDI shim `web/managers/fm1-shim.js`); where that can't work, it shows a copy the site builds at deploy from the
+firmware's source at a pinned commit (`web/managers/managers.json`, `web/managers/build.mjs`). "Pop out" opens it in a
+tab of its own. `node web/managers/e2e.mjs` checks each editor end to end in headless Chromium (`--live` for the live
+pages). For RemoteFM1's own `.rfm1`, the Editor is the DX7 cart sender ([docs/CART-UPLOAD.md](docs/CART-UPLOAD.md)).
+
+**Fantasy CFW.** Some `.rfm1` firmwares are made to run only on a host, free of the FM-1's CPU and memory limits (the
+first is Ripple). They read and write files in a **RemoteFM1 folder** on your computer, shared by every such firmware,
+for example a folder of samples (`web/site/js/folder.js`; FM1VST `docs/VIRTUAL-CARTS.md`). The site asks for the
+folder when one starts (Chrome and Edge use a folder you pick; Safari and Firefox keep it in the site's own storage,
+with Add files and Export data).
 
 **An OMX-27 as the controller.** With the OMX-27 firmware that has REMOTE mode (the `q7-2026-3` branch), the site's
 player takes it over: Settings > Use my OMX-27 > Connect (Chrome or Edge, Web MIDI with SysEx; the port whose name
@@ -264,7 +300,9 @@ firmware/patches/           RemoteFM1's changes to fm1-base and felucca-bsp (MPL
 base/                       fm1-base (git submodule), felucca-bsp in base/bsp
 proto/, docs/PROTOCOL.md    the protocol
 host/                       libremotefm1, the macOS back ends, fm1remote, tests
-web/                        the site: the player, the installer, Use my FM-1 (web/remote)
+web/                        the site (remotefm1.com): the player (web/site), the installer (web/installer, with
+                            installer/smk37/), Use my FM-1 (web/remote), the editors (web/managers), the engines
+                            (web/engines: native, rfm1, emu)
 tools/m0_bench.py, m0_bulk.c, web/m0_bench.html   transport benchmarks (SysEx, bulk, Web MIDI / WebUSB)
 PLAN.md                     the plan, the milestones and every measurement
 ```
