@@ -129,7 +129,7 @@
  }
  
 +#if BOARD_SMK37
-+#include "sa_smk.c"                          /* the M-Vave SMK-37's outer keys, faders, wheels, pedal and extra buttons */
++#include "sa_smk.c"                          /* the M-Vave SMK-37's outer keys, wheels, pedal and extra buttons */
 +#endif
  #include "sa_ui.c"
 --- a/sa/sa_remote.c
@@ -152,7 +152,7 @@
      sa.led_b = sa.led_k = 0xFFFFFFFFu;
 --- a/sa/sa_smk.c
 +++ b/sa/sa_smk.c
-@@ -0,0 +1,85 @@
+@@ -0,0 +1,83 @@
 +/* SPDX-License-Identifier: MPL-2.0
 + * Copyright (C) 2026 RemoteFM1 contributors */
 +/* The M-Vave SMK-37's controls the FM-1 has not (docs/SMK37.md; fm1-base's plat_smk_take, BOARD_SMK37), standalone:
@@ -163,13 +163,12 @@
 + *   pitch wheel    pitch bend: the DX7's, and out on the channel
 + *   mod wheel      CC 1 (the DX7 hears it: its mod wheel), and out
 + *   pedal          CC 64, sustain (the DX7 holds its notes), and out
-+ *   faders 1..4    CC 16..19 (General Purpose 1..4) out, and to the DX7 (which does not use them)
-+ *   KNOB BANK, FADER BANK, <, >   CC 110..113 out, 127 down / 0 up
-+ * In MIDI REMOTE the wheels, the pedal, the faders and the buttons go on CC CH, the outer keys on KEY CH (rm.oct). The
++ *   KNOB BANK, FADER BANK   CC 110, 111 out, 127 down / 0 up
++ * (the faders are KNOB 1..4 and < > SELECT: fm1-base's map, as plat_enc's turns)
++ * In MIDI REMOTE the wheels, the pedal and the buttons go on CC CH, the outer keys on KEY CH (rm.oct). The
 + * session's side (a host's firmware gets the same as MIDI in) is src/rfm_main.c's rf_smk_ms. */
 +
-+#define SA_SMK_FADER_CC 16u                  /* fader f: CC 16 + f */
-+#define SA_SMK_BTN_CC 110u                   /* PLAT_SMK_KNOB_BANK .. RIGHT: CC 110 .. 113 */
++#define SA_SMK_BTN_CC 110u                   /* PLAT_SMK_KNOB_BANK, FADER_BANK: CC 110, 111 */
 +
 +static uint32_t sa_smk_slot(uint32_t key)   /* keybed key 0..36 (an outer one) -> sa_key's 27..36 */
 +{
@@ -233,7 +232,6 @@
 +    }
 +    case PLAT_SMK_MOD: sa_smk_cc(1u, (uint32_t)e->v); return;
 +    case PLAT_SMK_PEDAL: sa_smk_cc(64u, e->v ? 127u : 0u); return;
-+    case PLAT_SMK_FADER: sa_smk_cc(SA_SMK_FADER_CC + e->id, (uint32_t)e->v); return;
 +    case PLAT_SMK_BTN: sa_smk_cc(SA_SMK_BTN_CC + e->id, e->v ? 127u : 0u); return;
 +    default: return;
 +    }
@@ -354,7 +352,7 @@
      h[27] = LCD_BAUD;
  #else
      h[27] = 0;
-@@ -1068,6 +1081,63 @@
+@@ -1068,6 +1081,61 @@
          rfm_app_activity();                         /* (SINK too: the keepalive counts every byte) */
  }
  
@@ -363,19 +361,17 @@
 + * (sa/sa_smk.c); in a session, to the host's firmware as MIDI it receives, on channel 1, as the FM-1's TRS jack's MIDI
 + * in goes (MIDI_IN: the SMK has no TRS MIDI in, so that path is free; caps bit 9 as on the FM-1): the outer keys their
 + * notes (C3..E3 48..52, G#5..C6 80..84) with velocity, the pitch wheel pitch bend, the mod wheel CC 1, the pedal CC 64,
-+ * the faders CC 16..19, KNOB BANK / FADER BANK / < / > CC 110..113 (127 / 0). A fader, a wheel or the pedal at most
-+ * every RF_SMK_MS (its latest then); waiting for a host (no session): nothing */
++ * KNOB BANK / FADER BANK CC 110 / 111 (127 / 0); the faders and < > are FM-1 encoders (fm1-base's map). A wheel or
++ * the pedal at most every RF_SMK_MS (its latest then); waiting for a host (no session): nothing */
 +#define RF_SMK_MS 6u
-+static uint32_t rf_smk_ms_at[7], rf_smk_sent;
-+static uint8_t rf_smk_due;                          /* bit: a control's latest still to send (0..3 faders, 4 bend, 5 mod,
-+                                                     * 6 pedal) */
++static uint32_t rf_smk_ms_at[3], rf_smk_sent;
++static uint8_t rf_smk_due;                          /* bit: a control's latest still to send (0 bend, 1 mod, 2 pedal) */
 +static void rf_smk_session(int type, int id, int v)
 +{
 +    uint32_t st, d1, d2;
 +    switch (type) {
 +    case PLAT_SMK_KEY: st = v ? 0x90u : 0x80u, d1 = 48u + (uint32_t)id, d2 = v ? (uint32_t)v : 64u; break;
 +    case PLAT_SMK_BTN: st = 0xB0u, d1 = 110u + (uint32_t)id, d2 = v ? 127u : 0u; break;
-+    case PLAT_SMK_FADER: st = 0xB0u, d1 = 16u + (uint32_t)id, d2 = (uint32_t)v; break;
 +    case PLAT_SMK_BEND: st = 0xE0u, d1 = (uint32_t)(v + 8192) & 0x7Fu, d2 = (uint32_t)(v + 8192) >> 7; break;
 +    case PLAT_SMK_MOD: st = 0xB0u, d1 = 1u, d2 = (uint32_t)v; break;
 +    case PLAT_SMK_PEDAL: st = 0xB0u, d1 = 64u, d2 = v ? 127u : 0u; break;
@@ -398,19 +394,19 @@
 +            rf_smk_session(e.type, e.id, e.v);
 +            continue;
 +        }
-+        i = e.type == PLAT_SMK_FADER ? e.id : e.type == PLAT_SMK_BEND ? 4u : e.type == PLAT_SMK_MOD ? 5u : 6u;
++        i = e.type == PLAT_SMK_BEND ? 0u : e.type == PLAT_SMK_MOD ? 1u : 2u;
 +        rf_smk_due |= (uint8_t)(1u << i);
 +    }
 +    if (!rfa.session) {
 +        rf_smk_due = 0;
 +        return;
 +    }
-+    for (i = 0; i < 7u; i++)
++    for (i = 0; i < 3u; i++)
 +        if ((rf_smk_due >> i & 1u) && now - rf_smk_ms_at[i] >= RF_SMK_MS) {
-+            int type = i < 4u ? PLAT_SMK_FADER : i == 4u ? PLAT_SMK_BEND : i == 5u ? PLAT_SMK_MOD : PLAT_SMK_PEDAL;
++            int type = i == 0u ? PLAT_SMK_BEND : i == 1u ? PLAT_SMK_MOD : PLAT_SMK_PEDAL;
 +            rf_smk_due &= (uint8_t)~(1u << i);
 +            rf_smk_ms_at[i] = now;
-+            rf_smk_session(type, i < 4u ? (int)i : 0, plat_smk_level(type, i < 4u ? (int)i : 0));
++            rf_smk_session(type, 0, plat_smk_level(type));
 +        }
 +}
 +#endif
@@ -418,7 +414,7 @@
  /* ------------------------------------------------------------------ the panel, once a millisecond --- */
  static uint32_t rf_usb_resets_seen;
  static uint8_t rf_ble_was;
-@@ -1084,6 +1154,9 @@
+@@ -1084,6 +1152,9 @@
          steps[RF_ENC_OF_ROLE[e]] += roles[e];
      }
      sa_ms(lb, roles);                               /* standalone: the instrument; panel mode: its timeout */

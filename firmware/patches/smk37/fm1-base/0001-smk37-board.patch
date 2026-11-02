@@ -294,7 +294,7 @@
  const uint8_t *plat_chip_uid(void) { return flash_ok ? flash_uid : 0; }
 --- a/device/plat_smk37.c
 +++ b/device/plat_smk37.c
-@@ -0,0 +1,117 @@
+@@ -0,0 +1,121 @@
 +/* SPDX-License-Identifier: MPL-2.0
 + * Copyright (C) 2026 RemoteFM1 contributors */
 +/* fm1-base on the M-VAVE SMK-37 (BOARD_SMK37): plat.h's panel on felucca-bsp's boards/smk37 scan, through
@@ -315,8 +315,12 @@
 +    for (i = 0; i < SMK_NPAD; i++)
 +        r->pad_vel[i] = smk_in.pads.vel[i];
 +    r->btns = smk_in.btns.held;
-+    for (i = 0; i < SMK_NFADER; i++)
++    r->fader_ok = 0;
++    for (i = 0; i < SMK_NFADER; i++) {
 +        r->fader[i] = smk_in.faders.v[i];
++        if (smk_in.faders.seen[i])
++            r->fader_ok |= (uint8_t)(1u << i);
++    }
 +    r->bend = smk_in.wheels.bend;
 +    r->mod = smk_in.wheels.mod;
 +    r->pedal = smk_in.pedal.down;
@@ -364,7 +368,7 @@
 +        return 0;
 +    r = remote.enc[role];
 +    remote.enc[role] = 0;
-+    r += smk_enc_take(SMK_ENC_OF_ROLE[role]) + mirror_in_enc(role);
++    r += smk_enc_take(SMK_ENC_OF_ROLE[role]) + smk_panel_enc(role) + mirror_in_enc(role);
 +    if (r)
 +        mirror_enc(role, r);
 +    return r;
@@ -414,7 +418,7 @@
 +}
 --- a/device/smk_panel.c
 +++ b/device/smk_panel.c
-@@ -0,0 +1,227 @@
+@@ -0,0 +1,254 @@
 +/* SPDX-License-Identifier: MPL-2.0
 + * Copyright (C) 2026 RemoteFM1 contributors */
 +/* The M-VAVE SMK-37's panel as an FM-1's (BOARD_SMK37): plat.h's buttons, keys, encoders and lights on the SMK's
@@ -429,25 +433,27 @@
 + *             row 9..16 (hardware pads 0..7 and 8..15: the guide's 6.3); a hit presses the key at the pad's velocity,
 + *             and the pad shows that key's light. A key is held while its pad or its keybed key is; its velocity is
 + *             its last press's
-+ *   buttons   as printed (the guide's 04 / 06, as SLOOP, X0X, ChoralRoot and AMB-1 map them): SCALE SEL, CHORD ENV,
-+ *             NOTE REPEAT LFO, PARA EDIT, GLOBE GLO, PATCH HOME, BT SAVE, FX, ARP, SEQ, SEQ PLAY PLAY, SEQ REC REC,
-+ *             OCTAVE- / + OCT- / OCT+; KNOB BANK, FADER BANK, < and > are changes (PLAT_SMK_BTN)
++ *   buttons   the 2 x 6 grid as the FM-1's, by place: top row ARP FX, NOTE REPEAT SEL, SCALE ENV, CHORD LFO,
++ *             GLOBE EDIT, BT GLO; bottom row PATCH HOME, PARA SAVE, FX ARP, SEQ SEQ, SEQ PLAY PLAY, SEQ REC REC;
++ *             OCTAVE- / + OCT- / OCT+; < and > turn SELECT a detent each press; KNOB BANK and FADER BANK are
++ *             changes (PLAT_SMK_BTN)
 + *   knobs     K1 MASTER (the platform's virtual pot), K2 SELECT, K3 ALGORITHM, K4 PRESETS, K5..K8 KNOB 1..4
++ *   faders    KNOB 1..4 too: a detent a step (0..127), up clockwise; from the first reading on (no turn from where a
++ *             fader was at the start)
 + *   lights    a button's LED lit while the FM-1's is lit (the SMK's are on or off: the FM-1's dim glow and its mid
 + *             level do not show); SEQ PLAY's two halves are PLAY's red and green; a pad at its white key's level
 + *             (lit, the two steady levels, the mid level, the glow), in the warm white of the FM-1's key LEDs
-+ *   the rest  faders 0..127, the pitch wheel -8192..8191, the mod wheel 0..127, the pedal down / up: changes */
++ *   the rest  the pitch wheel -8192..8191, the mod wheel 0..127, the pedal down / up: changes */
 +
 +static const uint8_t SMK_BTN_OF_LABEL[NB] = {                /* plat.h's B_* -> the SMK's button */
-+    SMK_B_FX, SMK_B_SCALE, SMK_B_CHORD, SMK_B_NOTE_REPEAT, SMK_B_PARA, SMK_B_GLOBE, SMK_B_PATCH, SMK_B_BT,
-+    SMK_B_ARP, SMK_B_SEQ, SMK_B_PLAY, SMK_B_REC, SMK_B_OCT_DN, SMK_B_OCT_UP};
++    SMK_B_ARP, SMK_B_NOTE_REPEAT, SMK_B_SCALE, SMK_B_CHORD, SMK_B_GLOBE, SMK_B_BT, SMK_B_PATCH, SMK_B_PARA,
++    SMK_B_FX, SMK_B_SEQ, SMK_B_PLAY, SMK_B_REC, SMK_B_OCT_DN, SMK_B_OCT_UP};
 +static const uint8_t SMK_ENC_OF_ROLE[NE] = {1, 2, 3, 4, 5, 6, 7};   /* EN_* -> K2..K8 (K1 is MASTER) */
 +#define SMK_ENC_MASTER 0u
 +#define SMK_MASTER_STEP 96                                    /* MASTER's position (0..4096) a detent of K1 */
 +static const uint8_t SMK_WHITE_K[16] = PLAT_WHITE_KEYS;       /* white key w (= the pad in reading order) -> key */
-+static const uint8_t SMK_EXTRA_BTN[4] = {SMK_B_KNOB_BANK, SMK_B_FADER_BANK, SMK_B_LEFT, SMK_B_RIGHT};
-+_Static_assert(PLAT_SMK_KNOB_BANK == 0 && PLAT_SMK_FADER_BANK == 1 && PLAT_SMK_LEFT == 2 && PLAT_SMK_RIGHT == 3,
-+               "plat.h's extra buttons in SMK_EXTRA_BTN's order");
++static const uint8_t SMK_EXTRA_BTN[2] = {SMK_B_KNOB_BANK, SMK_B_FADER_BANK};
++_Static_assert(PLAT_SMK_KNOB_BANK == 0 && PLAT_SMK_FADER_BANK == 1, "plat.h's extra buttons in SMK_EXTRA_BTN's order");
 +#define SMK_PAD_RGB 0xFFE6A8u                                 /* the FM-1's key LEDs' warm white */
 +#define SMK_PAD_LIT 72u                                       /* a lit pad's brightness, /255 of the LEDs' full */
 +
@@ -459,6 +465,7 @@
 +    uint8_t pad_vel[SMK_NPAD];
 +    uint32_t btns;                                            /* SMK_B_* held */
 +    uint8_t fader[SMK_NFADER], mod, pedal;
++    uint8_t fader_ok;                                         /* bit f: fader f read at least once */
 +    int16_t bend;
 +} smk_raw_t;
 +static void smk_raw_get(smk_raw_t *r);
@@ -469,8 +476,10 @@
 +    uint8_t vel[NKEYS];                                       /* each FM-1 key's last press */
 +    uint16_t q[32];                                           /* outer keys and extra buttons: kind << 14 | id << 7 | v */
 +    uint8_t qw, qr;
-+    uint8_t dirty;                                            /* bit f: fader f; 4 bend, 5 mod, 6 pedal */
++    uint8_t dirty;                                            /* bit 0 bend, 1 mod, 2 pedal */
 +    uint8_t started;
++    uint8_t fader_base;                                       /* bit f: fader f's position known */
++    int32_t enc[NE];                                          /* turns from < > and the faders, by EN_* */
 +} smk_pn;
 +
 +static uint32_t smk_fm1_buttons(uint32_t smk)                /* the SMK's buttons -> plat.h's B_* */
@@ -488,6 +497,20 @@
 +        return;                                               /* (full: dropped; a key's release is never lost
 +                                                               * behind a press within 32) */
 +    smk_pn.q[smk_pn.qw++ & 31u] = (uint16_t)(kind << 14 | id << 7 | (v & 0x7Fu));
++}
++
++/* the faders as KNOB 1..4: the change since the last poll, a detent a step; a fader's first reading only sets where
++ * it is (the scan's filter already holds a fader at rest steady) */
++static void smk_panel_faders(const smk_raw_t *r)
++{
++    uint32_t i;
++    for (i = 0; i < SMK_NFADER; i++) {
++        if (!(r->fader_ok >> i & 1u))
++            continue;
++        if (smk_pn.fader_base >> i & 1u)
++            smk_pn.enc[EN_K1 + i] += (int32_t)r->fader[i] - (int32_t)smk_pn.was.fader[i];
++        smk_pn.fader_base |= (uint8_t)(1u << i);
++    }
 +}
 +
 +/* the state again: the FM-1's keys (and each one's velocity at its press), the changes of the rest */
@@ -525,24 +548,34 @@
 +        if ((k < SMK_KEY_F3 || k >= SMK_KEY_F3 + NKEYS) && on != was)
 +            smk_q_put(PLAT_SMK_KEY, k, on ? r.key_vel[k] : 0u);
 +    }
-+    for (i = 0; i < 4u; i++) {
++    for (i = 0; i < 2u; i++) {
 +        uint32_t b = SMK_EXTRA_BTN[i], on = r.btns >> b & 1u;
 +        if (on != (smk_pn.was.btns >> b & 1u))
 +            smk_q_put(PLAT_SMK_BTN, i, on);
 +    }
-+    for (i = 0; i < SMK_NFADER; i++)
-+        if (r.fader[i] != smk_pn.was.fader[i])
-+            smk_pn.dirty |= (uint8_t)(1u << i);
++    if ((r.btns & ~smk_pn.was.btns) >> SMK_B_LEFT & 1u)       /* < and >: SELECT a detent a press */
++        smk_pn.enc[EN_SELECT]--;
++    if ((r.btns & ~smk_pn.was.btns) >> SMK_B_RIGHT & 1u)
++        smk_pn.enc[EN_SELECT]++;
++    smk_panel_faders(&r);
 +    if (r.bend != smk_pn.was.bend)
-+        smk_pn.dirty |= 1u << 4;
++        smk_pn.dirty |= 1u << 0;
 +    if (r.mod != smk_pn.was.mod)
-+        smk_pn.dirty |= 1u << 5;
++        smk_pn.dirty |= 1u << 1;
 +    if (r.pedal != smk_pn.was.pedal)
-+        smk_pn.dirty |= 1u << 6;
++        smk_pn.dirty |= 1u << 2;
 +    smk_pn.was = r;
 +}
 +
 +static uint32_t smk_fm1_keys(void) { return smk_pn.kb | smk_pn.pad; }
++static int32_t smk_panel_enc(int role)                        /* EN_*'s turns from < > and the faders, taken */
++{
++    int32_t v;
++    smk_panel_poll();
++    v = smk_pn.enc[role];
++    smk_pn.enc[role] = 0;
++    return v;
++}
 +static uint8_t smk_fm1_vel(uint32_t k) { return k < NKEYS && smk_pn.vel[k] ? smk_pn.vel[k] : 100u; }
 +
 +int plat_smk_take(plat_smk_ev_t *e)
@@ -556,22 +589,20 @@
 +        e->v = (int16_t)(x & 0x7Fu);
 +        return 1;
 +    }
-+    for (i = 0; i < 7u; i++)
++    for (i = 0; i < 3u; i++)
 +        if (smk_pn.dirty >> i & 1u) {
 +            smk_pn.dirty &= (uint8_t)~(1u << i);
-+            e->id = (uint8_t)(i < 4u ? i : 0u);
-+            e->type = (uint8_t)(i < 4u ? PLAT_SMK_FADER : i == 4u ? PLAT_SMK_BEND : i == 5u ? PLAT_SMK_MOD : PLAT_SMK_PEDAL);
-+            e->v = (int16_t)(i < 4u ? smk_pn.was.fader[i] : i == 4u ? smk_pn.was.bend : i == 5u ? smk_pn.was.mod :
-+                             smk_pn.was.pedal);
++            e->id = 0;
++            e->type = (uint8_t)(i == 0u ? PLAT_SMK_BEND : i == 1u ? PLAT_SMK_MOD : PLAT_SMK_PEDAL);
++            e->v = (int16_t)(i == 0u ? smk_pn.was.bend : i == 1u ? smk_pn.was.mod : smk_pn.was.pedal);
 +            return 1;
 +        }
 +    return 0;
 +}
-+int plat_smk_level(int type, int id)                          /* where a continuous control is now */
++int plat_smk_level(int type)                                  /* where a wheel or the pedal is now */
 +{
 +    smk_raw_t *w = &smk_pn.was;
-+    return type == PLAT_SMK_FADER && id >= 0 && id < (int)SMK_NFADER ? w->fader[id] : type == PLAT_SMK_BEND ? w->bend :
-+           type == PLAT_SMK_MOD ? w->mod : type == PLAT_SMK_PEDAL ? w->pedal : 0;
++    return type == PLAT_SMK_BEND ? w->bend : type == PLAT_SMK_MOD ? w->mod : type == PLAT_SMK_PEDAL ? w->pedal : 0;
 +}
 +
 +/* --------------------------------------------------------------- lights --- */
@@ -837,7 +868,7 @@
 +    smk_raw_t r;
 +    int32_t enc[SMK_NENC];
 +} smk_sim;
-+static void smk_raw_get(smk_raw_t *r) { *r = smk_sim.r; }
++static void smk_raw_get(smk_raw_t *r) { *r = smk_sim.r; r->fader_ok = 0xFu; }
 +static uint8_t plat_smk_vel(uint32_t k) { return smk_fm1_vel(k); }
 +static int32_t smk_sim_enc(uint32_t e)
 +{
@@ -847,7 +878,7 @@
 +}
 +#define SMK_SIM_BUTTONS() smk_fm1_buttons(smk_sim.r.btns)
 +#define SMK_SIM_KEYS() (smk_panel_poll(), smk_fm1_keys())
-+#define SMK_SIM_ENC(role) smk_sim_enc(SMK_ENC_OF_ROLE[role])
++#define SMK_SIM_ENC(role) (smk_sim_enc(SMK_ENC_OF_ROLE[role]) + smk_panel_enc(role))
 +#else
 +#define SMK_SIM_BUTTONS() 0u
 +#define SMK_SIM_KEYS() 0u
@@ -907,10 +938,11 @@
  static uint8_t data_ready;
  static void data_init(void)
  {
-@@ -503,6 +546,44 @@
+@@ -502,7 +545,45 @@
+         memset(data_area, 0xFF, sizeof data_area);
          data_ready = 1;
      }
- }
++}
 +#if BOARD_SMK37
 +/* the SMK-37's flash, the app's side (device/smk_store.c, as on the device), on this simulated flash: the factory
 + * record there unless SMK_NO_TRIM=1 (an FM-1 given the SMK's build) */
@@ -931,7 +963,7 @@
 +    memset(&data_area[off - DATA_BASE], 0xFF, 0x1000u);
 +    smk_fl_erases++;
 +    return 0;
-+}
+ }
 +static int smk_fl_write(uint32_t off, const void *p, uint32_t n)
 +{
 +    uint32_t i;
@@ -1001,10 +1033,12 @@
      app_init();
      lcd_fill(0, 0, 240, 240, 0);
      ble_state = BLE_OFF;                            /* Bluetooth starts at every boot, as on the device */
-@@ -1108,6 +1200,115 @@
+@@ -1106,7 +1198,116 @@
+     printf("FAIL %s %s %02X %02X %02X: %s\n", sent ? "expect_out" : "expect_no_out", port, (pkt >> 8) & 0xFF,
+            (pkt >> 16) & 0xFF, pkt >> 24, !to ? "no such port" : sent ? "not sent" : "sent");
      return 1;
- }
- 
++}
++
 +#if BOARD_SMK37
 +/* the SMK-37's controls in a script (BOARD_SMK37):
 + *   smk key K down [VEL] | up      keybed key K 0..36 (0 = C3, 5 = F3 .. 31 = G5, 36 = C6), VEL 1..127 (default 100)
@@ -1111,12 +1145,11 @@
 +        return 2;
 +    }
 +    return 0;
-+}
+ }
 +#endif
-+
+ 
  static int expect(const char *what, const char *val)
  {
-     int got;
 @@ -1128,6 +1329,43 @@
      else if (!strcmp(what, "restore_rc"))
          got = restore_rc;
@@ -1209,27 +1242,26 @@
  static inline int plat_in(uint32_t off, uint32_t n, uint32_t lo, uint32_t hi)   /* [off, off + n) in [lo, hi) */
  {
      return off >= lo && off <= hi && n <= hi - off;
-@@ -231,6 +250,30 @@
-  * ends with OBJ_NOBJ, and APP_STORE_MAP, each object's flash offset: two 4 KiB sectors (A/B) from there, inside the
+@@ -232,6 +251,30 @@
   * data area (0x97000..0xDFFFF) or Felucca's settings sector pair at 0xFC000. An object's number is written in its
   * record, so an app keeps its numbering from one release to the next. */
-+
+ 
 +#if BOARD_SMK37
 +/* The M-VAVE SMK-37 (BOARD_SMK37: felucca-bsp boards/smk37, device/smk_panel.c): an FM-1's panel to the app, the
 + * buttons, keys, knobs and lights above on the SMK's (keybed keys 5..31 and the 16 pads the 27 keys and the 16 white
-+ * keys, K1 MASTER, K2..K8 the encoders, the printed buttons; lib/touch the keys' and pads' velocity). What the FM-1 has
-+ * not comes as changes, one a call (main loop): */
-+enum { PLAT_SMK_KEY, PLAT_SMK_BTN, PLAT_SMK_FADER, PLAT_SMK_BEND, PLAT_SMK_MOD, PLAT_SMK_PEDAL };
-+enum { PLAT_SMK_KNOB_BANK, PLAT_SMK_FADER_BANK, PLAT_SMK_LEFT, PLAT_SMK_RIGHT };   /* PLAT_SMK_BTN's id */
++ * keys, K1 MASTER, K2..K8 the encoders, the faders KNOB 1..4 too, < and > SELECT, the 2 x 6 buttons by place; lib/touch
++ * the keys' and pads' velocity). What the FM-1 has not comes as changes, one a call (main loop): */
++enum { PLAT_SMK_KEY, PLAT_SMK_BTN, PLAT_SMK_BEND, PLAT_SMK_MOD, PLAT_SMK_PEDAL };
++enum { PLAT_SMK_KNOB_BANK, PLAT_SMK_FADER_BANK };   /* PLAT_SMK_BTN's id */
 +typedef struct {
 +    uint8_t type, id;   /* KEY: keybed key 0..36 (one of the ten outer ones: 0..4 C3..E3, 32..36 G#5..C6); BTN: the
-+                         * PLAT_SMK_* button; FADER: 0..3 */
-+    int16_t v;          /* KEY: velocity 1..127, 0 up; BTN: 1 down, 0 up; FADER, MOD 0..127; BEND -8192..8191 (0 at
-+                         * rest); PEDAL 1 down, 0 up */
++                         * PLAT_SMK_* button */
++    int16_t v;          /* KEY: velocity 1..127, 0 up; BTN: 1 down, 0 up; MOD 0..127; BEND -8192..8191 (0 at rest);
++                         * PEDAL 1 down, 0 up */
 +} plat_smk_ev_t;
-+int plat_smk_take(plat_smk_ev_t *e);   /* 1: the next change in e; 0: none (main loop; faders, wheels and the pedal
++int plat_smk_take(plat_smk_ev_t *e);   /* 1: the next change in e; 0: none (main loop; the wheels and the pedal
 +                                        * give their latest only) */
-+int plat_smk_level(int type, int id);  /* where a fader, a wheel or the pedal is now */
++int plat_smk_level(int type);          /* where a wheel or the pedal is now */
 +/* The store's owner (app.h, the SMK's flash: another firmware's data must not be read as the app's, nor the app's by
 + * another): APP_SMK_FAMILY "NAME" (1..7 capitals or digits) and APP_SMK_CLEAR {lo, hi, ...} (the data windows: sector
 + * aligned pairs, inside PLAT_DATA_OK). At a start that finds another tag (or none: the stock firmware's VM) at
@@ -1237,9 +1269,10 @@
 + * app_init, a second or two once. USRFLASH (XDATA1) is not cleared: the stock firmware's mapping stays until the app's
 + * first write there */
 +#endif
- 
++
  /* audio load in % of the render budget, and xruns since boot (device: from the ISR) */
  uint32_t plat_cpu_pct(void);
+ uint32_t plat_xruns(void);
 --- a/lib/touch_smk.c
 +++ b/lib/touch_smk.c
 @@ -0,0 +1,82 @@

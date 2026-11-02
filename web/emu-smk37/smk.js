@@ -11,11 +11,11 @@ const STORE_KEY = "remotefm1-smk37-emu-store";
 // ---------------------------------------------------------------- the model
 // buttons in SMK_B_* order (smk_decode.h): the printed name, the FM-1 role, the LED's colour
 const BTNS = [
-  ["KNOB BANK", "CC 110"], ["FADER BANK", "CC 111"], ["<", "CC 112"], [">", "CC 113"],
+  ["KNOB BANK", "CC 110"], ["FADER BANK", "CC 111"], ["<", "SEL −"], [">", "SEL +"],
   ["OCTAVE -", "OCT-"], ["OCTAVE +", "OCT+"],
-  ["ARP", "ARP"], ["NOTE REPEAT", "LFO"], ["SCALE", "SEL"], ["CHORD", "ENV"],
-  ["GLOBE", "GLO"], ["BT", "SAVE"], ["PATCH", "HOME"], ["PARA", "EDIT"],
-  ["FX", "FX"], ["SEQ", "SEQ"], ["SEQ PLAY", "PLAY"], ["SEQ REC", "REC"],
+  ["ARP", "FX"], ["NOTE REPEAT", "SEL"], ["SCALE", "ENV"], ["CHORD", "LFO"],
+  ["GLOBE", "EDIT"], ["BT", "GLO"], ["PATCH", "HOME"], ["PARA", "SAVE"],
+  ["FX", "ARP"], ["SEQ", "SEQ"], ["SEQ PLAY", "PLAY"], ["SEQ REC", "REC"],
 ];
 const B_PLAY = 16, B_REC = 17, LED_PLAY_RED = 18;
 const KNOBS = [["K1", "MASTER"], ["K2", "SELECT"], ["K3", "ALGORITHM"], ["K4", "PRESETS"],
@@ -102,12 +102,12 @@ const faders = [0, 1, 2, 3].map((f) => {
   const x = 898 + f * 90, y = 10;
   const d = el("div", "fader ctl", stage, { left: px(x), top: px(y) });
   d.setAttribute("role", "slider");
-  d.setAttribute("aria-label", `Fader ${f + 1}, CC ${16 + f}`);
+  d.setAttribute("aria-label", `Fader ${f + 1}, KNOB ${f + 1}`);
   d.tabIndex = 0;
   el("div", "slot", d);
   const fill = el("div", "fill", d), cap = el("div", "cap", d);
   label(`F${f + 1}`, x, y + 218, 56);
-  label(`CC ${16 + f}`, x, y + 231, 56, "role", "#ff4fd8");
+  label(`KNOB ${f + 1}`, x, y + 231, 56, "role", "#ff4fd8");
   return { el: d, fill, cap, v: 0 };
 });
 function drawFader(f) {
@@ -130,7 +130,7 @@ BTNS.forEach(([name, role], b) => {
   d.innerHTML = name.replace(" ", "<br>");
   const led = b === B_REC ? "#ff3b3b" : b === B_PLAY ? "#5dff6a" : b < 4 ? "#38e1ff" : "#ffb23e";
   d.style.setProperty("--led", led);
-  label(role, x - 4, y + 42, w + 8, "role", b < 4 ? "#8a8fa8" : "#ffc77a");
+  label(role, x - 4, y + 42, w + 8, "role", b < 2 ? "#8a8fa8" : "#ffc77a");
   buttons.push({ el: d, bit: b });
 });
 
@@ -410,8 +410,8 @@ $("latch").addEventListener("click", (e) => {
 let typeBase = 12;                                  // the Z row's C: keybed 12 = C4
 const PIANO = { KeyZ: 0, KeyS: 1, KeyX: 2, KeyD: 3, KeyC: 4, KeyV: 5, KeyG: 6, KeyB: 7, KeyH: 8, KeyN: 9, KeyJ: 10, KeyM: 11, Comma: 12,
                 KeyQ: 12, Digit2: 13, KeyW: 14, Digit3: 15, KeyE: 16, KeyR: 17, Digit5: 18, KeyT: 19, Digit6: 20, KeyY: 21, Digit7: 22, KeyU: 23, KeyI: 24 };
-const KEYBTN = { Escape: 12, Backspace: 11, Space: B_PLAY, Enter: B_REC, ArrowLeft: 4, ArrowRight: 5,
-                 KeyA: 14, KeyF: 8, KeyK: 6, KeyL: 15, KeyO: 10, KeyP: 13 };
+const KEYBTN = { Escape: 12, Backspace: 13, Space: B_PLAY, Enter: B_REC, ArrowLeft: 4, ArrowRight: 5,   // by FM-1 role
+                 KeyA: 6, KeyF: 7, KeyK: 14, KeyL: 15, KeyO: 11, KeyP: 10 };
 function showOct() { $("oct").textContent = `Typing keys: Z = ${keyName(typeBase)}`; }
 showOct();
 const typing = (e) => e.target.closest && e.target.closest("input, select, textarea, button, .bar");

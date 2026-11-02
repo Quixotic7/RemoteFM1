@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2026 RemoteFM1 contributors
 // The SMK-37 emulator's wasm without a browser (BOARD=smk37 ./build.sh --web; tests/run_tests.sh): boot, a key's
-// sound, a pad as its white key, a mapped button, an outer key and a fader as MIDI out, the pads' colours read back.
+// sound, a pad as its white key, the buttons as the FM-1's by place, an outer key as MIDI out, a fader as KNOB 1 and
+// > as SELECT (no CC of their own), the pads' colours read back.
 //   node web/emu-smk37/test_emu_smk37.mjs [firmware/build/emu-smk37/app.wasm]
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -44,7 +45,7 @@ function out() {
   return r;
 }
 const has = (msgs, s, d1, d2) => msgs.some((m) => m[0] === s && m[1] === d1 && (d2 === undefined || m[2] === d2));
-const B = { "OCT-": 4, "OCT+": 5, PARA: 13, FX: 14 };
+const B = { ">": 3, "OCT-": 4, "OCT+": 5, ARP: 6, GLOBE: 10 };
 const pads = () => [...new Uint8Array(mem.buffer, ex.web_smk_pad_lvl(), 16)];
 const rgb = () => [...new Uint32Array(mem.buffer, ex.web_smk_pad_rgb(), 16)];
 
@@ -87,7 +88,7 @@ check("pad 1 let go", has(o, 0x80, 0x35), JSON.stringify(o));
 run(800);
 check("pad 1 dark again", pads()[0] === 0, `level ${pads()[0]}`);
 
-// OCTAVE+ is OCT+: the next key an octave up, its LED lit; PARA is EDIT: CC bank E, PARA lit, FX not
+// OCTAVE+ is OCT+: the next key an octave up, its LED lit; GLOBE is EDIT: CC bank E, GLOBE lit, ARP (FX) not
 function tap(b) { ex.web_smk_buttons(1 << b); run(60); ex.web_smk_buttons(0); run(60); }
 tap(B["OCT+"]);
 check("OCTAVE+ lights", (ex.web_smk_leds() >>> B["OCT+"] & 1) === 1);
@@ -96,20 +97,24 @@ ex.web_smk_key(12, 64); run(20); ex.web_smk_key(12, 0); run(20);
 o = out();
 check("OCTAVE+ is OCT+ (key 12 now 72)", has(o, 0x90, 0x48, 64), JSON.stringify(o));
 tap(B["OCT-"]);
-check("FX lit at the start", (ex.web_smk_leds() >>> B.FX & 1) === 1);
-tap(B.PARA);
-check("PARA is EDIT (its LED lit, FX not)", (ex.web_smk_leds() >>> B.PARA & 1) === 1 && (ex.web_smk_leds() >>> B.FX & 1) === 0,
+check("ARP (FX) lit at the start", (ex.web_smk_leds() >>> B.ARP & 1) === 1);
+tap(B.GLOBE);
+check("GLOBE is EDIT (its LED lit, ARP not)", (ex.web_smk_leds() >>> B.GLOBE & 1) === 1 && (ex.web_smk_leds() >>> B.ARP & 1) === 0,
       ex.web_smk_leds().toString(2));
-tap(B.FX);
+tap(B.ARP);
 
-// an outer key (C3, keybed 0) and a fader: MIDI out (note 48; CC 16)
+// an outer key (C3, keybed 0): MIDI out (note 48); fader 1 is KNOB 1 (bank A's first CC), not CC 16; > no CC 113
 out();
 ex.web_smk_key(0, 70); run(20); ex.web_smk_key(0, 0); run(20);
 o = out();
 check("outer key C3 plays note 48", has(o, 0x90, 0x30, 70), JSON.stringify(o));
 ex.web_smk_fader(0, 100); run(20);
 o = out();
-check("fader 1 sends CC 16", has(o, 0xb0, 0x10, 100), JSON.stringify(o));
+check("fader 1 turns KNOB 1 (a CC out), no CC 16 = 100", o.some((m) => m[0] === 0xb0) && !has(o, 0xb0, 0x10, 100),
+      JSON.stringify(o));
+tap(B[">"]);
+o = out();
+check("> sends no CC 113", !has(o, 0xb0, 0x71), JSON.stringify(o));
 
 // K1 is MASTER (96 a detent)
 const m0 = ex.web_smk_master();
@@ -123,10 +128,10 @@ check("K1 turns MASTER", ex.web_smk_master() === m0 + 192, `${m0} -> ${ex.web_sm
   const app = globalThis.fm1App, fm1 = { ex, mem, port: { postMessage() {} } };
   app.load(fm1);
   const block = () => { app.process(fm1); run(128 / 44.1); };
-  app.message(fm1, { type: "app", op: "btns", mask: 1 << B.PARA });
+  app.message(fm1, { type: "app", op: "btns", mask: 1 << B.GLOBE });
   app.message(fm1, { type: "app", op: "btns", mask: 0 });
   for (let i = 0; i < 40; i++) block();
-  check("a quick click on PARA (via the worklet) lights it", (ex.web_smk_leds() >>> B.PARA & 1) === 1, ex.web_smk_leds().toString(2));
+  check("a quick click on GLOBE (via the worklet) lights it", (ex.web_smk_leds() >>> B.GLOBE & 1) === 1, ex.web_smk_leds().toString(2));
   out();
   app.message(fm1, { type: "app", op: "key", k: 12, vel: 80 });
   app.message(fm1, { type: "app", op: "key", k: 12, vel: 0 });
