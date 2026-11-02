@@ -2,7 +2,8 @@
 # The M-Vave SMK-37's controls the FM-1 has not (docs/SMK37.md; fm1-base plat_smk_take, firmware/sa/sa_smk.c,
 # src/rfm_main.c rf_smk_ms), in the SMK-37 build of the simulator: standalone the instrument's (the outer keys play
 # as the 27 keys do; the wheels bend and modulate, the pedal sustains, KNOB BANK and FADER BANK send CCs; the faders
-# are KNOB 1..4 and < > SELECT, smk_panel.txt);
+# are KNOB 1..4 and < > SELECT, smk_panel.txt; in MIDI REMOTE's ABSOLUTE a fader sets its encoder's CC, in a
+# relative mode it turns it);
 # in a host's session the host's firmware gets them as MIDI it receives (MIDI_IN, as the FM-1's TRS jack's), channel 1.
 wait 400
 expect sa_panel 0
@@ -183,13 +184,50 @@ smk tap ARP
 smk release BT
 wait 20
 expect sa_remote 1
+# its encoders ABSOLUTE (the default): fader 1 sets KN1's CC 105 to where it is; no CC 16
 out
 smk fader 1 5
 wait 10
+expect_out USB B0 69 05
 expect_no_out USB B0 10 05
+smk fader 1 90
+wait 10
+expect_out USB B0 69 5A
 smk key 0 down 70
 wait 10
 expect_out USB 90 30 46
 smk key 0 up
 wait 10
 expect_out USB 80 30 40
+# MIDI REMOTE's encoders relative (1/127: HOME held, SELECT to KNOBS, KN1 + 1): the fader's change as relative steps
+smk press BT
+smk tap ARP
+smk release BT
+wait 20
+expect sa_remote 0
+smk press PATCH
+wait 600
+smk release PATCH
+wait 20
+smk turn K2 1
+smk turn K5 1
+wait 20
+expect sa_set1 1
+smk press PATCH
+wait 600
+smk release PATCH
+wait 20
+smk press BT
+smk tap ARP
+smk release BT
+wait 20
+expect sa_remote 1
+out
+smk fader 1 93
+wait 10
+expect_out USB B0 69 03
+expect_no_out USB B0 69 5D
+wait 50
+smk fader 1 92
+wait 10
+expect_out USB B0 69 7F

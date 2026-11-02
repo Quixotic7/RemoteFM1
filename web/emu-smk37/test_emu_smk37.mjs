@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 // Copyright (C) 2026 RemoteFM1 contributors
 // The SMK-37 emulator's wasm without a browser (BOARD=smk37 ./build.sh --web; tests/run_tests.sh): boot, a key's
-// sound, a pad as its white key, the buttons as the FM-1's by place, an outer key as MIDI out, a fader as KNOB 1 and
+// sound, a pad as its white key, the buttons as the FM-1's by place, an outer key as MIDI out, a fader setting KNOB 1 and
 // > as SELECT (no CC of their own), the pads' colours read back.
 //   node web/emu-smk37/test_emu_smk37.mjs [firmware/build/emu-smk37/app.wasm]
 import { readFileSync } from "node:fs";
@@ -103,15 +103,19 @@ check("GLOBE is EDIT (its LED lit, ARP not)", (ex.web_smk_leds() >>> B.GLOBE & 1
       ex.web_smk_leds().toString(2));
 tap(B.ARP);
 
-// an outer key (C3, keybed 0): MIDI out (note 48); fader 1 is KNOB 1 (bank A's first CC), not CC 16; > no CC 113
+// an outer key (C3, keybed 0): MIDI out (note 48); fader 1 sets KNOB 1 (bank A's first CC, CC 1) to where it is,
+// not CC 16; > no CC 113
 out();
 ex.web_smk_key(0, 70); run(20); ex.web_smk_key(0, 0); run(20);
 o = out();
 check("outer key C3 plays note 48", has(o, 0x90, 0x30, 70), JSON.stringify(o));
 ex.web_smk_fader(0, 100); run(20);
 o = out();
-check("fader 1 turns KNOB 1 (a CC out), no CC 16 = 100", o.some((m) => m[0] === 0xb0) && !has(o, 0xb0, 0x10, 100),
+check("fader 1 sets KNOB 1: CC 1 = 100, no CC 16", has(o, 0xb0, 0x01, 100) && !has(o, 0xb0, 0x10, 100),
       JSON.stringify(o));
+ex.web_smk_fader(0, 7); run(20);
+o = out();
+check("fader 1 at 7: CC 1 = 7", has(o, 0xb0, 0x01, 7), JSON.stringify(o));
 tap(B[">"]);
 o = out();
 check("> sends no CC 113", !has(o, 0xb0, 0x71), JSON.stringify(o));

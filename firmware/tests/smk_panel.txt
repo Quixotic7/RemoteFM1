@@ -116,15 +116,72 @@ wait 20
 expect sa_bpm 120
 expect_no_out USB B0 70 7F
 expect_no_out USB B0 71 7F
-# a fader is its KNOB (fader 1 KNOB 1: bank A's first CC); no CC 16..19 of its own
+# a fader is its KNOB (fader 1 KNOB 1: bank A's first CC, CC 1); no CC 16..19 of its own. KNOB 1..4 hold absolute CC
+# values here: the fader sets the knob's value to where it is, whatever the knob's was
 expect sa_ccv_k0 0
-smk fader 1 20
+smk turn K5 5
 wait 20
 expect sa_ccv_k0 >0
-expect_no_out USB B0 10 14
+out
+smk fader 1 127
+wait 20
+expect sa_ccv_k0 127
+expect_out USB B0 01 7F
+expect_no_out USB B0 10 7F
+smk turn K5 -3
+wait 20
+expect sa_ccv_k0 <127
+out
 smk fader 1 0
 wait 20
 expect sa_ccv_k0 0
+expect_out USB B0 01 00
+# GLO held (BT): the fader turns KNOB 1 (GLO + a knob: its CC number, 1 + 2), no CC out
+smk press BT
+out
+smk fader 1 2
+wait 20
+expect sa_cc_k0 3
+smk fader 1 0
+wait 20
+expect sa_cc_k0 1
+expect_no_out USB B0 01 02
+expect_no_out USB B0 03 00
+smk release BT
+wait 20
+# a menu (PARA = SAVE tapped: the theme, KN1) takes the knobs: the fader turns it; closed with the fader half way,
+# nothing is sent till it moves again
+expect sa_theme 0
+smk tap PARA
+wait 20
+expect sa_menu 1
+out
+smk fader 1 1
+wait 20
+expect sa_theme 1
+smk fader 1 64
+wait 20
+smk tap PARA
+wait 20
+expect sa_menu 0
+expect sa_ccv_k0 0
+expect_no_out USB B0 01 01
+expect_no_out USB B0 01 40
+smk fader 1 65
+wait 20
+expect_out USB B0 01 41
+expect sa_ccv_k0 65
+smk fader 1 0
+wait 20
+expect sa_ccv_k0 0
+smk tap PARA
+wait 20
+smk turn K5 -64
+wait 20
+expect sa_theme 0
+smk tap PARA
+wait 20
+expect sa_menu 0
 
 # a host's session: the panel as plain MIDI by the FM-1's matrix numbers (docs/PROTOCOL.md section 4)
 rf hello usb
@@ -193,11 +250,13 @@ smk tap >
 wait 5
 expect_out USB BE 10 41
 expect rf_mi_n 12
-# the faders turn KNOB 1..4 (matrix 2..5) by their change, up clockwise; no MIDI of their own
+# the faders turn KNOB 1..4 (matrix 2..5) by their change, up clockwise (in a session always: not the standalone's
+# absolute values); no MIDI of their own
 out
 smk fader 1 10
 wait 5
 expect_out USB BE 12 4A
+expect_no_out USB B0 01 0A
 smk fader 1 5
 wait 5
 expect_out USB BE 12 3B
