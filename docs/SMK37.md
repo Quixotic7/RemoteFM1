@@ -36,22 +36,20 @@ screen and RemoteFM1's own DX7 instrument (its manual: the README's "Using it").
 | K1 | MASTER (the FM-1's pot: 96 of 4096 a detent, half the level at power-on) | MASTER (the volume) |
 | K2 / K3 / K4 | SELECT / ALGORITHM / PRESETS | the same |
 | K5..K8 | KNOB 1..4 | the same |
-| SCALE / CHORD / NOTE REPEAT | SEL / ENV / LFO | the same |
-| PARA / GLOBE | EDIT / GLO | the same |
-| PATCH / BT | HOME / SAVE | the same |
-| FX / ARP / SEQ | FX / ARP / SEQ | the same |
-| SEQ PLAY / SEQ REC | PLAY / REC (PLAY's light: red or green, its two-colour LED) | the same |
+| Faders 1..4 | KNOB 1..4 as well: a fader turns its KNOB one detent a step (0..127), up clockwise; no turn from where it was at power-on | where KNOB 1..4 are CC values (the CC banks; MIDI REMOTE with KNOBS ABSOLUTE): a fader sets its knob's CC to where it is, 0..127; with a menu open, GLO held (a knob's CC number) or MIDI REMOTE's relative KNOBS: it turns the knob, as in Remote. A change of mode sends nothing till the fader moves |
+| The 12 buttons, top row: ARP / NOTE REPEAT / SCALE / CHORD / GLOBE / BT | the FM-1's top row by place: FX / SEL / ENV / LFO / EDIT / GLO | the same |
+| The 12 buttons, bottom row: PATCH / PARA / FX / SEQ / SEQ PLAY / SEQ REC | the FM-1's bottom row: HOME / SAVE / ARP / SEQ / PLAY / REC (PLAY's light: red or green, its two-colour LED) | the same |
 | OCTAVE- / OCTAVE+ | OCT- / OCT+ | the same |
-| The button lights | lit while the FM-1's LED is lit | the same |
-| KNOB BANK / FADER BANK / < / > | no FM-1 button: MIDI to the host's firmware, CC 110 / 111 / 112 / 113 (127 pressed, 0 let go) | CC 110..113 out |
-| Faders 1..4 | MIDI to the host's firmware: CC 16..19 | CC 16..19 out (the DX7 does not use them) |
+| `<` / `>` | SELECT one detent counter-clockwise / clockwise a press (as K2) | the same |
+| The button lights | each button lit while its FM-1 button's LED is lit | the same |
+| KNOB BANK / FADER BANK | no FM-1 button: MIDI to the host's firmware, CC 110 / 111 (127 pressed, 0 let go) | CC 110 / 111 out |
 | Pitch wheel | MIDI to the host's firmware: pitch bend | bends the DX7, and out |
 | Mod wheel | MIDI to the host's firmware: CC 1 | the DX7's mod wheel, and out |
 | Pedal jack (a switch pedal) | MIDI to the host's firmware: CC 64 | sustain on the DX7, and out |
 | OCTAVE- held at power-on | the chip's update mode (as REC at power-on on the FM-1) | |
 
 "MIDI to the host's firmware" is RemoteFM1's MIDI_IN message (`docs/PROTOCOL.md`, the FM-1's TRS jack's MIDI in;
-caps bit 9 is set on both boards), channel 1, whole messages, a fader, a wheel or the pedal at most every 6 ms (its
+caps bit 9 is set on both boards), channel 1, whole messages, a wheel or the pedal at most every 6 ms (its
 latest then). The SMK-37 has no TRS MIDI in, so nothing else uses that path. Of today's hosts the site and the iOS app
 pass MIDI_IN to the firmware they run as its MIDI input; FM1VST (its released branch) and the Android app (no unit
 link yet) drop it: there these controls do nothing. "Out" is MIDI out over USB and Bluetooth on the standalone's
@@ -73,8 +71,8 @@ channel (MIDI REMOTE: its CC CH, the outer keys on its KEY CH), as the keys' not
 - **MASTER across a power cycle**: K1 starts at half the level at every power-on (the FM-1's pot stays where it is).
 - **The battery reading** is the stock firmware's three thresholds, not volts; HELLO_R reports no battery, as on the
   FM-1.
-- In a host's session, KNOB BANK, FADER BANK, `<`, `>`, the faders, the wheels, the pedal and the outer keys reach the
-  host's firmware only on the hosts that pass MIDI_IN on (above).
+- In a host's session, KNOB BANK, FADER BANK, the wheels, the pedal and the outer keys reach the host's firmware only on
+  the hosts that pass MIDI_IN on (above). `<`, `>` and the faders are FM-1 encoders, on every host.
 
 ## Flash map
 
@@ -158,6 +156,7 @@ BOARD=smk37 MODEL=mke ./build.sh                # remotefm1-smk37-mke.fwsc
 BOARD=smk37 ./build.sh --no-ble                 # remotefm1-smk37-usb.fwsc (no Bluetooth)
 BOARD=smk37 ./build.sh --release 0.3.1          # remotefm1-smk37-0.3.1.fwsc, identity SMK-37 Pro_52000301
 BOARD=smk37 ./build.sh --host                   # the simulator with the SMK-37's panel: build/host/remotefm1-smk37_host
+BOARD=smk37 ./build.sh --web                    # the browser emulator: firmware/build/emu-smk37/ (below)
 ./build.sh                                      # the FM-1 build, as before
 ```
 
@@ -170,6 +169,35 @@ the SMK-37's patched sources (into `build/app-smk37/build/`): its code is the FM
 `tests/run_tests.sh` runs the SMK-37's tests after the FM-1's (the simulator's scenarios `firmware/tests/smk_*.txt`
 and the FM-1's on the SMK-37 build, HELLO_R and PANEL_R compared with the FM-1 build's byte for byte, the decoder, the
 flash map, and the update receiver against the built packages when they are there).
+
+## Emulator
+
+The SMK-37 build in the browser, for trying its controls without the keyboard: the simulator above compiled to
+WebAssembly (fm1-base's `web/emu/emu_web.c` and its worklet, with `web_smk_*` exports from
+`firmware/patches/smk37/fm1-base/0002-smk37-web.patch`) on a page of its own (`web/emu-smk37/`). Online beside the test
+installer: `https://remotefm1.com/installer/smk37/emu/`, from the built copy in `web/installer/smk37/emu/` (after a
+change, build it and copy `firmware/build/emu-smk37/*` there; `test_smk_installer.mjs` checks its page files against
+`web/emu-smk37/`).
+
+```sh
+source ~/emsdk/emsdk_env.sh                     # Emscripten (emcc)
+BOARD=smk37 ./build.sh --web                    # firmware/build/emu-smk37/ (MODEL=elite / mke: emu-smk37-elite/ ...)
+python3 -m http.server -d firmware/build/emu-smk37 8037    # then http://localhost:8037/ and Start
+node web/emu-smk37/test_emu_smk37.mjs           # its test, without a browser (tests/run_tests.sh runs it when emcc is there)
+```
+
+The page is an SMK-37 Pro: the screen, K1..K8 over the 16 pads, the four faders, the 18 buttons (each with its FM-1
+role under it), the pitch and mod wheels, a sustain pedal switch and the 37 keys, the FM-1's 27 told apart from the
+outer 10. Keys and pads take their velocity from where they are hit (the front edge hardest); the computer keyboard
+plays the keys and the main buttons (the page lists them); Web MIDI in is the app's USB MIDI in; the settings the
+firmware saves stay in the browser.
+
+What it models: everything from the panel's state up. The controls set the state the scan would (`smk_raw_t`, the
+knobs' detents), and the device's own map (`device/smk_panel.c`) turns it into the FM-1's controls and the extras'
+MIDI, as on the unit; the button LEDs and the pads' colours are what the firmware gives the LED drivers. What it does
+not: the matrix scan and its decoding (contacts, velocity timing, the factory curves: a hit's velocity goes in as it
+is), the LCD and LED drivers, USB (descriptors, USB audio) and Bluetooth, the flash and the update. A host's session is
+not part of the page; the standalone instrument is what it plays.
 
 ## Install
 
@@ -236,18 +264,23 @@ screen or the pads helps.
    lit by its neighbour's colour (the LED chain's order and reset).
 4. **The knobs.** K1 is the volume, one step a detent, clockwise up; K2..K8 one step a detent, clockwise +, none
    backwards (if one runs backwards: which).
-5. **The buttons and their lights.** Each printed button does its FM-1 job (the table above); FX lit at the start
-   (CC bank A); OCT+ lit while the octave is up; SEQ PLAY green while a loop plays, SEQ REC lit while recording; in a
-   host's session its button lights (and PLAY's red and green halves) as the host lights the FM-1's.
+5. **The buttons and their lights.** Each button does the job of the FM-1 button in its place (the table above); ARP
+   (the FM-1's FX) lit at the start (CC bank A); `<` / `>` step SELECT; OCT+ lit while the octave is up; SEQ PLAY
+   green while a loop plays, SEQ REC lit while recording; in a host's session its button lights (and PLAY's red and
+   green halves) as the host lights the FM-1's.
 6. **The wheels and the pedal.** The pitch wheel bends both ways and rests at no bend (after a first full sweep it
    reaches the ends); the mod wheel modulates; a switch pedal (plugged in before power-on) sustains; say whether it is
    normally open or closed.
-7. **The faders.** Each sends CC 16..19 (a MIDI monitor) from 0 to 127, without jitter at rest.
+7. **The faders.** Standalone on the CC banks, each sets its KNOB's CC (1..4, as K5..K8) to its position: bottom 0,
+   top 127, every value on the way, nothing at rest (no jitter), nothing at power-on whatever their position; the
+   CC screen shows the value. In a menu (the theme: PARA) or with GLO (BT) held, a fader turns the knob instead, and
+   after the menu closes nothing is sent till the fader moves. In MIDI REMOTE: ABSOLUTE sets KN1..KN4's CC 105..108 to it,
+   a relative KNOBS setting sends steps. In a host's session each turns its KNOB: a full sweep about 127 detents.
 8. **A host.** RemoteFM1.com, the iOS app or FM1VST connects as to an FM-1 (USB and Bluetooth `FM-1 XXXX`), the
    screen streams, the 27 keys, pads, buttons and knobs play the host's firmware, its LEDs show on the pads and buttons.
-   On the site or the iOS app: the outer keys, faders, wheels and pedal reach the firmware as MIDI.
+   On the site or the iOS app: the outer keys, wheels and pedal reach the firmware as MIDI.
 9. **USB audio.** The computer sees the audio device and plays through the SMK-37.
-10. **Saving.** Send a DX7 bank, save loops (SAVE held), switch off and on: they are there. Do it until a save lands
+10. **Saving.** Send a DX7 bank, save loops (SAVE held: PARA), switch off and on: they are there. Do it until a save lands
     in USRFLASH (sixteen banks and a few loops).
 11. **Going back.** M-UPGRADE installs your model's stock package; the stock firmware starts, every key its own note
     (the factory mapping rebuilt if RemoteFM1 saved into USRFLASH), the keys' and pads' feel as before.

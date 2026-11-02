@@ -51,7 +51,7 @@ for (const k of ["pro", "elite", "mke"]) for (const v of ["", "usb"]) {
   const files = readdirSync(here("./firmware/")).filter((f) => f !== "SHA256SUMS").sort().join();
   const summed = sums.trim().split("\n").map((l) => l.split(/\s+/)[1]).sort().join();
   ok(files === Object.keys(RAW).sort().join() && summed === files, `firmware/ holds the six listed packages only`);
-  ok(rel.version === "0.3.1" && rel.tag === "v0.3.1-smk37" && rel.models.pro.identity === "SMK-37 Pro_52000301" &&
+  ok(rel.version === "0.3.1" && rel.tag === "v0.3.1-smk37.2" && rel.models.pro.identity === "SMK-37 Pro_52000301" &&
      rel.models.elite.identity === "SMK-37 Elite_52000301" && rel.models.mke.identity === "MKE-P37_52000301" &&
      rel.notes.some((n) => /untested community build/.test(n)), "0.3.1-smk37: the three models' identities, an untested community build");
 }
@@ -293,6 +293,16 @@ for (const k of ["elite", "pro"]) {
   let e = null;
   try { await install(dev.access, rel, UI(), { ...GO, fetch: served() }); } catch (x) { e = x; }
   ok(e && e.interrupted && /disconnected/.test(e.message), "the cable pulled while writing: an error marked interrupted (the page shows how to finish)");
+}
+
+// the emulator next to the page (emu/): BOARD=smk37 ./build.sh --web's output, its page files as web/emu-smk37 has them
+{
+  const same = ["index.html", "smk.js", "app_worklet.js"].every((f) =>
+    readFileSync(here(`./emu/${f}`)).equals(readFileSync(here(`../../emu-smk37/${f}`))));
+  const wasm = readFileSync(here("./emu/app.wasm"));
+  ok(same && wasm.length > 100000 && wasm.subarray(0, 4).equals(Buffer.from([0, 0x61, 0x73, 0x6d])) &&
+     readdirSync(here("./emu/")).sort().join() === "app.wasm,app_worklet.js,index.html,smk.js,worklet.js",
+     "emu/: the emulator's page as web/emu-smk37 has it, and its wasm");
 }
 
 console.log(fails ? `SMK INSTALLER TESTS FAILED (${fails} of ${checks})` : `smk installer tests passed (${checks})`);

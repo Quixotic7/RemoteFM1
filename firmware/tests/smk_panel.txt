@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: MPL-2.0
 # The M-Vave SMK-37 as an FM-1's panel (docs/SMK37.md; fm1-base device/smk_panel.c, BOARD_SMK37), in the SMK-37 build
 # of fm1-base's host simulator (BOARD=smk37 ./build.sh --host; tests/run_tests.sh): the keybed's middle 27 keys and
-# the 16 pads as the FM-1's keys and white keys, with velocity, the printed buttons, K1 MASTER and K2..K8 the
-# encoders, standalone and in a host's session (the panel as plain MIDI, by the FM-1's matrix numbers), and the
+# the 16 pads as the FM-1's keys and white keys, with velocity, the 2 x 6 buttons as the FM-1's by place, K1 MASTER
+# and K2..K8 the encoders, < > SELECT, the faders KNOB 1..4, standalone and in a host's session (the panel as plain MIDI, by the FM-1's matrix numbers), and the
 # lights: the button LEDs and the pads as the FM-1's key LEDs.
 wait 400
 expect sa_panel 0
@@ -89,16 +89,99 @@ smk turn K1 -3
 expect smk_master 2608
 smk turn K1 3
 expect smk_master 2896
-# the FX bank's light: FX is lit (the CC bank A); PARA (EDIT) picks bank E
-expect smk_led_FX 1
-smk tap PARA
+# the FX bank's light: ARP (FX) is lit (the CC bank A); GLOBE (EDIT) picks bank E
+expect smk_led_ARP 1
+expect smk_led_FX 0
+smk tap GLOBE
 wait 20
 expect sa_ccbank 4
-expect smk_led_PARA 1
-expect smk_led_FX 0
-smk tap FX
+expect smk_led_GLOBE 1
+expect smk_led_ARP 0
+smk tap ARP
 wait 20
 expect sa_ccbank 0
+# < and > are SELECT (the tempo), a detent a press; no CC out
+expect sa_bpm 120
+out
+smk tap >
+wait 20
+smk tap >
+wait 20
+expect sa_bpm 122
+smk tap <
+wait 20
+expect sa_bpm 121
+smk tap <
+wait 20
+expect sa_bpm 120
+expect_no_out USB B0 70 7F
+expect_no_out USB B0 71 7F
+# a fader is its KNOB (fader 1 KNOB 1: bank A's first CC, CC 1); no CC 16..19 of its own. KNOB 1..4 hold absolute CC
+# values here: the fader sets the knob's value to where it is, whatever the knob's was
+expect sa_ccv_k0 0
+smk turn K5 5
+wait 20
+expect sa_ccv_k0 >0
+out
+smk fader 1 127
+wait 20
+expect sa_ccv_k0 127
+expect_out USB B0 01 7F
+expect_no_out USB B0 10 7F
+smk turn K5 -3
+wait 20
+expect sa_ccv_k0 <127
+out
+smk fader 1 0
+wait 20
+expect sa_ccv_k0 0
+expect_out USB B0 01 00
+# GLO held (BT): the fader turns KNOB 1 (GLO + a knob: its CC number, 1 + 2), no CC out
+smk press BT
+out
+smk fader 1 2
+wait 20
+expect sa_cc_k0 3
+smk fader 1 0
+wait 20
+expect sa_cc_k0 1
+expect_no_out USB B0 01 02
+expect_no_out USB B0 03 00
+smk release BT
+wait 20
+# a menu (PARA = SAVE tapped: the theme, KN1) takes the knobs: the fader turns it; closed with the fader half way,
+# nothing is sent till it moves again
+expect sa_theme 0
+smk tap PARA
+wait 20
+expect sa_menu 1
+out
+smk fader 1 1
+wait 20
+expect sa_theme 1
+smk fader 1 64
+wait 20
+smk tap PARA
+wait 20
+expect sa_menu 0
+expect sa_ccv_k0 0
+expect_no_out USB B0 01 01
+expect_no_out USB B0 01 40
+smk fader 1 65
+wait 20
+expect_out USB B0 01 41
+expect sa_ccv_k0 65
+smk fader 1 0
+wait 20
+expect sa_ccv_k0 0
+smk tap PARA
+wait 20
+smk turn K5 -64
+wait 20
+expect sa_theme 0
+smk tap PARA
+wait 20
+expect sa_menu 0
 
 # a host's session: the panel as plain MIDI by the FM-1's matrix numbers (docs/PROTOCOL.md section 4)
 rf hello usb
@@ -117,29 +200,34 @@ wait 10
 expect_out USB 9F 4F 64
 smk pad 16 up
 wait 10
-# each printed button is its FM-1 button (matrix: OCT- 0, OCT+ 1, FX 2, SEL 3, ENV 4, LFO 5, EDIT 6, GLO 7, HOME 8,
-# SAVE 9, ARP 10, SEQ 11, PLAY 12, REC 13)
+# the 2 x 6 buttons are the FM-1's by place (matrix: OCT- 0, OCT+ 1, FX 2, SEL 3, ENV 4, LFO 5, EDIT 6, GLO 7,
+# HOME 8, SAVE 9, ARP 10, SEQ 11, PLAY 12, REC 13): top row ARP NOTE-REPEAT SCALE CHORD GLOBE BT, bottom row PATCH
+# PARA FX SEQ PLAY REC
 smk tap OCT-
 expect_out USB 9E 00 7F
 smk tap OCT+
 expect_out USB 9E 01 7F
-smk tap FX
+out
+smk tap ARP
 expect_out USB 9E 02 7F
-smk tap SCALE
-expect_out USB 9E 03 7F
-smk tap CHORD
-expect_out USB 9E 04 7F
+expect_no_out USB 9E 0A 7F
 smk tap NOTE-REPEAT
+expect_out USB 9E 03 7F
+smk tap SCALE
+expect_out USB 9E 04 7F
+smk tap CHORD
 expect_out USB 9E 05 7F
-smk tap PARA
-expect_out USB 9E 06 7F
 smk tap GLOBE
+expect_out USB 9E 06 7F
+out
+smk tap BT
 expect_out USB 9E 07 7F
+expect_no_out USB 9E 09 7F
 smk tap PATCH
 expect_out USB 9E 08 7F
-smk tap BT
+smk tap PARA
 expect_out USB 9E 09 7F
-smk tap ARP
+smk tap FX
 expect_out USB 9E 0A 7F
 smk tap SEQ
 expect_out USB 9E 0B 7F
@@ -147,14 +235,36 @@ smk tap PLAY
 expect_out USB 9E 0C 7F
 smk tap REC
 expect_out USB 9E 0D 7F
-# the four extra buttons are no FM-1 button: no panel MIDI for them
+# KNOB BANK and FADER BANK are no FM-1 button: no panel MIDI for them (MIDI_IN: CC 110 / 111, 12 bytes)
 out
 smk tap KNOB-BANK
 smk tap FADER-BANK
-smk tap <
-smk tap >
 expect_no_out USB 9E 00 7F
 expect_no_out USB 9E 0E 7F
+# < and > turn SELECT (matrix 0) a detent a press
+out
+smk tap <
+wait 5
+expect_out USB BE 10 3F
+smk tap >
+wait 5
+expect_out USB BE 10 41
+expect rf_mi_n 12
+# the faders turn KNOB 1..4 (matrix 2..5) by their change, up clockwise (in a session always: not the standalone's
+# absolute values); no MIDI of their own
+out
+smk fader 1 10
+wait 5
+expect_out USB BE 12 4A
+expect_no_out USB B0 01 0A
+smk fader 1 5
+wait 5
+expect_out USB BE 12 3B
+smk fader 4 1
+wait 5
+expect_out USB BE 15 41
+expect_no_out USB BE 13 41
+expect rf_mi_n 12
 # the knobs: K2 SELECT (matrix 0), K3 ALGORITHM (1), K4 PRESETS (6), K5..K8 KNOB 1..4 (2..5)
 out
 smk turn K2 1
@@ -173,10 +283,10 @@ smk turn K8 -1
 wait 5
 expect_out USB BE 15 3F
 # PANEL_R: the buttons held by matrix bit, MASTER from K1 (2896 >> 2)
-smk press SCALE
+smk press NOTE-REPEAT
 rf panelreq usb
 expect rf_panel_buttons 8
-smk release SCALE
+smk release NOTE-REPEAT
 expect rf_panel_master 724
 # the host's LEDS: a white key's lit / mid / faint on its pad; a button's lit on its LED; PLAY's green and red halves
 rf led usb 0 lit
@@ -190,9 +300,22 @@ expect smk_pad_16 255
 rf led usb 1 lit
 expect smk_pads 32769
 rf led usb b3 lit
-expect smk_led_SCALE 1
+expect smk_led_NOTE-REPEAT 1
 rf led usb b3 mid
-expect smk_led_SCALE 0
+expect smk_led_NOTE-REPEAT 0
+rf led usb b2 lit
+expect smk_led_ARP 1
+expect smk_led_FX 0
+rf led usb b2 off
+rf led usb b7 lit
+expect smk_led_BT 1
+rf led usb b7 off
+rf led usb b10 lit
+expect smk_led_FX 1
+rf led usb b10 off
+rf led usb b13 lit
+expect smk_led_REC 1
+rf led usb b13 off
 rf led usb b12 lit
 expect smk_led_PLAY-RED 1
 expect smk_led_PLAY 0

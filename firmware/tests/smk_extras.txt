@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: MPL-2.0
 # The M-Vave SMK-37's controls the FM-1 has not (docs/SMK37.md; fm1-base plat_smk_take, firmware/sa/sa_smk.c,
 # src/rfm_main.c rf_smk_ms), in the SMK-37 build of the simulator: standalone the instrument's (the outer keys play
-# as the 27 keys do; the wheels bend and modulate, the pedal sustains, the faders and the four extra buttons send CCs);
+# as the 27 keys do; the wheels bend and modulate, the pedal sustains, KNOB BANK and FADER BANK send CCs; the faders
+# are KNOB 1..4 and < > SELECT, smk_panel.txt; in MIDI REMOTE's ABSOLUTE a fader sets its encoder's CC, in a
+# relative mode it turns it);
 # in a host's session the host's firmware gets them as MIDI it receives (MIDI_IN, as the FM-1's TRS jack's), channel 1.
 wait 400
 expect sa_panel 0
@@ -38,10 +40,10 @@ smk key 0 up
 smk tap OCT-
 wait 10
 expect sa_oct 0
-# LATCH (NOTE REPEAT held: LFO): an outer key's chord replaces the one latched, as the 27 keys' do
-smk press NOTE-REPEAT
+# LATCH (CHORD held: LFO): an outer key's chord replaces the one latched, as the 27 keys' do
+smk press CHORD
 wait 600
-smk release NOTE-REPEAT
+smk release CHORD
 wait 10
 expect sa_latch 1
 smk key 0 down 80
@@ -54,13 +56,13 @@ wait 10
 smk key 36 up
 wait 10
 expect sa_lat_n 1
-smk press NOTE-REPEAT
+smk press CHORD
 wait 600
-smk release NOTE-REPEAT
+smk release CHORD
 wait 10
 expect sa_latch 0
 expect sa_held 0
-# the wheels, the pedal, the faders, the extra buttons
+# the wheels, the pedal, the extra buttons
 out
 smk bend 4096
 wait 10
@@ -78,16 +80,19 @@ expect_out USB B0 40 7F
 smk pedal 0
 wait 10
 expect_out USB B0 40 00
-smk fader 1 100
-smk fader 4 3
-wait 10
-expect_out USB B0 10 64
-expect_out USB B0 13 03
 smk tap KNOB-BANK
 expect_out USB B0 6E 7F
 expect_out USB B0 6E 00
+# the faders and < > send no CC of their own (CC 16..19, 112, 113)
+smk fader 1 100
+smk fader 4 3
+wait 10
+expect_no_out USB B0 10 64
+expect_no_out USB B0 13 03
 smk tap >
-expect_out USB B0 71 7F
+smk tap <
+expect_no_out USB B0 71 7F
+expect_no_out USB B0 70 7F
 # the pedal holds the DX7's notes (CC 64 to it): a key let go under it still sounds
 smk pedal 1
 wait 10
@@ -128,31 +133,31 @@ wait 10
 expect rf_mi_n 12
 smk fader 2 77
 wait 20
-expect rf_mi_b12 176
-expect rf_mi_b13 17
-expect rf_mi_b14 77
+expect rf_mi_n 12
 smk bend -8192
 wait 20
-expect rf_mi_b15 224
-expect rf_mi_b16 0
-expect rf_mi_b17 0
+expect rf_mi_b12 224
+expect rf_mi_b13 0
+expect rf_mi_b14 0
 smk mod 127
 wait 20
-expect rf_mi_b18 176
-expect rf_mi_b19 1
-expect rf_mi_b20 127
+expect rf_mi_b15 176
+expect rf_mi_b16 1
+expect rf_mi_b17 127
 smk pedal 1
 wait 20
-expect rf_mi_b21 176
-expect rf_mi_b22 64
-expect rf_mi_b23 127
+expect rf_mi_b18 176
+expect rf_mi_b19 64
+expect rf_mi_b20 127
 smk tap FADER-BANK
 wait 10
-expect rf_mi_b24 176
-expect rf_mi_b25 111
-expect rf_mi_b26 127
-expect rf_mi_b29 0
-# a fader swept: its latest at most every 6 ms (no flood), and where it ends
+expect rf_mi_b21 176
+expect rf_mi_b22 111
+expect rf_mi_b23 127
+expect rf_mi_b26 0
+# < > and a fader swept: FM-1 encoders, nothing to the host's MIDI in
+smk tap <
+smk tap >
 smk fader 3 10
 wait 1
 smk fader 3 20
@@ -161,7 +166,7 @@ smk fader 3 30
 wait 1
 smk fader 3 40
 wait 20
-expect rf_mi_n <45
+expect rf_mi_n 27
 expect rf_mi_bad 0
 expect rf_midi_drop 0
 # the keybed's middle keys are still the panel's (plain MIDI), not MIDI_IN
@@ -173,19 +178,56 @@ smk key 5 up
 wait 10
 rf session usb 0
 wait 50
-# MIDI REMOTE (GLO + FX): the extras on its channels as the panel's own
-smk press GLOBE
-smk tap FX
-smk release GLOBE
+# MIDI REMOTE (GLO + FX: BT + ARP): the extras on its channels as the panel's own
+smk press BT
+smk tap ARP
+smk release BT
 wait 20
 expect sa_remote 1
+# its encoders ABSOLUTE (the default): fader 1 sets KN1's CC 105 to where it is; no CC 16
 out
 smk fader 1 5
 wait 10
-expect_out USB B0 10 05
+expect_out USB B0 69 05
+expect_no_out USB B0 10 05
+smk fader 1 90
+wait 10
+expect_out USB B0 69 5A
 smk key 0 down 70
 wait 10
 expect_out USB 90 30 46
 smk key 0 up
 wait 10
 expect_out USB 80 30 40
+# MIDI REMOTE's encoders relative (1/127: HOME held, SELECT to KNOBS, KN1 + 1): the fader's change as relative steps
+smk press BT
+smk tap ARP
+smk release BT
+wait 20
+expect sa_remote 0
+smk press PATCH
+wait 600
+smk release PATCH
+wait 20
+smk turn K2 1
+smk turn K5 1
+wait 20
+expect sa_set1 1
+smk press PATCH
+wait 600
+smk release PATCH
+wait 20
+smk press BT
+smk tap ARP
+smk release BT
+wait 20
+expect sa_remote 1
+out
+smk fader 1 93
+wait 10
+expect_out USB B0 69 03
+expect_no_out USB B0 69 5D
+wait 50
+smk fader 1 92
+wait 10
+expect_out USB B0 69 7F
