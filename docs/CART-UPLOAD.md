@@ -5,6 +5,10 @@ RemoteFM1 0.3.0's standalone instrument keeps a DX7 32-voice bulk dump sent to i
 0.3.1: 16 slots (USER1..USER16), a list of what is stored, a dump sent into a chosen slot (replacing it), a slot
 deleted, and a reply to every dump (section "0.3.1: list, replace, delete, confirm" below; PROTOCOL.md section 8). Installing ChoralRoot or the stock firmware overwrites the window: the banks are gone and must be sent again.
 The website does this from the player's settings sheet, USE MY FM-1 (`web/site/js/cart.js`).
+The same code sends carts to RemoteFM1 running in the player itself (its .rfm1 build, RemoteFM1FW): the Editor button
+opens it, talking to the in-page core's USB MIDI instead of a Web MIDI port (`corePort`, `web/site/js/editor-panel.js`);
+the bank is kept in the browser with the core's flash (its Autosave). The emulated engine cannot take carts (fm1-emu's
+MIDI in is the TRS jack).
 
 ## The bytes
 
