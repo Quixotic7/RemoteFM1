@@ -156,13 +156,16 @@ export class ManagerBridge {
   }
 }
 
-// which editor a firmware has: { kind: "hosted", manager, live } (on this site), { kind: "real", url, live } (its own
-// site's, for an FM-1 on USB), or null. index: managers/index.json (null: none hosted here). live: the author's live
-// editor page the Editor panel tries first (liveUrlOf), or null
+// which editor a firmware has: { kind: "hosted", manager, live } (on this site), { kind: "cart" } (RemoteFM1's DX7
+// cartridges, js/cart.js, on the firmware running in this page), { kind: "real", url, live } (its own site's, for an
+// FM-1 on USB), or null. index: managers/index.json (null: none hosted here). live: the author's live editor page the
+// Editor panel tries first (liveUrlOf), or null
+export const CART_FIRMWARES = ["remotefm1"];
 export function editorOf(entry, index) {
   if (!entry) return null;
   const m = index && index.managers ? index.managers.find((x) => x.firmwares.includes(entry.id)) : null;
   if (m) return { kind: "hosted", manager: m, live: liveUrlOf(entry, m) };
+  if (CART_FIRMWARES.includes(entry.id)) return { kind: "cart" };
   if (entry.editor) return { kind: "real", url: entry.editor, live: liveUrlOf(entry, null) };
   return null;
 }

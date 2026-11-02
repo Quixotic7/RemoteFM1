@@ -9,10 +9,14 @@
 //   emulated (or the test engine)           "Editors work with the native engine; switch Engine to Native"
 //   native / .rfm1, an editor only on its site   "not hosted on this site yet" and a link to it
 //   emulated only, an editor on its site    "This firmware's editor needs a real FM-1" and a link to it
+//   RemoteFM1 itself on the .rfm1 engine    its DX7 cartridges (js/cart.js) through the in-page port (cartPort); on
+//                                           the emulated engine "switch Engine to .rfm1" (fm1-emu's MIDI in is the
+//                                           TRS jack, which takes no cartridge, and it has no MIDI out)
 // "Pop out": a hosted copy in a tab of its own (the BroadcastChannel); a live page in managers/live.html, which loads
 // it the same way and relays between its sandbox and this tab over the BroadcastChannel.
 import { ManagerBridge, editorOf, portOf } from "./managers.js";
 import { LIVE_SANDBOX, HELLO_MS, fetchLive, injectLive, EditorStore, stashPop } from "./live-editor.js";
+import { mountCart, corePort } from "./cart.js";
 
 const $ = (id) => document.getElementById(id);
 // the engines that run the firmware's own code, so its manager's SysEx gets answers: native, and an .rfm1 file
@@ -24,18 +28,19 @@ const PREF = "remotefm1-editor-src:";            // + firmware id: "hosted" (the
 
 export class EditorPanel {
   // deps: getState() (main.js state), index (managers/index.json or null), base (the managers folder's URL),
-  //       toEngine(bytes), setEngine(name), onLayout(); fetchFn (tests)
+  //       toEngine(bytes), toCart(bytes) (into RemoteFM1's own MIDI in), setEngine(name), onLayout(); fetchFn (tests)
   constructor(deps) {
     this.d = deps;
     this.index = deps.index || null;
     this.base = deps.base;
     this.open = false;
-    this.frameFor = null;              // what the iframe shows: "hosted:<manager id>" / "live:<url>"
+    this.frameFor = null;              // what the panel shows: "hosted:<manager id>" / "live:<url>" / "cart"
     this.live = null;                  // the live page shown or loading: { url, final, host, store, win, frame, ready }
     this.liveFail = new Map();         // live url -> why it fell back (this page's life)
     this.gen = 0;
     this.bridge = new ManagerBridge({ toEngine: deps.toEngine, onChange: () => this.renderHead(),
       onStorage: (m, w) => { if (this.live && this.live.win === w) this.live.store.apply(m); } });
+    this.cartPort = corePort({ name: "RemoteFM1 in this page", send: (b) => deps.toCart(b) });
     this.btn = $("ed-btn"); this.panel = $("ed-panel"); this.body = $("ed-body");
     this.btn.addEventListener("click", () => (this.open ? this.close() : this.show()));
     $("ed-close").addEventListener("click", () => this.close());
@@ -44,6 +49,9 @@ export class EditorPanel {
     if (mode) mode.addEventListener("click", () => this.switchSource());
   }
   get editor() { const s = this.d.getState(); return editorOf(s.entry, this.index); }
+  // the engine's MIDI out (any chunking): the managers' sessions and the cartridge sender
+  fromEngine(bytes) { this.bridge.fromEngine(bytes); this.cartPort.feed(bytes); }
+  cartReady() { const s = this.d.getState(); return s.engine === "rfm1" && s.engineState === "running" && !!s.info; }
   url(m) { return new URL(m.path, this.base).href; }
   pref(e) { try { return e ? localStorage.getItem(PREF + e.id) : null; } catch (_) { return null; } }
   setPref(e, v) { try { if (v) localStorage.setItem(PREF + e.id, v); else localStorage.removeItem(PREF + e.id); } catch (_) { /* (not kept) */ } }
@@ -60,7 +68,8 @@ export class EditorPanel {
     const s = this.d.getState(), e = s.entry, ed = this.editor;
     this.btn.hidden = !ed;
     if (ed) {
-      this.btn.title = ed.kind === "hosted" || this.liveWanted(s, ed) ? `${ed.manager ? ed.manager.title : e.name + "'s editor"}: on the firmware running here` : `${e.name}'s editor (on its own site, for an FM-1 on USB)`;
+      this.btn.title = ed.kind === "hosted" || this.liveWanted(s, ed) ? `${ed.manager ? ed.manager.title : e.name + "'s editor"}: on the firmware running here`
+        : ed.kind === "cart" ? `DX7 cartridges: send a .syx to ${e.name} running here` : `${e.name}'s editor (on its own site, for an FM-1 on USB)`;
       this.btn.setAttribute("aria-expanded", String(this.open));
       this.btn.classList.toggle("on", this.open);
     }
@@ -111,14 +120,15 @@ export class EditorPanel {
   renderHead() {
     if (!this.open) return;
     const s = this.d.getState(), ed = this.editor, t = this.bridge.target, live = this.showingLive ? this.live : null;
-    $("ed-title").textContent = ed ? this.title(s, ed) : "Editor";
-    const dot = $("ed-dot");
-    dot.className = "fm1-dot " + (t.connected && (!live || live.ready) ? "on" : "off");
+    $("ed-title").textContent = ed ? (ed.kind === "cart" ? "DX7 cartridges" : this.title(s, ed)) : "Editor";
+    const dot = $("ed-dot"), cart = ed && ed.kind === "cart";
+    dot.className = "fm1-dot " + ((cart ? this.cartReady() : t.connected && (!live || live.ready)) ? "on" : "off");
     const port = t.connected
       ? `port "${t.port}"${live ? "" : ` · ${s.entry.name} in this page`}${this.bridge.count > 1 ? ` · ${this.bridge.count} editors` : ""}`
       : ed && (ed.kind === "hosted" || live) && runsOwnCode(s) && s.engineState !== "running" ? "starting the firmware..." : "no port";
-    $("ed-sub").textContent = live ? `live · ${live.host}${live.ready ? "" : " · loading"} · ${port}` : port;
-    $("ed-pop").hidden = !ed;
+    $("ed-sub").textContent = cart ? (this.cartReady() ? `${s.entry.name} ${s.info.version || ""} in this page`.trim() : s.engine === "rfm1" ? "starting the firmware..." : "no port")
+      : live ? `live · ${live.host}${live.ready ? "" : " · loading"} · ${port}` : port;
+    $("ed-pop").hidden = !ed || cart;
     $("ed-pop").textContent = ed && ed.kind === "real" && !live ? "Open its site ↗" : "Pop out ↗";
     const src = $("ed-src");
     if (live) {
@@ -146,6 +156,17 @@ export class EditorPanel {
     const s = this.d.getState(), e = s.entry, ed = this.editor;
     this.renderHead();
     if (!ed) { this.dropFrame(); return; }
+    if (ed.kind === "cart" && s.engine === "rfm1") {
+      if (this.frameFor === "cart") return;               // (kept through a reboot: the port follows the engine)
+      this.dropFrame();
+      const box = document.createElement("div");
+      box.className = "ed-note ed-cart";
+      this.cartPort.reset();
+      mountCart(box, null, null, { inPage: { port: this.cartPort, ready: () => this.cartReady() } });
+      this.body.replaceChildren(box);
+      this.frameFor = "cart";
+      return;
+    }
     if (this.liveWanted(s, ed)) {
       if (this.frameFor === "live:" + ed.live) return;       // (the same page stays: a reboot only moves its port)
       this.dropFrame();
@@ -169,7 +190,12 @@ export class EditorPanel {
     const p = (text, cls = "") => { const el = document.createElement("p"); el.textContent = text; if (cls) el.className = cls; box.append(el); return el; };
     const btn = (text, onclick, cls = "pill primary") => { const b = document.createElement("button"); b.className = cls; b.textContent = text; b.onclick = onclick; box.append(b); return b; };
     const own = e.engines.find((k) => k === "native" || k === "rfm1") || null;
-    if (ed.kind === "hosted" || (ed.live && own && portOf(e, this.index) && !this.liveFail.has(ed.live))) {
+    if (ed.kind === "cart") {
+      const rfm1 = e.engines.includes("rfm1");
+      p(`The DX7 cartridge sender works with ${e.name}'s .rfm1 engine${rfm1 ? "; switch Engine to .rfm1" : ", which this site does not have for this version"}.`, "ed-lead");
+      p(`${e.name} takes cartridges as SysEx on its USB MIDI. The emulated FM-1 (fm1-emu) has MIDI in only on the TRS jack, which takes no cartridge, and no MIDI out for the replies.`, "muted");
+      if (rfm1 && s.engine !== "rfm1") btn(`Switch ${e.name} to .rfm1`, () => this.d.setEngine("rfm1"));
+    } else if (ed.kind === "hosted" || (ed.live && own && portOf(e, this.index) && !this.liveFail.has(ed.live))) {
       // the engine to offer: the firmware's own code, native or its .rfm1 (whichever the catalog lists first)
       const title = this.title(s, ed);
       const ownName = own === "rfm1" ? ".rfm1" : "Native";

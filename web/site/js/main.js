@@ -127,10 +127,11 @@ function toast(text, kind = "", ms = 0) {
   toastTimer = setTimeout(() => { t.className = "toast " + kind; }, ms || (kind === "bad" ? 7000 : 4000));
 }
 
-// RemoteFM1 itself, played (the catalog's "meta" entry): it makes no sound and waits for a host. One line when it
-// starts (the owner's), and when an FM-1 connects while it runs.
+// RemoteFM1 itself, played (the catalog's "meta" entry): from 0.3 its standalone instrument (a DX7, a looper, an arp),
+// on its .rfm1 build or its package emulated; the Editor button sends it DX7 cartridges (editor-panel.js). One line when
+// it starts (the owner's), and when an FM-1 connects while it runs.
 const SELF_ID = "remotefm1";
-const playingSelf = () => !!state.entry && state.entry.id === SELF_ID && state.engine === "emu";
+const playingSelf = () => !!state.entry && state.entry.id === SELF_ID && (state.engine === "emu" || state.engine === "rfm1");
 const selfLine = (tone = fm1Tone) => tone === "on" ? "Your FM-1 is now remotely displaying a remote."
   : "I heard you liked firmwares so I made a firmware for your firmware so you can run firmwares without installing firmwares";
 
@@ -450,7 +451,7 @@ function makePlayer() {
       const was = state.entry;
       currentFlash().catch(() => null).then((bytes) => { if (state.entry === was) boot(bytes ? { name: saves.AUTOSAVE, bytes } : null); });
     },
-    midiOut(bytes) { siteEmit("midiOut", bytes); if (editor) editor.bridge.fromEngine(bytes); },
+    midiOut(bytes) { siteEmit("midiOut", bytes); if (editor) editor.fromEngine(bytes); },
     load: onLoad,
     rec(m) { if (rec) rec.onRec(m); else if (m.type === "recChunk") player.recBuf(m.l, m.r); },
     beforeLoad() { if (rec) rec.beforeLoad(); },
@@ -837,7 +838,8 @@ async function main() {
   let mindex = null;
   try { const r = await fetch(new URL("index.json", mbase), { cache: "no-cache" }); if (r.ok) mindex = await r.json(); } catch (_) { mindex = null; }
   editor = new EditorPanel({ getState: () => state, index: mindex, base: mbase.href, onLayout: layout,
-    toEngine: (b) => { if (player && (state.engine === "native" || state.engine === "rfm1")) player.midi(b); }, setEngine: (n) => app.setEngine(n) });
+    toEngine: (b) => { if (player && (state.engine === "native" || state.engine === "rfm1")) player.midi(b); },
+    toCart: (b) => { if (player && playingSelf() && state.engine === "rfm1") player.midi(b); }, setEngine: (n) => app.setEngine(n) });
   window.FM1Editor = editor;
   app.installerUrl = catalog.paths.installer;
   $("install-link").href = catalog.paths.installer;
