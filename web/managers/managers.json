@@ -1,5 +1,5 @@
 {
-  "about": "The firmwares' own preset managers / editors the site hosts (web/managers/build.mjs copies them from FM1VST's core trees at the commit it pins, web/vendor/FM1VST/cores). ports: each native firmware's real USB MIDI port name (FM1VST research/managers-2026-10-19/MANAGERS.md section 3), the name the in-page port takes.",
+  "about": "The firmwares' own preset managers / editors the site hosts (web/managers/build.mjs copies them from FM1VST's core trees at the commit it pins, web/vendor/FM1VST/cores). ports: each native firmware's real USB MIDI port name (FM1VST research/managers-2026-10-19/MANAGERS.md section 3), the name the in-page port takes. upstream: the manager's page on its author's site (the hosted copy's original); the Editor panel loads that page live (web/site/js/live-editor.js, in a sandbox) and falls back to the hosted copy. live: the live page's address where it differs from upstream (an upstream that redirects without CORS), or false: never live (an author's site that sends no CORS header). git: { repo, commit }: a firmware FM1VST has no tree of at the commit the site's .rfm1 is built from: its page, files and licenceFiles fetched from that commit at deploy (build.mjs gitTree). open: a fragment the panel opens the page at (the editor's part of a one-page site). Not hosted: FRASIL (its editor, river.frasilsynth.com, is the River: a site assembled by website/assemble.py from a host build of the firmware, signed in to its own service, not a page to copy), Hortator (its firmware has no editor service yet: fw-catalog.json editors null), FIZZ (its manager loads live: CORS *).",
   "ports": {
     "choralroot": "ChoralRoot FM-1",
     "purplemonkey": "ChoralRoot FM-1",
@@ -23,7 +23,13 @@
     "tonitor": "FM-1 Tonitor",
     "speak37": "Speak37",
     "sloop": "Felucca",
-    "karma": "Felucca"
+    "karma": "Felucca",
+    "rainbow": "Felucca",
+    "hortator": "Hortator",
+    "hortator-bt": "Felucca",
+    "s1vave": "Felucca",
+    "frasil": "FRASIL FM-1",
+    "mutabledreams": "Mutable Dreams FM-1"
   },
   "managers": [
     {
@@ -92,7 +98,8 @@
       "licence": "GPL-3.0-only",
       "author": "Jason Persinger, a fork of Felucca by Leo Kuroshita, Hügelton Instruments",
       "repo": "https://github.com/jasonpersinger/ghoulbox-fm1-dungeon-synth",
-      "upstream": "https://jasonpersinger.me/ghoulbox-fm1-dungeon-synth/webapp/editor/"
+      "upstream": "https://jasonpersinger.me/ghoulbox-fm1-dungeon-synth/webapp/editor/",
+      "live": "https://ghoulbox.messy.quest/webapp/editor/"
     },
     {
       "id": "sloop",
@@ -138,7 +145,39 @@
       "licence": "GPL-3.0-only (its MP3 encoder, lamejs 1.2.1: LGPL-3.0, webapp/pigeon/vendor/ with its source)",
       "author": "The Shrimp Blimp, on Felucca by Leo Kuroshita, Hügelton Instruments",
       "repo": "https://github.com/TheShrimpBlimp/pigeon",
-      "upstream": "https://theshrimpblimp.com/pigeon/webapp/pigeon/"
+      "upstream": "https://theshrimpblimp.com/pigeon/webapp/pigeon/",
+      "live": false,
+      "liveWhy": "the loader keeps the bank it opens in IndexedDB and encodes in a Worker of its own site: neither works in the sandbox (an opaque origin), so the hosted copy stays"
+    },
+    {
+      "id": "s1vave",
+      "title": "S1Vave editor",
+      "firmwares": ["s1vave"],
+      "git": { "repo": "https://github.com/AndrewGG88/S1Vave", "commit": "9c0d9ee5a1ca0a7d6001979ab1c2b1f8cf3f60de" },
+      "page": "web/editor/index.html",
+      "files": ["web/editor/app.js", "web/editor/style.css"],
+      "licence": "GPL-3.0-only",
+      "author": "Andrew GG, a fork of OberVave by zvenson, on Felucca by Leo Kuroshita, Hügelton Instruments",
+      "repo": "https://github.com/AndrewGG88/S1Vave",
+      "upstream": "https://andrewgg.one/s1vave/editor/",
+      "live": false,
+      "liveWhy": "andrewgg.one sends no CORS header: the live page cannot be fetched"
+    },
+    {
+      "id": "mutabledreams",
+      "title": "Mutable Dreams editor",
+      "firmwares": ["mutabledreams"],
+      "git": { "repo": "https://github.com/kidbee85-beep/mutable-dreams", "commit": "032155147887f99583be1728c98dd318a9d81973" },
+      "page": "Mutable-Dreams-1.4.html",
+      "open": "#device-editor",
+      "files": [],
+      "licenceFiles": ["LICENSE", "LICENSING-GPL.txt", "LICENSE-MIT.txt"],
+      "licence": "GPL-3.0-only (also MIT: LICENSE-MIT.txt; Plaits, Rings and stmlib by Emilie Gillet, MIT)",
+      "author": "Mutable Dreams contributors (kidbee85-beep), on Mutable Instruments' Plaits and Rings by Emilie Gillet and Felucca by Leo Kuroshita, Hügelton Instruments",
+      "repo": "https://github.com/kidbee85-beep/mutable-dreams",
+      "upstream": "https://mutable-dreams.kidbee85.chatgpt.site/",
+      "live": false,
+      "liveWhy": "its site sends no CORS header: the live page cannot be fetched"
     }
   ]
 }

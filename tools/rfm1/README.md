@@ -34,7 +34,10 @@ the file the site's player runs for `?fw=fizz` on its rfm1 engine.
 1. In `build_fizz.sh`, set `FIZZ_VERSION` and `FIZZ_COMMIT` (the tag's commit: `git rev-parse v<version>^{commit}`).
    Move `FM1VST_COMMIT` only to an FM1VST that is pushed. If FIZZ changed its sources, compare
    `fizz/CMakeLists.txt` with RemoteFM1IOS's `cores/fizz/core.cmake`. The plutovg check fails when plutovg's file
-   list changes.
+   list changes. Set `FIZZ_PACKAGE_ID` to the release's identity (FIZZ's `site/firmware/releases.json` "identity":
+   the script stops if they differ) and `FELUCCA_BSP_COMMIT` to the felucca-bsp that FIZZ's `firmware/fm1-base`
+   pins (`git -C firmware/fm1-base ls-tree <fm1-base commit> bsp`). `fizz/fizz_unit.c` answers the M-UPGRADE
+   handshake with that identity, as the unit does: FIZZ's web manager finds the FM-1 by it.
 2. Run `tools/rfm1/build_fizz.sh`. If the patch no longer applies, see whether FIZZ now builds without setjmp in Wasm.
    If it does, drop the patch.
 3. `node web/engines/rfm1/test.mjs --dir <a folder with only the new file>`. It reads `fizz/conformance.txt`; set

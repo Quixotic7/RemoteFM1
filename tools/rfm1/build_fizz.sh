@@ -9,6 +9,8 @@
 #   FIZZ_SRC=<dir>     a FIZZ checkout at the release's commit (RemoteFM1IOS's vendor/FIZZ); default: a clone of
 #                      the tag in build/rfm1-fizz/
 #   FM1VST_DIR=<dir>   FM1VST at FM1VST_COMMIT; default: a clone in build/rfm1-fizz/
+#   FELUCCA_BSP_DIR=<dir>  felucca-bsp at FELUCCA_BSP_COMMIT (its chip/ota.c: the M-UPGRADE identity a FIZZ unit
+#                      answers, tools/rfm1/fizz/fizz_unit.c); default: a clone in build/rfm1-fizz/
 #   FM1_EMCC=<emcc>    default: emcc on PATH, else ~/emsdk's
 #
 # Nothing GPL of FIZZ is built: its site/ and core/tests/ are left out of the copy compiled (build/rfm1-fizz/src).
@@ -17,6 +19,10 @@ set -euo pipefail
 FIZZ_VERSION=0.12.0-beta.12
 FIZZ_COMMIT=1b7f8efbe6276a7f78c61da39ff45aee4d9b805e      # (tag v0.12.0-beta.12)
 FM1VST_COMMIT=d5f8f64101b401abf6fd9aaa3f20c3c507e34d60    # (branch rfm1-target: fm1_add_rfm1, the 15 published .rfm1)
+FELUCCA_BSP_COMMIT=2cd696a2b94341077303e9132bb4be3d0a87ebcf   # (FIZZ's firmware/fm1-base 934e40d's bsp)
+# the package identity a FIZZ unit of this release answers (fm1-base tools/build.py --release: fm1.toml's id_prefix
+# FM-1_46 + major, minor, patch as two digits each), checked below against FIZZ's site/firmware/releases.json
+FIZZ_PACKAGE_ID=FM-1_46001200
 # the file's licence: FIZZ's, the glue's (FM1VST: core-glue/common, core-api), plutovg's and Emscripten's, FreeType's
 # rasterizer in plutovg, the font
 LICENSE="MPL-2.0 AND GPL-3.0-only AND MIT AND FTL AND OFL-1.1"
@@ -51,6 +57,16 @@ FM1VST_DIR=${FM1VST_DIR:-}
 if [ -z "$FM1VST_DIR" ]; then FM1VST_DIR=$B/FM1VST-git; clone_at https://github.com/Quixotic7/FM1VST "$FM1VST_COMMIT" "$FM1VST_DIR"; fi
 at_commit "$FM1VST_DIR" "$FM1VST_COMMIT" FM1VST CMakeLists.txt cmake core-api core-glue/common tools third_party/wasm3
 
+FELUCCA_BSP_DIR=${FELUCCA_BSP_DIR:-}
+if [ -z "$FELUCCA_BSP_DIR" ]; then FELUCCA_BSP_DIR=$B/felucca-bsp-git; clone_at https://github.com/hugelton/felucca-bsp "$FELUCCA_BSP_COMMIT" "$FELUCCA_BSP_DIR"; fi
+at_commit "$FELUCCA_BSP_DIR" "$FELUCCA_BSP_COMMIT" felucca-bsp chip/ota.c
+# the identity: the one FIZZ's own release index gives this version
+REL_ID=$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); r=d.get("releases",d); print(next(x["identity"] for x in r if x["version"]==sys.argv[2]))' \
+    "$FIZZ_SRC/site/firmware/releases.json" "$FIZZ_VERSION")
+[ "$REL_ID" = "$FIZZ_PACKAGE_ID" ] || { echo "FIZZ $FIZZ_VERSION's identity is $REL_ID (site/firmware/releases.json), not $FIZZ_PACKAGE_ID"; exit 1; }
+mkdir -p "$B/gen"
+printf '/* build_fizz.sh: FIZZ %s'"'"'s package identity (site/firmware/releases.json) */\n#define FELUCCA_ID "%s"\n' \
+    "$FIZZ_VERSION" "$FIZZ_PACKAGE_ID" >"$B/gen/fizz_package_id.h"
 # FIZZ's firmware sources and their licences only (as RemoteFM1IOS's scripts/build_cores.sh), with a .git file
 # pointing at the checkout's git dir, so fm1_add_core reads the commit
 SRC=$B/src/FIZZ
@@ -77,7 +93,7 @@ CMAKE=${CMAKE:-$(command -v cmake || echo /opt/homebrew/bin/cmake)}
 
 say "FIZZ $FIZZ_VERSION (${FIZZ_COMMIT:0:12}), FM1VST ${FM1VST_COMMIT:0:12}, $("$EMCC" --version | head -1 | sed 's/.*) //')"
 "$CMAKE" -S "$ROOT/tools/rfm1/fizz" -B "$B/build" -DCMAKE_BUILD_TYPE=Release -DFM1VST_DIR="$FM1VST_DIR" \
-    -DFIZZ_DIR="$SRC" -DFIZZ_VERSION="$FIZZ_VERSION" -DFIZZ_MEMORY_MIB=$MEMORY_MIB -DFM1_EMCC="$EMCC" \
+    -DFIZZ_DIR="$SRC" -DFIZZ_VERSION="$FIZZ_VERSION" -DFELUCCA_BSP_DIR="$FELUCCA_BSP_DIR" -DFIZZ_GEN_DIR="$B/gen" -DFIZZ_MEMORY_MIB=$MEMORY_MIB -DFM1_EMCC="$EMCC" \
     -DCR_PYTHON="$(command -v python3)" >"$B/configure.log" 2>&1 || { tail -30 "$B/configure.log"; exit 1; }
 "$CMAKE" --build "$B/build" --target rfm1_fizz rfm1_run -j "$(sysctl -n hw.ncpu 2>/dev/null || nproc)" >"$B/build.log" 2>&1 \
     || { tail -40 "$B/build.log"; exit 1; }

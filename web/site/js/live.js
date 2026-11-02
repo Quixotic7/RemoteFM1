@@ -168,7 +168,7 @@ export function rfm1Entry(d, m, { sha256, size }) {
     category: cat, categories: [cat], tag: d.tag || tagOf(d.what), what: d.what || "",
     license: m.license || null,
     source: d.source || m.source_url || null, repo: gh ? gh[1] : null, release: d.release || null, site: d.site || null,
-    play: null, editor: null, beta: !!d.beta,
+    play: null, editor: d.editor || null, beta: !!d.beta,
     engines: ["rfm1"], defaultEngine: "rfm1", native: null, emu: null,
     rfm1: { from: "site", file: d.file, sha256, size, fileName: String(d.file).split("/").pop(), version: String(m.version),
             sourceUrl: m.source_url || null, glueUrl: typeof m.glue_url === "string" ? m.glue_url : null, builtBy: m.built_by || null, authors,

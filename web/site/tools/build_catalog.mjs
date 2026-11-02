@@ -18,7 +18,7 @@
 // (newest wins: web/site/js/live.js, which builds the entries; the page merges the Hub's live catalog over this one at
 // load).
 //   node web/site/tools/build_catalog.mjs [--layout dev|pages] [--hub FILE|URL] [--out FILE] [--native-ext FILE]
-//                                         [--native-dir DIR] [--fw-catalog DIR]
+//                                         [--native-dir DIR] [--fw-catalog DIR] [--fw-meta FILE]
 // --native-dir: the folder the native cores' .wasm are published in (the Pages build: _site/engines/native). Only the
 // cores whose <core>.wasm is there are listed as native (a warning names each one that is not): a Hub firmware whose
 // core is missing runs emulated only (or on its author's native build), a native-only entry (LOOM-8, Speak37) is left
@@ -309,6 +309,45 @@ if (fwDir) {
     console.log(`build_catalog: ${r.id}: ${name} ${dflt ? "is the default" : `is an alternative (the Hub's ${h.version}${h.native ? `, native ${h.native.version}` : ""} is newer or unsure)`}`);
   }
   console.log(`build_catalog: RemoteFM1FW ${fwRelease ? fwRelease.tag : "(no release.json)"}: ${sums.size} .rfm1 files, ${added} new entries, ${merged} merged, ${kept} kept the site's own`);
+}
+// editors: data/fw-catalog.json's "editors" (by id: the author's own editor page, where the Hub lists none; null: no
+// editor at all, over the Hub's, RemoteFM1FW's and the same-repo one: a firmware with no editor service), then
+// RemoteFM1FW's catalog/catalog.json (--fw-catalog DIR's catalog.json, fetch_fw_catalog.mjs; or --fw-meta FILE), then,
+// for a firmware still without one, the editor of another entry with the same repo (a .rfm1 whose id is not the Hub's).
+// liveEditor: its editor where it is not the entry's (the Editor panel's live page, managers.js liveUrlOf).
+// port: RemoteFM1FW's catalog's USB MIDI port name of the firmware (checked against its USB settings), as "port": the
+// name the Editor panel's in-page port takes on the .rfm1 (managers.js portOf); data/fw-catalog.json's "ports" for a
+// firmware RemoteFM1FW does not list (the site's own .rfm1: FIZZ)
+{
+  const editors = JSON.parse(readFileSync(join(SITE, "data", "fw-catalog.json"), "utf8")).editors || {};
+  const metaFile = arg("--fw-meta", fwDir ? join(fwDir, "catalog.json") : null);
+  let fwMeta = {};
+  if (metaFile && existsSync(metaFile)) {
+    try { fwMeta = JSON.parse(readFileSync(metaFile, "utf8")).firmwares || {}; }
+    catch (e) { console.warn(`build_catalog: ${metaFile}: ${e.message} (no editors / ports from it)`); fwMeta = {}; }
+  } else if (arg("--fw-meta", null)) { console.error(`build_catalog: --fw-meta ${metaFile}: no such file`); process.exit(1); }
+  const okUrl = (u) => typeof u === "string" && /^https:\/\/[^\s"<>]+$/.test(u);
+  const okPort = (p) => typeof p === "string" && p.length > 0 && p.length <= 64 && !/[\u0000-\u001f]/.test(p);
+  const sitePorts = JSON.parse(readFileSync(join(SITE, "data", "fw-catalog.json"), "utf8")).ports || {};
+  const none = new Set(Object.keys(editors).filter((id) => editors[id] === null));   // "editors": { id: null }: no editor at all
+  let ports = 0, filled = 0;
+  for (const f of firmwares) {
+    if (none.has(f.id)) { f.editor = null; delete f.liveEditor; }
+    else if (!f.editor && editors[f.id]) f.editor = editors[f.id];
+    if (okPort(sitePorts[f.id]) && !f.port) f.port = sitePorts[f.id];
+    const m = fwMeta[f.id];
+    if (!m) continue;
+    if (okPort(m.port)) { f.port = m.port; ports++; }
+    if (none.has(f.id)) continue;
+    if (!f.editor && okUrl(m.editor)) { f.editor = m.editor; filled++; }
+    // (another page than the Hub's: RemoteFM1FW's, checked, is the one the Editor panel loads live; Skiff's Hub link
+    // is the door to its installer)
+    else if (okUrl(m.editor) && m.editor !== f.editor) f.liveEditor = m.editor;
+  }
+  if (Object.keys(fwMeta).length) console.log(`build_catalog: RemoteFM1FW's catalog: ${filled} editors filled in, ${ports} ports`);
+  const byRepo = new Map();
+  for (const f of firmwares) if (f.editor && f.repo && !byRepo.has(f.repo.toLowerCase())) byRepo.set(f.repo.toLowerCase(), f.editor);
+  for (const f of firmwares) if (!f.editor && !none.has(f.id) && f.repo && byRepo.has(f.repo.toLowerCase())) f.editor = byRepo.get(f.repo.toLowerCase());
 }
 firmwares.sort((a, b) => a.name.localeCompare(b.name, "en", { sensitivity: "base" }));
 

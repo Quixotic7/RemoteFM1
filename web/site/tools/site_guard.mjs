@@ -87,7 +87,7 @@ export function guardSite({ catalog, has, expected, managers = null, sha = null,
   else {
     if (!has(`${mbase}fm1-shim.js`)) errors.push(`${mbase}fm1-shim.js (the managers' Web MIDI shim) is not in the site`);
     for (const m of managers.managers || []) {
-      const page = `${mbase}${String(m.path || `${m.id}/`).replace(/\/?$/, "/")}index.html`;
+      const page = `${mbase}${String(m.path || `${m.id}/`).split("#")[0].replace(/\/?$/, "/")}index.html`;   // (path: "md/#device-editor")
       if (!has(page)) errors.push(`manager ${m.id}: ${page} is not in the site`);
     }
   }

@@ -1,6 +1,6 @@
 {
  "about": "Built by web/site/tools/build_catalog.mjs from the FM-1 Firmware Hub's catalog, FM1VST's cores, RemoteFM1's own release (web/installer/releases.json) and the site's .rfm1 files (data/site-rfm1.json). Edit those, not this file.",
- "generated": "2026-11-01",
+ "generated": "2026-11-02",
  "hubUpdated": "2026-10-18 17:01 UTC",
  "hubSource": "snapshot",
  "hub": "https://thefirmwarehub.com/",
@@ -622,7 +622,7 @@
    "release": "https://github.com/Quixotic7/FIZZ/releases/tag/v0.12.0-beta.12",
    "site": "https://quixotic7.github.io/FIZZ/",
    "play": null,
-   "editor": null,
+   "editor": "https://quixotic7.github.io/FIZZ/manager/",
    "beta": true,
    "engines": [
     "rfm1"
@@ -633,8 +633,8 @@
    "rfm1": {
     "from": "site",
     "file": "fw/fizz-0.12.0-beta.12.rfm1",
-    "sha256": "e511348e9716f3144e7e4b7679a2a563af093322c7b9d2ed043d03fd5508bd99",
-    "size": 1260254,
+    "sha256": "54c3f48f94eac641282acdd47e3d96aa7013ee80a40f93dd2af1b76b00f5416d",
+    "size": 1261721,
     "fileName": "fizz-0.12.0-beta.12.rfm1",
     "version": "0.12.0-beta.12",
     "sourceUrl": "https://github.com/Quixotic7/FIZZ@1b7f8efbe6276a7f78c61da39ff45aee4d9b805e",
@@ -643,7 +643,8 @@
     "authors": [
      "Michael P Jones (Quixotic7)"
     ]
-   }
+   },
+   "port": "FIZZ FM-1"
   },
   {
    "id": "fm106",
@@ -1706,7 +1707,7 @@
    "release": "https://joshbartlettband-web.github.io/felucca-rainbow/",
    "site": "https://joshbartlettband-web.github.io/felucca-rainbow/",
    "play": "https://joshbartlettband-web.github.io/felucca-rainbow/webapp/try/",
-   "editor": null,
+   "editor": "https://joshbartlettband-web.github.io/felucca-rainbow/webapp/editor/",
    "beta": false,
    "engines": [
     "emu"

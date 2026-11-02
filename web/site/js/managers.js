@@ -7,7 +7,10 @@
 //   bridge.fromEngine(bytes)        // the engine's MIDI out (worklet "midiOut"), any chunking
 //
 // Sessions: a manager in the Editor panel's iframe talks by window.postMessage (same origin, checked); a popped-out one
-// in its own tab by the BroadcastChannel "remotefm1-managers". Every session gets the same port (the running
+// in its own tab by the BroadcastChannel "remotefm1-managers". An author's live editor page (live-editor.js) runs in a
+// sandboxed iframe, an opaque origin: its messages come with origin "null", and are heard only from the windows the
+// Editor panel named (allowFrame(win): its own live iframe's contentWindow); the replies go to that window only
+// (target "*": an opaque origin has no name). Its storage writes ({ type: "storage" }) go to onStorage(msg, win). Every session gets the same port (the running
 // firmware's USB name) and the firmware's whole messages (SysEx replies and pushes, its notes; MIDI clock and the other
 // real-time bytes are dropped: a manager never needs them). A manager's bytes go to the engine only; nothing a manager
 // sends is ever passed back to a manager (no echo, unlike a loopback bus).
@@ -52,10 +55,12 @@ const isBytes = (b) => (b instanceof Uint8Array || Array.isArray(b)) && b.length
 export class ManagerBridge {
   // toEngine(bytes): one message into the firmware. win: the page's window (the iframe sessions); BC: BroadcastChannel
   constructor({ toEngine, win = typeof window !== "undefined" ? window : null, BC = typeof BroadcastChannel === "function" ? BroadcastChannel : null,
-                pid = Math.random().toString(36).slice(2, 10), onChange = () => {} } = {}) {
+                pid = Math.random().toString(36).slice(2, 10), onChange = () => {}, onStorage = () => {} } = {}) {
     this.toEngine = toEngine;
     this.pid = pid;
     this.onChange = onChange;
+    this.onStorage = onStorage;
+    this.liveFrames = new Set();        // the sandboxed live editors' windows (allowFrame)
     this.target = { connected: false, port: null, firmware: null, engine: null };
     this.sessions = new Map();          // sid -> { via: "frame" | "tab", manager, send(msg), seen }
     this.asm = new MidiAssembler();
@@ -64,9 +69,12 @@ export class ManagerBridge {
     if (win && win.addEventListener) {
       this.onWindow = (e) => {
         const m = e.data;
-        if (!m || m.__fm1mgr !== 1 || m.from === "player" || e.origin !== win.location.origin || !e.source) return;
-        const src = e.source;
-        this.receive(m, "frame", (msg) => { try { src.postMessage(msg, e.origin); } catch (_) { this.sessions.delete(m.sid); } });
+        if (!m || m.__fm1mgr !== 1 || m.from === "player" || !e.source) return;
+        const src = e.source, live = e.origin === "null" && this.liveFrames.has(src);
+        if (!live && e.origin !== win.location.origin) return;
+        if (m.type === "storage") { if (live) this.onStorage(m, src); return; }
+        const to = live ? "*" : e.origin;
+        this.receive(m, "frame", (msg) => { try { src.postMessage(msg, to); } catch (_) { this.sessions.delete(m.sid); } }, src);
       };
       win.addEventListener("message", this.onWindow);
     }
@@ -83,17 +91,17 @@ export class ManagerBridge {
   msg(sid, type, extra = {}) { return { __fm1mgr: 1, from: "player", pid: this.pid, sid, type, ...extra }; }
   stateMsg(sid) { const t = this.target; return this.msg(sid, "state", { connected: t.connected, port: t.port, firmware: t.firmware, engine: t.engine }); }
 
-  receive(m, via, send) {
+  receive(m, via, send, src = null) {
     if (typeof m.sid !== "string") return;
     if (m.type === "hello") {
-      this.sessions.set(m.sid, { via, manager: m.manager || "", send, seen: Date.now() });
+      this.sessions.set(m.sid, { via, manager: m.manager || "", send, seen: Date.now(), src });
       send(this.stateMsg(m.sid));
       this.onChange();
       return;
     }
     if (m.type === "bye") { if (this.sessions.delete(m.sid)) this.onChange(); return; }
     let s = this.sessions.get(m.sid);
-    if (!s) { s = { via, manager: m.manager || "", send, seen: Date.now() }; this.sessions.set(m.sid, s); send(this.stateMsg(m.sid)); this.onChange(); }
+    if (!s) { s = { via, manager: m.manager || "", send, seen: Date.now(), src }; this.sessions.set(m.sid, s); send(this.stateMsg(m.sid)); this.onChange(); }
     s.seen = Date.now();
     if (m.type === "midi") {
       // a manager's message: into the firmware, only while a port is shown (and never back to any manager)
@@ -126,28 +134,66 @@ export class ManagerBridge {
   }
 
   get count() { return this.sessions.size; }
+  // the Editor panel's live iframe (a sandbox, origin "null"): heard while allowed, and only that window
+  allowFrame(w) { if (w) this.liveFrames.add(w); }
+  disallowFrame(w) {
+    if (!this.liveFrames.delete(w)) return;
+    let gone = false;
+    for (const [sid, s] of this.sessions) if (s.src === w) { this.sessions.delete(sid); gone = true; }
+    if (gone) this.onChange();
+  }
+  // a session from this window said hello (the live page's shim runs)
+  hasFrame(w) { for (const s of this.sessions.values()) if (s.src === w) return true; return false; }
   // a frame session whose window went away (the panel closed, the iframe navigated): forgotten
   forgetFrames() { for (const [sid, s] of this.sessions) if (s.via === "frame") this.sessions.delete(sid); this.onChange(); }
 
   dispose() {
     for (const [sid, s] of this.sessions) { try { s.send(this.msg(sid, "bye")); } catch (_) { /* (gone) */ } }
     this.sessions.clear();
+    this.liveFrames.clear();
     if (this.win && this.onWindow) this.win.removeEventListener("message", this.onWindow);
     if (this.bc) { try { this.bc.postMessage(this.msg("*", "bye")); } catch (_) {} this.bc.close(); }
   }
 }
 
-// which editor a firmware has: { kind: "hosted", manager } (on this site), { kind: "cart" } (RemoteFM1's DX7 cartridges,
-// js/cart.js, on the firmware running in this page), { kind: "real", url } (its own site's, for an FM-1 on USB), or
-// null. index: managers/index.json (null: none hosted here)
+// which editor a firmware has: { kind: "hosted", manager, live } (on this site), { kind: "cart" } (RemoteFM1's DX7
+// cartridges, js/cart.js, on the firmware running in this page), { kind: "real", url, live } (its own site's, for an
+// FM-1 on USB), or null. index: managers/index.json (null: none hosted here). live: the author's live editor page the
+// Editor panel tries first (liveUrlOf), or null
 export const CART_FIRMWARES = ["remotefm1"];
 export function editorOf(entry, index) {
   if (!entry) return null;
   const m = index && index.managers ? index.managers.find((x) => x.firmwares.includes(entry.id)) : null;
-  if (m) return { kind: "hosted", manager: m };
+  if (m) return { kind: "hosted", manager: m, live: liveUrlOf(entry, m) };
   if (CART_FIRMWARES.includes(entry.id)) return { kind: "cart" };
-  if (entry.editor) return { kind: "real", url: entry.editor };
+  if (entry.editor) return { kind: "real", url: entry.editor, live: liveUrlOf(entry, null) };
   return null;
 }
-// the port name the in-page port takes for a firmware (its real USB product string), or null
-export const portOf = (entry, index) => (entry && index && index.ports ? index.ports[entry.id] || null : null);
+// the author's live editor page for a firmware: the hosted manager's "live" (managers.json: a page's newer address, or
+// false: never live), else its "upstream" (the page the hosted copy is), else the catalog's liveEditor (RemoteFM1FW's
+// catalog's, where the Hub's differs), else its editor. Only an https page
+// without a fragment (a fragment says the page is an app of its own: Mutable Dreams' #editor); http only on this
+// machine (tests). null: none, the Editor panel shows the hosted copy or the link
+export function liveUrlOf(entry, manager) {
+  let c = null;
+  if (manager && manager.live === false) return null;
+  if (manager && typeof manager.live === "string") c = manager.live;
+  else if (manager && manager.upstream) c = manager.upstream;
+  else if (entry && (entry.liveEditor || entry.editor)) c = entry.liveEditor || entry.editor;
+  if (!c) return null;
+  let u;
+  try { u = new URL(c); } catch (_) { return null; }
+  if (u.hash || c.includes("#")) return null;
+  if (u.protocol !== "https:" && !(u.protocol === "http:" && /^(127\.0\.0\.1|localhost)$/.test(u.hostname))) return null;
+  return u.href;
+}
+// the port name the in-page port takes for a firmware (its real USB product string), or null. A firmware with a hosted
+// manager: managers/index.json's ports first (the name its hosted copy was tested with: its copy of JIANT's editor finds
+// only "JIANT"/"Felucca" ports, where RemoteFM1FW's catalog says "FM-1"); any other: the catalog's "port" (RemoteFM1FW's
+// catalog, checked against the firmware's USB settings) first; either one where the other has none
+export function portOf(entry, index) {
+  if (!entry) return null;
+  const idx = index && index.ports ? index.ports[entry.id] || null : null, cat = typeof entry.port === "string" && entry.port ? entry.port : null;
+  const hosted = !!(index && index.managers && index.managers.some((m) => m.firmwares.includes(entry.id)));
+  return hosted ? idx || cat : cat || idx;
+}
