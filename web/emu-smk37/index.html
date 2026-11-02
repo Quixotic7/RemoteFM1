@@ -32,6 +32,7 @@ header p { margin: 0; color: var(--muted); }
 .bar button:hover { border-color: var(--muted); }
 .bar button[aria-pressed="true"] { background: var(--lime); color: #142208; border-color: var(--lime); }
 .bar .info { color: var(--muted); font-size: .9rem; font-variant-numeric: tabular-nums; }
+.bar .info.on { color: var(--lime); }
 #alert { color: #ff8a73; font-weight: 600; flex-basis: 100%; }
 #alert:empty { display: none; }
 
@@ -136,6 +137,8 @@ kbd { font: 600 .82rem ui-monospace, Menlo, monospace; background: var(--card); 
   <button id="mute" type="button" aria-pressed="false">Mute</button>
   <button id="midi" type="button" title="Play the emulator from a MIDI keyboard (its USB MIDI in)">MIDI in…</button>
   <select id="midiport" hidden aria-label="MIDI input"></select>
+  <button id="player" type="button" title="Open RemoteFM1.com's player in a new tab, with this emulator as its unit">Connect to the RemoteFM1 player</button>
+  <span class="info" id="link"></span>
   <span class="info" id="oct"></span>
   <span class="info" id="status">Off.</span>
   <span class="info" id="cpu"></span>
@@ -169,6 +172,8 @@ kbd { font: 600 .82rem ui-monospace, Menlo, monospace; background: var(--card); 
     <p>The firmware's simulator, built for the SMK-37: its controls go through the device's own map onto the FM-1's, and the lights
       come back as the firmware sets them. The key scan, the LCD and LED drivers, USB and Bluetooth are not emulated.
       Saved settings stay in this browser.</p>
+    <p>Connect to the RemoteFM1 player opens this site's player with the emulator as its unit, as a tester's SMK-37 is: pick a
+      firmware there and connect the FM-1; this panel plays it and shows its screen.</p>
   </div>
 </section>
 </main>
