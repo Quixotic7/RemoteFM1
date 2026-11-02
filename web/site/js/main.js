@@ -25,6 +25,7 @@ import { MidiMap, Learn, MODES, srcLabel, speedOf, targetOf, knobTarget, buttonT
 import { OmxLink, mountOmx } from "./omx-link.js";
 import { Folder } from "./folder.js";
 import { FolderUI } from "./folder-ui.js";
+import { AinUI } from "./ain-ui.js";
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -65,6 +66,13 @@ const fantasyNow = () => {
   const e = state.entry, i = state.info;
   if (!e || state.wantEngine !== "rfm1" || !(e.rfm1 && e.rfm1.virtual) && !(i && i.virtual)) return null;
   return { id: e.id, folders: (i && i.folders) || {}, fs: !!(i && Array.isArray(i.needs) && i.needs.includes("fs1")) };
+};
+// the running .rfm1 cart with live audio input ("ain1" in its manifest's wants or needs), for ain-ui.js (null: none)
+let ainUi = null;
+const ainNow = () => {
+  const e = state.entry, i = state.info;
+  if (!e || state.engine !== "rfm1" || !i || !i.ain || i.id !== e.id) return null;
+  return { id: e.id, mode: i.ain };
 };
 const editorChanged = () => { if (editor) editor.update(); };
 const lcd = new Lcd();
@@ -176,6 +184,7 @@ async function openFirmware(id, want = null) {
   }
   state.labels = null; device.setButtonNames(null); device.setKeymap(null);
   if (folderUi) folderUi.update();
+  if (ainUi) ainUi.update();
   state.levels = new Uint8Array(44); state.playGreen = 0; device.setLeds(state.levels, 0);
   lcd.clear(); invalidate();
   await refreshSaves();
@@ -431,7 +440,11 @@ function makePlayer() {
       siteEmit("info", info); siteEmit("firmware", { entry: state.entry, engine: state.engine });
       editorChanged();
       if (folderUi) folderUi.update();
+      if (ainUi) ainUi.update();
     },
+    // live audio input (ain-ui.js): the input's level and latency; the browser ended the input
+    ainLevel(m) { if (ainUi) ainUi.level(m); },
+    ainEnded() { if (ainUi) ainUi.ended(); },
     // a Fantasy CFW's file request: answered from the RemoteFM1 folder (folder.js)
     fs(m) {
       folder.serve(m).then(({ reply, transfer }) => player.fsReply(reply, transfer))
@@ -662,6 +675,7 @@ const app = {
   remoteStatus: "",
   versionOf, metaLine, engineNote, carryText, answerCarry, sourceNow,
   folderSection: () => (folderUi ? folderUi.section() : []),
+  ainSection: () => (ainUi ? ainUi.section() : []),
   sheetChanged(open) { if (open) learnStop(); document.body.classList.toggle("sheet-open", open); if (open) document.body.classList.remove("chrome"); else $("stage").focus({ preventScroll: true }); },
   set(k, v) {
     if (k === "theme") { state.theme = presetNamed(v, prefs.customTheme) || state.theme; prefs.theme = state.theme.name; applyTheme(); }
@@ -892,6 +906,11 @@ async function main() {
   folder.on((kind) => { if (kind === "changed" && player) player.fsChanged(); folderUi.update(); if (sheet) sheet.render(); });
   addEventListener("focus", () => { if (player && fantasyNow() && folder.state === "ready") player.fsChanged(); });
   window.FM1Folder = folder;
+
+  // live audio input for an .rfm1 cart with "ain1" (ain-ui.js): the sheet's section and the prompt
+  ainUi = new AinUI({ getPlayer: () => player, ensureRunning: async () => state.running || start(), cart: ainNow, toast,
+    render: () => { if (sheet) sheet.render(); } });
+  window.FM1Ain = ainUi;
 
   // input
   new Keyboard({

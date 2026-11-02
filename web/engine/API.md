@@ -102,6 +102,8 @@ The host processor imports `engines/native/engine.js`, `engines/emu/engine.js` o
 | worklet → page | `{type: "info", ...}` |
 | worklet → page | `{type: "labels", seq, list}` when `labels()`'s seq moves (none while it is null; `list: null`, seq 0, when it goes back to null). The page merges it over `info.buttonNames` (js/panel.js `panelLabels`) |
 | worklet → page | `{type: "halted", code}` |
+| page → worklet | `{type: "ain", on, latency}` live audio input on / off for an .rfm1 cart with "ain1" (section 6); `latency`: the input's own, in seconds |
+| worklet → page | `{type: "ainLevel", peak, latency, missing}` while input is on, with the frames (30 Hz): the input's peak, the latency the cart was told |
 | worklet → page | `{type: "error", message}` |
 
 ## 4. Headless testing
@@ -153,6 +155,35 @@ firmware browser's "Open a file..." or drops it on the page, and the page keeps 
   null; `inspect()` says `labels`). A label's pointer is bounds-checked, read up to 64 bytes and cut to 10 characters.
   Tests: `node web/engines/rfm1/labels-test.mjs` (fixtures/labels_core.rfm1, built by fixtures/build_labels.sh),
   `node web/engines/native/labels-test.mjs`, the page: `node web/site/tools/labels-e2e.mjs`.
+- **Live audio input, capability `"ain1"`.** The manifest may list `"wants": [...]`, capability names the cart uses
+  when the host has them (a host ignores names it doesn't know); a cart that can't run without one lists it in
+  `"needs"` instead, and a host without it refuses the file (as with `fs1`; `needs` is a Fantasy CFW's, so with
+  `"virtual": true`). `wants` must be a list of strings, else the file is refused. This site supports `ain1`.
+  Two optional exports, called only when `ain1` is in `wants` or `needs` and the module has them (with these
+  signatures; `inspect()` says `ain: "needs" | "wants" | null` and `ainExports`):
+  - `rfm1_audio_in (const int16_t *stereo, uint32_t frames)`: interleaved stereo int16 at 44100 Hz (a mono source on
+    both channels), in a block made with `rfm1_alloc` (as the output's). Called **immediately before**
+    `rfm1_audio(out, frames)` for the same block with the same `frames`, so input frame i goes with output frame i.
+    No call before a block means silence: the host makes none while input is off.
+  - `rfm1_audio_in_info (uint32_t state, uint32_t latency_frames)`: `state` 0 no input (off, refused, unplugged),
+    1 live; `latency_frames` the input's latency at 44.1 kHz (0 unknown). Called before the first `rfm1_audio_in`
+    and when either changes (this site: the latency when it moves by 32 frames or more), and with (0, 0) when input
+    goes off, the firmware changes or the instance is disposed.
+
+  Order per 128-frame block while input is on: `rfm1_audio_in_info` (only on a change, at the start of a render),
+  `rfm1_audio_in(in, 128)`, `rfm1_audio(out, 128)`. The page (js/ain-ui.js, js/audio.js `ainStart`) takes the
+  visitor's input with `getUserMedia` (echo cancellation, noise suppression and gain control off) only after a click
+  (or by itself when this firmware had it on and the browser already allows the microphone), into the host node's
+  input; the worklet hands each quantum to the engine (`audioIn(on, latency)`, `audioInput(L, R)` before
+  `render()`), which resamples it to 44.1 kHz (`shared.js AudioIn`, the output resampler's kernel) into a FIFO that
+  starts with 256 frames of silence less what the output resampler already holds: the delay from the context's input
+  to its output is then 256 frames at 44.1 kHz plus a frame or two (5.8 ms), fixed while input is on (the input is
+  locked to the output's quanta: a quantum without input is silence, an extra one is dropped). `latency_frames` is
+  that delay plus the capture's own (`MediaStreamTrack.getSettings().latency`, else the context's `baseLatency`).
+  The other engines (native, emu, mock) have no input. Tests: `node web/engines/rfm1/ain-test.mjs` (the manifest,
+  the call order, silence when off, the info calls, an impulse's offset through the resamplers, missing and extra
+  input; fixtures/ain_cart.c, built by fixtures/build_ain.sh), the page: `node web/site/tools/ain-e2e.mjs`
+  (headless Chromium with a fake microphone).
 - A trap ends the instance: `halted()` is then 0x100 | code after `proc_exit(code)`, 0x200 after any other trap;
   `render()` gives silence and the other calls do nothing (the flash stays readable, so the page can boot it again).
 - Saves of an `.rfm1` firmware are the firmware's under engine `"rfm1"`, apart from its native and emulated ones.

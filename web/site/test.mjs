@@ -1601,5 +1601,20 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   rmSync(dir, { recursive: true, force: true }); rmSync(fout, { recursive: true, force: true }); unlinkSync(out);
 }
 
+// live audio input ("ain1", API.md section 6): the entries say it (the badge, About), the page's checks
+{
+  const { rfm1Entry, ainOf, usesAin } = await import("./js/live.js");
+  const { entryOf } = await import("./js/library.js");
+  const m = { rfm1: 1, abi: 6, id: "aintest", name: "Audio In Test", version: "1.0", license: "MIT", source_url: "https://example.com/x@0" };
+  ok(ainOf({ ...m, wants: ["ain1"] }) === "wants" && ainOf({ ...m, virtual: true, needs: ["ain1"], wants: ["ain1"] }) === "needs" && ainOf(m) === null && ainOf({ ...m, wants: "ain1" }) === null,
+    "ain: ainOf a manifest (wants, needs wins, none, not a list)");
+  const site = rfm1Entry({ file: "fw/a.rfm1" }, { ...m, wants: ["zz", "ain1"] }, { sha256: "0", size: 1 });
+  const mine = entryOf({ sha256: "1", fileName: "a.rfm1", size: 1, manifest: { ...m, virtual: true, needs: ["ain1"] } });
+  ok(site.rfm1.ain === "wants" && usesAin(site) && mine.rfm1.ain === "needs" && usesAin(mine) && !usesAin(rfm1Entry({ file: "fw/b.rfm1" }, m, { sha256: "2", size: 1 })),
+    "ain: this site's and the visitor's .rfm1 entries carry it");
+  const src = readFileSync(new URL("./worklet/host.js", import.meta.url), "utf8");
+  ok(/eng\.audioInput/.test(src) && /typeof eng\.audioIn === "function"/.test(src), "ain: the worklet feeds only an engine with audioIn (native, emu, mock: none)");
+}
+
 console.log(fails ? `site: ${fails} of ${checks} FAILED` : `site tests passed (${checks})`);
 process.exit(fails ? 1 : 0);

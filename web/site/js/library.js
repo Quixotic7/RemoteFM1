@@ -10,6 +10,7 @@
 //   await bytes(sha256)                                         -> Uint8Array | null
 //   await remove(sha256)
 //   entryOf(record)                                             -> the page's firmware entry for it
+import { ainOf } from "./live.js";
 
 const DB = "remotefm1-firmware", META = "rfm1", BYTES = "rfm1-bytes", VERSION = 1;
 export const RELEASES = "https://github.com/Quixotic7/RemoteFM1FW/releases/latest";
@@ -69,6 +70,6 @@ export function entryOf(rec) {
     license: m.license || null, source: m.source_url || null,
     engines: ["rfm1"], defaultEngine: "rfm1", native: null, emu: null, local: true,
     rfm1: { sha256: rec.sha256, fileName: rec.fileName, size: rec.size, glueUrl: typeof m.glue_url === "string" ? m.glue_url : null,
-            builtBy: m.built_by || null, authors, ...(m.virtual === true ? { virtual: true } : {}) },
+            builtBy: m.built_by || null, authors, ...(m.virtual === true ? { virtual: true } : {}), ...(ainOf(m) ? { ain: ainOf(m) } : {}) },
   };
 }

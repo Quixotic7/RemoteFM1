@@ -10,6 +10,8 @@
 //   p.setVolume(0..1)                         the page's volume: a GainNode after the worklet (recordings are taken before it)
 //   p.recStart({ id, chunkFrames, maxFrames }); p.recStop(); p.recBuf(l, r)   the recorder (js/rec-ui.js); events: rec(m)
 //   events.fs(m): a Fantasy CFW's file request (js/folder.js serve()); p.fsReply(reply, transfer); p.fsChanged()
+//   await p.ainStart(deviceId) / p.ainStop()   live audio input for an .rfm1 cart with "ain1" (js/ain-ui.js): the
+//                                             visitor's input into the host node's input; events: ainLevel(m), ainEnded()
 //
 // The emulated engine's packages come from where the Hub points, at play time (thefirmwarehub.com's mirror: CORS *;
 // GitHub release downloads send no CORS header). W2's web/engines/emu/catalog.mjs is the hook: its fetchPackage()
@@ -77,6 +79,7 @@ export class Player {
     this.added = new Map();      // engine name -> Promise (its module added to the worklet)
     this.hook = undefined;       // W2's catalog.mjs (null: none)
     this.current = null;         // { entry, engine }
+    this.ain = null;             // live audio input: { stream, src, track, latency, deviceId, label } (ainStart)
   }
   emit(name, ...a) { if (this.ev[name]) this.ev[name](...a); }
   get running() { return !!this.ctx && this.ctx.state === "running"; }
@@ -113,7 +116,9 @@ export class Player {
     if (!this.setup) {
       this.setup = (async () => {
         await this.ctx.audioWorklet.addModule(abs("worklet/host.js"));
-        this.node = new AudioWorkletNode(this.ctx, "fm1-host", { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
+        // (one input: live audio input, ain-ui.js; nothing is connected to it otherwise)
+        this.node = new AudioWorkletNode(this.ctx, "fm1-host", { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2],
+                                                                 channelCount: 2, channelCountMode: "explicit", channelInterpretation: "speakers" });
         this.node.port.onmessage = (e) => this.onMessage(e.data);
         this.out = this.ctx.createGain();
         this.out.gain.value = this.volume;
@@ -183,6 +188,49 @@ export class Player {
     else if (m.type === "load") this.emit("load", { ...m, glitches: this.glitches() });
     else if (m.type === "recChunk" || m.type === "recLevel") this.emit("rec", m);
     else if (m.type === "fs") this.emit("fs", m);
+    else if (m.type === "ainLevel") this.emit("ainLevel", m);
+  }
+
+  // ---- live audio input (an .rfm1 cart with "ain1": engines/rfm1/engine.js audioIn; js/ain-ui.js)
+  // The visitor's input (deviceId: an enumerateDevices() id, "" the default) without the browser's voice processing,
+  // connected to the host node; the worklet told it is on, with the input's own latency (the track's, else the
+  // context's baseLatency). Resolves { deviceId, label }; throws when the browser refuses (permission, no device).
+  async ainStart(deviceId = "") {
+    if (!this.ctx || !this.node) throw new Error("start() first");
+    const audio = { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: { ideal: 2 } };
+    if (deviceId) audio.deviceId = { exact: deviceId };
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio }); }
+    catch (e) {
+      if (!deviceId || !/NotFound|Overconstrained/.test((e && e.name) || "")) throw e;
+      delete audio.deviceId;                                           // (the device kept is gone: the default)
+      stream = await navigator.mediaDevices.getUserMedia({ audio });
+    }
+    this.ainStop(false);
+    const track = stream.getAudioTracks()[0];
+    let src;
+    try { src = this.ctx.createMediaStreamSource(stream); }
+    catch (e) {   // (Firefox: an input at another sample rate than the page's)
+      stream.getTracks().forEach((t) => t.stop());
+      throw new Error(`this browser can't take that input into the page's audio (${e.message || e})`);
+    }
+    src.connect(this.node);
+    const st = track && track.getSettings ? track.getSettings() : {};
+    const latency = typeof st.latency === "number" && st.latency >= 0 ? st.latency : this.ctx.baseLatency || 0;
+    this.ain = { stream, src, track, latency, deviceId: st.deviceId || deviceId || "", label: (track && track.label) || "" };
+    if (track) track.onended = () => { if (this.ain && this.ain.track === track) { this.ainStop(); this.emit("ainEnded"); } };
+    this.node.port.postMessage({ type: "ain", on: true, latency });
+    return { deviceId: this.ain.deviceId, label: this.ain.label, latency };
+  }
+  // input off: the source disconnected, its tracks stopped, the worklet told (the cart: rfm1_audio_in_info(0, 0))
+  ainStop(tell = true) {
+    const a = this.ain;
+    this.ain = null;
+    if (a) {
+      try { a.src.disconnect(); } catch (_) { /* (not connected) */ }
+      a.stream.getTracks().forEach((t) => { try { t.stop(); } catch (_) { /* (stopped) */ } });
+    }
+    if (tell && this.node) this.node.port.postMessage({ type: "ain", on: false, latency: 0 });
   }
 
   // the browser's running count of audio glitches (frames the device got no audio for), where it has one: Chrome's

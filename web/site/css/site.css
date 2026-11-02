@@ -594,3 +594,16 @@ body.learning #device { cursor: crosshair; }
 .folder-pills { grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); }
 .folder-pills label.pill { position: relative; }
 .offer.folder-ask { border-color: #C9AEE6; }
+/* live audio input (js/ain-ui.js): an .rfm1 with "ain1": its badge, the sheet's level meter, the prompt */
+.ain-badge {
+  flex: none; padding: 1px 6px; border-radius: 6px; font: 700 9.5px/1.5 var(--ui); letter-spacing: .06em; text-transform: uppercase; white-space: nowrap;
+  color: #D6F5FF; background: linear-gradient(100deg, rgba(64, 200, 255, .32), rgba(61, 220, 132, .28)); border: 1px solid rgba(140, 220, 240, .55);
+}
+.card-top .ain-badge { margin-right: auto; font-size: 9px; padding: 0 5px; }
+.card-top .fantasy-badge:has(+ .ain-badge) { margin-right: 0; }
+.fw-top .ain-badge, .card-top .fantasy-badge + .ain-badge { margin-left: 4px; }
+.ain-level { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.ain-meter { position: relative; display: inline-block; width: 96px; height: 6px; border-radius: 3px; background: var(--raised, rgba(255,255,255,.08)); overflow: hidden; flex: none; }
+.ain-meter i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; border-radius: 3px; background: #3DDC84; transition: width .06s linear; }
+.ain-meter i.hot { background: #FF6464; }
+.offer.ain-ask { border-color: rgba(140, 220, 240, .7); }

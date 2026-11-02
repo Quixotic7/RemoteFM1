@@ -155,6 +155,9 @@ export const siteRfm1 = (e) => !!(e && e.rfm1 && e.rfm1.from === "site");
 export const localRfm1 = (e) => !!(e && e.rfm1 && e.local);
 // a Fantasy CFW (FM1VST docs/VIRTUAL-CARTS.md): an .rfm1 for RemoteFM1 hosts only (its manifest's "virtual": true)
 export const fantasyCfw = (e) => !!(e && e.rfm1 && e.rfm1.virtual);
+// live audio input (API.md section 6): "needs" | "wants" from a manifest's "ain1", else null; an entry's: e.rfm1.ain
+export const ainOf = (m) => (m && Array.isArray(m.needs) && m.needs.includes("ain1") ? "needs" : m && Array.isArray(m.wants) && m.wants.includes("ain1") ? "wants" : null);
+export const usesAin = (e) => !!(e && e.rfm1 && e.rfm1.ain);
 // d: data/site-rfm1.json's record (file, author, category, tag, what, source, release, site, beta); m: the file's
 // manifest (engines/rfm1/engine.js inspect); file: { sha256, size }. The id, name, version, licence, authors, source and
 // glue are the manifest's
@@ -172,7 +175,7 @@ export function rfm1Entry(d, m, { sha256, size }) {
     engines: ["rfm1"], defaultEngine: "rfm1", native: null, emu: null,
     rfm1: { from: "site", file: d.file, sha256, size, fileName: String(d.file).split("/").pop(), version: String(m.version),
             sourceUrl: m.source_url || null, glueUrl: typeof m.glue_url === "string" ? m.glue_url : null, builtBy: m.built_by || null, authors,
-            ...(m.virtual === true || d.virtual === true ? { virtual: true } : {}) },
+            ...(m.virtual === true || d.virtual === true ? { virtual: true } : {}), ...(ainOf(m) ? { ain: ainOf(m) } : {}) },
   };
 }
 

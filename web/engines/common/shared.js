@@ -97,6 +97,95 @@ export class Resampler {
     }
 }
 
+// ------------------------------------------------------------------------------------------- audio input ---
+// A cart's live audio input ("ain1", API.md section 6): the context's input quanta -> 44.1 kHz -> a FIFO the engine
+// reads one 128-frame block from right before each rfm1_audio. The push side is the resampler above run the other way
+// (the same kernel, its cutoff 0.47 x the lower rate; bypassed at 44100): 44.1 kHz frame k is the input at context
+// instant k * rate / 44100 - 1. The FIFO starts with AIN_DEPTH frames of silence, enough for what the output side
+// pulls ahead of the input (the output resampler's 16 taps and a block's granularity, ~160 frames at 48 kHz), so the
+// input frame paired with output frame j is j - AIN_DEPTH: the delay is fixed, it cannot drift (both sides advance
+// one quantum per process()). A read that finds too little (an underrun) is padded with silence and the FIFO filled
+// back to AIN_DEPTH; a push that leaves more than AIN_DEPTH + AIN_SLACK (an overrun) drops the oldest down to
+// AIN_DEPTH. delay44(): the input-to-output delay in 44.1 kHz frames, from the context's input to the context's output
+// (resamplers included), which is what the cart's latency_frames carries (with the capture latency added).
+export const AIN_DEPTH = 2 * BLOCK;
+export const AIN_SLACK = 3 * BLOCK;
+const AIN_CAP = 8192;                                    // (a power of two; far above AIN_DEPTH + AIN_SLACK + a quantum)
+
+export class AudioIn {
+    constructor(inRate) {
+        this.rate = inRate;
+        this.step = inRate / FS;                         // context samples per 44.1 kHz frame
+        this.kernel = inRate === FS ? null : makeKernel(0.47 * Math.min(FS, inRate) / inRate);
+        this.L = new Float32Array(AIN_CAP);              // the FIFO (44.1 kHz)
+        this.R = new Float32Array(AIN_CAP);
+        this.rcap = 4096;                                // the resampler's input (context rate)
+        this.iL = new Float32Array(this.rcap);
+        this.iR = new Float32Array(this.rcap);
+        this.under = 0; this.over = 0;
+        this.reset();
+    }
+    // empty: `prefill` frames of silence (AIN_DEPTH; less when the reader already runs ahead: engines/rfm1 audioIn),
+    // the resampler's history cleared
+    reset(prefill = AIN_DEPTH) {
+        this.L.fill(0); this.R.fill(0);
+        this.wr = prefill; this.rd = 0;                  // (absolute counts; the FIFO's slots are mod AIN_CAP)
+        this.pushed = 0; this.read = 0; this.padded = prefill; this.dropped = 0;
+        this.iL.fill(0); this.iR.fill(0);
+        this.n = RS_HALF; this.pos = RS_HALF - 1;
+    }
+    get avail() { return this.wr - this.rd; }
+    put(l, r) { const i = this.wr++ & (AIN_CAP - 1); this.L[i] = l; this.R[i] = r; this.pushed++; }
+    // one quantum of the context's input (R may be L: a mono source)
+    push(inL, inR) {
+        const n = inL.length;
+        if (!this.kernel) { for (let i = 0; i < n; i++) this.put(inL[i], inR[i]); }
+        else {
+            if (this.n + n > this.rcap) {                // drop what the filter no longer reaches
+                const keep = Math.floor(this.pos) - RS_HALF;
+                if (keep > 0) { this.iL.copyWithin(0, keep, this.n); this.iR.copyWithin(0, keep, this.n); this.n -= keep; this.pos -= keep; }
+            }
+            this.iL.set(inL, this.n); this.iR.set(inR, this.n); this.n += n;
+            const k = this.kernel, L = this.iL, R = this.iR;
+            while (Math.floor(this.pos) + RS_HALF < this.n) {
+                const i0 = Math.floor(this.pos), fp = (this.pos - i0) * RS_PHASES, p = fp | 0, t = fp - p;
+                const a = p * RS_TAPS, b = a + RS_TAPS, s = i0 - RS_HALF + 1;
+                let l = 0, r = 0;
+                for (let j = 0; j < RS_TAPS; j++) { const w = k[a + j] + (k[b + j] - k[a + j]) * t; l += L[s + j] * w; r += R[s + j] * w; }
+                this.put(l, r);
+                this.pos += this.step;
+            }
+        }
+        if (this.avail > AIN_DEPTH + AIN_SLACK) {        // an overrun: back to AIN_DEPTH
+            const d = this.avail - AIN_DEPTH;
+            this.rd += d; this.dropped += d; this.over++;
+        }
+    }
+    // the next n frames (n <= AIN_DEPTH) as interleaved int16 into out
+    readInt16(out, n) {
+        const have = this.avail;
+        if (have < n) {                                  // an underrun: what there is, then silence, AIN_DEPTH left after
+            this.under++;
+            const pad = n - have + AIN_DEPTH;
+            for (let i = 0; i < pad; i++) { const s = this.wr++ & (AIN_CAP - 1); this.L[s] = 0; this.R[s] = 0; }
+            this.padded += pad;
+        }
+        const L = this.L, R = this.R;
+        for (let i = 0; i < n; i++) {
+            const s = this.rd++ & (AIN_CAP - 1);
+            let l = L[s] * 32768, r = R[s] * 32768;
+            out[2 * i] = l >= 32767 ? 32767 : l <= -32768 ? -32768 : Math.round(l);
+            out[2 * i + 1] = r >= 32767 ? 32767 : r <= -32768 ? -32768 : Math.round(r);
+        }
+        this.read += n;
+    }
+    // the FIFO's delay now (44.1 kHz frames from an input frame's arrival to its read: silence put in minus input dropped)
+    get fifoDelay() { return this.padded - this.dropped; }
+    // context input -> context output, in 44.1 kHz frames: the FIFO, this side's resampler (one context sample) and the
+    // output side's (one 44.1 kHz frame; none when the context runs at 44100)
+    delay44() { return this.fifoDelay + (this.kernel ? 1 + FS / this.rate : 0); }
+}
+
 // ------------------------------------------------------------------------------------------------ USB-MIDI ---
 // raw MIDI bytes -> USB-MIDI event packets (cable 0, the byte order the cores take: CIN | b0 << 8 | b1 << 16 | b2 << 24)
 export class MidiParser {

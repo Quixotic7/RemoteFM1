@@ -7,6 +7,12 @@
 // (js/audio.js engineShim) that imports the engine's file statically and registers it here:
 //     import * as E from "<engine.js>"; globalThis.FM1_ENGINES["native"] = E;
 // The registry is the worklet's one global scope (an AudioContext has a single AudioWorkletGlobalScope).
+//
+// Live audio input (an .rfm1 cart with "ain1", API.md section 6): the page connects the visitor's input to this node's
+// one input and sends {type: "ain", on, latency}; while on, each quantum of input goes to the engine's audioInput()
+// before render() (a mono source as both channels; none connected: the engine renders silence for it), and publish()
+// posts {type: "ainLevel", peak, latency} (the input's peak since the last one; the latency the cart was told). The
+// state outlives a load (a reboot keeps input on); engines without audioIn() (native, emu, mock) never see it.
 
 const ENGINES = (globalThis.FM1_ENGINES = globalThis.FM1_ENGINES || {});
 export const registerEngine = (name, mod) => { ENGINES[name] = mod; };
@@ -61,6 +67,7 @@ if (typeof AudioWorkletProcessor !== "undefined") {
       this.since = 0; this.seen = { screen: -1, leds: -1, flash: -1 }; this.labels = new LabelWatch(); this.haltSent = false;
       this.mon = null;   // the render load: { busy, frames, wall0 } (a report every half second: page js/cpu.js)
       this.rec = null; this.recFree = [];   // the recorder's take, and its spare chunk buffers (see recStart)
+      this.ain = { on: false, latency: 0, peak: 0 };   // live audio input (above)
       this.port.onmessage = (e) => this.onMessage(e.data);
     }
     post(m, transfer) { try { this.port.postMessage(m, transfer || []); } catch (_) { /* (the page went away) */ } }
@@ -82,6 +89,7 @@ if (typeof AudioWorkletProcessor !== "undefined") {
         this.haltSent = false;
         this.panel.dirty = true;
         this.mon = null;
+        if (this.ain.on && typeof eng.audioIn === "function") eng.audioIn(true, this.ain.latency);
         this.post({ type: "info", engine: m.engine, engineVersion: mod.ENGINE && mod.ENGINE.version, ...eng.info() });
       } catch (e) { this.fail("load", e); }
     }
@@ -92,6 +100,11 @@ if (typeof AudioWorkletProcessor !== "undefined") {
       if (m.type === "unload") { this.loading++; this.recStop("engine"); this.drop(); return; }
       if (m.type === "panel") return this.panel.add(m);
       if (m.type === "rec") return m.on ? this.recStart(m) : this.recStop("stop");
+      if (m.type === "ain") {
+        this.ain.on = !!m.on; this.ain.latency = +m.latency || 0; this.ain.peak = 0;
+        if (this.engine && typeof this.engine.audioIn === "function") { try { this.engine.audioIn(this.ain.on, this.ain.latency); } catch (e) { this.fail("ain", e); } }
+        return;
+      }
       if (m.type === "recBuf") { if (this.rec && m.l && m.l.length === this.rec.n) this.recFree.push([m.l, m.r]); return; }
       if (!this.engine) return;
       try {
@@ -110,6 +123,7 @@ if (typeof AudioWorkletProcessor !== "undefined") {
       if (!eng) { if (L) L.fill(0); if (R) R.fill(0); return true; }
       try {
         if (this.panel.dirty) eng.setPanel(this.panel.take());
+        if (this.ain.on && eng.audioInput) this.input(eng, inputs[0]);
         const t0 = clock();
         eng.render(L, R);
         if (this.rec) this.capture(L, R);   // (inside the measured time: the load reports include it)
@@ -126,6 +140,16 @@ if (typeof AudioWorkletProcessor !== "undefined") {
         this.drop();
       }
       return true;
+    }
+    // a quantum of live input to the engine (before its render), and its peak for the page's meter
+    input(eng, inp) {
+      const l = inp && inp[0];
+      if (!l || !l.length) return;
+      const r = inp[1] || l;
+      let pk = this.ain.peak;
+      for (let i = 0; i < l.length; i++) { const a = l[i] < 0 ? -l[i] : l[i], b = r[i] < 0 ? -r[i] : r[i]; if (a > pk) pk = a; if (b > pk) pk = b; }
+      this.ain.peak = pk;
+      eng.audioInput(l, r);
     }
     // The recorder (page js/rec-ui.js, js/recorder.js): the exact PCM the engine rendered, before the page's volume,
     // copied into chunk buffers of m.n frames (about 0.25 s); a full chunk is posted with its buffers transferred, and
@@ -189,6 +213,11 @@ if (typeof AudioWorkletProcessor !== "undefined") {
     publish(eng) {
       const rc = this.rec;
       if (rc && rc.start >= 0) { this.post({ type: "recLevel", id: rc.id, peak: [rc.pl, rc.pr], frames: rc.frames }); rc.pl = 0; rc.pr = 0; }
+      if (this.ain.on && typeof eng.audioInStats === "function") {
+        const st = eng.audioInStats();
+        this.post({ type: "ainLevel", peak: this.ain.peak, latency: st.latency, missing: st.missing });
+        this.ain.peak = 0;
+      }
       const s = eng.screen();
       if (s && s.seq !== this.seen.screen) {
         this.seen.screen = s.seq;

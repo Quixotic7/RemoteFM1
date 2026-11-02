@@ -109,6 +109,7 @@ jobs:
           node web/site/test-wav.mjs
           node web/site/test-audio.mjs
           node web/engines/rfm1/fs-test.mjs
+          node web/engines/rfm1/ain-test.mjs
           node web/installer/test_installer.mjs
           node web/installer/smk37/test_smk_installer.mjs
           node web/managers/test.mjs

@@ -25,8 +25,11 @@
 // (the path, the manifest's "folders", the limits) and hands it to options.fsSend(msg, transfer) (host.js posts it to
 // the page, js/folder.js answers; a Node test serves a directory: ./fs-dir.mjs); the answer comes back through
 // fsDone(msg) and is copied into the module's memory at the start of the next render(), never during an export call.
+// LIVE AUDIO INPUT ("ain1" in the manifest's "wants" or "needs"; API.md section 6): the optional exports rfm1_audio_in
+// (right before each rfm1_audio, the same block) and rfm1_audio_in_info; the worklet's audioIn() / audioInput(), the
+// input resampled and buffered by ../common/shared.js AudioIn.
 
-import { FS, BLOCK, RS_HALF, Resampler, MidiParser, packetBytes, now, LBL_N, labelSet, cleanLabel } from "../common/shared.js";
+import { FS, BLOCK, RS_HALF, Resampler, MidiParser, packetBytes, now, LBL_N, labelSet, cleanLabel, AudioIn, AIN_DEPTH } from "../common/shared.js";
 
 export const ENGINE = { name: "rfm1", version: "0.1" };
 
@@ -80,7 +83,7 @@ const HOST_IMPORTS = {
     fs_cancel: [[I32], []],
     fs_changed: [[], [I32]],
 };
-const KNOWN_NEEDS = ["fs1"];
+const KNOWN_NEEDS = ["fs1", "ain1"];
 export const FS_OP = { STAT: 1, LIST: 2, READ: 3, WRITE: 4, DELETE: 5, MKDIR: 6 };
 export const FS_ERR = { PENDING: -1, ENOENT: -2, EACCES: -3, EIO: -4, ENOSPC: -5, EBUSY: -6, ECANCELED: -7, ENOFOLDER: -8 };
 const FS_MAX_INFLIGHT = 32, FS_MAX_LEN = 1048576, FS_MAX_PATH = 1024;
@@ -94,6 +97,10 @@ const EXPORTS = [["_initialize", 0, 0], ["rfm1_version", 0, 1], ["rfm1_get", 1, 
     ["rfm1_ui_info", 2, 0]];
 // optional: live panel labels (FM1VST docs/DYNAMIC-LABELS.md); a module without both (or with another signature) has none
 const LABEL_EXPORTS = [["rfm1_labels_epoch", 0, 1], ["rfm1_label", 1, 1]];
+// optional: live audio input ("ain1" in the manifest's wants or needs; API.md section 6); each one called only when it
+// is there with this signature
+const AIN_EXPORTS = [["rfm1_audio_in", 2, 0], ["rfm1_audio_in_info", 2, 0]];
+const AIN_RESYNC = 32;                                  // (a latency change smaller than this is not re-sent)
 const REQUIRED_FIELDS = ["id", "name", "version", "license", "source_url"];
 
 const refuse = (why) => { throw new Error(`not a usable .rfm1 file: ${why}`); };
@@ -253,6 +260,9 @@ export function inspect(bytes) {
     const virtual = m.virtual === true;
     if (m.needs !== undefined && (!Array.isArray(m.needs) || !m.needs.every((x) => typeof x === "string"))) refuse("its manifest's \"needs\" is not a list of names");
     const needs = Array.isArray(m.needs) ? m.needs.slice() : [];
+    // what it uses when the host has it ("wants": unknown names ignored), and what it can't run without ("needs")
+    if (m.wants !== undefined && (!Array.isArray(m.wants) || !m.wants.every((x) => typeof x === "string"))) refuse("its manifest's \"wants\" is not a list of names");
+    const wants = Array.isArray(m.wants) ? m.wants.slice() : [];
     const unknown = needs.filter((x) => !KNOWN_NEEDS.includes(x));
     if (unknown.length) refuse(`it needs a newer RemoteFM1 (it needs ${unknown.map((x) => `"${x}"`).join(", ")})`);
     if (needs.length && !virtual) refuse("its manifest lists \"needs\" but is not \"virtual\" (a Fantasy CFW)");
@@ -283,12 +293,17 @@ export function inspect(bytes) {
         const want = [new Array(nargs).fill(I32), new Array(nret).fill(I32)];
         if (!sameSig(types[ti], want)) refuse(`its export ${name} has the signature ${sigText(types[ti])}, not ${sigText(want)}`);
     }
-    const labels = LABEL_EXPORTS.every(([name, nargs, nret]) => {
+    const hasFn = ([name, nargs, nret]) => {
         const e = exports.get(name);
-        return e && e.kind === 0 && e.index >= importedFuncs && e.index - importedFuncs < funcs.length && funcs[e.index - importedFuncs] < types.length
+        return !!e && e.kind === 0 && e.index >= importedFuncs && e.index - importedFuncs < funcs.length && funcs[e.index - importedFuncs] < types.length
             && sameSig(types[funcs[e.index - importedFuncs]], [new Array(nargs).fill(I32), new Array(nret).fill(I32)]);
-    });
-    return { manifest: m, labels, credits, licenses, memoryPages, virtual, needs, folders, fs: hostImports.length > 0 || needs.includes("fs1") };
+    };
+    const labels = LABEL_EXPORTS.every(hasFn);
+    // audio input: "needs" (input must be on) or "wants" (off until the visitor turns it on), null: none
+    const ain = needs.includes("ain1") ? "needs" : wants.includes("ain1") ? "wants" : null;
+    const ainExports = { audioIn: !!ain && hasFn(AIN_EXPORTS[0]), info: !!ain && hasFn(AIN_EXPORTS[1]) };
+    return { manifest: m, labels, credits, licenses, memoryPages, virtual, needs, wants, folders, fs: hostImports.length > 0 || needs.includes("fs1"),
+             ain, ainExports };
 }
 
 // the module compiled once per file bytes (the tests boot one file many times; the page sends fresh bytes)
@@ -545,6 +560,12 @@ class Rfm1Engine {
         this.blkR = new Float32Array(BLOCK);
         this.silence = [new Float32Array(BLOCK), new Float32Array(BLOCK)];
         this.rs = sampleRate === FS ? null : new Resampler(sampleRate, () => this.pullBlock());
+        // live audio input ("ain1"): off until audioIn(true); the last state and latency given to rfm1_audio_in_info
+        this.ainOn = false; this.ainIo = null; this.ainCap = 0; this.sAudioIn = 0; this.ainSent = { state: 0, latency: 0 };
+        this.ctxFrames = 0;                             // context frames rendered (the output's clock)
+        this.ainIn = 0; this.ainOut = 0;                // context frames of input taken / rendered since input went on
+        this.ainLead = 0; this.ainMissing = 0; this.ainExtra = 0;
+        this.ainZero = new Float32Array(BLOCK);
     }
 
     // ---- the instance's memory and calls
@@ -621,6 +642,12 @@ class Rfm1Engine {
         this.sAudio = (this.sWords + WORDS + 3) & ~3;
         this.audio = new Int16Array(rt.buf, this.sAudio, 2 * BLOCK);
         this.lcd = new Uint16Array(rt.buf, panel + P.lcd, LCD_PIXELS);
+        if (this.file.ainExports && this.file.ainExports.audioIn) {      // the input block, beside the output's
+            const a = step("rfm1_alloc", () => this.call("rfm1_alloc", BLOCK * 4)) >>> 0;
+            if (!this.inMem(a, BLOCK * 4)) refuse(`rfm1_alloc(${BLOCK * 4}) for the audio input failed`);
+            this.sAudioIn = a;
+            this.audioInBuf = new Int16Array(rt.buf, a, 2 * BLOCK);
+        }
     }
 
     // section 7 step 4: power-on from the flash given (null: a fresh, erased flash); throws when it can't
@@ -682,6 +709,8 @@ class Rfm1Engine {
             memoryBytes: this.rt.u8.length,
             // (beyond API.md) a Fantasy CFW (VIRTUAL-CARTS.md): the manifest's flag, what it needs, its folders
             virtual: this.file.virtual, needs: this.file.needs.slice(), folders: { ...this.file.folders },
+            // (beyond API.md) live audio input: "needs" | "wants" | null (the manifest's "ain1"), and its wants
+            wants: this.file.wants.slice(), ain: this.file.ain,
         };
     }
 
@@ -714,6 +743,8 @@ class Rfm1Engine {
             ex.rfm1_tick(ms);
             if (frame) { this.lastFrame = ms; ex.rfm1_frame(); } else ex.rfm1_idle();
             while (this.framesDone + BLOCK <= Math.floor(ms * FS / 1000)) {
+                // the input block that goes with this output block, right before it (none while input is off)
+                if (this.ainOn && this.sAudioIn) { this.ainIo.readInt16(this.audioInBuf, BLOCK); ex.rfm1_audio_in(this.sAudioIn, BLOCK); }
                 ex.rfm1_audio(this.sAudio, BLOCK);             // (at most one a ms: 44.1 frames < 128)
                 this.framesDone += BLOCK;
                 this.haveBlk = true;
@@ -769,6 +800,9 @@ class Rfm1Engine {
     render(left, right) {
         if (this.disposed || this.dead) { left.fill(0); right.fill(0); return; }
         if (this.fs) this.fs.apply();
+        if (this.ainOn && this.sAudioIn) this.ainFill(left.length);
+        if (this.file.ain) this.ainSync();
+        this.ctxFrames += left.length;
         this.feedMidi();
         if (!this.rs) {
             let o = 0;
@@ -852,8 +886,67 @@ class Rfm1Engine {
         return this.dead ? this.haltCode : h;
     }
 
+    // ---- live audio input (beyond API.md; API.md section 6 "ain1"): the worklet's side. A cart without "ain1" in its
+    // wants or needs ignores all of it.
+    // audioIn(on, captureLatency): input on (a fresh FIFO) or off; captureLatency: the input's own latency in seconds
+    // (the track's, else the context's baseLatency), added to the latency the cart is told
+    // The input is locked to the output's clock: each render() of n frames takes the n frames of input pushed for it, so
+    // a quantum of input pushed for none (a second one before the render) is dropped (counted: ainExtra) and a quantum
+    // with none is silence (ainMissing): the input frame paired with an output frame never moves. The pairing is set
+    // when input goes on: the output side has already run ahead of the context (ainLead: the 44.1 kHz frames the output
+    // resampler holds beyond what it has played), so the FIFO starts with AIN_DEPTH less that lead, and the delay is
+    // AIN_DEPTH (+ the resamplers' 1-2 frames) whenever input goes on.
+    audioIn(on, captureLatency = 0) {
+        if (!this.file.ain || this.disposed) return;
+        on = !!on;
+        if (on && !this.ainIo) this.ainIo = new AudioIn(this.sampleRate);
+        if (on && !this.ainOn) {
+            this.ainIn = this.ainOut = 0;
+            this.ainLead = this.rs ? Math.max(0, Math.min(AIN_DEPTH, this.framesDone - this.ctxFrames * FS / this.sampleRate)) : 0;
+            this.ainIo.reset(AIN_DEPTH - Math.floor(this.ainLead));
+        }
+        this.ainOn = on;
+        this.ainCap = Math.max(0, Math.min(1, +captureLatency || 0));
+    }
+    // one quantum of the context's input, before render() for the same quantum (R: L again for a mono source)
+    audioInput(L, R) {
+        if (!this.ainOn || !this.sAudioIn || this.dead || this.disposed) return;     // (no rfm1_audio_in: nothing to feed)
+        if (this.ainIn > this.ainOut) { this.ainExtra += L.length; return; }      // (already one for this render)
+        this.ainIo.push(L, R || L);
+        this.ainIn += L.length;
+    }
+    // render(n): the input for it, silence where none was pushed
+    ainFill(n) {
+        while (this.ainIn < this.ainOut + n) {
+            const k = Math.min(BLOCK, this.ainOut + n - this.ainIn), z = k === BLOCK ? this.ainZero : this.ainZero.subarray(0, k);
+            this.ainIo.push(z, z);
+            this.ainIn += k; this.ainMissing += k;
+        }
+        this.ainOut += n;
+    }
+    // the latency the cart is told (44.1 kHz frames): from the context's input to its output (the FIFO, the output's
+    // lead, the resamplers), plus the capture's own
+    ainLatency() { return this.ainOn ? Math.max(0, Math.round(this.ainDelay() + this.ainCap * FS)) : 0; }
+    ainDelay() { return this.ainOn ? this.ainIo.delay44() + this.ainLead : 0; }
+    // rfm1_audio_in_info when the state changes or the latency moves by AIN_RESYNC frames or more (a resync): called at
+    // the start of render(), so always before the first rfm1_audio_in after a change
+    ainSync() {
+        const state = this.ainOn ? 1 : 0, latency = this.ainLatency(), s = this.ainSent;
+        if (state === s.state && (!state || Math.abs(latency - s.latency) < AIN_RESYNC)) return;
+        s.state = state; s.latency = latency;
+        if (this.file.ainExports.info) this.call("rfm1_audio_in_info", state, latency);
+    }
+    // (for the page and the tests) { on, latency, sent, under, over, depth }
+    audioInStats() {
+        const io = this.ainIo;
+        return { on: this.ainOn, latency: this.ainLatency(), delay: this.ainDelay(), sent: { ...this.ainSent }, missing: this.ainMissing, extra: this.ainExtra,
+                 under: io ? io.under : 0, over: io ? io.over : 0, depth: io ? io.avail : 0 };
+    }
+
     dispose() {
         if (this.disposed) return;
+        // (input off: the cart hears it before it shuts down)
+        if (!this.dead && this.ainSent.state && this.file.ainExports.info) { this.ainSent = { state: 0, latency: 0 }; this.call("rfm1_audio_in_info", 0, 0); }
         if (!this.dead && this.desc && this.desc.has.shutdown) this.call("rfm1_shutdown");
         this.disposed = true;
         this.ex = null;
@@ -862,7 +955,7 @@ class Rfm1Engine {
     // (beyond API.md, for tests) the device's simulated milliseconds since power-on
     deviceMs() { return this.ms; }
     // (beyond API.md, for tests) n device milliseconds with their audio dropped
-    runMs(n) { if (this.fs && !this.dead && !this.disposed) this.fs.apply(); for (let i = 0; i < n && !this.dead && !this.disposed; i++) this.runMs1(); }
+    runMs(n) { if (this.fs && !this.dead && !this.disposed) this.fs.apply(); if (this.file.ain && !this.dead && !this.disposed) this.ainSync(); for (let i = 0; i < n && !this.dead && !this.disposed; i++) this.runMs1(); }
 
     // (beyond API.md) a Fantasy CFW's file API: the page's answer to one of its requests (applied at the next render),
     // and "the folder changed" (fs_changed() moves)
