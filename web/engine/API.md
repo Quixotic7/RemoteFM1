@@ -44,6 +44,16 @@ engine.info()      -> { id, name, version, license, source, credits, family,
                                          // The player (panel.js buttonLabels) draws the printed name for an empty
                                          // entry, and all printed with its "Firmware's button names" setting off.
                                          // docs/BUTTON-LABELS.md
+engine.labels()    -> { seq, list, knobs, buttons, white, black } | null
+                   //    the firmware's live panel labels (FM1VST docs/DYNAMIC-LABELS.md), or null: none (the engine
+                   //    has no labels, the module was built before them, or the core's epoch is 0). seq: the core's
+                   //    epoch (moves on any change); list: 49 entries in FM1CORE_LBL_* order (FIZZ's SysEx LABELS
+                   //    order): 0..7 the knobs by role (SELECT ALGO PRESETS KNOB1..4 MASTER), 8..21 the buttons
+                   //    (FM1P_B_*), 22..37 the white keys W1..W16, 38..48 the black keys B1..B11; each a string of
+                   //    at most 10 printable ASCII characters ("" = no job here) or null (not given: the host's own).
+                   //    knobs / buttons / white / black: list's slices. Cheap while seq stays (the same object).
+                   //    rfm1: the optional exports rfm1_labels_epoch / rfm1_label; native: fmw_labels_epoch and
+                   //    fmw_str keys 200..248 (wasm_glue.c, weak references; build.sh links with -u); emu, mock: null
 
 engine.setPanel(p) // p = { keys: uint32, buttons: uint32,   // bit k: note key k (0 = F3); bit i: matrix button i
                    //       enc: Int32Array(7),              // detents since the last call, matrix order, + = CW
@@ -90,6 +100,7 @@ The host processor imports `engines/native/engine.js`, `engines/emu/engine.js` o
 | worklet → page | `{type: "midiOut", bytes}` |
 | worklet → page | `{type: "flash", seq, bytes}` |
 | worklet → page | `{type: "info", ...}` |
+| worklet → page | `{type: "labels", seq, list}` when `labels()`'s seq moves (none while it is null; `list: null`, seq 0, when it goes back to null). The page merges it over `info.buttonNames` (js/panel.js `panelLabels`) |
 | worklet → page | `{type: "halted", code}` |
 | worklet → page | `{type: "error", message}` |
 
@@ -137,6 +148,11 @@ firmware browser's "Open a file..." or drops it on the page, and the page keeps 
 - `info()` is the native engine's, with the manifest's `license` and `source` (its `source_url`), and also
   `authors`, `glueUrl` (the manifest's `glue_url`), `builtBy`, `licenseTexts` (the `rfm1.license.<n>` sections) and
   `credits` (`rfm1.credits`, else the descriptor's).
+- `labels()`: the optional exports `rfm1_labels_epoch () -> i32` and `rfm1_label (which) -> ptr` (FM1VST's
+  rfm1_shim.c adds both to every build; a file without them, or with other signatures, runs as before with labels()
+  null; `inspect()` says `labels`). A label's pointer is bounds-checked, read up to 64 bytes and cut to 10 characters.
+  Tests: `node web/engines/rfm1/labels-test.mjs` (fixtures/labels_core.rfm1, built by fixtures/build_labels.sh),
+  `node web/engines/native/labels-test.mjs`, the page: `node web/site/tools/labels-e2e.mjs`.
 - A trap ends the instance: `halted()` is then 0x100 | code after `proc_exit(code)`, 0x200 after any other trap;
   `render()` gives silence and the other calls do nothing (the flash stays readable, so the page can boot it again).
 - Saves of an `.rfm1` firmware are the firmware's under engine `"rfm1"`, apart from its native and emulated ones.

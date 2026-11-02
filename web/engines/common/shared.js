@@ -170,6 +170,23 @@ export function utf8(bytes, p) {           // a NUL-terminated C string (no Text
     return s;
 }
 
+// ------------------------------------------------------------------------------------------ live labels ---
+// FM1VST fm1core.h FM1CORE_LBL_*: 49 slots (FIZZ's SysEx LABELS order): 8 knobs (FM1P_E_*), 14 buttons (FM1P_B_*),
+// the white keys W1..W16, the black keys B1..B11; a label is at most 10 characters
+export const LBL = Object.freeze({ KNOB0: 0, BTN0: 8, WHITE0: 22, BLACK0: 38, N: 49 });
+export const LBL_N = 49, LBL_LEN = 11;
+// one label set (API.md engine.labels()): list[49] (string, "" = no job, null = not given) and its slices
+export function labelSet(seq, list) {
+    return { seq, list, knobs: list.slice(0, 8), buttons: list.slice(8, 22), white: list.slice(22, 38), black: list.slice(38, 49) };
+}
+// a label read through a C-string reader (native: utf8): at most 10 printable ASCII characters, trimmed; null: none
+export function cleanLabel(s) {
+    if (s == null) return null;
+    let o = "";
+    for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); if (c >= 0x20 && c < 0x7f) o += s[i]; }
+    return o.trim().slice(0, LBL_LEN - 1).trim();
+}
+
 export function now() {
     return typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
 }

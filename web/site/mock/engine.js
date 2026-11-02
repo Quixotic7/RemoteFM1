@@ -103,6 +103,7 @@ export async function createEngine({ sampleRate = 48000, files = {}, flash = nul
     info: () => ({ id: "mock", name, version: ENGINE.version, license: "GPL-3.0-only", source: "web/site/mock/engine.js",
                    credits: "A stand-in engine of the RemoteFM1 site.", family: "mock", latencyFrames: 0, keymap: null,
                    buttonNames: null }),
+    labels: () => null,
     setPanel(p) {
       const prevB = buttons;
       keys = p.keys >>> 0; buttons = p.buttons >>> 0; master = p.master | 0;

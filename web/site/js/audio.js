@@ -175,6 +175,7 @@ export class Player {
     if (m.type === "frame") this.emit("frame", m.pixels, m.seq);
     else if (m.type === "leds") this.emit("leds", m.levels, m.playGreen);
     else if (m.type === "info") this.emit("info", m);
+    else if (m.type === "labels") this.emit("labels", m);
     else if (m.type === "flash") this.emit("flash", m);
     else if (m.type === "halted") this.emit("halted", m.code);
     else if (m.type === "midiOut") this.emit("midiOut", m.bytes);

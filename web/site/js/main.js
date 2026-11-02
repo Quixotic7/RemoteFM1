@@ -6,7 +6,7 @@
 //   &engine=native|emu  pick the engine (where both can)
 //   &view=screen      the screen view
 //   &embed=1          only the device: no header, no settings
-import { Controls, DeviceView, ScreenView, Lcd, SRC, PANEL_LABELS, KM, buttonLabels } from "./panel.js";
+import { Controls, DeviceView, ScreenView, Lcd, SRC, PANEL_LABELS, KM, panelLabels } from "./panel.js";
 import { DEFAULT_THEME, CUSTOM_NAME, presetNamed, derived, css, resolve, accentOf, onAccent } from "./theme.js";
 import { Keyboard, attachPointer, MidiInput } from "./input.js";
 import { Player, sha256hex } from "./audio.js";
@@ -38,7 +38,7 @@ const savePrefs = () => { writePrefs(store, prefs); };
 
 // ------------------------------------------------------------------ state ---
 const state = {
-  entry: null, engine: null, wantEngine: null, engineState: "idle", info: null, running: false,
+  entry: null, engine: null, wantEngine: null, engineState: "idle", info: null, labels: null, running: false,
   theme: presetNamed(prefs.theme, prefs.customTheme) || presetNamed(DEFAULT_THEME),
   view: params.get("view") === "screen" ? "screen" : params.get("view") === "device" ? "device" : prefs.view || "device",
   transpose: prefs.transpose | 0, notesPlayKeys: prefs.notesPlayKeys !== false, reachFirmware: !!prefs.reachFirmware,
@@ -174,7 +174,7 @@ async function openFirmware(id, want = null) {
     }
     history.replaceState(null, "", u);
   }
-  device.setButtonNames(null); device.setKeymap(null);
+  state.labels = null; device.setButtonNames(null); device.setKeymap(null);
   if (folderUi) folderUi.update();
   state.levels = new Uint8Array(44); state.playGreen = 0; device.setLeds(state.levels, 0);
   lcd.clear(); invalidate();
@@ -398,21 +398,24 @@ async function answerCarry(yes) {
   if (sheet) sheet.render();
 }
 
-// the buttons' names on the panel and the OMX-27's views: the running firmware's own (info.buttonNames) unless the
-// "Firmware's button names" setting is off; the printed ones for any it leaves empty (and for fm1-emu)
+// the controls' names on the panel and the OMX-27's views: the running firmware's live labels (state.labels, the
+// worklet's "labels") over its own button names (info.buttonNames) unless the "Firmware's button names" setting is
+// off; the printed ones for any it leaves empty (and for fm1-emu). panel.js panelLabels, docs/BUTTON-LABELS.md
 function applyButtonNames() {
-  const n = buttonLabels(state.info && state.info.buttonNames, state.fwNames);
-  device.setButtonNames(n);
-  if (omx) omx.views.setButtonNames(n);
+  const l = panelLabels(state.info && state.info.buttonNames, state.labels, state.fwNames);
+  device.setLabels(l);
+  if (omx) omx.views.setButtonNames(l.buttons);
 }
 
 // ------------------------------------------------------------------ audio ---
 function makePlayer() {
   player = new Player(catalog, {
     frame(px, seq) { state.pixels = px; state.frameSeq = seq; lcd.put(px); invalidate(); siteEmit("frame", px, seq); },
+    labels(m) { state.labels = m.list || null; applyButtonNames(); invalidate(); },
     leds(levels, green) { state.levels = levels; state.playGreen = green; device.setLeds(levels, green); invalidate(); siteEmit("leds", levels, green); },
     info(info) {
       state.info = info;
+      state.labels = null;   // (the new engine's come with its first "labels")
       if (state.engine !== "mock") state.engineState = "running";
       applyButtonNames();
       device.setKeymap(info.keymap || null);
