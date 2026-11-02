@@ -36,7 +36,7 @@ screen and RemoteFM1's own DX7 instrument (its manual: the README's "Using it").
 | K1 | MASTER (the FM-1's pot: 96 of 4096 a detent, half the level at power-on) | MASTER (the volume) |
 | K2 / K3 / K4 | SELECT / ALGORITHM / PRESETS | the same |
 | K5..K8 | KNOB 1..4 | the same |
-| Faders 1..4 | KNOB 1..4 as well: a fader turns its KNOB one detent a step (0..127), up clockwise; no turn from where it was at power-on | where KNOB 1..4 are CC values (the CC banks; MIDI REMOTE with KNOBS ABSOLUTE): a fader sets its knob's CC to where it is, 0..127; with a menu open, GLO held (a knob's CC number) or MIDI REMOTE's relative KNOBS: it turns the knob, as in Remote. A change of mode sends nothing till the fader moves |
+| Faders 1..4 | KNOB 1..4 as well: a fader turns its KNOB one detent every 4 steps of its 0..127 (a full sweep 31 detents), up clockwise; no turn from where it was at power-on | where KNOB 1..4 are CC values (the CC banks; MIDI REMOTE with KNOBS ABSOLUTE): a fader sets its knob's CC to where it is, 0..127; with a menu open or GLO held (a knob's CC number): it turns the knob, as in Remote (a detent every 4 steps); MIDI REMOTE's relative KNOBS: a step a fader step (the DAW scales it). A change of mode sends nothing till the fader moves |
 | The 12 buttons, top row: ARP / NOTE REPEAT / SCALE / CHORD / GLOBE / BT | the FM-1's top row by place: FX / SEL / ENV / LFO / EDIT / GLO | the same |
 | The 12 buttons, bottom row: PATCH / PARA / FX / SEQ / SEQ PLAY / SEQ REC | the FM-1's bottom row: HOME / SAVE / ARP / SEQ / PLAY / REC (PLAY's light: red or green, its two-colour LED) | the same |
 | OCTAVE- / OCTAVE+ | OCT- / OCT+ | the same |
@@ -298,9 +298,11 @@ screen or the pads helps.
    normally open or closed.
 7. **The faders.** Standalone on the CC banks, each sets its KNOB's CC (1..4, as K5..K8) to its position: bottom 0,
    top 127, every value on the way, nothing at rest (no jitter), nothing at power-on whatever their position; the
-   CC screen shows the value. In a menu (the theme: PARA) or with GLO (BT) held, a fader turns the knob instead, and
-   after the menu closes nothing is sent till the fader moves. In MIDI REMOTE: ABSOLUTE sets KN1..KN4's CC 105..108 to it,
-   a relative KNOBS setting sends steps. In a host's session each turns its KNOB: a full sweep about 127 detents.
+   CC screen shows the value. In a menu (the theme: PARA) or with GLO (BT) held, a fader turns the knob instead, a
+   detent every 4 steps (a full sweep about 31), and after the menu closes nothing is sent till the fader moves. In
+   MIDI REMOTE: ABSOLUTE sets KN1..KN4's CC 105..108 to it, a relative KNOBS setting sends a step a fader step. In a
+   host's session each turns its KNOB as the FM-1's knob turns: a full sweep about 31 detents, down and up again back
+   where it was, a slow move still turning, a fader at rest never.
 8. **A host.** RemoteFM1.com, the iOS app or FM1VST connects as to an FM-1 (USB and Bluetooth `FM-1 XXXX`), the
    screen streams, the 27 keys, pads, buttons and knobs play the host's firmware, its LEDs show on the pads and buttons.
    On the site or the iOS app: the outer keys, wheels and pedal reach the firmware as MIDI.
