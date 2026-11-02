@@ -216,7 +216,10 @@ export class Player {
     }
     src.connect(this.node);
     const st = track && track.getSettings ? track.getSettings() : {};
-    const latency = typeof st.latency === "number" && st.latency >= 0 ? st.latency : this.ctx.baseLatency || 0;
+    // the round trip outside the engine (API.md section 6, latency_frames): the capture's own latency plus the
+    // context's output side (baseLatency + outputLatency, where the browser tells them)
+    const num = (v) => (typeof v === "number" && isFinite(v) && v >= 0 ? v : 0);
+    const latency = num(st.latency) + num(this.ctx.baseLatency) + num(this.ctx.outputLatency);
     this.ain = { stream, src, track, latency, deviceId: st.deviceId || deviceId || "", label: (track && track.label) || "" };
     if (track) track.onended = () => { if (this.ain && this.ain.track === track) { this.ainStop(); this.emit("ainEnded"); } };
     this.node.port.postMessage({ type: "ain", on: true, latency });

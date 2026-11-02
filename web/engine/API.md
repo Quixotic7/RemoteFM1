@@ -166,7 +166,11 @@ firmware browser's "Open a file..." or drops it on the page, and the page keeps 
     `rfm1_audio(out, frames)` for the same block with the same `frames`, so input frame i goes with output frame i.
     No call before a block means silence: the host makes none while input is off.
   - `rfm1_audio_in_info (uint32_t state, uint32_t latency_frames)`: `state` 0 no input (off, refused, unplugged),
-    1 live; `latency_frames` the input's latency at 44.1 kHz (0 unknown). Called before the first `rfm1_audio_in`
+    1 live; `latency_frames` the **round trip** at 44.1 kHz (0 unknown): a sound the cart outputs in output frame j
+    comes back (speaker to mic, or an interface looped back) in input frame j + `latency_frames`. To line a take up
+    with what the cart played, a cart takes input frame i as played at output frame i - `latency_frames`. Every host
+    (web, iOS, Android, FM1VST) reports this same meaning: its output side, its input side and any buffering between
+    them, as best it knows them. Called before the first `rfm1_audio_in`
     and when either changes (this site: the latency when it moves by 32 frames or more), and with (0, 0) when input
     goes off, the firmware changes or the instance is disposed.
 
@@ -179,7 +183,8 @@ firmware browser's "Open a file..." or drops it on the page, and the page keeps 
   starts with 256 frames of silence less what the output resampler already holds: the delay from the context's input
   to its output is then 256 frames at 44.1 kHz plus a frame or two (5.8 ms), fixed while input is on (the input is
   locked to the output's quanta: a quantum without input is silence, an extra one is dropped). `latency_frames` is
-  that delay plus the capture's own (`MediaStreamTrack.getSettings().latency`, else the context's `baseLatency`).
+  that delay plus the capture's own (`MediaStreamTrack.getSettings().latency`) plus the context's output side
+  (`baseLatency` + `outputLatency`; a value the browser doesn't tell counts as 0).
   The other engines (native, emu, mock) have no input. Tests: `node web/engines/rfm1/ain-test.mjs` (the manifest,
   the call order, silence when off, the info calls, an impulse's offset through the resamplers, missing and extra
   input; fixtures/ain_cart.c, built by fixtures/build_ain.sh), the page: `node web/site/tools/ain-e2e.mjs`
