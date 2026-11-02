@@ -1447,6 +1447,53 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   ok(v.screen(0).line.includes("AUX ARP"), "button names: the OMX-27 views fall back to the printed name");
 }
 
+// ---- live labels (FM1VST docs/DYNAMIC-LABELS.md; panel.js panelLabels, worklet/host.js LabelWatch): the 49-slot merge
+// over the static names, and a fake engine whose labels change reaching the names drawn
+{
+  const { panelLabels, PANEL_LABELS } = await import("./js/panel.js");
+  const { LabelWatch } = await import("./worklet/host.js");
+  const { OmxViews } = await import("./js/omx27-views.js");
+  const { labelSet, cleanLabel } = await import("../engines/common/shared.js");
+  const fw = ["KICK", "TRK", "", null, "EDIT", "GLO", "HOME", "SAVE", "PERF", "SEQ", "PLAY", "REC", "OCT-", "OCT+"];
+  const list = new Array(49).fill(null);
+  list[8 + 0] = "undo"; list[8 + 1] = ""; list[8 + 8] = " MIDI FX "; list[3] = "CUTOFF"; list[1] = ""; list[22] = "STEP 1"; list[38] = "MUTE"; list[37] = "G5";
+  const l = panelLabels(fw, list);
+  ok(l.buttons[0] === "UNDO" && l.buttons[8] === "MIDI FX" && l.buttons[2] === "ENV" && l.buttons[3] === "LFO" && l.buttons[4] === "EDIT" && l.buttons.length === 14,
+     "live labels: a live string wins (trimmed, upper case); not given (null): button_names, then the printed name");
+  ok(l.btnOff[1] && l.buttons[1] === "TRK" && !l.btnOff[0] && l.btnOff.filter(Boolean).length === 1, "live labels: \"\" = no job: the static name, drawn dim");
+  ok(l.knobs[3] === "CUTOFF" && l.knobs[0] === null && l.knobOff[1] && l.knobs[1] === null, "live labels: knobs by role (null: the printed name; \"\": dim)");
+  ok(l.keys[0] === "STEP 1" && l.keys[1] === "MUTE" && l.keys[26] === "G5" && l.keys[2] === null && l.keys.length === 27,
+     "live labels: keys F3 = W1, F#3 = B1, G5 = W16");
+  const off = panelLabels(fw, list, false);
+  ok(off.buttons.join() === PANEL_LABELS.join() && off.keys.every((k) => k === null) && off.knobs.every((k) => k === null) && !off.btnOff.some(Boolean),
+     "live labels: the setting off: all printed, nothing live");
+  ok(panelLabels(fw, null).buttons.join() === panelLabels(fw, [1, 2]).buttons.join() && panelLabels(fw, null).buttons[0] === "KICK",
+     "live labels: none (null, a wrong length): the static names as before");
+  ok(cleanLabel("  ab\u00e9cdefghijklmn ") === "abcdefghij" && cleanLabel(null) === null && cleanLabel("   ") === "",
+     "live labels: an engine's label is at most 10 printable ASCII characters, trimmed");
+
+  // a fake engine: epoch 0 (none), then two sets; the worklet's watch posts only on a move; the page's merge follows
+  let epoch = 0, shift = false;
+  const eng = { labels() { if (!epoch) return null; const li = new Array(49).fill(null); li[8] = shift ? "UNDO" : "DRUMS"; li[8 + 5] = shift ? "SHIFT" : null; return labelSet(epoch, li); } };
+  const w = new LabelWatch(), v = new OmxViews({ button: 0 });
+  let names = null;
+  const pump = () => { const m = w.take(eng); if (m) { names = panelLabels(fw, m.list); v.setButtonNames(names.buttons); } return m; };
+  ok(pump() === null && w.take({}) === null && w.take({ info() {} }) === null, "live labels: epoch 0 or no labels(): no message (old engines unchanged)");
+  epoch = 1;
+  const m1 = pump();
+  ok(m1 && m1.type === "labels" && m1.seq === 1 && m1.list.length === 49 && names.buttons[0] === "DRUMS" && names.buttons[5] === "GLO" && pump() === null,
+     "live labels: the first set posts once; the same epoch again posts nothing");
+  ok(v.screen(0).line.includes("AUX DRUMS"), "live labels: the OMX-27 views name AUX by the live label");
+  shift = true; epoch = 2;
+  pump();
+  ok(names.buttons[0] === "UNDO" && names.buttons[5] === "SHIFT" && v.screen(0).line.includes("AUX UNDO"), "live labels: the epoch moves: the names follow (FX UNDO, GLO SHIFT)");
+  epoch = 0;
+  const m0 = pump();
+  ok(m0 && m0.seq === 0 && m0.list === null && names.buttons[0] === "KICK", "live labels: back to epoch 0: list null, the static names again");
+  const mock = await createEngine({ sampleRate: 48000, files: {}, flash: null, options: {} });
+  ok(mock.labels() === null && new LabelWatch().take(mock) === null, "live labels: the mock engine has none");
+}
+
 // ---- RemoteFM1FW's .rfm1 files (tools/fetch_fw_catalog.mjs, build_catalog.mjs --fw-catalog): a fixture made from
 // S1Vave's committed file with other manifests (no network); the merge, the guard, the browser's two sections
 {

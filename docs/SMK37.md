@@ -184,6 +184,7 @@ source ~/emsdk/emsdk_env.sh                     # Emscripten (emcc)
 BOARD=smk37 ./build.sh --web                    # firmware/build/emu-smk37/ (MODEL=elite / mke: emu-smk37-elite/ ...)
 python3 -m http.server -d firmware/build/emu-smk37 8037    # then http://localhost:8037/ and Start
 node web/emu-smk37/test_emu_smk37.mjs           # its test, without a browser (tests/run_tests.sh runs it when emcc is there)
+node web/emu-smk37/test_emu_smk37_link.mjs      # a host's session over its USB SysEx (HELLO, TILES, LEDS, panel events)
 ```
 
 The page is an SMK-37 Pro: the screen, K1..K8 over the 16 pads, the four faders, the 18 buttons (each with its FM-1
@@ -196,8 +197,32 @@ What it models: everything from the panel's state up. The controls set the state
 knobs' detents), and the device's own map (`device/smk_panel.c`) turns it into the FM-1's controls and the extras'
 MIDI, as on the unit; the button LEDs and the pads' colours are what the firmware gives the LED drivers. What it does
 not: the matrix scan and its decoding (contacts, velocity timing, the factory curves: a hit's velocity goes in as it
-is), the LCD and LED drivers, USB (descriptors, USB audio) and Bluetooth, the flash and the update. A host's session is
-not part of the page; the standalone instrument is what it plays.
+is), the LCD and LED drivers, USB (descriptors, USB audio) and Bluetooth, the flash and the update. The USB link to a
+host is modelled at the SysEx level only (below): configured, unlimited in speed, no USB audio.
+
+### With the RemoteFM1 player
+
+The emulator can be the player's unit, as a tester's SMK-37 running RemoteFM1 is: the player runs a firmware, and the
+SMK-37 is its panel (its screen shows the firmware's, the pads, button LEDs and knobs go through the SMK-37 build's
+own map onto the FM-1's controls).
+
+1. Open the emulator (`https://remotefm1.com/installer/smk37/emu/`) and press Start.
+2. Press **Connect to the RemoteFM1 player**: the site's player opens in a new tab with a hidden flag
+   (`/?unit=smk37-emu`). The emulator's bar says "Player connected." once the two tabs hear each other.
+3. In the player, pick a firmware (ChoralRoot, the DX7, ...). It finds the emulator as a unit named "FM-1 (SMK-37
+   emulator)" and connects by itself (or press Connect FM-1 / Connect my FM-1); the header says FM-1 connected, MIDI.
+4. Play the SMK-37's panel. Keep both pages open, best in two windows side by side: the browser slows the timers of
+   a tab in the background (the player's pacing among them) once it has been silent for a while.
+
+How: the two tabs talk over a BroadcastChannel (`remotefm1-smk37-emu`, same origin only), whole MIDI messages each
+way. Only with the flag, the player's RemoteFM1 gets a navigator (`web/site/js/emu-port.js`) whose Web MIDI has the
+emulator's pair beside the browser's own ports (those only when the site already has MIDI permission; nothing is
+asked), over Web MIDI only (no WebUSB chooser); without the flag the player is unchanged. In the emulator, the
+player's SysEx goes into the app's USB SysEx tap as on the unit (fed as its ring has room, at most 32 KB an audio
+block), and what the app sends on USB (RemoteFM1's SysEx, the panel events and the extras' MIDI) goes back to the
+player (`web_usx_*` in `0002-smk37-web.patch`; the worklet's relay in `web/emu-smk37/app_worklet.js`). Locally: serve
+`web/` (`python3 -m http.server -d web 8000`), open `http://localhost:8000/installer/smk37/emu/` and the player at
+`http://localhost:8000/site/?unit=smk37-emu` (the button opens the server's root).
 
 ## Install
 

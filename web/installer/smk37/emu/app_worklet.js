@@ -3,10 +3,15 @@
 // The SMK-37 emulator's part of fm1-base's worklet (loaded before worklet.js): the page's { type: "app" } messages
 // set the SMK-37's controls (the wasm's web_smk_* exports), and about 30 times a second its lights go back to the
 // page as { type: "app", op: "lights" } when they changed.
+// A host on the page's side (RemoteFM1.com's player, through the page's relay): { op: "link", on } starts or stops
+// it, { op: "usx", bytes } queues its SysEx for the app's USB SysEx in (fed as the tap has room, at most USX_BLOCK
+// bytes an audio block, so a flood never stalls the audio), and what the app sends on USB (its SysEx, whole
+// messages, and its USB-MIDI packets: the panel events) goes back as { type: "app", op: "usb", sx, pk }.
 // A quick click's press and release can arrive between two audio blocks, before the firmware has run at all: each
 // press is held at least HOLD_MS of the firmware's time before its release is applied.
 
 const HOLD_MS = 30;
+const USX_BLOCK = 32768, USX_QUEUE_MAX = 8 << 20;
 
 globalThis.fm1App = {
   load(fm1) {
@@ -15,6 +20,10 @@ globalThis.fm1App = {
     this.down = new Map();      // control -> firmware ms its press was applied
     this.later = new Map();     // control -> { due, run }: a release waiting for its press's HOLD_MS
     this.btns = 0;              // the buttons as the firmware has them
+    this.link = false;          // a host's relay on
+    this.usxQ = [];             // its SysEx waiting for the tap, and how much of the first went in
+    this.usxAt = 0;
+    this.usxQueued = 0;
   },
   // a press now; a release now or once the press has been held HOLD_MS
   edge(fm1, id, press, run) {
@@ -52,10 +61,37 @@ globalThis.fm1App = {
       case "mod": ex.web_smk_mod(m.v); break;
       case "pedal": this.edge(fm1, "pedal", !!m.on, () => ex.web_smk_pedal(m.on ? 1 : 0)); break;
       case "midi": ex.web_midi_in(0, m.pkt >>> 0); break;      // Web MIDI in: the app's USB MIDI in
+      case "link": this.link = !!m.on && typeof ex.web_usx_in === "function"; this.usxQ = []; this.usxAt = this.usxQueued = 0; break;
+      case "usx":
+        if (this.link && this.usxQueued < USX_QUEUE_MAX) { const b = new Uint8Array(m.bytes); this.usxQ.push(b); this.usxQueued += b.length; }
+        break;
     }
+  },
+  // the host's SysEx in, as the tap has room; the app's USB out back to the page
+  relay(fm1) {
+    const ex = fm1.ex;
+    let budget = USX_BLOCK;
+    while (this.usxQ.length && budget > 0) {
+      const room = ex.web_usx_room();
+      if (!room) break;
+      const b = this.usxQ[0], n = Math.min(room, b.length - this.usxAt, budget);
+      new Uint8Array(fm1.mem.buffer, ex.web_usx_in_buf(), n).set(b.subarray(this.usxAt, this.usxAt + n));
+      ex.web_usx_in(n);
+      budget -= n;
+      this.usxAt += n;
+      if (this.usxAt === b.length) { this.usxQ.shift(); this.usxQueued -= b.length; this.usxAt = 0; }
+    }
+    const sn = ex.web_usx_out_len(), pn = ex.web_out_n();
+    if (!sn && !pn) return;
+    const sx = new Uint8Array(fm1.mem.buffer, ex.web_usx_out_buf(), sn).slice();
+    const pk = new Uint32Array(fm1.mem.buffer, ex.web_out_pkts(), pn).slice();
+    ex.web_usx_out_clear();
+    ex.web_out_clear();
+    fm1.port.postMessage({ type: "app", op: "usb", sx, pk }, [sx.buffer, pk.buffer]);
   },
   process(fm1) {
     const ex = fm1.ex;
+    if (this.link) this.relay(fm1);
     if (this.later.size) {
       const now = ex.web_now() >>> 0;
       for (const [id, w] of this.later) if ((now - w.due) >> 0 >= 0) { this.later.delete(id); w.run(); }

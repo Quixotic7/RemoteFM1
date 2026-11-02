@@ -531,6 +531,78 @@ $("midi").addEventListener("click", async () => {
 });
 $("midiport").addEventListener("change", (e) => useMidi(e.target.value));
 
+// ---------------------------------------------------------------- the RemoteFM1 player (docs/SMK37.md "Emulator")
+// The player on this site (its page with ?unit=smk37-emu: web/site/js/emu-port.js) sees this emulator as a unit named
+// "FM-1 (SMK-37 emulator)" over a BroadcastChannel: what it sends comes in as the app's USB MIDI (its SysEx through
+// RemoteFM1's tap), what the app sends on USB goes back, whole messages each. "here" both ways, twice a second.
+const LINK = "remotefm1-smk37-emu";
+let chan = null, playerAt = 0, sxOut = [];
+// the player: the site's root (this page published three folders down, beside the SMK-37 test installer), else "/"
+function playerUrl() {
+  const seg = location.pathname.split("/");
+  const published = seg.length >= 5 && seg.slice(-4, -1).join(" ") === "installer smk37 emu";
+  const u = new URL(published ? "../../../" : "/", location.href);
+  u.searchParams.set("unit", "smk37-emu");
+  return u.href;
+}
+function showLink() {
+  const on = !!chan && performance.now() - playerAt < 2500;
+  $("link").textContent = !node ? "" : on ? "Player connected." : "Waiting for the player.";
+  $("link").classList.toggle("on", on);
+}
+// what the player sent (one or more whole messages): SysEx to the tap, the rest as USB-MIDI packets
+function fromPlayer(d) {
+  for (let i = 0; i < d.length;) {
+    const s = d[i];
+    if (s === 0xF0) {
+      let j = i + 1;
+      while (j < d.length && d[j] !== 0xF7) j++;
+      send({ op: "usx", bytes: d.slice(i, j + 1) });
+      i = j + 1;
+    } else {
+      const n = s >= 0xF8 ? 1 : (s & 0xE0) === 0xC0 ? 2 : s >= 0x80 && s < 0xF0 ? 3 : 1;
+      const p = midiPacket(d.subarray(i, i + n));
+      if (p !== null) send({ op: "midi", pkt: p >>> 0 });
+      i += n;
+    }
+  }
+}
+// what the app sent on USB: its SysEx (whole F0 .. F7 messages) and its USB-MIDI packets, each message to the player
+function toPlayer(sx, pk) {
+  const post = (b) => chan.postMessage({ from: "emu", type: "midi", data: b });
+  for (let i = 0, s = -1; i < sx.length; i++) {
+    if (sx[i] === 0xF0) s = i;
+    else if (sx[i] === 0xF7 && s >= 0) { post(sx.slice(s, i + 1)); s = -1; }
+  }
+  for (const p of pk) {
+    const cin = p & 15, b = [(p >>> 8) & 255, (p >>> 16) & 255, p >>> 24];
+    if (cin >= 4 && cin <= 7) {                     // SysEx in packets (CIN 4 goes on; 5, 6, 7 end it)
+      sxOut.push(...b.slice(0, cin === 5 ? 1 : cin === 6 ? 2 : 3));
+      if (cin > 4) { post(Uint8Array.from(sxOut)); sxOut = []; }
+    } else if (cin === 0xF) {
+      if (b[0] !== 0xF8 && b[0] !== 0xFE) post(Uint8Array.of(b[0]));   // (not the clock or active sensing)
+    } else if (cin >= 8) {
+      post(Uint8Array.from(cin === 0xC || cin === 0xD ? b.slice(0, 2) : b));
+    }
+  }
+}
+function startLink() {
+  if (chan || typeof BroadcastChannel === "undefined") return;
+  chan = new BroadcastChannel(LINK);
+  chan.onmessage = (e) => {
+    const m = e.data;
+    if (!m || m.from !== "player") return;
+    if (m.type === "here") { if (performance.now() - playerAt > 2500) chan.postMessage({ from: "emu", type: "here" }); playerAt = performance.now(); showLink(); }
+    else if (m.type === "midi" && m.data) fromPlayer(new Uint8Array(m.data));
+  };
+  send({ op: "link", on: true });
+  chan.postMessage({ from: "emu", type: "here" });
+  setInterval(() => { chan.postMessage({ from: "emu", type: "here" }); showLink(); }, 500);
+  addEventListener("pagehide", () => chan.postMessage({ from: "emu", type: "bye" }));
+  showLink();
+}
+$("player").addEventListener("click", (e) => { window.open(playerUrl(), "_blank", "noopener"); e.currentTarget.blur(); });
+
 // ---------------------------------------------------------------- starting
 const status = $("status"), cpu = $("cpu");
 async function start() {
@@ -556,6 +628,7 @@ async function start() {
           if (m.load !== undefined) cpu.textContent = `${m.load}% of this computer's time`;
           if (m.store) saveStore(m.store);
         } else if (m.type === "app" && m.op === "lights") drawSmkLights(m);
+        else if (m.type === "app" && m.op === "usb") { if (chan) toPlayer(m.sx, m.pk); }
       };
     });
     n.port.postMessage({ type: "load", wasm, store: loadStore(), master }, [wasm]);
@@ -564,6 +637,7 @@ async function start() {
     node = n;
     window.emu = { node, ac };
     $("start").hidden = true;
+    startLink();
     status.textContent = ac.sampleRate === 44100 ? "On." : `On (audio at ${ac.sampleRate} Hz).`;
   } catch (err) {
     go.disabled = false;

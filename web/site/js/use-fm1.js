@@ -10,11 +10,14 @@
 import { h } from "./sheet.js";
 import { Fm1Link } from "./fm1-link.js";
 import { mountCart } from "./cart.js";
+import { emuNavigator } from "./emu-port.js";
 
 export function createFm1(site, mod, { onUnitPorts, keyTouch = true } = {}) {
   // keyTouch: the keys' velocity and pressure from a unit with RemoteFM1 0.3.1 (TOUCH; the sheet's "Velocity &
   // pressure from my FM-1"), into the firmware as key velocity and key lean (API.md setPanel keyVel / keyLean)
-  const remote = new mod.RemoteFM1({ keyTouch: !!keyTouch });
+  // ?unit=smk37-emu (hidden): the SMK-37 emulator's tab is a unit too, over Web MIDI only (emu-port.js)
+  const emu = emuNavigator();
+  const remote = new mod.RemoteFM1({ keyTouch: !!keyTouch, ...(emu ? { navigator: emu, transport: "midi", usb: "off" } : {}) });
   const link = new Fm1Link(remote);
   link.setKeyTouch = (on) => { if (typeof remote.setKeyTouch === "function") remote.setKeyTouch(!!on); };
   let unitKeys = 0, unitButtons = 0;

@@ -299,6 +299,7 @@ export async function createEngine({ sampleRate, files, flash = null, options = 
         engine: { ...ENGINE, emulator: "fm1-emu", mhz, jit: { ...jit } },
       };
     },
+    labels() { return null; },   // (no descriptor: no live labels)
 
     setPanel(p) {
       if (disposed) return;

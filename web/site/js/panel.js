@@ -26,6 +26,22 @@ export function buttonLabels(names, use = true) {
     return n || d;
   });
 }
+// the live labels (engine labels().list: FM1VST fm1core.h FM1CORE_LBL_*, FIZZ's SysEx LABELS order: 8 knobs by role,
+// 14 buttons, the white keys W1..W16, the black keys B1..B11) over the static names, per control: a live string wins,
+// "" = no job here (the button's or knob's name drawn dim, a key's nothing), null = not given (a button: buttonLabels;
+// a knob: its printed name; a key: nothing). `use` false (the setting off): all printed, nothing live.
+// -> { buttons[14], btnOff[14], knobs[8] (null: the printed one), knobOff[8], keys[27] (null: none) }
+export function panelLabels(names, live, use = true) {
+  const L = use && Array.isArray(live) && live.length === 49 ? live : null;
+  const at = (i) => (L && typeof L[i] === "string" ? L[i].trim().toUpperCase() : null);
+  const base = buttonLabels(names, use);
+  const buttons = base.map((n, i) => at(8 + i) || n), btnOff = base.map((_, i) => at(8 + i) === "");
+  const knobs = [], knobOff = [];
+  for (let r = 0; r < NE; r++) { const v = at(r); knobs.push(v || null); knobOff.push(v === ""); }
+  let w = 0, b = 0;
+  const keys = Array.from({ length: NKEY }, (_, k) => at(keyBlack(k) ? 38 + b++ : 22 + w++) || null);
+  return { buttons, btnOff, knobs, knobOff, keys };
+}
 const LCD = 240;
 
 export const keyBlack = (k) => (0x54A >> ((k + 5) % 12)) & 1;
@@ -403,6 +419,7 @@ export class DeviceView {
     this.controls = controls;
     this.lcd = lcd;
     this.names = PANEL_LABELS.slice();
+    this.lbl = panelLabels(null, null);   // the live labels' merge (setLabels); names = lbl.buttons
     this.levels = new Uint8Array(44);
     this.playGreen = 0;
     this.ledIdx = ledIndexOf(null);
@@ -421,7 +438,12 @@ export class DeviceView {
   // under a button's name
   setHints(on) { this.hints = !!on; }
   setRunning(on) { this.running = !!on; }
-  setButtonNames(n, use = true) { this.names = buttonLabels(n, use); this.base = null; }
+  setButtonNames(n, use = true) { this.setLabels(panelLabels(n, null, use)); }
+  // panelLabels' result: the faceplate redrawn when it changed
+  setLabels(l) {
+    if (JSON.stringify(l) === JSON.stringify(this.lbl)) return;
+    this.lbl = l; this.names = l.buttons; this.base = null;
+  }
   setKeymap(km) { this.ledIdx = ledIndexOf(km); }
   setLeds(levels, playGreen) { this.levels = levels; this.playGreen = playGreen | 0; }
   setLearn(l) { this.learn = l || null; }
@@ -548,7 +570,7 @@ export class DeviceView {
       well(g, ow.x, ow.y, ow.w, ow.h, ow.r, css(p.bed));
       well(g, bw.x, bw.y, bw.w, bw.h, bw.r, css(p.bed));
       well(g, kb.x, kb.y, kb.w, kb.h, L.kg.radius, css(p.bed), 3, 0.2);
-      for (const k of L.knobs) legend(g, k.label, k.cx, k.top + k.lf / 2, k.lf, css(p.label), Math.max(k.size, k.labelW), 0.08);
+      for (const k of L.knobs) legend(g, this.lbl.knobs[k.role] || k.label, k.cx, k.top + k.lf / 2, k.lf, css(p.label, this.lbl.knobOff[k.role] ? 0.35 : 1), Math.max(k.size, k.labelW), 0.08);
       // the printed names where the firmware calls a button something else: above the top row, below the bottom one
       for (const b of L.btns) {
         if (b.b >= 12 || this.names[b.b].toUpperCase() === PANEL_LABELS[b.b]) continue;
@@ -649,7 +671,8 @@ export class DeviceView {
       g.shadowBlur = 0; g.shadowColor = "transparent";
     } else if (b.b === B.REC) circle(g, cx, y + ic / 2, ic * 0.4, css(p.rec));
     if (ic) y += ic + 3;
-    legend(g, name, cx, y + b.font / 2, b.font, tint > 0 ? mixCss(p.keyText, p.led, tint) : css(p.keyText), b.w - 6, 0.06, lit ? css(p.led) : null);
+    const off = this.lbl.btnOff[b.b] && !lit;   // (the firmware: no job here now)
+    legend(g, name, cx, y + b.font / 2, b.font, off ? css(p.keyText, 0.35) : tint > 0 ? mixCss(p.keyText, p.led, tint) : css(p.keyText), b.w - 6, 0.06, lit ? css(p.led) : null);
     if (hint) legend(g, hint, cx, y + b.font + 2 + hs / 2, hs, css(p.led, 0.9), b.w - 4, 0.02);
   }
 
@@ -687,6 +710,8 @@ export class DeviceView {
         g.shadowBlur = 0; g.shadowColor = "transparent";
       }
       if (hint) legend(g, hint, k.x + k.w / 2, ly + k.lh + 4 + hs / 2, hs, css(p.keyText, 0.85), k.w - 2, 0.02);
+      const kl = this.lbl.keys[k.k];   // a live label: small, at the cap's foot
+      if (kl) { const fs = Math.max(7, Math.min(10, k.w * 0.22)); legend(g, kl, k.x + k.w / 2, k.y + dy + k.h - fs / 2 - 3, fs, css(p.keyText, 0.9), k.w - 3, 0.02); }
       if (ctl.keyLatched(k.k)) this.drawLatch(g, { x: k.x, y: k.y, w: k.w, h: k.h, r: k.r });
     }
     g.restore();

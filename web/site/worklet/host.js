@@ -39,6 +39,18 @@ export class PanelMerge {   // the page's panel messages -> one setPanel per qua
   }
 }
 
+// the live labels' message (API.md section 3): only when the engine's labels() epoch moves; none for an engine
+// without labels() or at epoch 0, and {list: null} when it goes back to 0
+export class LabelWatch {
+  constructor() { this.seq = 0; }
+  take(eng) {
+    const lb = eng && typeof eng.labels === "function" ? eng.labels() : null, seq = lb ? lb.seq >>> 0 : 0;
+    if (seq === this.seq) return null;
+    this.seq = seq;
+    return { type: "labels", seq, list: lb ? lb.list.slice() : null };
+  }
+}
+
 // the wall clock in ms (an AudioWorkletGlobalScope may have no performance object)
 const clock = () => (globalThis.performance && typeof globalThis.performance.now === "function" ? globalThis.performance.now() : Date.now());
 if (typeof AudioWorkletProcessor !== "undefined") {
@@ -46,7 +58,7 @@ if (typeof AudioWorkletProcessor !== "undefined") {
     constructor() {
       super();
       this.engine = null; this.loading = 0; this.panel = new PanelMerge();
-      this.since = 0; this.seen = { screen: -1, leds: -1, flash: -1 }; this.haltSent = false;
+      this.since = 0; this.seen = { screen: -1, leds: -1, flash: -1 }; this.labels = new LabelWatch(); this.haltSent = false;
       this.mon = null;   // the render load: { busy, frames, wall0 } (a report every half second: page js/cpu.js)
       this.rec = null; this.recFree = [];   // the recorder's take, and its spare chunk buffers (see recStart)
       this.port.onmessage = (e) => this.onMessage(e.data);
@@ -66,6 +78,7 @@ if (typeof AudioWorkletProcessor !== "undefined") {
         if (ticket !== this.loading) { try { eng.dispose(); } catch (_) {} return; }
         this.engine = eng;
         this.seen = { screen: -1, leds: -1, flash: -1 };
+        this.labels = new LabelWatch();
         this.haltSent = false;
         this.panel.dirty = true;
         this.mon = null;
@@ -187,6 +200,8 @@ if (typeof AudioWorkletProcessor !== "undefined") {
         this.seen.leds = l.seq;
         this.post({ type: "leds", levels: Uint8Array.from(l.levels), playGreen: l.playGreen | 0 });
       }
+      const lm = this.labels.take(eng);
+      if (lm) this.post(lm);
       const f = eng.flash();
       if (f && f.seq !== this.seen.flash) {
         const first = this.seen.flash === -1;
