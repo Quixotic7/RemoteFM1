@@ -150,7 +150,9 @@ build_core_wasm() {
 }
 
 LDFLAGS=("$FM1WEB_OPT" -sSTANDALONE_WASM --no-entry -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=33554432
-         -sSTACK_SIZE=1048576 -sERROR_ON_UNDEFINED_SYMBOLS=1)
+         -sSTACK_SIZE=1048576 -sERROR_ON_UNDEFINED_SYMBOLS=1
+         -Wl,-u,fm1core_labels_epoch -Wl,-u,fm1core_label)   # (the live labels: wasm_glue.c's weak references don't
+                                                             # pull an archive member; -u does, and is harmless without)
 # link one core's library with wasm_glue.c; Asyncify when it runs on the coroutine (it imports fm1w_co_yield)
 link_core() {
     local id="$1" lib="$2" wasm="$3"

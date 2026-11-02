@@ -21,7 +21,7 @@
 // coroutine as a nested call of the export fmw_co_entry (first run, or a rewind into its last yield) and stops the
 // unwind when it yielded; fm1w_co_yield starts the unwind, or stops the rewind when it is the call being resumed.
 
-import { FS, BLOCK, RS_HALF, Resampler, MidiParser, packetBytes, utf8, now } from "../common/shared.js";
+import { FS, BLOCK, RS_HALF, Resampler, MidiParser, packetBytes, utf8, now, LBL_N, labelSet, cleanLabel } from "../common/shared.js";
 
 export const ENGINE = { name: "native", version: "0.1" };
 
@@ -212,6 +212,18 @@ class NativeEngine {
     }
 
     info() { return this._info; }
+
+    // the live panel labels (API.md): null for a module built before them (no fmw_labels_epoch) or at epoch 0
+    labels() {
+        const ex = this.ex;
+        if (this.disposed || !ex.fmw_labels_epoch) return null;
+        const seq = ex.fmw_labels_epoch() >>> 0;
+        if (!seq) return null;
+        if (this.lbl && this.lbl.seq === seq) return this.lbl;
+        const { u8 } = this.rt.mem(), list = [];
+        for (let i = 0; i < LBL_N; i++) list.push(cleanLabel(utf8(u8, ex.fmw_str(200 + i))));
+        return (this.lbl = labelSet(seq, list));
+    }
 
     setPanel(p) {
         if (this.disposed) return;

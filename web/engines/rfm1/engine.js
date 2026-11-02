@@ -26,7 +26,7 @@
 // the page, js/folder.js answers; a Node test serves a directory: ./fs-dir.mjs); the answer comes back through
 // fsDone(msg) and is copied into the module's memory at the start of the next render(), never during an export call.
 
-import { FS, BLOCK, RS_HALF, Resampler, MidiParser, packetBytes, now } from "../common/shared.js";
+import { FS, BLOCK, RS_HALF, Resampler, MidiParser, packetBytes, now, LBL_N, labelSet, cleanLabel } from "../common/shared.js";
 
 export const ENGINE = { name: "rfm1", version: "0.1" };
 
@@ -92,6 +92,8 @@ const EXPORTS = [["_initialize", 0, 0], ["rfm1_version", 0, 1], ["rfm1_get", 1, 
     ["rfm1_midi_out_take", 1, 1], ["rfm1_halted", 0, 1], ["rfm1_shutdown", 0, 0], ["rfm1_flash_stage", 2, 1],
     ["rfm1_flash", 0, 1], ["rfm1_flash_dirty", 0, 1], ["rfm1_flash_sync", 0, 1], ["rfm1_stats", 2, 0],
     ["rfm1_ui_info", 2, 0]];
+// optional: live panel labels (FM1VST docs/DYNAMIC-LABELS.md); a module without both (or with another signature) has none
+const LABEL_EXPORTS = [["rfm1_labels_epoch", 0, 1], ["rfm1_label", 1, 1]];
 const REQUIRED_FIELDS = ["id", "name", "version", "license", "source_url"];
 
 const refuse = (why) => { throw new Error(`not a usable .rfm1 file: ${why}`); };
@@ -281,7 +283,12 @@ export function inspect(bytes) {
         const want = [new Array(nargs).fill(I32), new Array(nret).fill(I32)];
         if (!sameSig(types[ti], want)) refuse(`its export ${name} has the signature ${sigText(types[ti])}, not ${sigText(want)}`);
     }
-    return { manifest: m, credits, licenses, memoryPages, virtual, needs, folders, fs: hostImports.length > 0 || needs.includes("fs1") };
+    const labels = LABEL_EXPORTS.every(([name, nargs, nret]) => {
+        const e = exports.get(name);
+        return e && e.kind === 0 && e.index >= importedFuncs && e.index - importedFuncs < funcs.length && funcs[e.index - importedFuncs] < types.length
+            && sameSig(types[funcs[e.index - importedFuncs]], [new Array(nargs).fill(I32), new Array(nret).fill(I32)]);
+    });
+    return { manifest: m, labels, credits, licenses, memoryPages, virtual, needs, folders, fs: hostImports.length > 0 || needs.includes("fs1") };
 }
 
 // the module compiled once per file bytes (the tests boot one file many times; the page sends fresh bytes)
@@ -679,6 +686,25 @@ class Rfm1Engine {
     }
 
     info() { return this._info; }
+
+    // the live panel labels (API.md): null without the exports or at epoch 0; re-read when the epoch moves
+    labels() {
+        if (!this.file.labels || this.disposed || this.dead) return null;
+        const seq = this.call("rfm1_labels_epoch") >>> 0;
+        if (!seq || this.dead) return null;
+        if (this.lbl && this.lbl.seq === seq) return this.lbl;
+        const list = [];
+        for (let i = 0; i < LBL_N; i++) list.push(this.label(this.call("rfm1_label", i) >>> 0));
+        return (this.lbl = labelSet(seq, list));
+    }
+    // one label: a C string in memory (read up to 64 bytes), cleanLabel'd (null: none given)
+    label(p) {
+        const u8 = this.rt.u8;
+        if (!p || p >= u8.length) return null;
+        let s = "";
+        for (let i = p; i < u8.length && i < p + 64 && u8[i]; i++) s += String.fromCharCode(u8[i]);
+        return cleanLabel(s);
+    }
 
     // ---- the clock: one device millisecond (wasm_glue.c run_ms)
     runMs1() {

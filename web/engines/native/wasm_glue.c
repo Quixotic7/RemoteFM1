@@ -144,6 +144,16 @@ FMW_EXPORT(fmw_shutdown) void fmw_shutdown(void)
 }
 
 /* ---- the descriptor's strings and tables ---- */
+#ifdef __wasm__
+#ifndef FM1CORE_LBL_N
+#define FM1CORE_LBL_N 49   /* (an fm1core.h before the live labels) */
+#endif
+/* live panel labels (FM1VST docs/DYNAMIC-LABELS.md): the core's optional symbols, weak (none: epoch 0); fmw_str
+ * 200 + FM1CORE_LBL_* reads one. (wasm only: the host build for host_shot.c has no use for them) */
+extern uint32_t fm1core_labels_epoch(void) __attribute__((weak));
+extern const char *fm1core_label(int32_t which) __attribute__((weak));
+FMW_EXPORT(fmw_labels_epoch) uint32_t fmw_labels_epoch(void) { return fm1core_labels_epoch ? fm1core_labels_epoch() : 0u; }
+#endif
 FMW_EXPORT(fmw_str) const char *fmw_str(uint32_t k)
 {
     switch (k) {
@@ -155,7 +165,14 @@ FMW_EXPORT(fmw_str) const char *fmw_str(uint32_t k)
     case 5: return C->license;
     case 6: return fm1core_credits(C);
     case 7: return C->gated;
-    default: return k >= 100u && k < 100u + FM1P_NB ? C->button_names[k - 100u] : NULL;
+    default:
+        if (k >= 100u && k < 100u + FM1P_NB)
+            return C->button_names[k - 100u];
+#ifdef __wasm__
+        if (k >= 200u && k < 200u + FM1CORE_LBL_N)   /* a live label (fmw_labels_epoch) */
+            return fm1core_label ? fm1core_label((int32_t)(k - 200u)) : NULL;
+#endif
+        return NULL;
     }
 }
 FMW_EXPORT(fmw_keymap) const int8_t *fmw_keymap(void) { return C->keymap; }   /* [6][11] or NULL */
