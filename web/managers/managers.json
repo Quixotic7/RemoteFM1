@@ -23,7 +23,10 @@
     "tonitor": "FM-1 Tonitor",
     "speak37": "Speak37",
     "sloop": "Felucca",
-    "karma": "Felucca"
+    "karma": "Felucca",
+    "rainbow": "Felucca",
+    "hortator": "Felucca",
+    "hortator-bt": "Felucca"
   },
   "managers": [
     {

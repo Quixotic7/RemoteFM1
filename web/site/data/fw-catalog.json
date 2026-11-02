@@ -1,5 +1,10 @@
 {
- "about": "Optional card text for the .rfm1 files of Quixotic7/RemoteFM1FW (tools/fetch_fw_catalog.mjs, build_catalog.mjs --fw-catalog) that neither the Hub nor FM1VST's cores list, by the manifest's id: author (the short name), category, tag, what, site, beta. Everything else (id, name, version, licence, authors, source) is the file's own manifest. A firmware missing here gets category Other and a tag from its name.",
+ "about": "Optional card text for the .rfm1 files of Quixotic7/RemoteFM1FW (tools/fetch_fw_catalog.mjs, build_catalog.mjs --fw-catalog) that neither the Hub nor FM1VST's cores list, by the manifest's id: author (the short name), category, tag, what, site, beta. Everything else (id, name, version, licence, authors, source) is the file's own manifest. A firmware missing here gets category Other and a tag from its name. editors: the author's own editor page by catalog id, for a firmware the Hub lists without one (one with no editor also takes the editor of another entry with the same repo).",
+ "editors": {
+  "rainbow": "https://joshbartlettband-web.github.io/felucca-rainbow/webapp/editor/",
+  "hortator": "https://deadactive.github.io/hortator/webapp/editor/",
+  "hortator-bt": "https://deadactive.github.io/hortator/webapp/editor/"
+ },
  "firmwares": {
   "clipper": { "author": "isod89", "category": "Groovebox", "tag": "SLOOP-family groovebox",
                "what": "A SLOOP-family firmware by isod89, built as its author intends (with the Hügelton icons, all rights reserved) to WebAssembly (.rfm1) and hosted here; it runs natively in the browser." },

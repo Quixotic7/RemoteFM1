@@ -310,6 +310,15 @@ if (fwDir) {
   }
   console.log(`build_catalog: RemoteFM1FW ${fwRelease ? fwRelease.tag : "(no release.json)"}: ${sums.size} .rfm1 files, ${added} new entries, ${merged} merged, ${kept} kept the site's own`);
 }
+// editors: data/fw-catalog.json's "editors" (by id: the author's own editor page, where the Hub lists none), then, for a
+// firmware still without one, the editor of another entry with the same repo (a .rfm1 whose id is not the Hub's)
+{
+  const editors = JSON.parse(readFileSync(join(SITE, "data", "fw-catalog.json"), "utf8")).editors || {};
+  for (const f of firmwares) if (!f.editor && editors[f.id]) f.editor = editors[f.id];
+  const byRepo = new Map();
+  for (const f of firmwares) if (f.editor && f.repo && !byRepo.has(f.repo.toLowerCase())) byRepo.set(f.repo.toLowerCase(), f.editor);
+  for (const f of firmwares) if (!f.editor && f.repo && byRepo.has(f.repo.toLowerCase())) f.editor = byRepo.get(f.repo.toLowerCase());
+}
 firmwares.sort((a, b) => a.name.localeCompare(b.name, "en", { sensitivity: "base" }));
 
 const catalog = {
