@@ -116,5 +116,24 @@ const m0 = ex.web_smk_master();
 ex.web_smk_enc(0, 2);
 check("K1 turns MASTER", ex.web_smk_master() === m0 + 192, `${m0} -> ${ex.web_smk_master()}`);
 
+// a quick click through app_worklet.js: press and release in one gap between audio blocks still reach the firmware
+{
+  globalThis.currentTime = 0;
+  await import(join(here, "app_worklet.js"));
+  const app = globalThis.fm1App, fm1 = { ex, mem, port: { postMessage() {} } };
+  app.load(fm1);
+  const block = () => { app.process(fm1); run(128 / 44.1); };
+  app.message(fm1, { type: "app", op: "btns", mask: 1 << B.PARA });
+  app.message(fm1, { type: "app", op: "btns", mask: 0 });
+  for (let i = 0; i < 40; i++) block();
+  check("a quick click on PARA (via the worklet) lights it", (ex.web_smk_leds() >>> B.PARA & 1) === 1, ex.web_smk_leds().toString(2));
+  out();
+  app.message(fm1, { type: "app", op: "key", k: 12, vel: 80 });
+  app.message(fm1, { type: "app", op: "key", k: 12, vel: 0 });
+  for (let i = 0; i < 40; i++) block();
+  o = out();
+  check("a quick tap on a key (via the worklet) plays it", has(o, 0x90, 0x3c, 80) && has(o, 0x80, 0x3c), JSON.stringify(o));
+}
+
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);
