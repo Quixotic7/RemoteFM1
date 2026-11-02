@@ -40,7 +40,7 @@
          return build_host() if a.host else build_web()
 --- a/web/emu/emu_web.c
 +++ b/web/emu/emu_web.c
-@@ -143,6 +143,55 @@
+@@ -143,6 +143,93 @@
  __attribute__((used, visibility("default"))) uint32_t web_nobj(void) { return OBJ_NOBJ; }
  __attribute__((used, visibility("default"))) uint32_t web_store_max(void) { return PLAT_STORE_MAX; }
  
@@ -91,6 +91,44 @@
 +__attribute__((used, visibility("default"))) uint32_t *web_smk_pad_rgb(void) { return smk_pad_rgb; }
 +__attribute__((used, visibility("default"))) uint8_t *web_smk_pad_lvl(void) { return smk_pad_lvl; }
 +__attribute__((used, visibility("default"))) uint32_t web_smk_master(void) { return master; }
++
++#ifdef RF_SX_ID0
++/* RemoteFM1's USB SysEx link, for a host on the page's side (RemoteFM1.com's player through a relay): the page writes
++ * the host's SysEx bytes (any slice of the stream, at most web_usx_room() of them) to web_usx_in_buf and calls
++ * web_usx_in(n); they go through usb.c's tap as the simulator's "rf send usb" has them. What the app sends on USB
++ * SysEx comes back as whole F0 .. F7 messages from web_usx_out_buf (web_usx_out_len bytes; web_usx_out_clear when
++ * read). The simulated host's parser still sees them (rfm_host.c hs_msg) */
++#define USX_OUT 262144u
++static uint8_t usx_in[4096], usx_out[USX_OUT];
++static uint32_t usx_n, usx_drops;
++static void usx_msg(void *ctx, uint32_t cmd, const uint8_t *b, uint32_t len)
++{
++    if (usx_n + rf_packed_len(len) + 6u <= USX_OUT)
++        usx_n += rf_sx_encode(cmd, b, len, usx_out + usx_n);
++    else
++        usx_drops++;
++    hs_msg(ctx, cmd, b, len);
++}
++static void usx_hook(void) { hs_sx[0].b.fn = usx_msg; }   /* (hs_init sets it again at each boot) */
++__attribute__((used, visibility("default"))) uint8_t *web_usx_in_buf(void) { return usx_in; }
++__attribute__((used, visibility("default"))) uint32_t web_usx_room(void)
++{
++    uint32_t free_ = RF_MRX_N - (mrx_w - mrx_r);
++    free_ = free_ > 64u ? free_ - 64u : 0u;                 /* (usb.c holds EP1 below 64) */
++    return free_ < sizeof usx_in ? free_ : (uint32_t)sizeof usx_in;
++}
++__attribute__((used, visibility("default"))) void web_usx_in(uint32_t n)
++{
++    uint32_t i;
++    usx_hook();
++    for (i = 0; i < n && i < sizeof usx_in; i++)
++        hu_byte(usx_in[i]);
++}
++__attribute__((used, visibility("default"))) uint8_t *web_usx_out_buf(void) { return usx_out; }
++__attribute__((used, visibility("default"))) uint32_t web_usx_out_len(void) { usx_hook(); return usx_n; }
++__attribute__((used, visibility("default"))) void web_usx_out_clear(void) { usx_n = 0; }
++__attribute__((used, visibility("default"))) uint32_t web_usx_drops(void) { return usx_drops; }
++#endif
 +#endif
 +
  #ifdef APP_WEB
