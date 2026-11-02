@@ -152,7 +152,7 @@
      sa.led_b = sa.led_k = 0xFFFFFFFFu;
 --- a/sa/sa_smk.c
 +++ b/sa/sa_smk.c
-@@ -0,0 +1,123 @@
+@@ -0,0 +1,125 @@
 +/* SPDX-License-Identifier: MPL-2.0
 + * Copyright (C) 2026 RemoteFM1 contributors */
 +/* The M-Vave SMK-37's controls the FM-1 has not (docs/SMK37.md; fm1-base's plat_smk_take, BOARD_SMK37), standalone:
@@ -164,8 +164,9 @@
 + *   mod wheel      CC 1 (the DX7 hears it: its mod wheel), and out
 + *   pedal          CC 64, sustain (the DX7 holds its notes), and out
 + *   KNOB BANK, FADER BANK   CC 110, 111 out, 127 down / 0 up
-+ * (the faders are KNOB 1..4 and < > SELECT: fm1-base's map, as plat_enc's turns; but where KNOB 1..4 hold absolute
-+ * CC values, sa_smk_faders_abs, a fader sets its knob's value to where it is, 0..127)
++ * (the faders are KNOB 1..4 and < > SELECT: fm1-base's map, as plat_enc's turns, a detent every 4 steps; but where
++ * KNOB 1..4 hold absolute CC values a fader sets its knob's value to where it is, 0..127, and MIDI REMOTE's relative
++ * encoders get a detent a step: sa_smk_faders)
 + * In MIDI REMOTE the wheels, the pedal and the buttons go on CC CH, the outer keys on KEY CH (rm.oct). The
 + * session's side (a host's firmware gets the same as MIDI in) is src/rfm_main.c's rf_smk_ms. */
 +
@@ -184,15 +185,16 @@
 +        sa_cc_send(cc, v);                   /* out, the DX7, the loop being recorded */
 +}
 +
-+/* KNOB 1..4 are absolute CC values now: the instrument's CCs (no menu, GLO not held: GLO + a knob picks its CC),
-+ * MIDI REMOTE's encoders in ABSOLUTE; not on the hand-over screen (src/rfm_main.c: never in a session) */
-+static int sa_smk_faders_abs(void)
++/* the faders' mode (plat_smk_faders): ABS where KNOB 1..4 are absolute CC values (the instrument's CCs with no menu
++ * and GLO not held: GLO + a knob picks its CC; MIDI REMOTE's encoders in ABSOLUTE); TURN1 for MIDI REMOTE's relative
++ * encoders (the DAW scales them); else TURN4, a fader as an FM-1 knob (src/rfm_main.c: always in a session) */
++static int sa_smk_faders(void)
 +{
 +    if (sa.panel)
-+        return 0;
++        return PLAT_SMK_FADERS_TURN4;
 +    if (rm.on)
-+        return sa.rm_rel == SA_RMR_ABS;
-+    return !sa.menu && !(sa.btns >> B_GLO & 1u);
++        return sa.rm_rel == SA_RMR_ABS ? PLAT_SMK_FADERS_ABS : PLAT_SMK_FADERS_TURN1;
++    return !sa.menu && !(sa.btns >> B_GLO & 1u) ? PLAT_SMK_FADERS_ABS : PLAT_SMK_FADERS_TURN4;
 +}
 +
 +static void sa_smk_fader(uint32_t f, uint32_t v)   /* fader f (KNOB f + 1) at v */
@@ -401,8 +403,8 @@
 + * (sa/sa_smk.c); in a session, to the host's firmware as MIDI it receives, on channel 1, as the FM-1's TRS jack's MIDI
 + * in goes (MIDI_IN: the SMK has no TRS MIDI in, so that path is free; caps bit 9 as on the FM-1): the outer keys their
 + * notes (C3..E3 48..52, G#5..C6 80..84) with velocity, the pitch wheel pitch bend, the mod wheel CC 1, the pedal CC 64,
-+ * KNOB BANK / FADER BANK CC 110 / 111 (127 / 0); the faders and < > are FM-1 encoders (fm1-base's map; standalone, a
-+ * fader sets an absolute knob's value instead: sa_smk_faders_abs). A wheel or the pedal at most every RF_SMK_MS (its
++ * KNOB BANK / FADER BANK CC 110 / 111 (127 / 0); the faders and < > are FM-1 encoders (fm1-base's map, a fader a
++ * detent every 4 steps; standalone, sa_smk_faders). A wheel or the pedal at most every RF_SMK_MS (its
 + * latest then); waiting for a host (no session): nothing */
 +#define RF_SMK_MS 6u
 +static uint32_t rf_smk_ms_at[3], rf_smk_sent;
@@ -425,7 +427,7 @@
 +{
 +    plat_smk_ev_t e;
 +    uint32_t i, now = plat_ms();
-+    plat_smk_faders_abs(!rfa.session && sa_smk_faders_abs());   /* (a session: always turns) */
++    plat_smk_faders(rfa.session ? PLAT_SMK_FADERS_TURN4 : sa_smk_faders());   /* (a session: FM-1 knob turns) */
 +    while (plat_smk_take(&e)) {
 +        if (!rfa.session) {
 +            if (sa_standalone())

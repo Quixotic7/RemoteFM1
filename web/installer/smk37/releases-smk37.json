@@ -6,45 +6,45 @@
     {
       "version": "0.3.1",
       "date": "2026-11-02",
-      "tag": "v0.3.1-smk37.2",
+      "tag": "v0.3.1-smk37.3",
       "license": "MPL-2.0",
       "models": {
         "pro": {
           "name": "SMK-37 Pro (and the Starrykey 37 Play)",
           "identity": "SMK-37 Pro_52000301",
           "file": "remote-smk37-0.3.1.fwsc",
-          "sha256": "7f23f2316f7b02bbbc2b19df112a686fffa5af3acfa4412a2a875995ec47d885",
+          "sha256": "c9b8b6192d485d44c13f200a29c0fa38aafca398a0998b8cfda095d317ef6e67",
           "usbOnly": {
             "file": "remote-smk37-usb-0.3.1.fwsc",
-            "sha256": "34b863904bcb2f1a628a724e5e013418d3592d449525a8ef18f52ba422331e31"
+            "sha256": "85c24d4250c2d5a2c73ed8a66aeedcf947985228cd1a2a77333756a80326c4fa"
           }
         },
         "elite": {
           "name": "SMK-37 Elite",
           "identity": "SMK-37 Elite_52000301",
           "file": "remote-smk37-elite-0.3.1.fwsc",
-          "sha256": "ddb1d5897d336b57b7cce6cd8dc96c5370f4b34015fbc511c1f933ac94036b41",
+          "sha256": "a90ef92395ddfb71c6fb8ea2ddbf1458eb6836395684ed9f52fe1ad40e4734b1",
           "usbOnly": {
             "file": "remote-smk37-elite-usb-0.3.1.fwsc",
-            "sha256": "6367080d6aef30f22f3cfc2e7b5b7720d8d9edd448d4c3a75901223cb799de59"
+            "sha256": "a5f8d99409ad7aaa3357f0ea8ec28d3d5e245c8ba3ba9848170d1909b88315f2"
           }
         },
         "mke": {
           "name": "MKE-P37",
           "identity": "MKE-P37_52000301",
           "file": "remote-smk37-mke-0.3.1.fwsc",
-          "sha256": "2ea293ebcafbceb40a33da2f0e67fd5c5d7be7ec211314a01cb27dd01112916a",
+          "sha256": "00302ab2a5ee4ff7efaa09f644fdd5a76090a222329e6336ded94769d1bb1205",
           "usbOnly": {
             "file": "remote-smk37-mke-usb-0.3.1.fwsc",
-            "sha256": "37340d22fbe57b0307b2e0906d03fd6871519e812ce2502663fef47b660a7e30"
+            "sha256": "c2e6bb555f2ffaf373dace158bc7aa19c1c9c2ef92c30ff3737b7a67a3ecfe99"
           }
         }
       },
       "notes": [
         "An untested community build: nobody on the project has an SMK-37, and nothing here has run on a unit yet. Please report what works and what does not on GitHub (SMK37.md, What to test).",
         "RemoteFM1 0.3.1 as on the FM-1: the panel for a firmware on the computer (this site's player, the iOS app, FM1VST), and on its own a DX7 with velocity, scales, latch, an arp and 16 loops.",
-        "To every host the keyboard is an FM-1 (USB device \"FM-1\", Bluetooth \"FM-1 XXXX\"). Its controls follow the FM-1's layout: the 12 buttons right of the pads are the FM-1's two rows in the same places (ARP is FX, BT is GLO, PATCH is HOME, and so on), < and > turn SELECT, the faders are KNOB 1..4 (on the instrument's CC pages they set the CC to the fader's position). The outer keys, wheels and pedal reach the host's firmware as MIDI.",
-        "New in this build (smk37.2): the FM-1 button layout, < > as SELECT, the faders as KNOB 1..4. Try it first in the emulator (emu/ next to this page).",
+        "To every host the keyboard is an FM-1 (USB device \"FM-1\", Bluetooth \"FM-1 XXXX\"). Its controls follow the FM-1's layout: the 12 buttons right of the pads are the FM-1's two rows in the same places (ARP is FX, BT is GLO, PATCH is HOME, and so on), < and > turn SELECT, the faders are KNOB 1..4: with a host or in a menu a full travel is about 31 knob steps; on the instrument's CC pages (and in MIDI REMOTE with ABSOLUTE knobs) they set the CC to the fader's position. The outer keys, wheels and pedal reach the host's firmware as MIDI.",
+        "New in this build (smk37.3): with a host or in a menu, a fader turns its knob a quarter as far as in smk37.2 (about 31 steps for the full travel), so it no longer overshoots. Pull it to the bottom to line it up with the value; the knob shifts it from there. Try it first in the emulator (emu/ next to this page).",
         "The keyboard's calibration, its Bluetooth pairing and key areas are never written. The first start clears another firmware's data in RemoteFM1's areas (a second or two, once)."
       ]
     }
