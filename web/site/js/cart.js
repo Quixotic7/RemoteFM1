@@ -4,8 +4,13 @@
 // on 0.3.0, which sends no reply (the unit's screen is the confirmation); USER1..USER16 from 0.3.1, which lists them,
 // answers each dump (STORED), takes one into a chosen slot (Replace) and removes one (Delete).
 // The unit keeps a bank only as an instrument (outside a session): the page's own link is ended first.
-// Everything above mountCart has no DOM: web/site/test.mjs drives it with a fake MIDI port.
+// The same sender drives RemoteFM1 running in this page (the Editor button, editor-panel.js): a port is
+//   { name, send(bytes), listen(fn(bytes)) -> stop | null }
+// webMidiPort(access, out): a real FM-1's Web MIDI output and its input; corePort({ name, send }): the in-page core
+// (send: into its MIDI in; feed(bytes): its MIDI out, any chunking). The in-page unit is in no host session: standalone.
+// Everything above mountCart has no DOM: web/site/test.mjs drives it with a fake MIDI port and a fake core.
 import { h } from "./sheet.js";
+import { MidiAssembler } from "./managers.js";
 
 export const CART_LEN = 4104;                      // F0 43 0n 09 20 00, 4096 bytes of voices, the checksum, F7
 const FM1_OUT = /FM-1|RemoteFM1/i;
@@ -72,26 +77,44 @@ export function parseBanksReply(body) {
   return { max, count, busy: !!busy, next, loops, banks, names: banks.map((b) => b.name) };
 }
 const inputOf = (access, out) => access && out && [...access.inputs.values()].find((i) => i.name === out.name);
+// a real FM-1: its Web MIDI output, and the input of the same name for the replies (none: no replies, nothing sent)
+export function webMidiPort(access, out) {
+  return { name: out.name, send: (b) => out.send(b), listen(fn) {
+    const inp = inputOf(access, out);
+    if (!inp) return null;
+    const on = (e) => fn([...e.data]);
+    inp.addEventListener("midimessage", on);
+    return () => inp.removeEventListener("midimessage", on);
+  } };
+}
+// the firmware running in this page: send(bytes) into its MIDI in; feed(bytes) with its MIDI out, in any chunking
+// (whole messages reach the listeners)
+export function corePort({ name, send }) {
+  const subs = new Set();
+  let asm = new MidiAssembler();
+  return { name, send: (b) => send(b instanceof Uint8Array ? b : Uint8Array.from(b)),
+    listen(fn) { subs.add(fn); return () => subs.delete(fn); },
+    feed(bytes) { asm.push(bytes, (m) => subs.forEach((f) => f([...m]))); },
+    reset() { asm = new MidiAssembler(); } };
+}
 // send `msgs` in turn, then wait up to `ms` for a SA_INFO_R body that `want` accepts: that body, or null
-async function exchange(access, out, msgs, want, ms) {
-  const inp = inputOf(access, out);
-  if (!inp) return null;
+async function exchange(port, msgs, want, ms) {
   let done;
-  const got = new Promise((r) => { done = r; }), on = (e) => {
-    const d = [...e.data];
+  const got = new Promise((r) => { done = r; });
+  const stop = port && port.listen((d) => {
     if (d.length > 6 && SX.every((x, i) => d[i] === x) && d[4] === 0x4B) { const b = unpack7(d.slice(5, -1)); if (want(b)) done(b); }
-  };
-  inp.addEventListener("midimessage", on);
+  });
+  if (!stop) return null;
   try {
-    for (const m of msgs) out.send(m);
+    for (const m of msgs) port.send(m);
     return await Promise.race([got, new Promise((r) => setTimeout(() => r(null), ms))]);
-  } finally { inp.removeEventListener("midimessage", on); }
+  } finally { stop(); }
 }
 // BANKS, polled while busy (a bank still being written); null when the unit doesn't answer (0.3.0)
-export async function queryUserBanks(access, out, { tries = 15, wait = 200 } = {}) {
+export async function queryUserBanks(port, { tries = 15, wait = 200 } = {}) {
   let last = null;
   for (let t = 0; t < tries; t++) {
-    const b = await exchange(access, out, [infoMsg([0])], (x) => x[0] === 0, wait);
+    const b = await exchange(port, [infoMsg([0])], (x) => x[0] === 0, wait);
     if (!b) return last;
     last = parseBanksReply(b);
     if (last && !last.busy) return last;
@@ -102,39 +125,53 @@ export async function queryUserBanks(access, out, { tries = 15, wait = 200 } = {
 // a bank sent, into `slot` (0..15, replacing it: TARGET first) or where the unit puts it (slot null). The unit's
 // STORED: { slot, status } (status 0 stored; STATUS says the rest); null: no reply (0.3.0; a bank without a slot is
 // sent anyway, the screen confirms). Throws when a slot was asked of a unit that cannot take one.
-export async function sendCartTo(access, out, bytes, slot = null, { ms = 3000 } = {}) {
+export async function sendCartTo(port, bytes, slot = null, { ms = 3000 } = {}) {
   sendCart({ send() {} }, bytes);                  // (checked before anything goes out)
   if (slot != null) {
-    const r = await exchange(access, out, [infoMsg([2, slot])], (x) => x[0] === 2 && x[1] === slot, 1000);
+    const r = await exchange(port, [infoMsg([2, slot])], (x) => x[0] === 2 && x[1] === slot, 1000);
     if (!r) throw new Error("This FM-1 cannot replace a chosen bank: it needs RemoteFM1 0.3.1 or newer.");
     if (r[2]) return { slot, status: r[2] };
   }
-  const r = await exchange(access, out, [bytes], (x) => x[0] === 4, ms);
+  const r = await exchange(port, [bytes], (x) => x[0] === 4, ms);
   return r ? { slot: r[1], status: r[2] } : null;
 }
 // a bank removed: { slot, status } or null (no reply: 0.3.0 has no DELETE)
-export async function deleteBank(access, out, slot, { ms = 3000 } = {}) {
-  const r = await exchange(access, out, [infoMsg([3, slot])], (x) => x[0] === 3 && x[1] === slot, ms);
+export async function deleteBank(port, slot, { ms = 3000 } = {}) {
+  const r = await exchange(port, [infoMsg([3, slot])], (x) => x[0] === 3 && x[1] === slot, ms);
   return r ? { slot: r[1], status: r[2] } : null;
 }
 export const banksText = (info) => info && info.max
   ? `${info.names ? info.names.length : "?"} of ${info.max} USER banks stored; a new one goes to the first free slot, else replaces the oldest.`
   : `USER banks: ${BANKS_DEFAULT}; one more replaces the oldest.`;
 
-// ---- the sheet's part, under USE MY FM-1
-export function mountCart(slot, link, nav = globalThis.navigator) {
+// ---- the sheet's part, under USE MY FM-1; with inPage, the Editor panel's for RemoteFM1 running in this page
+//   inPage: { port: corePort(...), ready() -> bool (the firmware is running on an engine that takes SysEx) }
+const WORDS = {
+  fm1: { my: "my FM-1", your: "your FM-1", the: "the FM-1",
+    head: "Send a DX7 cartridge (a 32-voice .syx) to your FM-1 running RemoteFM1 0.3: it becomes a USER bank, after the ROM cartridges (GLO + SELECT).",
+    keep: "Installing ChoralRoot or the stock firmware erases them. Sending ends the player's link (the FM-1 keeps banks only as an instrument); a file with several banks: send each." },
+  page: { my: "RemoteFM1 here", your: "RemoteFM1 in this page", the: "RemoteFM1",
+    head: "Send a DX7 cartridge (a 32-voice .syx) to RemoteFM1 running in this page: it becomes a USER bank, after the ROM cartridges (GLO + SELECT).",
+    keep: "They are kept in this browser with RemoteFM1's flash (its Autosave, under Saves); nothing is uploaded. A file with several banks: send each." },
+};
+export function mountCart(slot, link, nav = globalThis.navigator, { inPage = null } = {}) {
+  const W = inPage ? WORDS.page : WORDS.fm1;
   const input = h("input", { type: "file", accept: ".syx,application/octet-stream", hidden: true });
   const pick = h("button", { class: "pill" }, "Choose a .syx file");
   const drop = h("div", { class: "cart-drop" }, pick, h("span", { class: "row-sub" }, " or drop it here"));
   const list = h("div", { class: "cart-list" });
   const line = h("p", { class: "remote-status small muted" });
   const say = (t, tone = "muted") => { line.textContent = t; line.className = "remote-status small " + tone; };
-  const notes = (info) => `${banksText(info)} Installing ChoralRoot or the stock firmware erases them. Sending ends the player's link (the FM-1 keeps banks only as an instrument); a file with several banks: send each.`;
+  const notes = (info) => `${banksText(info)} ${W.keep}`;
   const limits = h("p", { class: "note" }, notes(null));
   const stored = h("div", { class: "cart-list cart-stored" });
   let busy = false, chosen = null;
 
   async function port() {                          // the FM-1's output (USB first), the player's link ended
+    if (inPage) {
+      if (!inPage.ready()) throw new Error("RemoteFM1 is not running on the .rfm1 engine here: switch Engine to .rfm1.");
+      return inPage.port;
+    }
     if (!nav || !nav.requestMIDIAccess) throw new Error("This browser has no Web MIDI: use Chrome or Edge on a computer.");
     if (link && link.view().tone !== "off" && link.view().tone !== "bad") {
       say("Ending the player's link first: the FM-1 keeps banks only as an instrument...");
@@ -144,7 +181,7 @@ export function mountCart(slot, link, nav = globalThis.navigator) {
     const access = await nav.requestMIDIAccess({ sysex: true });
     const outs = fm1Outputs(access);
     if (!outs.length) throw new Error("No FM-1 MIDI port: plug it in (USB) with RemoteFM1 0.3 running.");
-    return { access, out: outs[0] };
+    return webMidiPort(access, outs[0]);
   }
   async function run(job) {
     if (busy) return;
@@ -155,11 +192,11 @@ export function mountCart(slot, link, nav = globalThis.navigator) {
     } finally { busy = false; }
   }
   // the stored banks (BANKS), each with Replace (the chosen file bank into its slot) and Delete
-  async function refresh({ access, out }) {
-    const info = await queryUserBanks(access, out).catch(() => null);
+  async function refresh(p) {
+    const info = await queryUserBanks(p).catch(() => null);
     limits.textContent = notes(info);
-    if (!info) { stored.replaceChildren(h("p", { class: "row-sub" }, "This FM-1 does not list its banks (RemoteFM1 0.3.0): Replace and Delete need 0.3.1.")); return info; }
-    stored.replaceChildren(h("div", { class: "row-sub" }, `On your FM-1: ${info.banks.length} of ${info.max} USER banks`),
+    if (!info) { stored.replaceChildren(h("p", { class: "row-sub" }, inPage ? "No answer to the bank list." : "This FM-1 does not list its banks (RemoteFM1 0.3.0): Replace and Delete need 0.3.1.")); return info; }
+    stored.replaceChildren(h("div", { class: "row-sub" }, `On ${W.your}: ${info.banks.length} of ${info.max} USER banks`),
       ...info.banks.map((b) => h("div", { class: "cart-slot" },
         h("span", {}, `USER${b.slot + 1} · ${b.name || "-"}`),
         h("button", { class: "pill", disabled: !chosen, title: chosen ? `Send ${chosen.label} into USER${b.slot + 1}` : "Choose a .syx file first", onclick: () => replace(b.slot) }, "Replace"),
@@ -169,22 +206,22 @@ export function mountCart(slot, link, nav = globalThis.navigator) {
   const result = (r, what) => !r ? null : r.status === 0 ? `${what}: done (USER${r.slot + 1}).` : `${what}: ${STATUS[r.status] || `status ${r.status}`}.`;
   const send = (bank, slot = null) => run(async (p) => {
     say(slot == null ? "Sending..." : `Sending into USER${slot + 1}...`);
-    const r = await sendCartTo(p.access, p.out, bank.bytes, slot);
-    if (r) say(result(r, `Sent to ${p.out.name}`) + (r.status ? "" : ` The FM-1 plays its first voice (${bank.names[0] || "voice 1"}).`), r.status ? "bad" : "ok");
-    else say(`Sent to ${p.out.name}. The FM-1 shows the new USER bank with its first voice selected (${bank.names[0] || "voice 1"}). Nothing on the screen? It needs RemoteFM1 0.3 or newer.`, "ok");
+    const r = await sendCartTo(p, bank.bytes, slot);
+    if (r) say(result(r, `Sent to ${p.name}`) + (r.status ? "" : ` ${W.the[0].toUpperCase() + W.the.slice(1)} plays its first voice (${bank.names[0] || "voice 1"}).`), r.status ? "bad" : "ok");
+    else say(`Sent to ${p.name}. The FM-1 shows the new USER bank with its first voice selected (${bank.names[0] || "voice 1"}). Nothing on the screen? It needs RemoteFM1 0.3 or newer.`, "ok");
     await refresh(p);
   });
   const replace = (slot) => chosen && send(chosen, slot);
   const remove = (slot, name) => {
-    if (globalThis.confirm && !globalThis.confirm(`Delete USER${slot + 1} (${name || "no name"}) from the FM-1?`)) return;
+    if (globalThis.confirm && !globalThis.confirm(`Delete USER${slot + 1} (${name || "no name"}) from ${W.the}?`)) return;
     run(async (p) => {
-      const r = await deleteBank(p.access, p.out, slot);
+      const r = await deleteBank(p, slot);
       say(result(r, `USER${slot + 1} deleted`) || "No reply: this FM-1 cannot delete banks (it needs RemoteFM1 0.3.1).", r && !r.status ? "ok" : "bad");
       await refresh(p);
     });
   };
-  const listBtn = h("button", { class: "pill" }, "Show the banks on my FM-1");
-  listBtn.addEventListener("click", () => run(async (p) => { say("Asking the FM-1..."); const i = await refresh(p); say(i ? "" : "No answer to the bank list.", i ? "muted" : "bad"); }));
+  const listBtn = h("button", { class: "pill" }, `Show the banks on ${W.my}`);
+  listBtn.addEventListener("click", () => run(async (p) => { say(`Asking ${W.the}...`); const i = await refresh(p); say(i ? "" : "No answer to the bank list.", i ? "muted" : "bad"); }));
 
   function show(name, buf) {
     const banks = parseCarts(new Uint8Array(buf)), good = banks.filter((b) => b.ok);
@@ -195,7 +232,7 @@ export function mountCart(slot, link, nav = globalThis.navigator) {
       ? h("div", { class: "cart-bank" },
           h("div", { class: "row-sub" }, `${b.label}${b.fixed ? " · checksum corrected" : ""}`),
           h("ol", { class: "cart-names" }, b.names.map((n) => h("li", {}, n || "-"))),
-          h("button", { class: "pill primary", onclick: () => send(b) }, "Send to my FM-1"),
+          h("button", { class: "pill primary", onclick: () => send(b) }, `Send to ${W.my}`),
           good.length > 1 ? (pickBtns[i] = h("button", { class: "pill", disabled: b === chosen, onclick: () => {
             chosen = b; pickBtns.forEach((x, j) => x && (x.disabled = banks[j] === chosen));
             stored.querySelectorAll("button").forEach((x) => { if (x.textContent === "Replace") x.disabled = false; });
@@ -212,7 +249,7 @@ export function mountCart(slot, link, nav = globalThis.navigator) {
   drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); load(e.dataTransfer.files[0]); });
 
   slot.append(h("div", { class: "cart" },
-    h("p", { class: "row-sub", style: { margin: "14px 0 6px" } }, "Send a DX7 cartridge (a 32-voice .syx) to your FM-1 running RemoteFM1 0.3: it becomes a USER bank, after the ROM cartridges (GLO + SELECT)."),
+    h("p", { class: "row-sub", style: { margin: inPage ? "0 0 6px" : "14px 0 6px" } }, W.head),
     drop, input, list, line, listBtn, stored,
     limits));
 }

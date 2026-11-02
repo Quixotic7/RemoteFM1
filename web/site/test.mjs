@@ -1384,26 +1384,44 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   };
   {
     const f = fake();
-    const info = await C.queryUserBanks(f.access, f.out, { wait: 50 });
+    const info = await C.queryUserBanks(C.webMidiPort(f.access, f.out), { wait: 50 });
     ok(info && info.max === 16 && info.banks.map((b) => `${b.slot}:${b.name}`).join() === "0:BANK A,4:BANK E" && info.next === 1 && info.banks[1].crc === 0x04030201,
        "cart: BANKS lists the stored banks by slot (gaps kept), their names and CRCs, the next free slot");
-    const r1 = await C.sendCartTo(f.access, f.out, one[0].bytes);
+    const r1 = await C.sendCartTo(C.webMidiPort(f.access, f.out), one[0].bytes);
     ok(r1 && r1.slot === 1 && r1.status === 0 && f.slots.get(1) === "VOICE 01" && f.log.at(-1).length === 4104,
        "cart: a plain send (no TARGET) goes where the unit puts it; STORED confirms it");
-    const r2 = await C.sendCartTo(f.access, f.out, one[0].bytes, 4);
+    const r2 = await C.sendCartTo(C.webMidiPort(f.access, f.out), one[0].bytes, 4);
     const t = C.unpack7(f.log.at(-2).slice(5, -1));
     ok(r2 && r2.slot === 4 && r2.status === 0 && f.slots.get(4) === "VOICE 01" && t[0] === 2 && t[1] === 4 && f.log.at(-2)[4] === 0x0B,
        "cart: Replace: TARGET 4, then the dump; STORED says slot 4");
-    const d = await C.deleteBank(f.access, f.out, 0), d2 = await C.deleteBank(f.access, f.out, 9);
+    const d = await C.deleteBank(C.webMidiPort(f.access, f.out), 0), d2 = await C.deleteBank(C.webMidiPort(f.access, f.out), 9);
     ok(d && d.status === 0 && !f.slots.has(0) && d2 && d2.status === 2 && /bad request/.test(C.STATUS[2]),
        "cart: Delete: DELETE's reply 0 (gone); an empty slot: 2");
-    const s = fake({ session: true }), r3 = await C.sendCartTo(s.access, s.out, one[0].bytes, 3);
+    const s = fake({ session: true }), r3 = await C.sendCartTo(C.webMidiPort(s.access, s.out), one[0].bytes, 3);
     ok(r3 && r3.status === 4 && !s.slots.has(3) && s.log.length === 1, "cart: in a session TARGET is refused (4) and the dump not sent");
     const old = fake({ answers: false });
-    const q = await C.queryUserBanks(old.access, old.out, { wait: 20 }), r4 = await C.sendCartTo(old.access, old.out, one[0].bytes, null, { ms: 30 });
-    let thr = false; try { await C.sendCartTo(old.access, old.out, one[0].bytes, 2); } catch (_) { thr = true; }
-    ok(q === null && r4 === null && old.log.at(-2).length === 4104 && thr && (await C.deleteBank(old.access, old.out, 0, { ms: 20 })) === null,
+    const q = await C.queryUserBanks(C.webMidiPort(old.access, old.out), { wait: 20 }), r4 = await C.sendCartTo(C.webMidiPort(old.access, old.out), one[0].bytes, null, { ms: 30 });
+    let thr = false; try { await C.sendCartTo(C.webMidiPort(old.access, old.out), one[0].bytes, 2); } catch (_) { thr = true; }
+    ok(q === null && r4 === null && old.log.at(-2).length === 4104 && thr && (await C.deleteBank(C.webMidiPort(old.access, old.out), 0, { ms: 20 })) === null,
        "cart: 0.3.0 (no replies): no list, a plain send still goes out (null: the screen confirms), Replace refused before the dump, Delete null");
+  }
+
+  // RemoteFM1 running in this page (the Editor button: editor-panel.js): the same sender through the in-page port, the
+  // core's MIDI in and out in USB-packet-sized pieces (engines/rfm1: rfm1_midi_in / rfm1_midi_out_take)
+  {
+    const { MidiAssembler, editorOf } = await import("./js/managers.js");
+    const f = fake(), asm = new MidiAssembler(), chunks = [];
+    const port = C.corePort({ name: "RemoteFM1 in this page", send: (b) => { chunks.push(b.length); for (let i = 0; i < b.length; i += 3) asm.push(b.subarray(i, i + 3), (m) => f.out.send(m)); } });
+    f.access.inputs.get("i").addEventListener("midimessage", (e) => { for (let i = 0; i < e.data.length; i += 3) port.feed(e.data.subarray(i, i + 3)); });
+    port.feed(Uint8Array.of(0xF0, 0x7D, 0x52));    // (half a message before a listener: dropped with reset)
+    port.reset();
+    const info = await C.queryUserBanks(port, { wait: 50 });
+    const r1 = await C.sendCartTo(port, one[0].bytes), r2 = await C.sendCartTo(port, one[0].bytes, 4), d = await C.deleteBank(port, 0);
+    ok(info && info.banks.map((b) => `${b.slot}:${b.name}`).join() === "0:BANK A,4:BANK E" && r1 && r1.slot === 1 && r1.status === 0 && f.slots.get(1) === "VOICE 01"
+       && r2 && r2.slot === 4 && f.slots.get(4) === "VOICE 01" && d && d.status === 0 && !f.slots.has(0) && chunks.includes(4104),
+       "cart, in this page: BANKS, a plain send (STORED), Replace and Delete through the core's MIDI in and out");
+    ok(editorOf({ id: "remotefm1", engines: ["rfm1", "emu"] }, { managers: [] })?.kind === "cart" && editorOf({ id: "remotefm1" }, null)?.kind === "cart",
+       "cart, in this page: RemoteFM1's Editor is the cartridge sender");
   }
 }
 
@@ -1457,7 +1475,8 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   const dir = new URL(`./.test-fw-${process.pid}/`, import.meta.url), dirPath = fileURLToPath(dir);
   mkdirSync(dir, { recursive: true });
   const files = { "sloop-9.9.rfm1": withManifest({ id: "sloop", name: "SLOOP", version: "9.9" }), "jiant-0.0.1.rfm1": withManifest({ id: "jiant", name: "JIANT FM", version: "0.0.1" }),
-    "clipper-1.3.rfm1": withManifest({ id: "clipper", name: "Clipper", version: "1.3" }), "zzz-0.1.rfm1": withManifest({ id: "zzz", name: "Zzz", version: "0.1" }), "s1vave-1.0.rfm1": src };
+    "clipper-1.3.rfm1": withManifest({ id: "clipper", name: "Clipper", version: "1.3" }), "zzz-0.1.rfm1": withManifest({ id: "zzz", name: "Zzz", version: "0.1" }), "s1vave-1.0.rfm1": src,
+    "remotefm1-0.3.1.rfm1": withManifest({ id: "remotefm1", name: "RemoteFM1", version: "0.3.1", license: "MPL-2.0" }) };
   let sums = "";
   for (const [n, b] of Object.entries(files)) { writeFileSync(new URL(n, dir), b); sums += `${createHash("sha256").update(b).digest("hex")}  ${n}\n`; }
   writeFileSync(new URL("SHA256SUMS", dir), sums);
@@ -1466,8 +1485,13 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   const log = execFileSync(process.execPath, [bc, "--fw-catalog", dirPath, "--out", out], { encoding: "utf8" });
   const c = JSON.parse(readFileSync(out, "utf8")), by = new Map(c.firmwares.map((f) => [f.id, f])), rel = `.test-fw-${process.pid}`;
   const sl = by.get("sloop"), ji = by.get("jiant"), cl = by.get("clipper"), zz = by.get("zzz"), s1 = by.get("s1vave");
-  ok(c.firmwares.length === cat.firmwares.length + 2 && c.fwCatalog.tag === "fixture" && /5 \.rfm1 files, 2 new entries, 2 merged, 1 kept/.test(log),
-     "fw catalog: five files -> two new entries, two merged, S1Vave's own kept");
+  ok(c.firmwares.length === cat.firmwares.length + 2 && c.fwCatalog.tag === "fixture" && /6 \.rfm1 files, 2 new entries, 3 merged, 1 kept/.test(log),
+     "fw catalog: six files -> two new entries, three merged, S1Vave's own kept");
+  const rf = by.get("remotefm1");
+  ok(c.firmwares.filter((f) => f.id === "remotefm1").length === 1 && rf.engines.join() === "rfm1,emu" && rf.defaultEngine === "rfm1" && rf.badge === "meta"
+     && rf.emu.from === "site" && rf.rfm1.file === `${rel}/remotefm1-0.3.1.rfm1` && L.siteRfm1(rf)
+     && L.mergeLive(c, { firmwares: [{ id: "remotefm1", name: "Impostor", version: "9.9", pkg: "fw/x.fwsc", sha256: "c".repeat(64) }] }).firmwares.find((f) => f.id === "remotefm1") === rf,
+     "fw catalog: RemoteFM1's own .rfm1 joins its meta entry (rfm1 the default, its package emulated), one entry; the live merge keeps it");
   ok(sl.defaultEngine === "rfm1" && sl.engines.join() === "rfm1,emu" && sl.rfm1.file === `${rel}/sloop-9.9.rfm1` && sl.rfm1.version === "9.9" && L.siteRfm1(sl) && sl.emu.pkg,
      "fw catalog: a newer .rfm1 of a Hub firmware is its default; the Hub's package stays emulated");
   ok(ji.defaultEngine === by.get("jiant").defaultEngine && ji.defaultEngine !== "rfm1" && ji.engines.at(-1) === "rfm1" && ji.native,
@@ -1488,8 +1512,8 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   const fwSums = new Map(Object.entries(files).map(([n, b]) => [`${rel}/${n}`, createHash("sha256").update(b).digest("hex")]));
   const g = (cc, have = () => true, sha = (p) => fwSums.get(p)) => G.guardSite({ catalog: cc, has: have, expected: [], managers: { managers: [] }, sha, fwSums }).errors.filter((e) => /RemoteFM1FW/.test(e));
   ok(g(c).length === 0 && g({ ...c, firmwares: c.firmwares.filter((f) => f.id !== "zzz") }).some((e) => /zzz-0\.1\.rfm1 \(RemoteFM1FW\) has no catalog entry/.test(e))
-     && g(c, (p) => !/clipper/.test(p)).some((e) => /clipper-1\.3\.rfm1 .* not in the site/.test(e)) && g(c, () => true, () => "0".repeat(64)).length === 5
-     && G.fwSumsOf(dirPath + "/..", rel).size === 5,
+     && g(c, (p) => !/clipper/.test(p)).some((e) => /clipper-1\.3\.rfm1 .* not in the site/.test(e)) && g(c, () => true, () => "0".repeat(64)).length === 6
+     && G.fwSumsOf(dirPath + "/..", rel).size === 6,
      "guard: RemoteFM1FW's files: each there, at its SHA256SUMS hash, and listed");
   // fetch_fw_catalog --from: checked against SHA256SUMS; a bad hash writes nothing
   const ff = fileURLToPath(new URL("./tools/fetch_fw_catalog.mjs", import.meta.url)), fout = join(tmpdir(), `fwfetch-${process.pid}`);
@@ -1497,7 +1521,7 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   writeFileSync(new URL("zzz-0.1.rfm1", dir), Buffer.from("bad"));
   let bad = "";
   try { execFileSync(process.execPath, [ff, "--from", dirPath, "--out", fout + "-bad"], { encoding: "utf8", stdio: "pipe" }); } catch (e) { bad = String(e.stderr); }
-  ok(/5 \.rfm1 files/.test(r1) && existsSync(join(fout, "release.json")) && /zzz-0\.1\.rfm1: SHA-256 .* SHA256SUMS says/.test(bad) && !existsSync(fout + "-bad"),
+  ok(/6 \.rfm1 files/.test(r1) && existsSync(join(fout, "release.json")) && /zzz-0\.1\.rfm1: SHA-256 .* SHA256SUMS says/.test(bad) && !existsSync(fout + "-bad"),
      "fetch_fw_catalog: --from copies and checks; a file not its SHA256SUMS line fails, writing nothing");
   // the browser: native (.rfm1 / native core) first, the emulated-only (.fwsc) below
   const sec = L.browseSections(c.firmwares);
