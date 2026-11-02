@@ -1476,7 +1476,8 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   mkdirSync(dir, { recursive: true });
   const files = { "sloop-9.9.rfm1": withManifest({ id: "sloop", name: "SLOOP", version: "9.9" }), "jiant-0.0.1.rfm1": withManifest({ id: "jiant", name: "JIANT FM", version: "0.0.1" }),
     "clipper-1.3.rfm1": withManifest({ id: "clipper", name: "Clipper", version: "1.3" }), "zzz-0.1.rfm1": withManifest({ id: "zzz", name: "Zzz", version: "0.1" }), "s1vave-1.0.rfm1": src,
-    "remotefm1-0.3.1.rfm1": withManifest({ id: "remotefm1", name: "RemoteFM1", version: "0.3.1", license: "MPL-2.0" }) };
+    "remotefm1-0.3.1.rfm1": withManifest({ id: "remotefm1", name: "RemoteFM1", version: "0.3.1", license: "MPL-2.0" }),
+    "hortator-0.26.0.rfm1": withManifest({ id: "hortator", name: "Hortator", version: "0.26.0" }) };
   let sums = "";
   for (const [n, b] of Object.entries(files)) { writeFileSync(new URL(n, dir), b); sums += `${createHash("sha256").update(b).digest("hex")}  ${n}\n`; }
   writeFileSync(new URL("SHA256SUMS", dir), sums);
@@ -1484,16 +1485,17 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   // its catalog/catalog.json (fetch_fw_catalog.mjs puts it beside the files): editors and USB port names by id
   writeFileSync(new URL("catalog.json", dir), JSON.stringify({ schema: 1, firmwares: {
     zzz: { editor: "https://z.example/webapp/editor/", port: "Zzz FM-1" }, clipper: { editor: "https://c.example/editor/", port: "Clipper" },
-    skiff: { editor: "https://illuminus5.github.io/skiff/webapp/editor/", port: "Felucca" }, sloop: { port: "bad\u0001port", editor: "javascript:alert(1)" } } }));
+    skiff: { editor: "https://illuminus5.github.io/skiff/webapp/editor/", port: "Felucca" }, sloop: { port: "bad\u0001port", editor: "javascript:alert(1)" },
+    hortator: { editor: "https://deadactive.github.io/hortator/webapp/editor/", port: "Hortator" } } }));
   const out = join(tmpdir(), `fwcat-${process.pid}.json`), bc = fileURLToPath(new URL("./tools/build_catalog.mjs", import.meta.url));
   const log = execFileSync(process.execPath, [bc, "--fw-catalog", dirPath, "--out", out], { encoding: "utf8" });
   const c = JSON.parse(readFileSync(out, "utf8")), by = new Map(c.firmwares.map((f) => [f.id, f])), rel = `.test-fw-${process.pid}`;
   const sl = by.get("sloop"), ji = by.get("jiant"), cl = by.get("clipper"), zz = by.get("zzz"), s1 = by.get("s1vave");
-  ok(c.firmwares.length === cat.firmwares.length + 2 && c.fwCatalog.tag === "fixture" && /6 \.rfm1 files, 2 new entries, 3 merged, 1 kept/.test(log),
-     "fw catalog: six files -> two new entries, three merged, S1Vave's own kept");
+  ok(c.firmwares.length === cat.firmwares.length + 2 && c.fwCatalog.tag === "fixture" && /7 \.rfm1 files, 2 new entries, 4 merged, 1 kept/.test(log),
+     "fw catalog: seven files -> two new entries, four merged, S1Vave's own kept");
   ok(zz.editor === "https://z.example/webapp/editor/" && zz.port === "Zzz FM-1" && cl.port === "Clipper" && cl.editor === "https://c.example/editor/"
      && by.get("skiff").editor === "https://illuminus5.github.io/skiff/" && by.get("skiff").liveEditor === "https://illuminus5.github.io/skiff/webapp/editor/"
-     && sl.port === undefined && sl.editor === "https://isod89.github.io/sloop-fm1/webapp/editor/" && /RemoteFM1FW's catalog: 2 editors filled in, 3 ports/.test(log),
+     && sl.port === undefined && sl.editor === "https://isod89.github.io/sloop-fm1/webapp/editor/" && /RemoteFM1FW's catalog: 2 editors filled in, 4 ports/.test(log),
      "fw catalog: RemoteFM1FW's catalog.json: an editor where none, liveEditor where the Hub's differs, the port; junk left out");
   const rf = by.get("remotefm1");
   ok(c.firmwares.filter((f) => f.id === "remotefm1").length === 1 && rf.engines.join() === "rfm1,emu" && rf.defaultEngine === "rfm1" && rf.badge === "meta"
@@ -1507,6 +1509,18 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   ok(cl.engines.join() === "rfm1" && cl.category === "Groovebox" && cl.author === "isod89" && cl.release === c.fwCatalog.url
      && zz.category === "Other" && /Zzz by /.test(zz.what), "fw catalog: a new firmware: data/fw-catalog.json's card text, else Other");
   ok(s1.rfm1.file === "fw/s1vave-1.0.rfm1", "fw catalog: the same version as the site's own .rfm1: the committed one, no duplicate");
+  // data/fw-catalog.json: "editors" null is no editor at all (Hortator: its firmware has no editor service), over
+  // RemoteFM1FW's and the same-repo one, its port kept; "ports" for the site's own FIZZ, with its editor
+  {
+    const { editorOf, portOf } = await import("./js/managers.js");
+    const ho = by.get("hortator"), fz = by.get("fizz"), mi = { managers: [{ id: "sloop", firmwares: ["sloop"] }], ports: {} };
+    ok(ho && ho.editor === null && !("liveEditor" in ho) && ho.port === "Hortator" && editorOf(ho, mi) === null && editorOf(ho, null) === null
+       && fz.editor === "https://quixotic7.github.io/FIZZ/manager/" && fz.port === "FIZZ FM-1" && editorOf(fz, mi)?.kind === "real" && portOf(fz, mi) === "FIZZ FM-1",
+       "fw catalog: editors null: Hortator gets no editor (no Editor button), its port stays; FIZZ's editor and port from data/fw-catalog.json");
+    const gm = (has) => G.guardSite({ catalog: c, has, expected: [], managers: { managers: [{ id: "md", path: "md/#device-editor" }] } }).errors.filter((e) => /manager md/.test(e));
+    ok(gm(() => true).length === 0 && gm((p) => p !== `${c.paths.managers || "managers/"}md/index.html`).length === 1,
+       "guard: a manager opened at a fragment (managers.json open): its page is md/index.html");
+  }
   // live merge: the Hub's catalog over it keeps the .rfm1 the default while it is the Hub's version or newer
   const hubOf = (v) => ({ firmwares: [{ id: "sloop", name: "SLOOP", version: v, pkg: "fw/sloop.fwsc", sha256: "ab".repeat(32), kind: "groove" }] });
   ok(L.mergeLive(c, hubOf("2.7.1")).firmwares.find((f) => f.id === "sloop").defaultEngine === "rfm1"
@@ -1520,8 +1534,8 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   const fwSums = new Map(Object.entries(files).map(([n, b]) => [`${rel}/${n}`, createHash("sha256").update(b).digest("hex")]));
   const g = (cc, have = () => true, sha = (p) => fwSums.get(p)) => G.guardSite({ catalog: cc, has: have, expected: [], managers: { managers: [] }, sha, fwSums }).errors.filter((e) => /RemoteFM1FW/.test(e));
   ok(g(c).length === 0 && g({ ...c, firmwares: c.firmwares.filter((f) => f.id !== "zzz") }).some((e) => /zzz-0\.1\.rfm1 \(RemoteFM1FW\) has no catalog entry/.test(e))
-     && g(c, (p) => !/clipper/.test(p)).some((e) => /clipper-1\.3\.rfm1 .* not in the site/.test(e)) && g(c, () => true, () => "0".repeat(64)).length === 6
-     && G.fwSumsOf(dirPath + "/..", rel).size === 6,
+     && g(c, (p) => !/clipper/.test(p)).some((e) => /clipper-1\.3\.rfm1 .* not in the site/.test(e)) && g(c, () => true, () => "0".repeat(64)).length === 7
+     && G.fwSumsOf(dirPath + "/..", rel).size === 7,
      "guard: RemoteFM1FW's files: each there, at its SHA256SUMS hash, and listed");
   // fetch_fw_catalog --from: checked against SHA256SUMS; a bad hash writes nothing
   const ff = fileURLToPath(new URL("./tools/fetch_fw_catalog.mjs", import.meta.url)), fout = join(tmpdir(), `fwfetch-${process.pid}`);
@@ -1529,7 +1543,7 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   writeFileSync(new URL("zzz-0.1.rfm1", dir), Buffer.from("bad"));
   let bad = "";
   try { execFileSync(process.execPath, [ff, "--from", dirPath, "--out", fout + "-bad"], { encoding: "utf8", stdio: "pipe" }); } catch (e) { bad = String(e.stderr); }
-  ok(/6 \.rfm1 files/.test(r1) && existsSync(join(fout, "release.json")) && JSON.parse(readFileSync(join(fout, "catalog.json"), "utf8")).firmwares.zzz.port === "Zzz FM-1" && /zzz-0\.1\.rfm1: SHA-256 .* SHA256SUMS says/.test(bad) && !existsSync(fout + "-bad"),
+  ok(/7 \.rfm1 files/.test(r1) && existsSync(join(fout, "release.json")) && JSON.parse(readFileSync(join(fout, "catalog.json"), "utf8")).firmwares.zzz.port === "Zzz FM-1" && /zzz-0\.1\.rfm1: SHA-256 .* SHA256SUMS says/.test(bad) && !existsSync(fout + "-bad"),
      "fetch_fw_catalog: --from copies and checks; a file not its SHA256SUMS line fails, writing nothing");
   // the browser: native (.rfm1 / native core) first, the emulated-only (.fwsc) below
   const sec = L.browseSections(c.firmwares);

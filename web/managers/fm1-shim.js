@@ -38,6 +38,8 @@
   const me = doc && doc.currentScript;
   const MANAGER = (me && me.dataset && me.dataset.manager) || "";
   const UPSTREAM = (me && me.dataset && me.dataset.upstream) || "";
+  // (a hosted copy's own files, where build.mjs names them: a link to another file of its folder opens on its own site)
+  const LOCAL = me && me.dataset && me.dataset.local ? me.dataset.local.split(" ").filter(Boolean) : null;
   const SANDBOX = !!(me && me.dataset && me.dataset.transport === "sandbox") && !!G.parent && G.parent !== G;
   const CHANNEL = "remotefm1-managers";
   const HELLO_WAIT_MS = 700;
@@ -288,7 +290,14 @@
         G.open(u.href, "_blank", "noopener");
         return;
       }
-      if (u.origin !== G.location.origin || u.pathname.startsWith(folder.pathname)) return;
+      if (u.origin !== G.location.origin) return;
+      if (u.pathname.startsWith(folder.pathname)) {
+        const rel = decodeURIComponent(u.pathname.slice(folder.pathname.length)) || "index.html";
+        if (!LOCAL || LOCAL.includes(rel)) return;
+        e.preventDefault();
+        G.open(new URL(rel + u.search + u.hash, UPSTREAM).href, "_blank", "noopener");
+        return;
+      }
       e.preventDefault();
       G.open(new URL(raw, UPSTREAM).href, "_blank", "noopener");
     }, true);

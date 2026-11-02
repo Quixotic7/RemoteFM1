@@ -18,7 +18,8 @@
 #                                                                release releases.json lists, checked against SHA256SUMS)
 #   installer/smk37/                                             the SMK-37 test installer (docs/SMK37.md): linked from no page,
 #                                                                noindex; its packages checked against its SHA256SUMS
-#   managers/<id>/ fm1-shim.js index.json                         the firmwares' own managers, hosted (web/managers; FM1VST's core trees)
+#   managers/<id>/ fm1-shim.js index.json                         the firmwares' own managers, hosted (web/managers; FM1VST's core trees, or
+#                                                                their repositories at a pinned commit)
 #   engines/native/ext/<id>/<version>/                           firmware authors' own native builds, checked (web/site/tools/native_sync.mjs)
 #   native/                                                      how authors publish one (web/site/native, docs/NATIVE-AUTHORS.md)
 # A part whose sources are missing is skipped: the page then falls back to its test engine for that engine, or keeps
@@ -219,7 +220,9 @@ jobs:
                 web/installer/smk37/firmware _site/installer/smk37/
           (cd _site/installer/smk37/firmware && sha256sum -c SHA256SUMS)
           # the firmwares' own managers / editors (web/managers/build.mjs), copied from FM1VST's core trees at the commit it
-          # pins, each with its licence, its source link and the player's Web MIDI shim; none of theirs is in this repo
+          # pins, or fetched from their GitHub repositories at the commit managers.json pins (raw.githubusercontent.com:
+          # a source it cannot reach is a warning, that manager left out), each with its licence, its source link and the
+          # player's Web MIDI shim; none of theirs is in this repo
           node web/managers/build.mjs --cores web/vendor/FM1VST/cores --out _site/managers
           # what is deployed: the commit and the catalog's hash (the nightly run compares them: release_report.mjs)
           node web/site/tools/release_report.mjs --catalog _site/catalog.json --stamp _site/deployed.json --commit "${{ github.sha }}"

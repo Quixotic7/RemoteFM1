@@ -281,5 +281,42 @@ function fakeStorage() {
   ok(tok && got && got.url === up && takePop(tok, ls) === null && takePop("../evil", ls) === null, "pop out: the token hands the page over once; nothing else opens");
 }
 
+// ---- build.mjs: a manager from a GitHub repository at a pinned commit (managers.json "git"): its page, files and
+// licence files fetched from --git-raw (here a local server standing in for raw.githubusercontent.com), the shim's
+// data-local, "open" in index.json's path, NOTICE.txt; an unreachable source is a warning and the build goes on
+{
+  const { mkdtempSync, writeFileSync, readFileSync: rd, existsSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { execFile } = await import("node:child_process");
+  const http = await import("node:http");
+  const C = "0123456789abcdef0123456789abcdef01234567";
+  const tree = { [`/own/repo/${C}/site/Page.html`]: `<!doctype html><html><meta charset="utf-8"><title>p</title><a href="Install.html">i</a>`,
+                 [`/own/repo/${C}/site/app.js`]: "app()", [`/own/repo/${C}/LICENSE`]: "GPL text", [`/own/repo/${C}/LICENSE-MIT.txt`]: "MIT text" };
+  const asked = [];
+  const srv = http.createServer((q, r) => { asked.push(q.url); const b = tree[q.url]; r.writeHead(b ? 200 : 404); r.end(b || ""); });
+  await new Promise((res) => srv.listen(0, "127.0.0.1", res));
+  const tmp = mkdtempSync(join(tmpdir(), "mgr-git-")), spec = join(tmp, "managers.json");
+  const entry = (id, more = {}) => ({ id, title: "T", firmwares: [id], git: { repo: "https://github.com/own/repo", commit: C }, page: "site/Page.html",
+    files: ["site/app.js"], licenceFiles: ["LICENSE", "LICENSE-MIT.txt", "LICENSING.md"], licence: "GPL-3.0-only", author: "A", repo: "https://github.com/own/repo",
+    upstream: "https://own.example/", live: false, ...more });
+  writeFileSync(spec, JSON.stringify({ ports: {}, managers: [entry("gm", { open: "#ed" }), entry("bad", { git: { repo: "https://github.com/own/repo", commit: "main" } })] }));
+  const build = (raw, out) => new Promise((res) => execFile(process.execPath, [new URL("./build.mjs", import.meta.url).pathname, "--spec", spec, "--out", out,
+    "--git-cache", join(out, "cache"), "--git-raw", raw], (e, so, se) => res({ code: e ? e.code : 0, log: so + se })));
+  const r1 = await build(`http://127.0.0.1:${srv.address().port}`, join(tmp, "a"));
+  srv.close();
+  const dir = join(tmp, "a", "gm"), idx = JSON.parse(rd(join(tmp, "a", "index.json"), "utf8")), m = idx.managers.find((x) => x.id === "gm");
+  const page = existsSync(join(dir, "index.html")) ? rd(join(dir, "index.html"), "utf8") : "";
+  ok(r1.code === 0 && m && m.path === "gm/#ed" && m.commit === C && m.git === "https://github.com/own/repo" && m.source === `https://github.com/own/repo/tree/${C}`
+     && page.includes(`<meta charset="utf-8">\n<script src="../fm1-shim.js" data-manager="gm" data-upstream="https://own.example/" data-local="index.html app.js LICENSE LICENSE-MIT.txt NOTICE.txt"></script>`)
+     && rd(join(dir, "app.js"), "utf8") === "app()" && rd(join(dir, "LICENSE-MIT.txt"), "utf8") === "MIT text" && !existsSync(join(dir, "LICENSING.md"))
+     && /Source: https:\/\/github.com\/own\/repo\/tree\/0123456/.test(rd(join(dir, "NOTICE.txt"), "utf8")) && asked.every((u) => u.includes(`/own/repo/${C}/`)),
+     "build.mjs git: page, files and licences fetched at the commit, shim with data-local, open fragment in the path, NOTICE");
+  ok(!idx.managers.some((x) => x.id === "bad") && /bad: its source .*not a GitHub repository and a full commit.*skipped/.test(r1.log), "build.mjs git: a commit that is not 40 hex: skipped, a warning");
+  const r2 = await build("http://127.0.0.1:1", join(tmp, "b"));
+  ok(r2.code === 0 && JSON.parse(rd(join(tmp, "b", "index.json"), "utf8")).managers.length === 0 && /gm: its source https:\/\/github.com\/own\/repo@0123456 could not be fetched/.test(r2.log),
+     "build.mjs git: an unreachable source is a warning; the build goes on (exit 0)");
+}
+
 console.log(`\n${checks - fails} / ${checks} checks passed`);
 process.exit(fails ? 1 : 0);

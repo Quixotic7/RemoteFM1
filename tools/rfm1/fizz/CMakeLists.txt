@@ -42,16 +42,24 @@ set(_qd_sources ../app/app.c ../app/ctl.c ../app/ctl_step.c ../app/ctl_rec.c ../
                 ../seq/scale.c ../seq/sounds.c ../seq/clip.c
                 ../voice/quad/quad_voice.c ../voice/pool.c ../voice/mix.c ../voice/fx/qd_fx.c)
 file(RELATIVE_PATH _qd_desc ${_qd_glue} ${CMAKE_CURRENT_LIST_DIR}/fizz_desc.c)
+# the unit: FIZZ's core_quadrille.c with the M-UPGRADE identity a FIZZ unit answers (fizz_unit.c says why);
+# felucca-bsp's chip/ (its ota.c) and build_fizz.sh's generated fizz_package_id.h on the include path
+set(FELUCCA_BSP_DIR "" CACHE PATH "felucca-bsp at the commit FIZZ's fm1-base pins (its chip/ota.c)")
+set(FIZZ_GEN_DIR "" CACHE PATH "build_fizz.sh's fizz_package_id.h")
+if(NOT EXISTS ${FELUCCA_BSP_DIR}/chip/ota.c OR NOT EXISTS ${FIZZ_GEN_DIR}/fizz_package_id.h)
+    message(FATAL_ERROR "run tools/rfm1/build_fizz.sh (FELUCCA_BSP_DIR ${FELUCCA_BSP_DIR}, FIZZ_GEN_DIR ${FIZZ_GEN_DIR})")
+endif()
+file(RELATIVE_PATH _qd_unit ${_qd_glue} ${CMAKE_CURRENT_LIST_DIR}/fizz_unit.c)
 set(FIZZ_VERSION "" CACHE STRING "FIZZ's version (its release tag without the v)")
 fm1_add_core(fizz ${_qd_glue} SOURCE ${_qd}
-             UNIT core_quadrille.c DESC ${_qd_desc}
+             UNIT ${_qd_unit} DESC ${_qd_desc}
              EXTRA_SOURCES ${_qd_sources} ${_qd_pvg_sources}
              INCLUDES ${_qd_glue} ${_qd}/core ${_qd}/core/app ${_qd}/core/ui ${_qd}/core/gfx ${_qd}/core/seq
                       ${_qd}/core/voice ${_qd}/core/voice/quad ${_qd}/core/voice/fx ${_qd}/third_party/plutovg/include
-                      ${_qd_pvg}
+                      ${_qd_pvg} ${FELUCCA_BSP_DIR}/chip ${FIZZ_GEN_DIR}
              DEFINES PLUTOVG_BUILD PLUTOVG_BUILD_STATIC PLUTOVG_DISABLE_FONT_FACE_CACHE_LOAD
              FAMILY fizz LICENSE MPL-2.0
-             CREDITS "FIZZ, an FM TONE step sequencer for the FM-1, by Michael P Jones (Quixotic7). MPL-2.0, the source: https://github.com/Quixotic7/FIZZ (LICENSING.md says what is under which licence).\nFM TONE, the effects and the output chain: from ChoralRoot FM-1 v0.25.1, the owner's, relicensed MPL-2.0, and the parts that came from Felucca were rewritten (L1).\nDrawn with plutovg v1.3.3 (Samuel Ugochukwu, MIT), which carries stb_truetype, stb_image and stb_image_write (Sean Barrett, MIT or Unlicense). Portions of this software are copyright (c) 2006 The FreeType Project (www.freetype.org). All rights reserved.\nType: Inter Tight (The Inter Project Authors, SIL Open Font License 1.1).\nThis .rfm1: FIZZ's core built to WebAssembly by RemoteFM1 (tools/rfm1/build_fizz.sh, https://github.com/Quixotic7/RemoteFM1) with FM1VST's core glue (GPL-3.0-only) and Emscripten's runtime (MIT, with musl libc, MIT). Its plutovg-ft-raster.c has one change, for WebAssembly: the render pool's overflow without setjmp (tools/rfm1/fizz/plutovg-ft-raster-wasm.patch, FTL)."
+             CREDITS "FIZZ, an FM TONE step sequencer for the FM-1, by Michael P Jones (Quixotic7). MPL-2.0, the source: https://github.com/Quixotic7/FIZZ (LICENSING.md says what is under which licence).\nFM TONE, the effects and the output chain: from ChoralRoot FM-1 v0.25.1, the owner's, relicensed MPL-2.0, and the parts that came from Felucca were rewritten (L1).\nDrawn with plutovg v1.3.3 (Samuel Ugochukwu, MIT), which carries stb_truetype, stb_image and stb_image_write (Sean Barrett, MIT or Unlicense). Portions of this software are copyright (c) 2006 The FreeType Project (www.freetype.org). All rights reserved.\nType: Inter Tight (The Inter Project Authors, SIL Open Font License 1.1).\nThis .rfm1: FIZZ's core built to WebAssembly by RemoteFM1 (tools/rfm1/build_fizz.sh, https://github.com/Quixotic7/RemoteFM1) with FM1VST's core glue (GPL-3.0-only) and Emscripten's runtime (MIT, with musl libc, MIT). Its plutovg-ft-raster.c has one change, for WebAssembly: the render pool's overflow without setjmp (tools/rfm1/fizz/plutovg-ft-raster-wasm.patch, FTL). The M-UPGRADE identity (FIZZ's web manager finds the unit by it): felucca-bsp's chip/ota.c (Leo Kuroshita, Hügelton Instruments, MPL-2.0), as on the device, through FM1VST's sysex_ota.h (tools/rfm1/fizz/fizz_unit.c)."
              CREDITS_FILES ./LICENSE third_party/plutovg/LICENSE third_party/plutovg/source/FTL.TXT assets/fonts/OFL.txt
              NO_GEN
              VERSION ${FIZZ_VERSION})

@@ -7,13 +7,17 @@
 //           editors: Restore backup, then Save backup again: the same archive; ChoralRoot: Place a pack sound, read back)
 //   double  the same through the shim and the bridge, with the manager's own simulator standing in for the core
 //           (Felucca editors: their makeMockDevice; ChoralRoot: fm1manager.js makeSimFM1): the whole UI path, today
+//   git     a manager build.mjs fetched from its repository (index.json "git"): S1Vave's editor (READ SYNTH, its CC 119
+//           dump; a slider's CC read back by the next dump), Mutable Dreams' (#device-connect; the tempo slider read
+//           back by its live-state poll; Back up all device banks: the .mddb; its restore asks for SEL on the unit: not
+//           tried)
 //   PIGEON (engine only: its loader has no simulator): a fresh PIGEON is silent; the sample loader connects (negotiate,
 //           INFO), opens FM1VST's test bank (tests/fixtures/pigeon/bank.kob), sends it (Send bank, verified by its
 //           read-back), and then the keys sound (the player's output, through an AnalyserNode)
 //   --live  the author's live editor page instead of the hosted copy (engine mode; web/site/js/live-editor.js): fetched
 //           from the author's site (the network), in the panel's sandboxed iframe (an opaque origin, reached here through
-//           its own execution context), then the same checks; ids without a hosted manager too (rainbow, hortator: their
-//           catalog editor, on --engine rfm1); popped out: managers/live.html relays it to the player tab. A page that
+//           its own execution context), then the same checks; ids without a hosted manager too (rainbow, fizz: their
+//           catalog editor, on --engine rfm1; FIZZ's manager: its port scan, then #fm1); popped out: managers/live.html relays it to the player tab. A page that
 //           falls back to the hosted copy is reported (its reason), not failed
 //           Without --live the hosted copies are tested: the player is told to prefer them (its "Use hosted copy").
 // Screenshots: web/build/test/editor-<id>-<mode>.png (and SHOTS_DIR when set).
@@ -90,6 +94,9 @@ const hex = (a) => (a ? Array.from(a.slice ? a.slice(0, 12) : a, (v) => v.toStri
 const FR = `var F = document.querySelector(".ed-frame") && document.querySelector(".ed-frame").contentWindow;`;
 const felucca = (id) => id !== "choralroot";
 const PREF = (id) => `remotefm1-editor-src:${id}`;
+// (a known reason a manager gets no answer yet, said instead of the generic one)
+const BLOCKED = { mutabledreams: "blocked on the .rfm1 identity fix: mutabledreams-1.4.rfm1 answers the M-UPGRADE handshake with \"FM-1_7\" and fill, not its package identity, and does not answer the remote panel (7D 4C 43)" };
+const GIT = new Set(INDEX.managers.filter((m) => m.git).map((m) => m.id));     // (build.mjs: from a repository at a commit)
 
 // the execution contexts of a page and of its frames (a sandboxed srcdoc iframe may be a process of its own, an OOPIF:
 // auto-attached; or a context of the page's own session): evaluate in the newest frame context of an opaque origin
@@ -264,12 +271,27 @@ async function session(id, mode) {
     const felucca2 = felucca(id) && await evF(`!F.document.getElementById("version") && !!F.document.getElementById("state-t")`);
     // (an editor this test does not know (a live page only: GR!MM, Caravel, DUELL ...): its own Connect button, if it has
     // one; it answered when the firmware's replies reached it and its page shows the firmware's version)
-    const generic = LIVE && felucca(id) && !felucca2 && await evF(`!F.document.getElementById("version") || !F.document.getElementById("status")`);
-    if (generic) {
-      await evF(`(() => { const b = F.document.getElementById("connect") || [...F.document.querySelectorAll("button")].find((x) => /^\\s*connect/i.test(x.textContent)); if (b) b.click(); return !!b; })()`);
-      answered = !!(await until(`FM1Editor.bridge.stats.toManagers > 0 || null`, 9000));
+    // (hosted, a git-sourced one: S1Vave's editor (no Connect: it finds the port; READ SYNTH asks for a CC dump, CC 119),
+    // Mutable Dreams' (#device-connect, then "Connected to <id>" in #device-status))
+    const generic = (LIVE || GIT.has(id)) && felucca(id) && !felucca2 && await evF(`!F.document.getElementById("version") || !F.document.getElementById("status")`);
+    const fizz = generic && await evF(`!!(F.document.getElementById("unit") && F.document.getElementById("fm1"))`);
+    if (fizz) {
+      // (FIZZ's manager: its port scan finds the FM-1 running FIZZ (the M-UPGRADE identity, then FIZZ's IDENTITY) and
+      // offers it on #fm1; a click makes it the unit: the pill #unit turns to "fm1", "on")
+      const found = await untilF(`F.document.getElementById("fm1").dataset.state === "found" || null`, 10000);
+      if (found) await evF(`F.document.getElementById("fm1").click(), true`);
+      else await evF(`(() => { F.document.getElementById("unit").click(); const b = F.document.getElementById("up-connect"); if (b) b.click(); return !!b; })()`);
+      answered = !!(await untilF(`F.document.getElementById("unit").dataset.u === "fm1" && F.document.getElementById("unit").dataset.state === "on" || null`, 15000));
       await sleep(1500);
-      r.status = r.version = await evF(`((F.document.body.innerText.match(/v?\\d+\\.\\d+(\\.\\d+)?[\\w.-]*/) || [""])[0])`);
+      r.status = r.version = await evF(`F.document.getElementById("unit").textContent.trim().slice(0, 60)`);
+    } else if (generic) {
+      await evF(`(() => { const b = F.document.getElementById("device-connect") || F.document.getElementById("btnReadSynth") || F.document.getElementById("connect") || [...F.document.querySelectorAll("button")].find((x) => /^\\s*connect/i.test(x.textContent)); if (b) b.click(); return !!b; })()`);
+      answered = !!(await until(`FM1Editor.bridge.stats.toManagers > 0 || null`, 9000));
+      if (await evF(`!!F.document.getElementById("device-status")`))
+        answered = answered && !!(await untilF(`/^Connected to /.test(F.document.getElementById("device-status").textContent) || null`, 9000));
+      await sleep(1500);
+      r.status = r.version = await evF(`F.document.getElementById("device-status") ? F.document.getElementById("device-status").textContent.slice(0, 60)
+        : ((F.document.body.innerText.match(/v?\\d+\\.\\d+(\\.\\d+)?[\\w.-]*/) || [""])[0])`);
     } else if (felucca2) {
       await evF(`F.document.getElementById("connect").click(), true`);
       answered = !!(await untilF(`!F.document.getElementById("state-dot").classList.contains("off") && /·/.test(F.document.getElementById("state-t").textContent) || null`, 9000));
@@ -291,7 +313,7 @@ async function session(id, mode) {
     ok(st.toEngine > 0, `${id}: the manager's requests reached the ${mode === "double" ? "double" : "engine"} (${st.toEngine} messages, last ${hex(st.first)})`);
     r.info = answered;
     if (mode === "double") ok(answered, `${id}: connected through the shim: "${r.version}" (${r.status})`);
-    else console.log(`  ${answered ? "ok  " : "--  "}  ${id}: INFO ${answered ? `answered: "${r.version}"` : "not answered (the core has no SysEx service yet: FM1VST sysex-glue)"}; status "${r.status}"`);
+    else console.log(`  ${answered ? "ok  " : "--  "}  ${id}: INFO ${answered ? `answered: "${r.version}"` : `not answered (${BLOCKED[id] || "the core has no SysEx service yet: FM1VST sysex-glue"})`}; status "${r.status}"`);
 
     // ---- a backup get, a put and the get-back
     if (answered && felucca(id) && !felucca2 && !generic && await evF(`!!F.document.getElementById("backup-export")`)) {
@@ -329,6 +351,31 @@ async function session(id, mode) {
           if (mode === "engine") await autosaveMoved(flashBefore, "the restore");
         }
       } else console.log(`  --    ${id}: the firmware reports no backup support (backupCaps ${caps})`);
+    }
+    if (answered && id === "s1vave") {
+      // a slider of the editor (SAW, CC 20) to a value; the editor's own dump request (CC 119): the firmware's reply
+      // carries the value back
+      const v = await ev(`(() => { const v = 37 + (Date.now() % 50); window.__fromEng = []; const f = FM1Editor.bridge.fromEngine.bind(FM1Editor.bridge);
+        FM1Editor.bridge.fromEngine = (b) => { __fromEng.push(Array.from(b)); return f(b); }; return v; })()`);
+      await evF(`(() => { const s = F.document.getElementById("slSaw"); s.value = ${v}; s.dispatchEvent(new F.Event("input", { bubbles: true })); return true; })()`);
+      await sleep(600);
+      await evF(`F.document.getElementById("btnReadSynth").click(), true`);
+      const back = await until(`__fromEng.some((b) => (b[0] & 0xf0) === 0xb0 && b[1] === 20 && b[2] === ${v}) || null`, 5000);
+      r.slider = !!back;
+      ok(back, `${id}: slider SAW to ${v} (CC 20), the editor's dump request (CC 119): the firmware sends CC 20 = ${v} back`);
+    }
+    if (answered && id === "mutabledreams") {
+      // the tempo slider (command 15) to a value; the editor's poll (command 9, its live state) reads it back
+      const v = 60 + (Date.now() % 90);
+      await evF(`(() => { const s = F.document.getElementById("tempo"); s.value = ${v}; s.dispatchEvent(new F.Event("input", { bubbles: true })); s.dispatchEvent(new F.Event("change", { bubbles: true })); return true; })()`);
+      const bpm = await untilF(`F.document.getElementById("bpm").textContent === "${v} BPM" || null`, 6000);
+      r.slider = !!bpm;
+      ok(bpm, `${id}: the tempo slider to ${v}: the firmware's live state reads back "${await evF(`F.document.getElementById("bpm").textContent`)}"`);
+      // backup GET: Back up all device banks (the restore asks for SEL on the unit: not tried)
+      await evF(`(() => { F.__blobs = []; const o = F.URL.createObjectURL.bind(F.URL); F.URL.createObjectURL = (b) => { F.__blobs.push(b); return o(b); }; F.document.getElementById("device-backup").click(); return true; })()`);
+      const size = await untilF(`F.__blobs.length ? F.__blobs[0].size : null`, 60000, 250);
+      r.get = !!size;
+      ok(size > 1000, `${id}: backup GET (Back up all device banks): an .mddb of ${size || 0} bytes ("${await evF(`F.document.getElementById("device-status").textContent.slice(0, 80)`)}")`);
     }
     if (answered && !felucca(id)) {
       r.get = true;
@@ -402,7 +449,13 @@ async function session(id, mode) {
       const bound = await until2(`window.__fm1shim && __fm1shim.pid`, 8000);
       ok(bound === pid, `${id}: popped out: the tab's shim is bound to the player tab (${bound})`);
       let tabOk;
-      if (felucca(id)) {
+      if (generic) {
+        // (its own read button in the tab; the firmware's replies reach the tab's manager through the player)
+        await until2(`document.readyState === "complete" || null`, 5000);
+        const n0 = await ev(`FM1Editor.bridge.stats.toManagers`);
+        await ev2(`(() => { const b = document.getElementById("device-connect") || document.getElementById("btnReadSynth"); if (b) b.click(); return !!b; })()`);
+        tabOk = await until(`FM1Editor.bridge.stats.toManagers > ${n0} ? (FM1Editor.bridge.stats.toManagers - ${n0}) + " replies" : null`, 12000);
+      } else if (felucca(id)) {
         await until2(`document.readyState === "complete" || null`, 5000);
         await ev2(`document.getElementById("connect").click(), true`);
         tabOk = await until2(`document.getElementById("version").textContent && /^(Connected|接続しました)$/.test(document.getElementById("status").textContent) ? document.getElementById("version").textContent : null`, 12000);
@@ -448,7 +501,14 @@ async function livePopOut(cdp, ev, id) {
     const out0 = await ev(`FM1Editor.bridge.stats.toManagers`);
     await fe(`(() => { const b = F.document.getElementById("connect") || [...F.document.querySelectorAll("button")].find((x) => /^\\s*connect/i.test(x.textContent)); if (b) b.click(); return true; })()`).catch(() => {});
     const gen = await fe(`!F.document.getElementById("state-t") && (!F.document.getElementById("version") || !F.document.getElementById("status"))`).catch(() => false);
-    if (gen) said = await until2(() => ev(`FM1Editor.bridge.stats.toManagers > ${out0} ? "replies: " + (FM1Editor.bridge.stats.toManagers - ${out0}) : null`), 15000);
+    if (await fe(`!!(F.document.getElementById("unit") && F.document.getElementById("fm1"))`).catch(() => false)) {      // (FIZZ's manager)
+      if (await until2(() => fe(`F.document.getElementById("fm1").dataset.state === "found" || null`), 10000)) await fe(`F.document.getElementById("fm1").click(), true`);
+      else await fe(`(() => { F.document.getElementById("unit").click(); const b = F.document.getElementById("up-connect"); if (b) b.click(); return !!b; })()`);
+      said = await until2(() => fe(`F.document.getElementById("unit").dataset.u === "fm1" && F.document.getElementById("unit").dataset.state === "on" ? F.document.getElementById("unit").textContent.trim() : null`), 15000);
+      // (the player tab is in the background here and its timers slow: the scan's quiet probe answers, connect's may
+      // time out; the scan's answer in the manager's log is the round trip through the relay)
+      if (!said) said = await fe(`((F.document.getElementById("log") || {}).textContent || "").match(/answered FM-1_\\d+/)?.[0] || null`).catch(() => null);
+    } else if (gen) said = await until2(() => ev(`FM1Editor.bridge.stats.toManagers > ${out0} ? "replies: " + (FM1Editor.bridge.stats.toManagers - ${out0}) : null`), 15000);
     else if (await fe(`!F.document.getElementById("version")`).catch(() => false))
       said = await until2(() => fe(`!F.document.getElementById("state-dot").classList.contains("off") && /·/.test(F.document.getElementById("state-t").textContent) ? F.document.getElementById("state-t").textContent : null`), 15000);
     else said = await until2(() => fe(`F.document.getElementById("version").textContent && /^(Connected|接続しました)$/.test(F.document.getElementById("status").textContent) ? F.document.getElementById("version").textContent : null`), 15000);
@@ -622,6 +682,6 @@ for (const id of ids) {
 }
 server.kill("SIGTERM");
 console.log(`\n| manager | mode |${LIVE ? " live page |" : ""} port | INFO | backup GET | PUT + get-back | pop out | messages in / out |\n|---|---|${LIVE ? "---|" : ""}---|---|---|---|---|---|`);
-for (const r of rows) console.log(`| ${r.id} | ${r.mode} |${LIVE ? ` ${r.live} |` : ""} ${r.port} | ${r.info ? "answered" : "no reply"} | ${r.get ? "ok" : "-"} | ${r.put ? "ok" : "-"} | ${r.pop || "-"} | ${r.toEngine ?? "-"} / ${r.toManagers ?? "-"} |`);
+for (const r of rows) console.log(`| ${r.id} | ${r.mode} |${LIVE ? ` ${r.live} |` : ""} ${r.port} | ${r.info ? "answered" : "no reply"} | ${r.get ? "ok" : "-"} | ${r.put ? "ok" : r.slider ? "slider read-back" : "-"} | ${r.pop || "-"} | ${r.toEngine ?? "-"} / ${r.toManagers ?? "-"} |`);
 console.log(`\n${checks - fails} / ${checks} checks passed`);
 process.exit(fails ? 1 : 0);

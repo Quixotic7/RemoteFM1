@@ -1,9 +1,13 @@
 {
- "about": "Optional card text for the .rfm1 files of Quixotic7/RemoteFM1FW (tools/fetch_fw_catalog.mjs, build_catalog.mjs --fw-catalog) that neither the Hub nor FM1VST's cores list, by the manifest's id: author (the short name), category, tag, what, site, beta. Everything else (id, name, version, licence, authors, source) is the file's own manifest. A firmware missing here gets category Other and a tag from its name. editors: the author's own editor page by catalog id, for a firmware the Hub lists without one (one with no editor also takes the editor of another entry with the same repo).",
+ "about": "Optional card text for the .rfm1 files of Quixotic7/RemoteFM1FW (tools/fetch_fw_catalog.mjs, build_catalog.mjs --fw-catalog) that neither the Hub nor FM1VST's cores list, by the manifest's id: author (the short name), category, tag, what, site, beta. Everything else (id, name, version, licence, authors, source) is the file's own manifest. A firmware missing here gets category Other and a tag from its name. editors: the author's own editor page by catalog id, for a firmware the Hub lists without one (one with no editor also takes the editor of another entry with the same repo). An editor of null: none at all, over the Hub's, RemoteFM1FW's and the same-repo one (a firmware with no editor service: Hortator, whose ed_service() is a stub until its M5). ports: the USB MIDI port name by id for a firmware RemoteFM1FW's catalog does not list (the site's own FIZZ: its fm1.toml usb_product).",
  "editors": {
   "rainbow": "https://joshbartlettband-web.github.io/felucca-rainbow/webapp/editor/",
-  "hortator": "https://deadactive.github.io/hortator/webapp/editor/",
-  "hortator-bt": "https://deadactive.github.io/hortator/webapp/editor/"
+  "fizz": "https://quixotic7.github.io/FIZZ/manager/",
+  "hortator": null,
+  "hortator-bt": null
+ },
+ "ports": {
+  "fizz": "FIZZ FM-1"
  },
  "firmwares": {
   "clipper": { "author": "isod89", "category": "Groovebox", "tag": "SLOOP-family groovebox",
