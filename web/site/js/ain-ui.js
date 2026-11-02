@@ -92,7 +92,16 @@ export class AinUI {
       if (!v.warned) { v.warned = true; save(v); this.toast("Speakers and a microphone can feed back: headphones are best.", "", 6500); }
       else if (!quiet) this.toast(`Audio input on: ${got.label || "your input"}.`, "ok");
     } catch (e) {
-      const why = e && e.name === "NotAllowedError" ? "the browser was not allowed to use it" : e && e.name === "NotFoundError" ? "no input device found" : (e && e.message) || String(e);
+      let why = e && e.name === "NotAllowedError" ? "the browser was not allowed to use it" : e && e.name === "NotFoundError" ? "no input device found"
+        : e && e.name === "NotReadableError" ? "another app is using the input, or the system blocked it" : (e && e.message) || String(e);
+      if (e && e.name === "NotAllowedError") {
+        // the site is allowed but the browser itself is not: the system's privacy setting blocks it
+        let site = "";
+        try { site = (await navigator.permissions.query({ name: "microphone" })).state; } catch (_) { site = ""; }
+        if (site === "granted") why = /Mac/i.test(navigator.platform || navigator.userAgent || "")
+          ? "macOS is blocking the browser: System Settings > Privacy & Security > Microphone, turn the browser on, then restart it"
+          : "the system is blocking the browser from the microphone: allow it in the system's privacy settings";
+      }
       this.error = why;
       if (!quiet) this.toast(`Audio input could not start (${why}).`, "bad");
     } finally {
