@@ -165,7 +165,7 @@
     "size": 699956,
     "product": "FM-1_003"
    },
-   "emuNote": "boots to a black screen, no sound (needs M-VAVE's own loader)"
+   "emuNote": "runs and draws its screen, but no sound comes out (PLAY, the keys)"
   },
   {
    "id": "choralroot",

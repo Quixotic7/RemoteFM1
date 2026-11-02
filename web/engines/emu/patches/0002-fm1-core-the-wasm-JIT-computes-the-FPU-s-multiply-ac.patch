@@ -1,0 +1,99 @@
+From 0dde02d8ac4de59dd52005ed8e3eb8120a010a93 Mon Sep 17 00:00:00 2001
+From: Michael P Jones <QuixoticSeven@gmail.com>
+Date: Mon, 2 Nov 2026 15:42:45 -0800
+Subject: [PATCH] fm1-core: the wasm JIT computes the FPU's
+ multiply-accumulates inline
+
+0.4.0's wasm JIT computes the FPU's ops inline, but the multiply-
+accumulates (ops 7 and 8, `R += R * R (f)` / `R -= R * R (f)`) still go to
+the executor through h_op. Melodee, whose voices are float DSP, runs them
+millions of times a second on both cores.
+
+They now compile to what `fpu_d` computes: the product rounded first,
+then the add or subtract (not fused). The operands go in the order the
+executor's build passes a NaN on: b * a for the product (as op 2), then
+d + product / d - product. `fop_inline` lists 7 and 8, so `fop_selftest`
+checks them against the executor and the interpreter on every register
+choice; its instruction word and its operand cases now tell a binary op by
+its low nibble (not 0xf), as decode_fpu does, so 7 and 8 are encoded and
+tested as the binary ops they are. `fm1_jit_selftest()` is 0.
+
+Melodee in headless Chromium's AudioWorklet at 360 MHz (RemoteFM1's
+bench-browser.mjs, the load = render time per quantum's time): 1.4.4
+0.684 -> 0.652, 1.6.0 0.721 -> 0.673.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/fm1-core/src/jit_wasm.rs | 27 ++++++++++++++++++++-------
+ 1 file changed, 20 insertions(+), 7 deletions(-)
+
+diff --git a/crates/fm1-core/src/jit_wasm.rs b/crates/fm1-core/src/jit_wasm.rs
+index d8ab34d..83778e8 100644
+--- a/crates/fm1-core/src/jit_wasm.rs
++++ b/crates/fm1-core/src/jit_wasm.rs
+@@ -1178,8 +1178,8 @@ fn block<B: Bus>(g: &mut Gen<'_>, pc0: u32, ops: &[crate::BOp]) {
+             // operand yields the other one, equal operands yield b; wasm's f32.min would
+             // propagate the NaN); the conversions as the `as` casts: trunc_sat saturates and
+             // sends a NaN to 0, the rounding done first by nearest / ceil / floor (trunc_sat
+-            // truncates by itself). The multiply-accumulates 7 / 8 stay with the executor, as in
+-            // jit.rs. (`fop_selftest` checks each against the executor in the engine at hand.)
++            // truncates by itself); the multiply-accumulates 7 / 8 as `fpu_d`, the product rounded
++            // before the add. (`fop_selftest` checks each against the executor in the engine at hand.)
+             Fast::FOp { d, a, b, op } if fop_inline(op) => {
+                 let k = op >> 4;
+                 let to_int = op & 0xf == 0xf && k < 8;
+@@ -1196,6 +1196,19 @@ fn block<B: Bus>(g: &mut Gen<'_>, pc0: u32, ops: &[crate::BOp]) {
+                         g.op(F32_REINTERPRET_I32);
+                         g.op(match op { 0 => F32_ADD, 1 => F32_SUB, 2 => F32_MUL, _ => F32_DIV });
+                     }
++                    7 | 8 => {
++                        // d +- a * b, the product rounded first (`fpu_d`: not fused); the
++                        // operands in the order the executor's build passes NaNs on, as for
++                        // 0..3 above: b * a, then d + product / d - product
++                        g.ld_reg(d);
++                        g.op(F32_REINTERPRET_I32);
++                        g.ld_reg(b);
++                        g.op(F32_REINTERPRET_I32);
++                        g.ld_reg(a);
++                        g.op(F32_REINTERPRET_I32);
++                        g.op(F32_MUL);
++                        g.op(if op == 7 { F32_ADD } else { F32_SUB });
++                    }
+                     5 | 6 => {
+                         // a' = a != a ? b : a; b' = b != b ? a' : b; a' < b' ? a' : b' (max: >)
+                         g.ld_reg(a);
+@@ -1837,10 +1850,10 @@ fn block<B: Bus>(g: &mut Gen<'_>, pc0: u32, ops: &[crate::BOp]) {
+ }
+ 
+ /// The FPU ops `block` computes inline: the binary + - * / fmin fmax, the conversions ftoi /
+-/// ftou in every rounding, itof, utof, and ftof in every rounding (fm1-isa's fpu.rs). Not the
+-/// multiply-accumulates 7 / 8 (the executor, as jit.rs), nor an op the table does not decode.
++/// ftou in every rounding, itof, utof, ftof in every rounding (fm1-isa's fpu.rs), and the
++/// multiply-accumulates 7 / 8 (`fpu_d`). Not an op the table does not decode.
+ fn fop_inline(op: u8) -> bool {
+-    matches!(op, 0..=3 | 5 | 6 | 0x0f | 0x1f | 0x2f | 0x3f | 0x4f | 0x5f | 0x6f | 0x7f | 0x8f | 0x9f | 0xcf | 0xdf | 0xef | 0xff)
++    matches!(op, 0..=3 | 5 | 6 | 7 | 8 | 0x0f | 0x1f | 0x2f | 0x3f | 0x4f | 0x5f | 0x6f | 0x7f | 0x8f | 0x9f | 0xcf | 0xdf | 0xef | 0xff)
+ }
+ 
+ static mut SELFTEST_DETAIL: String = String::new();
+@@ -1966,7 +1979,7 @@ pub fn fop_selftest() -> u32 {
+             let bop = crate::BOp { fast, len: 4, careful: false, pair_head: false, glue: false };
+             // the instruction word (fm1-isa's fpu.rs): `3f e5 b2 b3`, binary b2 = a << 4 | op,
+             // b3 = d << 4 | b; unary b2 = op, b3 = d << 4 | a
+-            let (b2, b3) = if op <= 6 { (a << 4 | op, d << 4 | b) } else { (op, d << 4 | a) };
++            let (b2, b3) = if op & 0xf != 0xf { (a << 4 | op, d << 4 | b) } else { (op, d << 4 | a) };
+             bus.0 = [0; 16];
+             bus.0[..4].copy_from_slice(&[0x3f, 0xe5, b2, b3]);
+             let m = compile::<NoBus>(&[(0, 0x0200_0000, vec![bop])], &mem, false);
+@@ -1977,7 +1990,7 @@ pub fn fop_selftest() -> u32 {
+                 fail(op, d, a, b, 0, 0, "the host could not compile the module".to_owned());
+                 continue;
+             }
+-            let binary = op <= 6;
++            let binary = op & 0xf != 0xf;
+             let cases = if binary { n * n } else { n } + 256;
+             for i in 0..cases {
+                 let (x, y) = if i < n * n && binary { (specials[i / n], specials[i % n]) }
+-- 
+2.42.0
+

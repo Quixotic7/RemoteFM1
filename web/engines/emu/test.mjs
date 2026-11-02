@@ -21,7 +21,7 @@ import { fetchHubCatalog, entriesFromHub, fetchPackage, stockFromFile } from "./
 
 const WEB = new URL("../../", import.meta.url);
 const BUILD = new URL("build/", WEB);
-const arg = (k, d) => process.argv.find((a) => a.startsWith(`--${k}=`))?.split("=")[1] ?? d;
+const arg = (k, d) => process.argv.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3) ?? d;   // (--local=id=path keeps its "=")
 const MHZ = +arg("mhz", 100);
 const RATE = 48000;
 const STOCK = arg("stock", "/Volumes/Q7Media-2025/Projects/Github/ChoralRootFM1/MvaveFM1Unbricker/FM-1.fwsc");

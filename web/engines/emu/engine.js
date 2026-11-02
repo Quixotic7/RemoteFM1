@@ -71,16 +71,24 @@ async function moduleOf(wasm) {
 }
 
 // The JIT's host side (fm1-emu web/jit.js, crates/fm1-core/src/jit_wasm.rs): compile a hot block's
-// module and put its `run` in the function table; 0 = it stays interpreted.
+// module and put its `run` in the function table; 0 = it stays interpreted. Since fm1-emu 0.4.0 a
+// region imports the three helpers it calls (read, write, the executor's op) as functions, which
+// the crate passes as table indices; a module importing the whole table would get a copy of it,
+// grown and updated with every region. The table grows by 256 slots at a time.
 function jitImports(exports, stats) {
+  let next;
   return {
-    fm1_jit_compile(ptr, len) {
+    fm1_jit_compile(ptr, len, hRead, hWrite, hOp) {
       try {
         const x = exports();
         const bytes = new Uint8Array(x.memory.buffer, ptr, len).slice();
         const table = x.__indirect_function_table;
-        const run = new WebAssembly.Instance(new WebAssembly.Module(bytes), { env: { memory: x.memory, table } }).exports.run;
-        const slot = table.grow(1);
+        // (a build before 0.4.0 passes no helpers and its regions import the table: --wasm baselines)
+        const env = hRead === undefined ? { memory: x.memory, table }
+          : { memory: x.memory, h_read: table.get(hRead), h_write: table.get(hWrite), h_op: table.get(hOp) };
+        const run = new WebAssembly.Instance(new WebAssembly.Module(bytes), { env }).exports.run;
+        if (next === undefined || next >= table.length) { next = table.length; table.grow(256); }
+        const slot = next++;
         table.set(slot, run);
         stats.regions++;
         return slot;

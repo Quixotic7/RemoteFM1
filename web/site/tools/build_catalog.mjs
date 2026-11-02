@@ -175,7 +175,7 @@ const withNative = (e, pick) => {
 };
 
 // Hub firmwares known not to run in fm1-emu: W2's web/engines/emu/catalog.mjs EMU_SKIP when it is there
-let EMU_SKIP = { bubba: "boots to a black screen, no sound (needs M-VAVE's own loader)",
+let EMU_SKIP = { bubba: "runs and draws its screen, but no sound comes out (PLAY, the keys)",
   fizz: "shows FIZZ NEEDS ITS DATA, silent: its data blob is written over USB after the install, which the emulator can't do (this site runs its .rfm1)" };
 try { EMU_SKIP = (await import(new URL("../../engines/emu/catalog.mjs", import.meta.url).href)).EMU_SKIP || EMU_SKIP; } catch (_) { /* (W2's branch not merged) */ }
 
