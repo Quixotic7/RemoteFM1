@@ -189,6 +189,16 @@ echo "== the SMK-37 build, USB only (--no-ble)"
 BOARD=smk37 env -u CC ./build.sh --host --no-ble >/dev/null
 sim "$SIM/remotefm1-smk37-usb_host" firmware/tests/smk_panel.txt firmware/tests/smk_extras.txt firmware/tests/smk_flash.txt \
     firmware/tests/session.txt firmware/tests/standalone.txt
+echo "== the SMK-37's browser emulator (BOARD=smk37 ./build.sh --web; web/emu-smk37/test_emu_smk37.mjs, in Node)"
+EMSDK_ENV="${EMSDK:-$HOME/emsdk}/emsdk_env.sh"
+if ! command -v node >/dev/null; then
+    echo "(no node: the SMK-37 emulator's test not run)"
+elif command -v emcc >/dev/null || [ -f "$EMSDK_ENV" ]; then
+    (command -v emcc >/dev/null || . "$EMSDK_ENV" >/dev/null 2>&1; BOARD=smk37 env -u CC ./build.sh --web >/dev/null)
+    node web/emu-smk37/test_emu_smk37.mjs firmware/build/emu-smk37/app.wasm
+else
+    echo "(no Emscripten (emcc, or ~/emsdk): the SMK-37 emulator's test not run)"
+fi
 env -u CC ./build.sh --host >/dev/null                  # (the simulator as it should be left: the FM-1's)
 if [ -n "${SAADET:-}" ]; then
     echo "== the standalone DX7 against saadet's own (SAADET=$SAADET)"

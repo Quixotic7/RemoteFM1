@@ -1,0 +1,98 @@
+--- a/tools/build.py
++++ b/tools/build.py
+@@ -94,7 +94,8 @@
+ genkigenki's porting guide fm1-to-smk37), MODEL=pro (the default; also the Starrykey 37 Play), elite or mke its model:
+ the package NAME-smk37[-elite|-mke][-usb][-X.Y.Z].fwsc, its identity the model's name and the firmware's own number
+ ("SMK-37 Pro_" + id_prefix's digits + "00" or XXYYZZ), the SMK's flash layout and region table (fm1pkg_make
+---board smk37). -DFM1B_FM1_ID gives the app the identity the FM-1 build of the same version has.
++--board smk37). -DFM1B_FM1_ID gives the app the identity the FM-1 build of the same version has. --web with
++BOARD=smk37: the emulator on the SMK's panel (web/emu/emu_web.c's web_smk_* exports; the page is the app's to bring).
+ 
+ The JieLi toolchain is Linux x86-64 only. JIELI_TOOLCHAIN points at it; on
+ macOS (or with JIELI_DOCKER=1) each tool runs in a linux/amd64 container.
+@@ -960,12 +961,14 @@
+     import shutil
+     emu = OUT / "emu"
+     emu.mkdir(parents=True, exist_ok=True)
+-    web_inc = [f"-I{d}" for d in (SRC / "host", SRC / "device", SRC / "include", SRC / "lib", APP, GEN, *(APP / d for d in CONF.get("include", [])))]
+-    o2_objs = o2_objects("emcc", ["-O2", "-ffp-contract=off", "-std=gnu99", "-w", "-DPLAT_HOST", "-DPLAT_WEB", *web_inc],
++    web_inc = [f"-I{d}" for d in (SRC / "host", SRC / "device", SRC / "include", SRC / "lib", APP, GEN, *(APP / d for d in CONF.get("include", [])),
++                                  *([BSP / "boards" / "smk37"] if SMK else []))]
++    smk = [*smk_flags(), *([f'-DFELUCCA_ID="{PRODUCT}"', f'-DFM1B_FM1_ID="{FM1_PRODUCT}"'] if SMK else [])]   # (the SMK-37's panel)
++    o2_objs = o2_objects("emcc", ["-O2", "-ffp-contract=off", "-std=gnu99", "-w", "-DPLAT_HOST", "-DPLAT_WEB", *smk, *web_inc],
+                          emu / "o2")
+     cmd = ["emcc", "-O2", "-ffp-contract=off", "-std=gnu99", "-Wall", "-Wno-unused-function", "-Wno-unused-parameter",
+-           "-Wno-unused-variable", "-DPLAT_HOST", "-DPLAT_WEB", *opt_flags(), *["-DFM1B_BLE=1"] * BLE, *["-DFM1B_BLE_CENTRAL=1"] * (BLE and bool(CONF.get("ble_central"))), *["-DFM1B_WIFI=1"] * WIFI, *(f'-DAPP_VERSION="{VERSION}"',) * bool(VERSION),
+-           *(f"-I{d}" for d in (SRC / "host", SRC / "device", SRC / "include", SRC / "lib", APP, GEN, *(APP / d for d in CONF.get("include", [])))),
++           "-Wno-unused-variable", "-DPLAT_HOST", "-DPLAT_WEB", *smk, *opt_flags(), *["-DFM1B_BLE=1"] * BLE, *["-DFM1B_BLE_CENTRAL=1"] * (BLE and bool(CONF.get("ble_central"))), *["-DFM1B_WIFI=1"] * WIFI, *(f'-DAPP_VERSION="{VERSION}"',) * bool(VERSION),
++           *web_inc,
+            "--no-entry", "-sSTANDALONE_WASM", "-sSTACK_SIZE=1048576", "-sINITIAL_MEMORY=33554432", "-sFILESYSTEM=0",
+            "-o", str(emu / "app.wasm"), str(SRC / "web" / "emu" / "emu_web.c"), *o2_objs]
+     r = subprocess.run(cmd, capture_output=True, text=True)
+@@ -1049,8 +1052,6 @@
+         FM1_PRODUCT = PRODUCT
+         PRODUCT = SMK_MODEL + "_" + prefix[len("FM-1_"):] + (digits or "00")
+         fm1pkg_make.set_board("smk37")
+-        if a.web:
+-            raise SystemExit("build: --web is the FM-1's (BOARD=smk37: the device and --host)")
+     if a.host or a.web:
+         generate()
+         return build_host() if a.host else build_web()
+--- a/web/emu/emu_web.c
++++ b/web/emu/emu_web.c
+@@ -143,6 +143,55 @@
+ __attribute__((used, visibility("default"))) uint32_t web_nobj(void) { return OBJ_NOBJ; }
+ __attribute__((used, visibility("default"))) uint32_t web_store_max(void) { return PLAT_STORE_MAX; }
+ 
++#if BOARD_SMK37
++/* the M-VAVE SMK-37's panel (BOARD_SMK37): its controls as the simulator's "smk ..." commands set them, through the
++ * device's own map (device/smk_panel.c), and its lights read back. Keys 0..36 (0 = C3), pads 0..15 in reading order,
++ * buttons a mask of SMK_B_*, knobs 0..7 (K1 = MASTER); velocity 1..127, 0 = up */
++__attribute__((used, visibility("default"))) void web_smk_key(uint32_t k, uint32_t vel)
++{
++    if (k >= SMK_NKEY)
++        return;
++    if (vel) {
++        smk_sim.r.key_vel[k] = (uint8_t)(vel > 127u ? 127u : vel);
++        smk_sim.r.keys[k >> 5] |= 1u << (k & 31u);
++    } else {
++        smk_sim.r.keys[k >> 5] &= ~(1u << (k & 31u));
++    }
++}
++__attribute__((used, visibility("default"))) void web_smk_pad(uint32_t p, uint32_t vel)
++{
++    if (p >= SMK_NPAD)
++        return;
++    if (vel)
++        smk_sim.r.pad_vel[p] = (uint8_t)(vel > 127u ? 127u : vel);
++    smk_sim.r.pads = (uint16_t)(vel ? smk_sim.r.pads | 1u << p : smk_sim.r.pads & ~(1u << p));
++}
++__attribute__((used, visibility("default"))) void web_smk_buttons(uint32_t m) { smk_sim.r.btns = m & ((1u << SMK_NBTN) - 1u); }
++__attribute__((used, visibility("default"))) void web_smk_enc(uint32_t e, int32_t n)
++{
++    if (e == SMK_ENC_MASTER) {
++        int32_t m = (int32_t)master + n * SMK_MASTER_STEP;
++        master = (uint32_t)(m < 0 ? 0 : m > 4096 ? 4096 : m);
++    } else if (e < SMK_NENC) {
++        smk_sim.enc[e] += n;
++    }
++}
++__attribute__((used, visibility("default"))) void web_smk_fader(uint32_t f, uint32_t v)
++{
++    if (f < SMK_NFADER)
++        smk_sim.r.fader[f] = (uint8_t)(v > 127u ? 127u : v);
++}
++__attribute__((used, visibility("default"))) void web_smk_bend(int32_t v) { smk_sim.r.bend = (int16_t)(v < -8192 ? -8192 : v > 8191 ? 8191 : v); }
++__attribute__((used, visibility("default"))) void web_smk_mod(uint32_t v) { smk_sim.r.mod = (uint8_t)(v > 127u ? 127u : v); }
++__attribute__((used, visibility("default"))) void web_smk_pedal(uint32_t on) { smk_sim.r.pedal = (uint8_t)(on != 0); }
++/* the lights: bit i LED i (SMK_B_*; bit 18 SEQ PLAY's red half), each pad's 0xRRGGBB as the LED chain gets it and its
++ * level 0..255 of lit */
++__attribute__((used, visibility("default"))) uint32_t web_smk_leds(void) { return smk_led_lit; }
++__attribute__((used, visibility("default"))) uint32_t *web_smk_pad_rgb(void) { return smk_pad_rgb; }
++__attribute__((used, visibility("default"))) uint8_t *web_smk_pad_lvl(void) { return smk_pad_lvl; }
++__attribute__((used, visibility("default"))) uint32_t web_smk_master(void) { return master; }
++#endif
++
+ #ifdef APP_WEB
+ #include "web.c"                        /* the app's own exports for its page (app.h APP_WEB) */
+ #endif

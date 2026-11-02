@@ -158,6 +158,7 @@ BOARD=smk37 MODEL=mke ./build.sh                # remotefm1-smk37-mke.fwsc
 BOARD=smk37 ./build.sh --no-ble                 # remotefm1-smk37-usb.fwsc (no Bluetooth)
 BOARD=smk37 ./build.sh --release 0.3.1          # remotefm1-smk37-0.3.1.fwsc, identity SMK-37 Pro_52000301
 BOARD=smk37 ./build.sh --host                   # the simulator with the SMK-37's panel: build/host/remotefm1-smk37_host
+BOARD=smk37 ./build.sh --web                    # the browser emulator: firmware/build/emu-smk37/ (below)
 ./build.sh                                      # the FM-1 build, as before
 ```
 
@@ -170,6 +171,32 @@ the SMK-37's patched sources (into `build/app-smk37/build/`): its code is the FM
 `tests/run_tests.sh` runs the SMK-37's tests after the FM-1's (the simulator's scenarios `firmware/tests/smk_*.txt`
 and the FM-1's on the SMK-37 build, HELLO_R and PANEL_R compared with the FM-1 build's byte for byte, the decoder, the
 flash map, and the update receiver against the built packages when they are there).
+
+## Emulator
+
+The SMK-37 build in the browser, for trying its controls without the keyboard: the simulator above compiled to
+WebAssembly (fm1-base's `web/emu/emu_web.c` and its worklet, with `web_smk_*` exports from
+`firmware/patches/smk37/fm1-base/0002-smk37-web.patch`) on a page of its own (`web/emu-smk37/`).
+
+```sh
+source ~/emsdk/emsdk_env.sh                     # Emscripten (emcc)
+BOARD=smk37 ./build.sh --web                    # firmware/build/emu-smk37/ (MODEL=elite / mke: emu-smk37-elite/ ...)
+python3 -m http.server -d firmware/build/emu-smk37 8037    # then http://localhost:8037/ and Start
+node web/emu-smk37/test_emu_smk37.mjs           # its test, without a browser (tests/run_tests.sh runs it when emcc is there)
+```
+
+The page is an SMK-37 Pro: the screen, K1..K8 over the 16 pads, the four faders, the 18 buttons (each with its FM-1
+role under it), the pitch and mod wheels, a sustain pedal switch and the 37 keys, the FM-1's 27 told apart from the
+outer 10. Keys and pads take their velocity from where they are hit (the front edge hardest); the computer keyboard
+plays the keys and the main buttons (the page lists them); Web MIDI in is the app's USB MIDI in; the settings the
+firmware saves stay in the browser.
+
+What it models: everything from the panel's state up. The controls set the state the scan would (`smk_raw_t`, the
+knobs' detents), and the device's own map (`device/smk_panel.c`) turns it into the FM-1's controls and the extras'
+MIDI, as on the unit; the button LEDs and the pads' colours are what the firmware gives the LED drivers. What it does
+not: the matrix scan and its decoding (contacts, velocity timing, the factory curves: a hit's velocity goes in as it
+is), the LCD and LED drivers, USB (descriptors, USB audio) and Bluetooth, the flash and the update. A host's session is
+not part of the page; the standalone instrument is what it plays.
 
 ## Install
 

@@ -15,6 +15,8 @@
 #                                   the simulator build/host/remotefm1-smk37[...]_host; the SMK's own patch series
 #                                   (firmware/patches/smk37/) applied after the others, so the FM-1's inputs stay as
 #                                   they are (BOARD unset or fm1: the FM-1)
+#   BOARD=smk37 [MODEL=...] ./build.sh --web   the SMK-37's browser emulator: firmware/build/emu-smk37[-elite|-mke]/
+#                                   (the page from web/emu-smk37/; docs/SMK37.md "Emulator")
 #   JIELI_TOOLCHAIN  JieLi's Linux toolchain (default ~/.jieli/toolchain; on a Mac it runs in Docker)
 #   AC79_SDK         JieLi's AC79 SDK, for its Bluetooth libraries (default ~/fw-AC79_AIoT_SDK; never committed)
 #   PYTHON           a Python whose Pillow has libraqm (fm1-base's fonts); on a Mac DYLD_LIBRARY_PATH=/opt/homebrew/lib
@@ -93,6 +95,18 @@ if [ $SMK = 1 ]; then
     done
     if [ "${BOARD:-fm1}" = smk37 ]; then
         "$PY" "$B/tools/build.py" "$APPDIR" "$@"
+        case " $* " in
+        *" --web "*)                                    # the emulator: the wasm and fm1-base's worklet, with the
+            E="firmware/build/emu-smk37"                # SMK-37's own page (web/emu-smk37/) over fm1-base's
+            case "${MODEL:-pro}" in elite | mke) E="$E-$MODEL" ;; esac
+            mkdir -p "$E"
+            cp -p "$APPDIR/build/emu/app.wasm" "$APPDIR/build/emu/worklet.js" "$E/"
+            for f in web/emu-smk37/*.html web/emu-smk37/*.js web/emu-smk37/*.css; do
+                [ ! -f "$f" ] || cp -p "$f" "$E/"
+            done
+            echo "(the SMK-37's emulator in $E: serve that folder, e.g. python3 -m http.server -d $E 8037)"
+            exit 0 ;;
+        esac
         mkdir -p firmware/build/host
         for f in "$APPDIR"/build/remotefm1-smk37*.fwsc; do
             [ ! -f "$f" ] || cp -p "$f" firmware/build/

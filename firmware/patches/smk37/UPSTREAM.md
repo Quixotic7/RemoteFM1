@@ -12,6 +12,8 @@
   36 identity blocks), the platform on the SMK (`device/smk_panel.c`, `plat_smk37.c`, `smk_store.c`, `lib/touch_smk.c`;
   `unity.c`, `main_fm1.c`, `plat_fm1.c`, `panel.c`, `lcd.c`, `include/plat.h`), the simulator's SMK controls
   (`host/plat_host.c`). Behind `BOARD_SMK37`.
+- `fm1-base/0002-smk37-web.patch`: the browser emulator on the SMK's panel (`tools/build.py --web` with `BOARD=smk37`;
+  `web/emu/emu_web.c`'s `web_smk_*` exports, behind `BOARD_SMK37`). Its page is RemoteFM1's (`web/emu-smk37/`).
 - `app/0001-smk37-app.patch`: RemoteFM1's own (`firmware/`): applied to a copy, `build/app-smk37/`, never to
   `firmware/` itself, because fm1-base's build hashes the app's sources into the image (`FM1B_BUILD`). Behind
   `BOARD_SMK37` (and the simulator's commands). Merge it into `firmware/` with the next FM-1 release, whose
