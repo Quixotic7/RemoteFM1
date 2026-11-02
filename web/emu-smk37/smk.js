@@ -18,7 +18,6 @@ const BTNS = [
   ["FX", "FX"], ["SEQ", "SEQ"], ["SEQ PLAY", "PLAY"], ["SEQ REC", "REC"],
 ];
 const B_PLAY = 16, B_REC = 17, LED_PLAY_RED = 18;
-const GROUPS = [4, 2, 4, 4, 4];
 const KNOBS = [["K1", "MASTER"], ["K2", "SELECT"], ["K3", "ALGORITHM"], ["K4", "PRESETS"],
                ["K5", "KNOB 1"], ["K6", "KNOB 2"], ["K7", "KNOB 3"], ["K8", "KNOB 4"]];
 const KNOB_COL = ["#ffb23e", "#38e1ff", "#38e1ff", "#38e1ff", "#ff4fd8", "#ff4fd8", "#ff4fd8", "#ff4fd8"];
@@ -45,8 +44,10 @@ function label(text, x, y, w, cls = "lbl", color) {
   return e;
 }
 
+// the SMK-37 Pro's arrangement: the wheels top left, the screen beside them with six buttons under it, K1..K8 over
+// the pads in the middle, the faders on the right with twelve buttons under them, the keybed along the bottom
 // knobs over the pads' columns
-const COL0 = 315, PITCH = 72;
+const COL0 = 340, PITCH = 68;
 const colX = (i) => COL0 + i * PITCH;
 const knobs = KNOBS.map(([name, role], i) => {
   const x = colX(i), y = 44;
@@ -98,7 +99,7 @@ label("PADS · THE FM-1'S WHITE KEYS", colX(0), 268, PITCH * 7 + 60, "role", "#8
 
 // faders
 const faders = [0, 1, 2, 3].map((f) => {
-  const x = 902 + f * 78, y = 16;
+  const x = 898 + f * 90, y = 10;
   const d = el("div", "fader ctl", stage, { left: px(x), top: px(y) });
   d.setAttribute("role", "slider");
   d.setAttribute("aria-label", `Fader ${f + 1}, CC ${16 + f}`);
@@ -118,31 +119,25 @@ function drawFader(f) {
 }
 faders.forEach(drawFader);
 
-// buttons, in groups along the middle
+// buttons: KNOB BANK .. OCTAVE+ in two columns under the screen, ARP .. SEQ REC in two rows of six under the faders
 const buttons = [];
-{
-  let x = 30, b = 0;
-  GROUPS.forEach((n, g) => {
-    for (let j = 0; j < n; j++, b++) {
-      const [name, role] = BTNS[b];
-      const d = el("div", "btn ctl", stage, { left: px(x), top: px(298) });
-      d.setAttribute("role", "button");
-      d.setAttribute("aria-label", `${name}, ${role}`);
-      d.innerHTML = name.replace(" ", "<br>");
-      const led = b === B_REC ? "#ff3b3b" : b === B_PLAY ? "#5dff6a" : b < 4 ? "#38e1ff" : "#ffb23e";
-      d.style.setProperty("--led", led);
-      label(role, x - 4, 342, 64, "role", b < 4 ? "#8a8fa8" : "#ffc77a");
-      buttons.push({ el: d, bit: b });
-      x += 61;
-    }
-    x += 26 - 5;
-  });
-}
+const btnAt = (b) => b < 6 ? [164 + (b % 2) * 68, 210 + (b >> 1) * 56, 56] : [898 + ((b - 6) % 6) * 55, 268 + Math.floor((b - 6) / 6) * 58, 50];
+BTNS.forEach(([name, role], b) => {
+  const [x, y, w] = btnAt(b);
+  const d = el("div", "btn ctl", stage, { left: px(x), top: px(y), width: px(w) });
+  d.setAttribute("role", "button");
+  d.setAttribute("aria-label", `${name}, ${role}`);
+  d.innerHTML = name.replace(" ", "<br>");
+  const led = b === B_REC ? "#ff3b3b" : b === B_PLAY ? "#5dff6a" : b < 4 ? "#38e1ff" : "#ffb23e";
+  d.style.setProperty("--led", led);
+  label(role, x - 4, y + 42, w + 8, "role", b < 4 ? "#8a8fa8" : "#ffc77a");
+  buttons.push({ el: d, bit: b });
+});
 
 // wheels
 function wheel(x, name, cls) {
-  label(name, x, 380, 46);
-  const d = el("div", "wheel ctl " + cls, stage, { left: px(x), top: px(398) });
+  label(name, x, 214, 46);
+  const d = el("div", "wheel ctl " + cls, stage, { left: px(x), top: px(20) });
   d.setAttribute("role", "slider");
   d.setAttribute("aria-label", name === "PITCH" ? "Pitch wheel" : "Mod wheel, CC 1");
   d.tabIndex = 0;
@@ -150,9 +145,9 @@ function wheel(x, name, cls) {
   const mark = el("div", "mark", d);
   return { el: d, mark };
 }
-const pitch = wheel(30, "PITCH", "pitch"), mod = wheel(90, "MOD", "mod");
-label("SUSTAIN", 30, 600, 106, "role", "#8a8fa8");
-const pedalLamp = el("div", "", stage, { left: px(40), top: px(616), width: px(86), height: px(6), borderRadius: "3px", background: "#0b0c12" });
+const pitch = wheel(20, "PITCH", "pitch"), mod = wheel(74, "MOD", "mod");
+label("SUSTAIN", 20, 238, 100, "role", "#8a8fa8");
+const pedalLamp = el("div", "", stage, { left: px(27), top: px(254), width: px(86), height: px(6), borderRadius: "3px", background: "#0b0c12" });
 let bend = 0, modV = 0;
 function drawWheels() {
   pitch.mark.style.top = px(95 - bend / 8192 * 85);
@@ -164,7 +159,7 @@ drawWheels();
 const bed = el("div", "keybed", stage);
 const whites = [];
 for (let k = 0; k < NKEY; k++) if (!isBlack(k)) whites.push(k);
-const KW = 1054 / whites.length;
+const BED_X = 20, BED_W = 1200, KW = BED_W / whites.length;
 const keys = [];
 for (let k = 0; k < NKEY; k++) {
   const outer = k < FM1_LO || k > FM1_HI;
@@ -183,12 +178,12 @@ for (let k = 0; k < NKEY; k++) {
   keys.push({ el: d });
 }
 {
-  const xOf = (k) => 160 + whites.indexOf(k) * KW;
+  const xOf = (k) => BED_X + whites.indexOf(k) * KW;
   const fm1L = xOf(FM1_LO), fm1R = xOf(FM1_HI) + KW;
   const r = (cls, x0, x1, t) => { const e = el("div", "range " + cls, stage, { left: px(x0 + 2), width: px(x1 - x0 - 4) }); e.textContent = t; };
-  r("out", 160, fm1L, "MIDI 48–52");
+  r("out", BED_X, fm1L, "MIDI 48–52");
   r("fm1", fm1L, fm1R, "THE FM-1'S 27 KEYS · F3–G5");
-  r("out", fm1R, 160 + 1054, "MIDI 80–84");
+  r("out", fm1R, BED_X + BED_W, "MIDI 80–84");
 }
 
 // scale the panel to the width it has (no sideways scroll at phone width)
