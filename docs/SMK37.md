@@ -174,7 +174,10 @@ flash map, and the update receiver against the built packages when they are ther
 
 The SMK-37 build in the browser, for trying its controls without the keyboard: the simulator above compiled to
 WebAssembly (fm1-base's `web/emu/emu_web.c` and its worklet, with `web_smk_*` exports from
-`firmware/patches/smk37/fm1-base/0002-smk37-web.patch`) on a page of its own (`web/emu-smk37/`).
+`firmware/patches/smk37/fm1-base/0002-smk37-web.patch`) on a page of its own (`web/emu-smk37/`). Online beside the test
+installer: `https://remotefm1.com/installer/smk37/emu/`, from the built copy in `web/installer/smk37/emu/` (after a
+change, build it and copy `firmware/build/emu-smk37/*` there; `test_smk_installer.mjs` checks its page files against
+`web/emu-smk37/`).
 
 ```sh
 source ~/emsdk/emsdk_env.sh                     # Emscripten (emcc)

@@ -5,45 +5,46 @@
   "releases": [
     {
       "version": "0.3.1",
-      "date": "2026-11-01",
-      "tag": "v0.3.1-smk37",
+      "date": "2026-11-02",
+      "tag": "v0.3.1-smk37.2",
       "license": "MPL-2.0",
       "models": {
         "pro": {
           "name": "SMK-37 Pro (and the Starrykey 37 Play)",
           "identity": "SMK-37 Pro_52000301",
           "file": "remote-smk37-0.3.1.fwsc",
-          "sha256": "21431ea2388be8415c9148950e240cb4539b50233711c42a0ced3381c7a4de7c",
+          "sha256": "7f23f2316f7b02bbbc2b19df112a686fffa5af3acfa4412a2a875995ec47d885",
           "usbOnly": {
             "file": "remote-smk37-usb-0.3.1.fwsc",
-            "sha256": "fd82d8df94196805953202583bcb1390a517e90f6f4e62d1e3de9b93c65f52c9"
+            "sha256": "34b863904bcb2f1a628a724e5e013418d3592d449525a8ef18f52ba422331e31"
           }
         },
         "elite": {
           "name": "SMK-37 Elite",
           "identity": "SMK-37 Elite_52000301",
           "file": "remote-smk37-elite-0.3.1.fwsc",
-          "sha256": "e1d0bae31257be687760cb74b09fe4e7c2d7abfc266a3d3ce547e61207980fe8",
+          "sha256": "ddb1d5897d336b57b7cce6cd8dc96c5370f4b34015fbc511c1f933ac94036b41",
           "usbOnly": {
             "file": "remote-smk37-elite-usb-0.3.1.fwsc",
-            "sha256": "fe39be6e944213866a03d78d5fe35585801c95d7b9aec2ab806564c8e4bbdf2f"
+            "sha256": "6367080d6aef30f22f3cfc2e7b5b7720d8d9edd448d4c3a75901223cb799de59"
           }
         },
         "mke": {
           "name": "MKE-P37",
           "identity": "MKE-P37_52000301",
           "file": "remote-smk37-mke-0.3.1.fwsc",
-          "sha256": "a9473ab7f9d232fd2ad4142a89e8dd1a48995517675b9d615892982e92dbbfc0",
+          "sha256": "2ea293ebcafbceb40a33da2f0e67fd5c5d7be7ec211314a01cb27dd01112916a",
           "usbOnly": {
             "file": "remote-smk37-mke-usb-0.3.1.fwsc",
-            "sha256": "191a77c03da44eb63a7d220bcf860a026edf214db4af21d25e70beeddbb5f3d5"
+            "sha256": "37340d22fbe57b0307b2e0906d03fd6871519e812ce2502663fef47b660a7e30"
           }
         }
       },
       "notes": [
         "An untested community build: nobody on the project has an SMK-37, and nothing here has run on a unit yet. Please report what works and what does not on GitHub (SMK37.md, What to test).",
         "RemoteFM1 0.3.1 as on the FM-1: the panel for a firmware on the computer (this site's player, the iOS app, FM1VST), and on its own a DX7 with velocity, scales, latch, an arp and 16 loops.",
-        "To every host the keyboard is an FM-1 (USB device \"FM-1\", Bluetooth \"FM-1 XXXX\"): its middle 27 keys, the pads, buttons and knobs are the FM-1's; the outer keys, faders, wheels and pedal reach the host's firmware as MIDI.",
+        "To every host the keyboard is an FM-1 (USB device \"FM-1\", Bluetooth \"FM-1 XXXX\"). Its controls follow the FM-1's layout: the 12 buttons right of the pads are the FM-1's two rows in the same places (ARP is FX, BT is GLO, PATCH is HOME, and so on), < and > turn SELECT, the faders are KNOB 1..4 (on the instrument's CC pages they set the CC to the fader's position). The outer keys, wheels and pedal reach the host's firmware as MIDI.",
+        "New in this build (smk37.2): the FM-1 button layout, < > as SELECT, the faders as KNOB 1..4. Try it first in the emulator (emu/ next to this page).",
         "The keyboard's calibration, its Bluetooth pairing and key areas are never written. The first start clears another firmware's data in RemoteFM1's areas (a second or two, once)."
       ]
     }

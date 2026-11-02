@@ -217,7 +217,7 @@ jobs:
           # the site links it (the link goes to testers), and it is not indexed
           mkdir -p _site/installer/smk37
           cp -R web/installer/smk37/index.html web/installer/smk37/smk37.js web/installer/smk37/releases-smk37.json \
-                web/installer/smk37/firmware _site/installer/smk37/
+                web/installer/smk37/firmware web/installer/smk37/emu _site/installer/smk37/
           (cd _site/installer/smk37/firmware && sha256sum -c SHA256SUMS)
           # the firmwares' own managers / editors (web/managers/build.mjs), copied from FM1VST's core trees at the commit it
           # pins, or fetched from their GitHub repositories at the commit managers.json pins (raw.githubusercontent.com:
