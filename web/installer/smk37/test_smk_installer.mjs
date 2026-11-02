@@ -51,7 +51,7 @@ for (const k of ["pro", "elite", "mke"]) for (const v of ["", "usb"]) {
   const files = readdirSync(here("./firmware/")).filter((f) => f !== "SHA256SUMS").sort().join();
   const summed = sums.trim().split("\n").map((l) => l.split(/\s+/)[1]).sort().join();
   ok(files === Object.keys(RAW).sort().join() && summed === files, `firmware/ holds the six listed packages only`);
-  ok(rel.version === "0.3.1" && rel.tag === "v0.3.1-smk37.2" && rel.models.pro.identity === "SMK-37 Pro_52000301" &&
+  ok(rel.version === "0.3.1" && rel.tag === "v0.3.1-smk37.3" && rel.models.pro.identity === "SMK-37 Pro_52000301" &&
      rel.models.elite.identity === "SMK-37 Elite_52000301" && rel.models.mke.identity === "MKE-P37_52000301" &&
      rel.notes.some((n) => /untested community build/.test(n)), "0.3.1-smk37: the three models' identities, an untested community build");
 }
