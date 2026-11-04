@@ -1,3 +1,28 @@
+# RemoteFM1 0.3.2
+
+The first release that GitHub builds and signs from this repository's source, with The Firmware Hub's shared build
+workflow (`zvenson/fm1-build@v1`, docs/RELEASING.md). The firmware is 0.3.1's: the same sources, built with
+`tools/hub_build.sh 0.3.2` (`./build.sh --release 0.3.2`, and `--no-ble` for the USB-only package). It replaces 0.3.1.
+Both packages install as `FM-1_52000302`.
+
+| Package | sha256 |
+| --- | --- |
+| `remote-0.3.2.fwsc`, USB + Bluetooth MIDI (the default) | `f147236f785f09459a0896f569874be7aa8e587edb273dc7fef3ab9631375034` |
+| `remote-usb-0.3.2.fwsc`, USB only | `5064f5f77253132a36fac323440f41143793328806e89ba61ab52cd570fbbc9f` |
+
+## What you get
+
+- **On its own, a DX7:** Yamaha's 256 ROM voices and up to 16 of your own cartridges, with velocity, scales, latch, an
+  arp and a 16-loop looper.
+- **A MIDI controller** over USB, Bluetooth and the TRS jack.
+- **The panel for the RemoteFM1 apps** (remotefm1.com, iOS, Android, the Mac plugin): the FM-1's keys, knobs, screen
+  and lights for a firmware running on the host.
+
+## What changed from 0.3.1
+
+- Nothing in the firmware. The version (and so the identity) is new, and the release is built and signed on GitHub.
+  Your cartridges, loops and settings stay.
+
 # RemoteFM1 0.3.1
 
 Released 2026-10-31, built with `./build.sh --release 0.3.1` (and `--no-ble` for the USB-only package). It replaces

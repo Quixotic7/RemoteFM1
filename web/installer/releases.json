@@ -3,6 +3,22 @@
   "repo": "https://github.com/Quixotic7/RemoteFM1",
   "releases": [
     {
+      "version": "0.3.2",
+      "date": "2026-11-04",
+      "tag": "v0.3.2",
+      "identity": "FM-1_52000302",
+      "license": "MPL-2.0",
+      "sha256": "f147236f785f09459a0896f569874be7aa8e587edb273dc7fef3ab9631375034",
+      "usbOnly": {
+        "file": "remote-usb-0.3.2.fwsc",
+        "sha256": "5064f5f77253132a36fac323440f41143793328806e89ba61ab52cd570fbbc9f"
+      },
+      "notes": [
+        "The same firmware as 0.3.1, now built and signed on GitHub by The Firmware Hub's shared build workflow, so anyone can check that the package is exactly what the source builds.",
+        "It installs as FM-1_52000302; your cartridges, loops and settings from 0.3.1 stay."
+      ]
+    },
+    {
       "version": "0.3.1",
       "date": "2026-10-31",
       "tag": "v0.3.1",

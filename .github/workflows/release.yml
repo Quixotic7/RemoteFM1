@@ -1,0 +1,192 @@
+# SPDX-License-Identifier: MPL-2.0
+# Build, sign and release RemoteFM1's FM-1 firmware from a tag (docs/RELEASING.md): both packages, remote-V.fwsc
+# (USB + Bluetooth MIDI, the one The Firmware Hub lists) and remote-usb-V.fwsc (USB only), built by The Firmware Hub's
+# shared workflow zvenson/fm1-build at its reviewed tag v1, which signs a GitHub build attestation for each: the hub then
+# shows "Built from source on GitHub" on RemoteFM1's card, and anyone can check a file with gh attestation verify.
+#   push of a tag vX.Y.Z -> draft:   the tagged commit's web/installer/ checked (releases.json lists V, SHA256SUMS,
+#                                    the two packages, test_installer.mjs), then a draft release with the notes
+#                                    (web/installer/firmware/RELEASE-NOTES.md's "# RemoteFM1 V"), LICENSE,
+#                                    LICENSING.md and LICENSES.zip: nothing public yet
+#                           build:   fm1-build@v1 runs tools/hub_build.sh (./build.sh --release V, with and without
+#                                    Bluetooth; every sha256 checked against releases.json and the committed packages
+#                                    before anything is signed), attests remote-*.fwsc and uploads them with its
+#                                    SHA256SUMS to the draft
+#                           publish: the draft's files checked (signed by fm1-build v1 at its reviewed tag object, for
+#                                    this tag and commit; SHA256SUMS; releases.json), then the release published
+#   workflow_dispatch     -> build only: fm1-build signs the build of the branch, no release; the files are the run's
+#                            artifact "packages"
+# Only vX.Y.Z tags run it: the SMK-37 test builds' tags (v0.3.1-smk37...) are released by hand (docs/SMK37.md).
+# The web installer needs nothing from here: Pages serves main's committed web/installer/firmware/, the same bytes as
+# the signed files (hub_build.sh checks it). The signed files are never rebuilt, replaced or uploaded by hand afterwards.
+name: Release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build, e.g. 0.3.2 (X.Y.Z). Builds and signs an artifact; no release."
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  # the shared workflow the hub trusts, at refs/tags/v1, and v1's digest as the attestation records it (the
+  # certificate's Build Signer Digest): v1 is an annotated tag, so this is the tag object 5ba8c359.., not the commit it
+  # names (as ChoralRoot's and FIZZ's release.yml). publish refuses a file signed by any other v1 (a moved or re-made tag)
+  FM1_BUILD: zvenson/fm1-build/.github/workflows/build.yml
+  FM1_BUILD_V1_SHA: 5ba8c359b1744cc53c4530b15eff52d0d5c1255b
+
+jobs:
+  draft:
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write                 # the draft release and its licence files
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - name: Version
+        id: version
+        run: tools/hub_build.sh --version | tee -a "$GITHUB_OUTPUT"
+
+      - name: A published release is never rebuilt
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # a rerun may refill the draft; a public release keeps the signed files it has (delete it to redo)
+          if draft=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null); then
+            if [ "$draft" != true ]; then
+              echo "::error::the release $GITHUB_REF_NAME is published: its signed files stay as they are"
+              exit 1
+            fi
+          fi
+
+      - name: The release's committed files (the tag's commit must hold them)
+        env:
+          V: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          test -f "web/installer/firmware/remote-$V.fwsc" ||
+              { echo "::error::no web/installer/firmware/remote-$V.fwsc in the tagged commit (tools/hub_build.sh --site $V first)"; exit 1; }
+          (cd web/installer/firmware && sha256sum -c SHA256SUMS)
+          tools/hub_build.sh --check web/installer/firmware "$V"
+          node web/installer/test_installer.mjs
+
+      - name: Release notes (RELEASE-NOTES.md's section for V, then the signed-build text)
+        env:
+          V: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          {
+            awk -v h="# RemoteFM1 $V" '$0 == h { on = 1; next } on && /^# RemoteFM1 / { exit } on' \
+                web/installer/firmware/RELEASE-NOTES.md
+            sed -e "s/@VERSION@/$V/g" -e "s|@REPO@|$GITHUB_REPOSITORY|g" <<'EOT'
+
+          `remote-@VERSION@.fwsc` is the package with USB and Bluetooth MIDI (the one The Firmware Hub lists), `remote-usb-@VERSION@.fwsc` the USB-only one; `SHA256SUMS` lists both. GitHub built and signed each file from this tag's source (The Firmware Hub's shared workflow); check one with `gh attestation verify remote-@VERSION@.fwsc --repo @REPO@ --signer-workflow zvenson/fm1-build/.github/workflows/build.yml`. The build downloads Yamaha's DX7 ROM cartridges and checks them against the sha256s pinned in `tools/hub_build.sh`; they are compiled in, never in the repository or the release. `LICENSE`, `LICENSING.md` and `LICENSES.zip` carry every licence. Installing firmware is at your own risk.
+          EOT
+          } > release-body.md
+          grep -q . release-body.md
+          cat release-body.md
+
+      - name: The licence files (from the tag's tree; the build adds the packages)
+        run: |
+          set -euo pipefail
+          mkdir assets
+          cp LICENSE LICENSING.md assets/
+          zip -q -r assets/LICENSES.zip LICENSES
+          ls -l assets
+
+      - name: Create or update the draft release
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: RemoteFM1 ${{ steps.version.outputs.version }}
+          draft: true                 # until publish has checked the signed files
+          fail_on_unmatched_files: true
+          files: assets/*
+          body_path: release-body.md
+
+  build:
+    needs: draft
+    # a tag: after the draft; a run from the Actions tab (no draft): on its own
+    if: ${{ !failure() && !cancelled() }}
+    # the hub trusts this workflow at refs/tags/v1 only: the tag, not a commit SHA (publish checks the tag object)
+    uses: zvenson/fm1-build/.github/workflows/build.yml@v1
+    permissions:
+      contents: write                 # the files into the draft release (a tag only)
+      id-token: write                 # the attestation's signing certificate
+      attestations: write
+    with:
+      build: bash tools/hub_build.sh
+      packages: remote-*.fwsc
+      # the AC79 SDK at its tag (AC79NN_SDK_V1.2.1_2023-12-13): the Bluetooth package builds on JieLi's Bluetooth
+      # libraries, which are never in git
+      sdk: true
+
+  publish:
+    needs: [draft, build]
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write                 # publish the draft
+      attestations: read              # gh attestation verify
+    env:
+      VERSION: ${{ needs.draft.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            web/installer
+            tools/hub_build.sh
+          sparse-checkout-cone-mode: false
+
+      - name: The draft's files, signed by fm1-build v1 from this tag, as releases.json pins them
+        run: |
+          set -euo pipefail
+          mkdir signed
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --dir signed \
+              --pattern 'remote-*.fwsc' --pattern SHA256SUMS
+          n=2                         # remote (USB + Bluetooth), remote-usb
+          ls -l signed
+          files=(signed/remote-*.fwsc)
+          if [ "${#files[@]}" != $n ] || [ "$(grep -c . signed/SHA256SUMS)" != $n ]; then
+            echo "::error::the draft $GITHUB_REF_NAME does not have the $n packages with their SHA256SUMS"
+            exit 1
+          fi
+          (cd signed && sha256sum -c SHA256SUMS)
+          for f in signed/remote-*.fwsc; do
+            gh attestation verify "$f" --repo "$GITHUB_REPOSITORY" \
+                --signer-workflow "$FM1_BUILD" --signer-digest "$FM1_BUILD_V1_SHA" \
+                --source-ref "$GITHUB_REF" --source-digest "$GITHUB_SHA" --deny-self-hosted-runners
+          done
+          tools/hub_build.sh --check signed "$VERSION"
+
+      - name: Publish the release
+        run: |
+          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          echo "RemoteFM1 $VERSION: released, signed by fm1-build v1" >> "$GITHUB_STEP_SUMMARY"
