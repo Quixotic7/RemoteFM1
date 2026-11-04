@@ -10,6 +10,7 @@
 // 2..5 KNOB1..4 6 PRESETS. labelToMatrix / roleToMatrix convert (FM1VST core-glue/common/panel.h PANEL_DEFAULT).
 
 import { css, mix, resolve, accentOf, PRESETS, DEFAULT_THEME } from "./theme.js";
+import { imageFor, coverRect } from "./skin.js";
 
 // ================================================================ the panel ===
 
@@ -410,7 +411,18 @@ function drawDisplay(g, p, lcd, x, y, size, dpr, base) {
 }
 
 // ============================================================ device view ===
-// The faceplate on a canvas, edge to edge in the theme's body colour. Coordinates are the canvas's CSS pixels:
+// a skin's image (js/skin.js) cropped to fill W x H device pixels, then the faceplate's colour over it by the dim, so
+// the labels, drawn for contrast on that colour, stay legible
+function drawSkin(g, skin, W, H, body) {
+  const img = imageFor(skin, W > H);
+  if (!img) return;
+  const [sx, sy, sw, sh] = coverRect(img.width, img.height, W, H);
+  g.imageSmoothingQuality = "high";
+  g.drawImage(img, sx, sy, sw, sh, 0, 0, W, H);
+  if (skin.dim > 0) { g.fillStyle = css(body, skin.dim); g.fillRect(0, 0, W, H); }
+}
+
+// The faceplate on a canvas, edge to edge in the theme's body colour (or over a skin's image). Coordinates are the canvas's CSS pixels:
 // toUnits is the identity (input.js asks it, then hit()).
 export class DeviceView {
   constructor(canvas, controls, lcd) {
@@ -434,6 +446,8 @@ export class DeviceView {
     this.potAt = null;        // a learned MASTER pot waiting for pickup: its position 0..1023 (a faint mark)
   }
   setTheme(t) { this.theme = t; this.pal = resolve(t); this.accent = accentOf(t); this.base = null; }
+  // a skin behind the faceplate (js/skin.js): { id, portrait, landscape, dim } or null
+  setSkin(skin) { if ((skin && skin.id) !== (this.skin && this.skin.id) || (skin && skin.dim) !== (this.skin && this.skin.dim)) this.base = null; this.skin = skin || null; }
   // the computer-key hints (the sheet's "Show computer-key hints", off by default): the letter under a key's LED, or
   // under a button's name
   setHints(on) { this.hints = !!on; }
@@ -564,6 +578,7 @@ export class DeviceView {
     const c = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(W, H) : Object.assign(document.createElement("canvas"), { width: W, height: H });
     const g = c.getContext("2d");
     g.fillStyle = css(p.body); g.fillRect(0, 0, W, H);
+    drawSkin(g, this.skin, W, H, p.body);
     g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     if (L) {
       const ow = L.octWell, bw = L.btnWell, kb = L.keybed;
@@ -736,6 +751,7 @@ export class ScreenView {
     this.dpr = 1; this.cssW = 0; this.cssH = 0;
   }
   setTheme(t) { this.pal = resolve(t); }
+  setSkin(skin) { this.skin = skin || null; }
   layout(w, h, dpr) {
     const W = Math.max(1, Math.round(w * dpr)), H = Math.max(1, Math.round(h * dpr));
     if (this.canvas.width !== W || this.canvas.height !== H) { this.canvas.width = W; this.canvas.height = H; }
@@ -754,6 +770,7 @@ export class ScreenView {
     const g = this.ctx, p = this.pal, d = this.dpr;
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.fillStyle = css(p.body); g.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    drawSkin(g, this.skin, this.canvas.width, this.canvas.height, p.body);
     g.setTransform(d, 0, 0, d, 0, 0);
     const b = this.bezel();
     drawDisplay(g, p, null, b.x, b.y, b.w, d, true);

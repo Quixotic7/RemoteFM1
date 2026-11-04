@@ -150,6 +150,17 @@ firmware browser's "Open a file..." or drops it on the page, and the page keeps 
 - `info()` is the native engine's, with the manifest's `license` and `source` (its `source_url`), and also
   `authors`, `glueUrl` (the manifest's `glue_url`), `builtBy`, `licenseTexts` (the `rfm1.license.<n>` sections) and
   `credits` (`rfm1.credits`, else the descriptor's).
+- **Skins** (RemoteFM1IOS `docs/RFM1-FORMAT.md` section 8, the same file the iOS app reads): `inspect()` and `info()`
+  hand over the custom sections `rfm1.skin`, `rfm1.skin.background` and `rfm1.skin.background.landscape` as bytes in
+  `skin` (`{ name: Uint8Array }`, null without `rfm1.skin`); the page parses and decodes them (`web/site/js/skin.js`:
+  `skin` 1, `dim` 0–0.8, the five or fourteen theme colours, images at most 4 MiB, scaled to 2048 px) and draws the
+  image behind the faceplate, the faceplate's colour over it by `dim`, with the skin's colours in place of the theme,
+  unless the visitor turns Firmware skins off. The visitor's own background image (the sheet's Background: Background
+  image, Dim, default 0.25, Remove) is kept in IndexedDB `remotefm1-skin`; a firmware's skin wins over it.
+  `node web/site/tools/rfm1-skin.mjs add in.rfm1 -o out.rfm1 --background bg.png [--landscape wide.png]
+  [--theme t.json] [--dim 0.2]` adds one (as the iOS repo's `scripts/rfm1_skin.py`). Tests:
+  `node web/engines/rfm1/skin-test.mjs` (the sections, the parse, which skin shows; a file from the iOS script when
+  that repo is beside this one), the page: `node web/site/tools/skin-e2e.mjs` (screenshots in `web/build/test`).
 - `labels()`: the optional exports `rfm1_labels_epoch () -> i32` and `rfm1_label (which) -> ptr` (FM1VST's
   rfm1_shim.c adds both to every build; a file without them, or with other signatures, runs as before with labels()
   null; `inspect()` says `labels`). A label's pointer is bounds-checked, read up to 64 bytes and cut to 10 characters.
