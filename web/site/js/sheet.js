@@ -12,6 +12,7 @@ import { browse, browseSections, cardView, ENGINE_FILTERS, nativeOrigin, nameOf,
 import { RELEASES } from "./library.js";
 import { MHZ_CHOICES, DEVICE_MHZ, DEVICE_RANGE, OVERCLOCK, DUAL_CORE, isOverclock, inDeviceRange } from "./cpu.js";
 import { SPEEDS, srcLabel } from "./midi-map.js";
+import { MAX_DIM } from "./skin.js";
 
 // ---- icons: FM1VST Look::icon, 16 x 16 boxes
 const ICON = {
@@ -207,6 +208,28 @@ export class Sheet {
       return h("label", {}, inp, h("span", {}, label), h("code", {}, st.theme[k]));
     })));
     out.push(h("p", { class: "note" }, custom ? "Your theme: the labels, the keys' edges and shadows follow the colours you pick." : "Change any colour to make it your own theme."));
+
+    // BACKGROUND (js/skin.js): the visitor's image behind the faceplate, its dim, and whether a firmware's own skin shows
+    out.push(heading("Background"));
+    {
+      const has = !!st.userSkin, now = a.skinNow();
+      const fileIn = h("input", { type: "file", accept: "image/*", hidden: true, class: "skin-file",
+        onchange: (ev) => { const f = ev.target.files[0]; ev.target.value = ""; if (f) a.setBackground(f); } });
+      out.push(row("Background image", has ? "your image, behind the FM-1 for every firmware" : "a picture of yours behind the FM-1",
+        h("div", { class: "skin-ctl" }, fileIn, h("button", { class: "pill", onclick: () => fileIn.click() }, has ? "Change..." : "Choose..."))));
+      if (has) {
+        out.push(row("Remove background image", null, h("button", { class: "pill ghost skin-remove", onclick: () => a.removeBackground() }, "Remove")));
+        const pct = Math.round(st.skinDim * 100), val = h("span", { class: "vol-val" }, `${pct}%`);
+        const range = h("input", { type: "range", class: "vol skin-dim", min: "0", max: String(Math.round(MAX_DIM * 100)), step: "1", value: String(pct), "aria-label": "Dim the background image",
+          oninput: (ev) => { val.textContent = ev.target.value + "%"; a.setSkinDim(ev.target.value / 100, false); },
+          onchange: (ev) => a.setSkinDim(ev.target.value / 100, true) });
+        out.push(row("Dim", "the faceplate's colour over the image, so the labels stay readable", h("div", { class: "vol-wrap" }, range, val)));
+      }
+      out.push(row("Firmware skins", "a firmware's own background and colours", toggle(st.firmwareSkins, (v) => a.set("firmwareSkins", v))));
+      if (st.skinFailed) out.push(h("p", { class: "note warn" }, "That image couldn't be read. Try another one."));
+      if (now.firmware) out.push(h("p", { class: "note" }, `${st.entry ? st.entry.name : "This firmware"} comes with its own skin, shown while it plays${now.skin.theme ? ", in its own colours" : ""}.`));
+      out.push(h("p", { class: "note" }, "A firmware that comes with its own skin shows it while it plays. Turn off Firmware skins to keep your background and theme for every firmware. The image stays in this browser."));
+    }
 
     // VIEW
     out.push(heading("View"));

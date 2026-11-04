@@ -334,6 +334,7 @@ body.learning #device { cursor: crosshair; }
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
 .note { color: var(--muted); font-size: 12px; line-height: 1.45; margin: 6px 0 2px; }
+.note.warn { color: #FFB25C; }
 .remote-status { margin: 10px 0 0; }
 .remote-status.ok { color: var(--green); }
 .remote-status.bad { color: var(--amber); }

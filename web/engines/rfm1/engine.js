@@ -101,6 +101,8 @@ const LABEL_EXPORTS = [["rfm1_labels_epoch", 0, 1], ["rfm1_label", 1, 1]];
 // is there with this signature
 const AIN_EXPORTS = [["rfm1_audio_in", 2, 0], ["rfm1_audio_in_info", 2, 0]];
 const AIN_RESYNC = 32;                                  // (a latency change smaller than this is not re-sent)
+// a skin's custom sections (RemoteFM1IOS docs/RFM1-FORMAT.md section 8)
+const SKIN_SECTIONS = ["rfm1.skin", "rfm1.skin.background", "rfm1.skin.background.landscape"];
 const REQUIRED_FIELDS = ["id", "name", "version", "license", "source_url"];
 
 const refuse = (why) => { throw new Error(`not a usable .rfm1 file: ${why}`); };
@@ -154,13 +156,13 @@ const sigText = ([p, r]) => `(${p.map((t) => TYPE_NAME[t] || "?").join(", ")}) -
 const sameSig = (a, b) => a[0].length === b[0].length && a[1].length === b[1].length && a[0].every((t, i) => t === b[0][i]) && a[1].every((t, i) => t === b[1][i]);
 
 // The file's own checks (the format's section 7 step 1), on its bytes; throws with the reason.
-// -> { manifest, credits, licenses: [text], memoryPages }
+// -> { manifest, credits, licenses: [text], memoryPages, ..., skin: { section name: bytes } | null }
 export function inspect(bytes) {
     const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
     if (b.length < 8 || b[0] !== 0 || b[1] !== 0x61 || b[2] !== 0x73 || b[3] !== 0x6d) refuse("not a WebAssembly module (no \\0asm magic)");
     if (b[4] !== 1 || b[5] || b[6] || b[7]) refuse("a WebAssembly module of another binary version (not 1)");
     if (b.length > MAX_FILE) refuse("larger than 64 MiB");
-    const types = [], funcs = [], exports = new Map(), licenseByN = new Map();
+    const types = [], funcs = [], exports = new Map(), licenseByN = new Map(), skin = {};
     let importedFuncs = 0, memories = 0, memoryPages = 0, manifestText = null, credits = "";
     const hostImports = [];
     const r = new Reader(b, 8, b.length);
@@ -177,6 +179,8 @@ export function inspect(bytes) {
                 manifestText = utf8Range(b, s.at, s.end);
             } else if (nm === "rfm1.credits") credits = utf8Range(b, s.at, s.end);
             else if (/^rfm1\.license\.\d{1,2}$/.test(nm) && +nm.slice(13) < 64) licenseByN.set(+nm.slice(13), utf8Range(b, s.at, s.end));
+            // a skin (RemoteFM1IOS docs/RFM1-FORMAT.md section 8): kept as bytes, read by the page (site/js/skin.js)
+            else if (SKIN_SECTIONS.includes(nm) && !(nm in skin)) skin[nm] = b.slice(s.at, s.end);
         } else if (id === 1) {                                // types
             for (let i = 0, n = s.u32(); i < n && s.ok; i++) {
                 if (s.byte() !== 0x60) refuse("a type that is not a function type");
@@ -303,7 +307,7 @@ export function inspect(bytes) {
     const ain = needs.includes("ain1") ? "needs" : wants.includes("ain1") ? "wants" : null;
     const ainExports = { audioIn: !!ain && hasFn(AIN_EXPORTS[0]), info: !!ain && hasFn(AIN_EXPORTS[1]) };
     return { manifest: m, labels, credits, licenses, memoryPages, virtual, needs, wants, folders, fs: hostImports.length > 0 || needs.includes("fs1"),
-             ain, ainExports };
+             ain, ainExports, skin: "rfm1.skin" in skin ? skin : null };
 }
 
 // the module compiled once per file bytes (the tests boot one file many times; the page sends fresh bytes)
@@ -711,6 +715,8 @@ class Rfm1Engine {
             virtual: this.file.virtual, needs: this.file.needs.slice(), folders: { ...this.file.folders },
             // (beyond API.md) live audio input: "needs" | "wants" | null (the manifest's "ain1"), and its wants
             wants: this.file.wants.slice(), ain: this.file.ain,
+            // (beyond API.md) the file's skin sections, { "rfm1.skin": bytes, "rfm1.skin.background": bytes, ... } or null
+            skin: this.file.skin,
         };
     }
 

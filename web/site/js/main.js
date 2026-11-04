@@ -18,6 +18,7 @@ import { makeSite } from "./remote-hook.js";
 import { createFm1, mountUseFm1, mountHeader } from "./use-fm1.js";
 import { liveCatalog, mergeLive, packageFor, chooseEngine, compareVersions, sourceOf, nativeOrigin, nameOf, localRfm1, siteRfm1 } from "./live.js";
 import { loadPrefs, savePrefs as writePrefs, keyHintsOn, shiftHintDue } from "./prefs.js";
+import { DEFAULT_DIM, clampDim, pickSkin, firmwareSkin, loadUserSkin, setUserImage, removeUserImage } from "./skin.js";
 import { mhzFor, pickMhz, stepDown, Governor, DEVICE_MHZ } from "./cpu.js";
 import { EditorPanel } from "./editor-panel.js";
 import { RecUI } from "./rec-ui.js";
@@ -53,6 +54,10 @@ const state = {
   recBits: prefs.recBits === 16 ? 16 : 24, recCountIn: prefs.recCountIn === true,          // the recorder (js/rec-ui.js)
   library: [],                                              // the visitor's .rfm1 files (library.js records, no bytes)
   knobSpeed: speedOf(prefs.knobSpeed),                      // MIDI learn: a learned knob's speed (midi-map.js)
+  // skins (js/skin.js): the visitor's background image (IndexedDB) and its dim, the playing firmware's own skin
+  skinDim: typeof prefs.skinDim === "number" ? clampDim(prefs.skinDim) : DEFAULT_DIM,
+  firmwareSkins: prefs.firmwareSkins !== false,             // a firmware's own skin shows: on by default
+  userSkin: null, fwSkin: null, skinFailed: false,
 };
 let catalog = null, snapshot = null, emuHook = null, player = null, sheet = null, site = null, siteEmit = () => {}, fm1 = null;
 let soundOut = null;   // the output device: the system's or the FM-1's USB audio (sound-out.js)
@@ -165,6 +170,7 @@ async function openFirmware(id, want = null) {
   // the running firmware's flash first (some cores write it only when asked: W1)
   if (state.running && state.entry && state.engine !== "mock") { try { await currentFlash(); } catch (_) { /* (gone already) */ } }
   if (e.emuNote && !e.native) toast(`${e.name} is known not to run in the emulator: ${e.emuNote}.`, "bad");
+  if (state.fwSkin && state.fwSkin.id !== skinIdOf(e)) { state.fwSkin = null; applyTheme(); }
   state.entry = e;
   state.wantEngine = engineFor(e, want);
   state.engine = state.wantEngine;
@@ -424,6 +430,7 @@ function makePlayer() {
     leds(levels, green) { state.levels = levels; state.playGreen = green; device.setLeds(levels, green); invalidate(); siteEmit("leds", levels, green); },
     info(info) {
       state.info = info;
+      takeFirmwareSkin(info);
       state.labels = null;   // (the new engine's come with its first "labels")
       if (state.engine !== "mock") state.engineState = "running";
       applyButtonNames();
@@ -687,6 +694,8 @@ const app = {
     else if (k === "fwNames") { state.fwNames = !!v; prefs.fwButtonNames = !!v; applyButtonNames(); invalidate(); }
     else if (k === "keyHints") { state.keyHints = !!v; prefs.keyHints = !!v; device.setHints(state.keyHints); invalidate(); }
     else if (k === "knobSpeed") { state.knobSpeed = prefs.knobSpeed = speedOf(v); midiMap.setSpeed(state.knobSpeed); }
+    else if (k === "skinDim") { state.skinDim = prefs.skinDim = clampDim(+v); applyTheme(); }
+    else if (k === "firmwareSkins") { state.firmwareSkins = prefs.firmwareSkins = !!v; applyTheme(); }
     else { state[k] = v; prefs[k] = v; }
     savePrefs();
     if (sheet) sheet.render();
@@ -700,6 +709,29 @@ const app = {
     }
     openFirmware(id);
   },
+  // the background image's dim: while the slider moves (no re-render), and kept when it is let go
+  setSkinDim(v, keep) {
+    if (keep) return app.set("skinDim", v);
+    state.skinDim = clampDim(+v); applySkin();
+  },
+  // the visitor's background image (a file from the sheet's picker): scaled, kept in this browser, shown
+  async setBackground(file) {
+    const got = await setUserImage(file);
+    state.skinFailed = !got;
+    if (got) {
+      if (state.userSkin && state.userSkin.portrait && state.userSkin.portrait.close) state.userSkin.portrait.close();
+      state.userSkin = got.skin; applyTheme();
+      if (!got.kept) toast("This browser can't keep the background image: it shows until you leave the page.", "bad");
+    }
+    if (sheet) sheet.render();
+  },
+  async removeBackground() {
+    await removeUserImage();
+    state.userSkin = null; state.skinFailed = false; applyTheme();
+    if (sheet) sheet.render();
+  },
+  // what shows behind the faceplate now (null: the theme's colour) and whether it is the firmware's
+  skinNow: () => { const s = currentSkin(); return { skin: s, firmware: !!s && s === state.fwSkin }; },
   // the page's volume: while the slider moves (no re-render), and kept when it is let go
   setVolume(v, keep) {
     state.volume = Math.max(0, Math.min(1, +v || 0));
@@ -809,17 +841,37 @@ async function importRfm1(fileName, bytes) {
 
 // My theme starts from the theme in use: its five colours
 const choiceFrom = (t) => ({ body: t.body, key: t.key, knob: t.knob, led: t.led, bezel: t.bezel });
+// skins (js/skin.js): the firmware's own wins over the visitor's image, unless Firmware skins is off
+const skinIdOf = (e) => `rfm1:${(e && e.rfm1 && e.rfm1.sha256) || (e && e.id)}`;
+const currentSkin = () => pickSkin({ firmwareSkins: state.firmwareSkins, fw: state.fwSkin, user: state.userSkin, dim: state.skinDim });
+// the colours the faceplate draws in: a firmware skin's, else the visitor's theme
+const faceTheme = () => (state.firmwareSkins && state.fwSkin && state.fwSkin.theme) || state.theme;
+function applySkin() { const s = currentSkin(); device.setSkin(s); screen.setSkin(s); document.body.classList.toggle("skinned", !!s && !!(s.portrait || s.landscape)); invalidate(); }
+// the running firmware's skin, from the rfm1 engine's info (its rfm1.skin sections), decoded once per file
+let skinSeq = 0;
+function takeFirmwareSkin(info) {
+  const e = state.entry, id = skinIdOf(e), seq = ++skinSeq;
+  if (!info || !info.skin || state.engine !== "rfm1") { if (state.fwSkin) { state.fwSkin = null; applyTheme(); } return; }
+  if (state.fwSkin && state.fwSkin.id === id) return;
+  firmwareSkin(info.skin, id).then((s) => {
+    if (seq !== skinSeq || state.entry !== e) return;   // (another firmware since)
+    state.fwSkin = s; applyTheme();
+    if (sheet) sheet.render();
+  });
+}
 // the faceplate's colours, for the canvases and the page around them (css/site.css: the header sits on the faceplate)
 function applyTheme() {
-  device.setTheme(state.theme); screen.setTheme(state.theme);
-  const p = resolve(state.theme), a = accentOf(state.theme), root = document.documentElement.style;
+  const t = faceTheme();
+  device.setTheme(t); screen.setTheme(t);
+  applySkin();
+  const p = resolve(t), a = accentOf(t), root = document.documentElement.style;
   for (const [v, c] of [["--body", p.body], ["--label", p.label], ["--bed", p.bed], ["--key", p.key], ["--hi", p.hi], ["--lo", p.lo],
     ["--key-text", p.keyText], ["--led", p.led], ["--bezel", p.bezel], ["--accent", a], ["--on-accent", onAccent(a)]]) root.setProperty(v, css(c));
   root.setProperty("--accent-soft", css(a, 0.14));
   root.setProperty("--label-soft", css(p.label, 0.14));
   document.body.classList.toggle("light-plate", p.label[0] < 128);
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.content = state.theme.body;
+  if (meta) meta.content = t.body;
   layout();
 }
 
@@ -828,6 +880,7 @@ async function main() {
   $("corner").innerHTML = '<span class="grab-bar"></span>';
   if (EMBED) document.body.classList.add("embed");
   applyTheme();
+  loadUserSkin().then((s) => { if (s) { state.userSkin = s; applyTheme(); if (sheet) sheet.render(); } });
   // the FM-1 at its size from the first frame on (before any await: the catalog can take seconds on a slow connection)
   layout();
   if (document.fonts) document.fonts.ready.then(layout);   // (the canvas's legends: Chakra Petch, once it has loaded)
