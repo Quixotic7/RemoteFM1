@@ -1,3 +1,24 @@
+# RemoteFM1 0.3.3
+
+Released 2026-11-04, built and signed on GitHub with `tools/hub_build.sh 0.3.3` (docs/RELEASING.md). It replaces 0.3.2.
+Both packages install as `FM-1_52000303`.
+
+| Package | sha256 |
+| --- | --- |
+| `remote-0.3.3.fwsc`, USB + Bluetooth MIDI (the default) | `f123329b1b0b98ed0dc1085e39d2ab8368d50da4ffe410426ab3ad7688d60242` |
+| `remote-usb-0.3.3.fwsc`, USB only | `c57b0141d0d9a7fd354fb8bd0f027b4cfa5d28fcbf8ad72d4179e4f1c47c1d06` |
+
+## What changed from 0.3.2
+
+- **The newer FM-1s' flash chip.** FM-1s sold from late 2026 (the M-VAVE logo printed on the front) carry another
+  maker's 1 MiB flash (JEDEC id 0xB36014; the older units' Puya part is 0x856014). Earlier RemoteFM1 versions did not
+  accept it, so on those units they ran from RAM only: no cartridges or loops saved, and no update possible from
+  RemoteFM1 itself. 0.3.3 accepts both parts (fm1-base patch 0009, as ChoralRoot 0.29.1 does; the SMK-37 builds too).
+- Nothing else: your cartridges, loops and settings stay.
+
+A unit stuck on an earlier version that cannot update: start it in the ROM bootloader and restore V15 with
+MvaveFM1Unbricker (github.com/Quixotic7/MvaveFM1Unbricker), then install 0.3.3.
+
 # RemoteFM1 0.3.2
 
 The first release that GitHub builds and signs from this repository's source, with The Firmware Hub's shared build

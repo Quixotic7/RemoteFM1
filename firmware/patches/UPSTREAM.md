@@ -181,3 +181,17 @@ fm1_multicore.h does (MPL), fixes it: checked on a unit (both FM-1 audio devices
 
 RemoteFM1 0.3.2's Bluetooth package is the first built with it (docs/RELEASING.md); FIZZ sorts the same lists in its
 own `firmware/build.py`.
+
+## fm1-base: `fm1-base/0009-flash-b36014.patch` (2026-11-04)
+
+`device/main_fm1.c`. PR title: **main_fm1.c: accept the FM-1's second flash chip (JEDEC 0xB36014)**
+
+> FM-1s sold from late 2026 (the M-VAVE logo printed on the front) carry another maker's 1 MiB SPI NOR: it answers
+> 0xB36014 to 0x9F, where the older units' Puya part answers 0x856014 (the same type and capacity bytes). The boot
+> check takes only 0x856014, so on such a unit every fm1-base firmware runs from RAM only: no stores, no unit ID, and
+> no update session, so no installer can reach it (found on ChoralRoot 0.27, fixed there in 0.29.1; MvaveFM1Unbricker
+> 1.2.1 documents the part). The driver uses only generic SPI NOR commands (9F, 4B, 05/35, 06, 20, 02, 0B), as the
+> SDK firmware those units shipped with does on the same chip. Nothing changes on the older units.
+
+RemoteFM1 0.3.3 is the first with it. The SMK-37 series (`smk37/`) follows: its `FL_JEDEC_OK` takes 0xB36014 too, and
+its hunk over this line keeps 0009's block for the FM-1.

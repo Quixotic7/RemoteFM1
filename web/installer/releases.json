@@ -3,6 +3,22 @@
   "repo": "https://github.com/Quixotic7/RemoteFM1",
   "releases": [
     {
+      "version": "0.3.3",
+      "date": "2026-11-04",
+      "tag": "v0.3.3",
+      "identity": "FM-1_52000303",
+      "license": "MPL-2.0",
+      "sha256": "f123329b1b0b98ed0dc1085e39d2ab8368d50da4ffe410426ab3ad7688d60242",
+      "usbOnly": {
+        "file": "remote-usb-0.3.3.fwsc",
+        "sha256": "c57b0141d0d9a7fd354fb8bd0f027b4cfa5d28fcbf8ad72d4179e4f1c47c1d06"
+      },
+      "notes": [
+        "Works on the newer FM-1s (the M-VAVE logo printed on the front), whose flash chip earlier versions did not know: there they could not save or take an update.",
+        "Nothing else changes; your cartridges, loops and settings stay."
+      ]
+    },
+    {
       "version": "0.3.2",
       "date": "2026-11-04",
       "tag": "v0.3.2",
