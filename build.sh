@@ -19,7 +19,7 @@
 #                                   (the page from web/emu-smk37/; docs/SMK37.md "Emulator")
 #   JIELI_TOOLCHAIN  JieLi's Linux toolchain (default ~/.jieli/toolchain; on a Mac it runs in Docker)
 #   AC79_SDK         JieLi's AC79 SDK, for its Bluetooth libraries (default ~/fw-AC79_AIoT_SDK; never committed)
-#   PYTHON           a Python whose Pillow has libraqm (fm1-base's fonts); on a Mac DYLD_LIBRARY_PATH=/opt/homebrew/lib
+#   PYTHON           a Python whose Pillow has libraqm (fm1-base's fonts); on a Mac DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib
 set -e
 cd "$(dirname "$0")"
 ROOT="$PWD"
@@ -32,8 +32,11 @@ done
                                                         # --host: the simulator with the bench at boot)
 export JIELI_TOOLCHAIN="${JIELI_TOOLCHAIN:-$HOME/.jieli/toolchain}"
 export AC79_SDK="${AC79_SDK:-$HOME/fw-AC79_AIoT_SDK}"
-if [ -z "${DYLD_LIBRARY_PATH:-}" ] && [ -d /opt/homebrew/lib ]; then
-    export DYLD_LIBRARY_PATH=/opt/homebrew/lib          # (Homebrew's libraqm for Pillow)
+if [ -z "${DYLD_LIBRARY_PATH:-}${DYLD_FALLBACK_LIBRARY_PATH:-}" ] && [ -d /opt/homebrew/lib ]; then
+    # Homebrew's libraqm for Pillow, as a fallback only: Pillow keeps its own FreeType and HarfBuzz (Homebrew's newer
+    # FreeType draws the fonts' edges differently, so a build would depend on the Mac's Homebrew; with Pillow's own,
+    # the Mac and GitHub's runner draw the same fonts: docs/RELEASING.md)
+    export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib
 fi
 PY="${PYTHON:-python3}"
 

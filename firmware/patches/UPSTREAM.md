@@ -168,3 +168,16 @@ outside `FL_STORE_OK`: every save of the radio's address, trim and bondings was 
 Core 1's idle loop and CPU0's wait spun on shared RAM with csync nonstop; with USB audio on, macOS then never
 created the FM-1's audio devices (enumeration and MIDI were fine). A short register-only pause per pass, as saadet's
 fm1_multicore.h does (MPL), fixes it: checked on a unit (both FM-1 audio devices, core 1 on, render hash equal).
+
+## fm1-base: `fm1-base/0008-build-sorted-ble-sources.patch` (2026-11-04)
+
+`tools/build.py`. PR title: **build.py: link the Bluetooth sources in a sorted order**
+
+> `tools/build.py` globs `ble/shim/*.c`, `ble/midi/*.c` and `ble/wifi/*.c` without sorting, so the link order, and so
+> the image's bytes, follow the file system's directory order: APFS on a Mac and ext4 on GitHub's runner give
+> different packages from the same source. Sorting them (as the lwIP sources already are) makes a Bluetooth build
+> reproducible anywhere, which signed release builds (The Firmware Hub's fm1-build) need. A USB-only build does not
+> change.
+
+RemoteFM1 0.3.2's Bluetooth package is the first built with it (docs/RELEASING.md); FIZZ sorts the same lists in its
+own `firmware/build.py`.

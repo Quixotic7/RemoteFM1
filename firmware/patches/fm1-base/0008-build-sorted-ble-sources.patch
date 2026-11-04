@@ -1,0 +1,22 @@
+--- a/tools/build.py
++++ b/tools/build.py
+@@ -558,8 +558,8 @@
+         (dst / cfg).write_text(text)
+         for f in o.glob("*.o"):
+             f.unlink()                            # (built for the other configuration)
+-    ble_only = [*(SRC / "ble" / "midi").glob("*.c"), *[dst / s for s in BLE_SDK_SRC]] if BLE else []
+-    for f in [*(SRC / "ble" / "shim").glob("*.c"), *ble_only]:
++    ble_only = [*sorted((SRC / "ble" / "midi").glob("*.c")), *[dst / s for s in BLE_SDK_SRC]] if BLE else []
++    for f in [*sorted((SRC / "ble" / "shim").glob("*.c")), *ble_only]:   # (sorted: the link order, so the image, is the same on every file system)
+         units.append(("cc", *BLE_CF, *flags, "-c", f, "-o", o / (f.stem + ".o")))
+         objs.append(o / (f.stem + ".o"))
+     if WIFI:
+@@ -568,7 +568,7 @@
+             for f in sorted((dst / "lwip" / d).glob("*.c")):
+                 units.append(("cc", *BLE_CF, *LWIP_CF, *lwip_inc, "-c", f, "-o", o / ("lwip_" + f.stem + ".o")))
+                 objs.append(o / ("lwip_" + f.stem + ".o"))
+-        for f in (SRC / "ble" / "wifi").glob("*.c"):
++        for f in sorted((SRC / "ble" / "wifi").glob("*.c")):
+             units.append(("cc", *BLE_CF, *LWIP_CF, *lwip_inc, "-c", f, "-o", o / ("wifi_" + f.stem + ".o")))
+             objs.append(o / ("wifi_" + f.stem + ".o"))
+         app_inc = inc(APP, SRC / "include", GEN, *(APP / d for d in CONF.get("include", []) + CONF.get("device_include", [])

@@ -8,10 +8,10 @@
       "tag": "v0.3.2",
       "identity": "FM-1_52000302",
       "license": "MPL-2.0",
-      "sha256": "f147236f785f09459a0896f569874be7aa8e587edb273dc7fef3ab9631375034",
+      "sha256": "f814257effa8c972d407db271bd8c40392a980a2c0d73cd206132a776e99548a",
       "usbOnly": {
         "file": "remote-usb-0.3.2.fwsc",
-        "sha256": "5064f5f77253132a36fac323440f41143793328806e89ba61ab52cd570fbbc9f"
+        "sha256": "46f0e9ea218bc3a64125439a95f83b06ff31c42f3b335e56f4a4c9bfe7717ef2"
       },
       "notes": [
         "The same firmware as 0.3.1, now built and signed on GitHub by The Firmware Hub's shared build workflow, so anyone can check that the package is exactly what the source builds.",

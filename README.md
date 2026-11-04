@@ -299,7 +299,11 @@ tests/run_tests.sh                   # the app in fm1-base's host simulator (fir
                                      # the patched usb.c and Bluetooth SysEx, tools/fm1_install.py, the DX7's checks
 tests/fm6_parity.sh SAADET_DIR       # the DX7 (saadet's FM6) against saadet's own build: tables and samples
 host/run_tests.sh                    # the host library's tests, with the cross test against the firmware's own code
+tools/hub_build.sh 0.3.2             # a release's two packages, as GitHub builds and signs them (docs/RELEASING.md)
 ```
+
+Releases (0.3.2 on) are built and signed on GitHub by The Firmware Hub's shared workflow from a `vX.Y.Z` tag:
+[docs/RELEASING.md](docs/RELEASING.md) has the steps and how to check a package with `gh attestation verify`.
 
 ## What is where
 

@@ -127,15 +127,18 @@ elif [ ! -f base/tools/build.py ] || [ ! -f base/bsp/chip/usb.c ]; then
     git submodule update --init --recursive base
 fi
 git submodule status --recursive base
-# (the Mac: Pillow finds Homebrew's libraqm, as build.sh's DYLD_LIBRARY_PATH does for the build)
-if [ "$(uname -s)" = Darwin ] && [ -z "${DYLD_LIBRARY_PATH:-}" ] && [ -d /opt/homebrew/lib ]; then
-    export DYLD_LIBRARY_PATH=/opt/homebrew/lib
+# (the Mac: Pillow finds Homebrew's libraqm as a fallback, as build.sh does, and keeps its own FreeType and HarfBuzz:
+# with DYLD_LIBRARY_PATH it would load Homebrew's, which draw the fonts' edges differently from the runner's)
+if [ "$(uname -s)" = Darwin ]; then
+    unset DYLD_LIBRARY_PATH
+    [ ! -d /opt/homebrew/lib ] || export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib
 fi
 "$PY" - "$PILLOW_VERSION" <<'PY'
 import sys
 import PIL
 from PIL import features
-print(f"Python {sys.version.split()[0]}, Pillow {PIL.__version__} (raqm {features.version('raqm')})")
+print(f"Python {sys.version.split()[0]}, Pillow {PIL.__version__} (raqm {features.version('raqm')}, FreeType "
+      f"{features.version('freetype2')}, HarfBuzz {features.version('harfbuzz')})")
 if not features.check("raqm"):
     sys.exit("hub_build.sh: Pillow has no Raqm layout (libfribidi or libraqm missing?): the fonts could differ")
 if PIL.__version__ != sys.argv[1]:

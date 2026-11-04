@@ -7,8 +7,8 @@ Both packages install as `FM-1_52000302`.
 
 | Package | sha256 |
 | --- | --- |
-| `remote-0.3.2.fwsc`, USB + Bluetooth MIDI (the default) | `f147236f785f09459a0896f569874be7aa8e587edb273dc7fef3ab9631375034` |
-| `remote-usb-0.3.2.fwsc`, USB only | `5064f5f77253132a36fac323440f41143793328806e89ba61ab52cd570fbbc9f` |
+| `remote-0.3.2.fwsc`, USB + Bluetooth MIDI (the default) | `f814257effa8c972d407db271bd8c40392a980a2c0d73cd206132a776e99548a` |
+| `remote-usb-0.3.2.fwsc`, USB only | `46f0e9ea218bc3a64125439a95f83b06ff31c42f3b335e56f4a4c9bfe7717ef2` |
 
 ## What you get
 

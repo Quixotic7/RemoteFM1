@@ -1,0 +1,9 @@
+{
+  "what": "A DX7 on your FM-1: Yamaha's 256 ROM voices and your own cartridges, with arp, scales, latch and a 16-loop looper. A MIDI controller over USB, Bluetooth and TRS. And the FM-1 as keys, knobs and screen for the RemoteFM1 apps on the web, iOS and Android, which run over 150 FM-1 firmwares.",
+  "author": "Quixotic7",
+  "kinds": ["synth"],
+  "editor": "https://remotefm1.com/",
+  "cheat": "https://github.com/Quixotic7/RemoteFM1#using-it",
+  "image": "docs/hub-card.png",
+  "color": "#EE7D52"
+}
