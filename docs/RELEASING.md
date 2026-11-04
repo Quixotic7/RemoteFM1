@@ -50,12 +50,17 @@ The Mac build and a clean Ubuntu 24.04 build (Python 3.12, a fresh clone, submod
    - Add a `# RemoteFM1 0.3.3` section at the top of `web/installer/firmware/RELEASE-NOTES.md`. The GitHub release's
      text is taken from it.
    - Update the version and identity that `web/installer/test_installer.mjs` expects for the newest release.
+   - Rebuild the player's catalog snapshot, `node web/site/tools/build_catalog.mjs` (its RemoteFM1 entry comes from
+     `releases.json`), and set the RemoteFM1 `.rfm1` fixture in `web/site/test.mjs` to the new version.
+   - The player plays RemoteFM1's own `.rfm1` by default only while RemoteFM1FW's `remotefm1-V.rfm1` is this version
+     or newer; until then it runs the package emulated. Publish the matching `.rfm1` in RemoteFM1FW.
 
 3. **Check**:
 
    ```sh
    tools/hub_build.sh --check web/installer/firmware 0.3.3
    node web/installer/test_installer.mjs
+   node web/site/test.mjs
    python3 tools/check_fmhub.py
    tests/run_tests.sh
    ```
