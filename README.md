@@ -10,6 +10,7 @@
 | **Android** | [the APK](https://github.com/Quixotic7/RemoteFM1Android/releases/latest), sideloaded ([RemoteFM1Android](https://github.com/Quixotic7/RemoteFM1Android)) |
 | **Mac plugin and desktop app** (VST3 / AU) | [FM1VST](https://github.com/Quixotic7/FM1VST/releases/latest) |
 | **The firmwares** (.rfm1) | [RemoteFM1FW](https://github.com/Quixotic7/RemoteFM1FW/releases/latest): every app and the site read it |
+| **Firmware authors** | [RemoteFM1Metadata.json](https://github.com/Quixotic7/RemoteFM1FW/blob/main/docs/REMOTEFM1-METADATA.md): one file in your repo sets your firmware's card, screenshot, skin, panel labels and the release we build |
 
 RemoteFM1 is a firmware for the FM-1 that does almost nothing by itself. It sends every key, button, encoder and the
 MASTER pot to the computer, and shows whatever the computer sends back on its LEDs and its 240×240 screen. On the
