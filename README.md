@@ -41,6 +41,25 @@ and a browser emulator of it at [installer/smk37/emu](https://remotefm1.com/inst
 > whole; 0.2.3 fixes recording from the FM-1 over USB. Tested on an FM-1 on 2026-10-28. 0.1.1 (on
 > TransitFM1) stays there as the older release. The plan and every measurement are in [PLAN.md](PLAN.md).
 
+## For firmware authors
+
+We build most FM-1 firmwares as `.rfm1` files for you, from your releases: you don't need to build the format
+yourself. To choose how your firmware looks and what we build, add one file, `RemoteFM1Metadata.json`, to the root of
+your repository. It sets your firmware's card (description, subtitle, category, links, screenshot), a skin for the
+on-screen FM-1 (background images and colours), names for the panel's buttons and knobs, and the release we build.
+Every part is optional.
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/Quixotic7/RemoteFM1FW/main/docs/RemoteFM1Metadata.schema.json",
+  "schema": 1,
+  "card": { "tag": "Granular sampler", "what": "One paragraph about your firmware.", "image": "docs/card.png" },
+  "labels": { "buttons": { "FX": "DRUMS", "SEQ": "STEPS" }, "knobs": { "K1": "CUTOF" } }
+}
+```
+
+The full spec, with every field and its limits: **[the RemoteFM1Metadata.json guide](https://github.com/Quixotic7/RemoteFM1FW/blob/main/docs/REMOTEFM1-METADATA.md)**.
+
 ## How it works
 
 ```
