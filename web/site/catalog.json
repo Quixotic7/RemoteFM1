@@ -633,8 +633,8 @@
    "rfm1": {
     "from": "site",
     "file": "fw/fizz-0.12.0-beta.12.rfm1",
-    "sha256": "54c3f48f94eac641282acdd47e3d96aa7013ee80a40f93dd2af1b76b00f5416d",
-    "size": 1261721,
+    "sha256": "bb4808403d2f84026c832c5528c4b18eff9db29be0b8ef9e85292c77fd423bfe",
+    "size": 1611008,
     "fileName": "fizz-0.12.0-beta.12.rfm1",
     "version": "0.12.0-beta.12",
     "sourceUrl": "https://github.com/Quixotic7/FIZZ@1b7f8efbe6276a7f78c61da39ff45aee4d9b805e",
