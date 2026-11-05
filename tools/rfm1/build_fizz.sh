@@ -102,6 +102,10 @@ say "the manifest: the licence expression and glue_url"
 mkdir -p "$(dirname "$OUT")"
 python3 "$ROOT/tools/rfm1/fizz/manifest.py" --in "$B/build/rfm1/fizz-$FIZZ_VERSION.rfm1" --out "$OUT" \
     --license "$LICENSE" --glue-url "https://github.com/Quixotic7/FM1VST/tree/$FM1VST_COMMIT" --source-commit "$FIZZ_COMMIT"
+say "the skin: tools/rfm1/fizz/skin (drawn for FIZZ in code; RFM1-FORMAT.md section 8)"
+SKIN=$ROOT/tools/rfm1/fizz/skin
+node "$ROOT/web/site/tools/rfm1-skin.mjs" add "$OUT" -o "$OUT" --background "$SKIN/skin-portrait.jpg" \
+    --landscape "$SKIN/skin-landscape.jpg" --theme "$SKIN/theme.json" --dim "$(cat "$SKIN/dim")"
 say "checked"
 python3 "$FM1VST_DIR/tools/rfm1_check.py" "$OUT"
 "$B/build/rfm1_run" "$OUT"
