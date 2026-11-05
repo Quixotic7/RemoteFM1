@@ -1616,5 +1616,34 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   ok(/eng\.audioInput/.test(src) && /typeof eng\.audioIn === "function"/.test(src), "ain: the worklet feeds only an engine with audioIn (native, emu, mock: none)");
 }
 
+// ---- the screen protector (js/protector.js, RemoteFM1IOS ScreenProtector.swift): its tab, fold and peel; on the wide layouts
+{
+  const { FilmGeometry, tabRect, peels, filmOn } = await import("./js/protector.js");
+  const { DeviceView, pickLayout } = await import("./js/panel.js");
+  const d = { x: 100, y: 50, w: 200, h: 200 }, tab = tabRect(d);
+  ok(tab.w === 26 && tab.x === 296 && tab.y === 54, "protector: the tab right of the screen, level with its top, overlapping the bezel (26 px for 200)");
+  const geo = new FilmGeometry(d, 18);
+  ok(geo.direction[0] === -1 && geo.direction[1] === 0 && geo.length > 2 * d.w, "protector: the peel runs straight across, leftward; its travel twice the film's reach");
+  const rest = geo.folded(0);
+  ok(rest.flap.length === 0 && rest.left.length === 2 && rest.tab[0] === tab.x + tab.w / 2, "protector: at rest nothing is folded (the fold starts at the film's back edge)");
+  const half = geo.folded(geo.length / 2);
+  ok(half.flap.length > 0 && half.tab[0] < rest.tab[0], "protector: dragged halfway, a flap folds back and the tab moves with the pointer");
+  const areaOf = (q) => Math.abs(q.reduce((n, a, i) => { const c = q[(i + 1) % q.length]; return n + a[0] * c[1] - c[0] * a[1]; }, 0) / 2);
+  ok(geo.folded(geo.length).left.reduce((n, q) => n + areaOf(q), 0) < 1, "protector: dragged all the way, nothing is left on the screen");
+  ok(geo.fold(-geo.length / 4, 0) === 0.25 && geo.fold(40, 0) === 0 && geo.fold(-9999, 0) === 1, "protector: the fold follows the drag along the peel only, 0..1");
+  ok(!peels(0.2) && peels(0.5) && !peels(0.33), "protector: let go under a third it springs back, past it it peels");
+  ok(geo.onTab(rest.tab[0] + 20, rest.tab[1]) && !geo.onTab(d.x + 20, d.y + 100), "protector: the tab takes a 44 px hit area, the screen does not");
+  ok(["phoneLandscape", "padLandscape"].every(filmOn) && !filmOn("phonePortrait") && !filmOn("padPortrait") && pickLayout(1280, 748) === "padLandscape",
+     "protector: the wide layouts only (a 1280 x 800 window is one)");
+  const fake = { getContext: () => new Proxy({}, { get: () => () => ({ addColorStop() {} }) }), width: 0, height: 0 };
+  const dv = new DeviceView(fake, new Controls(), null);
+  dv.layout(1280, 748, 1);
+  ok(!("indicator" in dv.L) && dv.L.film && dv.hit(dv.anchor("film").x, dv.anchor("film").y).kind === "film", "protector: no indicator LED any more; the film's tab is hit on a wide layout");
+  dv.layout(390, 770, 1);
+  ok(dv.L.film === null && dv.anchor("film") === null, "protector: a phone upright has no film");
+  dv.setFilm(false); dv.layout(1280, 748, 1);
+  ok(dv.anchor("film") === null && (dv.hit(dv.L.film.tab.x + 5, dv.L.film.tab.y + 5) || {}).kind !== "film", "protector: peeled, the tab takes nothing");
+}
+
 console.log(fails ? `site: ${fails} of ${checks} FAILED` : `site tests passed (${checks})`);
 process.exit(fails ? 1 : 0);

@@ -11,6 +11,7 @@
 
 import { css, mix, resolve, accentOf, PRESETS, DEFAULT_THEME } from "./theme.js";
 import { imageFor, coverRect } from "./skin.js";
+import { FilmGeometry, filmOn, peels } from "./protector.js";
 
 // ================================================================ the panel ===
 
@@ -440,6 +441,8 @@ export class DeviceView {
     this.base = null;
     this.hints = false;
     this.running = false;
+    this.film = { on: true, t: 0, leave: 0 }; this.filmAnim = 0;   // the screen protector (setFilm)
+    this.onFilmOff = () => {}; this.animate = () => {};
     this.keyOffset = -1;      // the scrolling keybed's offset in naturals (-1: its default)
     this.L = null;
     this.learn = null;        // MIDI learn (main.js): { knobs: Set of roles bound, btns: Set bound, sel: { kind, idx } | null }
@@ -483,12 +486,11 @@ export class DeviceView {
     if (R.kn.row) {
       const k = R.kn, size = k.knob * s, cell = knobCell(size), w2 = k.w * m.sx, ledW = k.led * s;
       const gap = (w2 - ledW - 4 * cell.w) / 4, top = m.y(k.y), cy = top + cell.lf + 6 + size / 2;
-      L.indicator = { x: m.x(k.x), y: cy - ledW / 2, size: ledW };
+      // (the row's first slot, led wide, stays empty: the FM-1's red square there is the screen protector's tab)
       KN_KNOBS.forEach(([role, label], i) => L.knobs.push({ role, label, size, lf: cell.lf, cx: m.x(k.x) + ledW + gap * (i + 1) + cell.w * (i + 0.5),
         top, cy, labelW: cell.w + gap - 4, cellW: cell.w, cellH: cell.h }));
     } else {
       placeGrid(KN_KNOBS, R.kn);
-      L.indicator = { x: m.x(R.kn.ledX), y: m.y(R.kn.ledY), size: R.kn.led * s };
     }
     // OCT- / OCT+
     const o = R.oct, ow = { x: m.x(o.x), y: m.y(o.y), w: o.w * m.sx, h: o.h * m.sy, r: o.r * s };
@@ -505,6 +507,8 @@ export class DeviceView {
     // the display
     const d = R.display, ds = d.size * s;
     L.display = { x: m.x(d.x) + d.size * m.sx / 2 - ds / 2, y: m.y(d.y), size: ds };
+    // the screen protector's film: the wide layouts only (the FM-1's own shape)
+    L.film = filmOn(this.kind) ? new FilmGeometry({ x: L.display.x, y: L.display.y, w: L.display.size, h: L.display.size }, Math.max(10, Math.round(L.display.size * 0.09))) : null;
     // the keybed
     const kb = R.keybed;
     L.keybed = { x: m.x(kb.x), y: m.y(kb.y), w: kb.w * m.sx, h: kb.h * m.sy };
@@ -517,11 +521,12 @@ export class DeviceView {
   toUnits(cx, cy) { return { x: cx, y: cy }; }
   toCss(x, y) { return { x, y }; }
   unitPx() { return 1; }
-  // where the page puts its own parts: "lcd" (the start overlay), "grabber" (the sheet's handle)
+  // where the page puts its own parts: "lcd" (the start overlay), "grabber" (the sheet's handle), "film" (the protector's tab; null without one)
   anchor(name) {
     const L = this.L;
     if (!L) return { x: this.cssW / 2, y: this.cssH / 2 };
     if (name === "lcd") return { x: L.display.x + L.display.size / 2, y: L.display.y + L.display.size / 2 };
+    if (name === "film") return L.film && this.film.on ? { x: L.film.tab.x + L.film.tab.w / 2, y: L.film.tab.y + L.film.tab.h / 2, length: L.film.length } : null;
     return { x: this.cssW / 2, y: Math.max(4, L.top / 2), room: L.top };
   }
   // a control's centre in CSS pixels (KM.KEY / KM.BTN / KM.SELECT and its index; the e2e tests click there)
@@ -550,6 +555,7 @@ export class DeviceView {
   hit(x, y) {
     const L = this.L;
     if (!L) return null;
+    if (this.film.on && L.film && L.film.onTab(x, y, this.film.t)) return { kind: "film" };
     const kb = L.keybed, g = L.kg;
     if (x >= kb.x && x < kb.x + kb.w && y >= kb.y && y < kb.y + kb.h) {
       let lx = x - kb.x, ly = y - kb.y;
@@ -605,18 +611,69 @@ export class DeviceView {
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.drawImage(this.base, 0, 0);
     g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    // the indicator LED: lit while the firmware runs
-    const ind = L.indicator;
-    if (this.running) { g.shadowColor = css(p.indicator); g.shadowBlur = ind.size * 0.6; }
-    fillRR(g, ind.x, ind.y, ind.size, ind.size, ind.size * 0.22, css(p.indicator, this.running ? 1 : 0.3));
-    g.shadowBlur = 0; g.shadowColor = "transparent";
     for (const k of L.knobs) this.drawKnob(g, p, k, ctl.angle[k.role], ctl.selKnob === k.role);
     for (const b of L.btns) this.drawButton(g, p, b, ctl.btnHeld(b.b), this.btnLevel(b.b), b.b === B.PLAY ? this.playGreen : 0);
     this.drawKeybed(g, p);
     for (const b of L.btns) if (ctl.btnLatched(b.b)) this.drawLatch(g, b);
     drawDisplay(g, p, this.lcd, L.display.x, L.display.y, L.display.size, this.dpr, false);
+    if (this.film.on && L.film) this.drawFilm(g, p, L.film);
     if (this.potAt !== null) this.drawPotAt(g, p);
     if (this.learn) this.drawLearn(g, p);
+  }
+
+  // ---- the screen protector (js/protector.js): its film over the display, its red tab beside the screen
+  // on: whether it is on (prefs.screenProtector); onOff(): called once it has peeled off; animate(): a frame wanted
+  setFilm(on) { this.film = { on: !!on, t: 0, leave: 0 }; if (this.filmAnim) cancelAnimationFrame(this.filmAnim); this.filmAnim = 0; }
+  filmDrag(dx, dy) { const f = this.L && this.L.film; if (f && this.film.on) { this.film.t = f.fold(dx, dy) * f.length; this.animate(); } }
+  // let go: fold (0..1) where the pointer left it, and where its speed would carry it
+  filmRelease(fold) {
+    const f = this.L && this.L.film;
+    if (!f || !this.film.on) return;
+    if (peels(Math.max(fold, this.film.t / f.length))) this.peelFilm(); else this.tweenFilm(0, 0, 260, (k) => 1 - Math.pow(1 - k, 3) * Math.cos(k * 4));
+  }
+  peelFilm() {
+    const f = this.L && this.L.film;
+    if (!f) { this.film.on = false; this.onFilmOff(); return; }
+    this.tweenFilm(f.length, 1, 300, (k) => k * k, () => { this.film.on = false; this.onFilmOff(); });
+  }
+  tweenFilm(t1, leave1, ms, ease, done) {
+    if (this.filmAnim) cancelAnimationFrame(this.filmAnim);
+    const t0 = this.film.t, l0 = this.film.leave, start = performance.now();
+    const step = (now) => {
+      const k = Math.min(1, (now - start) / ms), e = ease(k);
+      this.film.t = t0 + (t1 - t0) * e; this.film.leave = l0 + (leave1 - l0) * k;
+      this.animate();
+      if (k < 1) this.filmAnim = requestAnimationFrame(step); else { this.filmAnim = 0; if (done) done(); }
+    };
+    this.filmAnim = requestAnimationFrame(step);
+  }
+  drawFilm(g, p, geo) {
+    const { t, leave } = this.film, u = geo.direction, f = geo.folded(t), d = geo.display;
+    const path = (polys) => { g.beginPath(); for (const q of polys) { q.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath(); } };
+    g.save();
+    g.globalAlpha = 1 - leave;
+    g.translate(u[0] * geo.length * 0.3 * leave, u[1] * geo.length * 0.3 * leave - geo.length * 0.2 * leave);
+    // the sheet: clear, a faint gloss, without the folded part
+    if (f.left.length) {
+      const gl = g.createLinearGradient(d.x, d.y, d.x + d.w, d.y + d.h);
+      gl.addColorStop(0, "rgba(255,255,255,0.16)"); gl.addColorStop(0.5, "rgba(255,255,255,0.01)"); gl.addColorStop(1, "rgba(255,255,255,0.07)");
+      path(f.left); g.fillStyle = gl; g.fill("nonzero");
+      const sh = g.createLinearGradient(d.x, d.y, d.x + d.w, d.y + d.h);
+      sh.addColorStop(0, "rgba(255,255,255,0)"); sh.addColorStop(0.5, "rgba(255,255,255,0.10)"); sh.addColorStop(1, "rgba(255,255,255,0)");
+      g.fillStyle = sh; g.fill("nonzero");
+      g.lineWidth = 1; g.strokeStyle = "rgba(255,255,255,0.16)"; g.stroke();
+    }
+    // the flap: the film's back, lit, with a soft shadow on the screen
+    if (f.flap.length) {
+      path(f.flap);
+      g.shadowColor = "rgba(0,0,0,0.35)"; g.shadowBlur = 12; g.shadowOffsetX = u[0] * 3; g.shadowOffsetY = u[1] * 3;
+      g.fillStyle = "rgba(245,245,245,0.28)"; g.fill("nonzero");
+      g.shadowColor = "transparent"; g.shadowBlur = 0; g.shadowOffsetX = 0; g.shadowOffsetY = 0;
+    }
+    // the tab: the solid red square, carried with the pointer
+    const s = geo.tab.w;
+    fillRR(g, f.tab[0] - s / 2, f.tab[1] - s / 2, s, s, s * 0.22, css(p.indicator));
+    g.restore();
   }
 
   // MIDI learn: every learnable control outlined (dashed; solid when it has a binding), the picked one pulsing.

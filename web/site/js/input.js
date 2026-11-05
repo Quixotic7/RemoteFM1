@@ -95,6 +95,8 @@ export function attachPointer(canvas, view, controls, { onActivity, onScreenTap,
     if (h.kind === "screen") { if (onScreenTap) onScreenTap(e); return; }
     e.preventDefault();
     try { canvas.setPointerCapture(e.pointerId); } catch (_) { /* (a synthetic event) */ }
+    // the screen protector's tab (js/protector.js): dragged across the screen it folds the film back
+    if (h.kind === "film") { ptrs.set(e.pointerId, { kind: "film", x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, vx: 0, vy: 0, at: e.timeStamp }); return; }
     // the scrolling keybed's range strip (a phone upright): a tap centres the keys there, a drag scrolls them
     if (h.kind === "strip") { ptrs.set(e.pointerId, { kind: "strip", x0: e.clientX, moved: false }); return; }
     if (h.kind === KM.SELECT) {
@@ -114,6 +116,12 @@ export function attachPointer(canvas, view, controls, { onActivity, onScreenTap,
   canvas.addEventListener("pointermove", (e) => {
     if (e.pointerType === "mouse") { over = true; if (e.shiftKey) hint(); }
     const p = ptrs.get(e.pointerId);
+    if (p && p.kind === "film") {
+      const dt = Math.max(1, e.timeStamp - p.at);
+      p.vx = (e.clientX - p.x) / dt; p.vy = (e.clientY - p.y) / dt; p.x = e.clientX; p.y = e.clientY; p.at = e.timeStamp;
+      view.filmDrag(e.clientX - p.x0, e.clientY - p.y0);
+      return;
+    }
     if (p && p.kind === "strip") {
       if (!p.moved && Math.abs(e.clientX - p.x0) > 4) p.moved = true;
       if (p.moved && view.stripTo) { view.stripTo(pos(e).x, true); controls.dirty(); }
@@ -129,6 +137,11 @@ export function attachPointer(canvas, view, controls, { onActivity, onScreenTap,
     const p = ptrs.get(e.pointerId);
     if (!p) return;
     ptrs.delete(e.pointerId);
+    if (p.kind === "film") {   // let go: where it is, or where its speed carries it (as the app's predicted end, ~150 ms)
+      const geo = view.L && view.L.film;
+      if (geo) view.filmRelease(Math.max(geo.fold(p.x - p.x0, p.y - p.y0), geo.fold(p.x - p.x0 + p.vx * 150, p.y - p.y0 + p.vy * 150)));
+      return;
+    }
     if (p.kind === "strip") { if (!p.moved && view.stripTo && e.clientX !== undefined) { view.stripTo(pos(e).x, false); controls.dirty(); } return; }
     if (p.kind === KM.SELECT) return;
     const still = [...ptrs.values()].some((q) => q.kind === p.kind && q.idx === p.idx);

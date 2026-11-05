@@ -234,6 +234,7 @@ export class Sheet {
     // VIEW
     out.push(heading("View"));
     out.push(row("Show", null, segmented(["Device", "Screen"], st.view === "screen" ? 1 : 0, (i) => a.set("view", i ? "screen" : "device"))));
+    out.push(row("Screen protector", "the FM-1's film over the display: drag its red tab across the screen to peel it off (wide layouts)", toggle(st.screenProtector, (v) => a.set("screenProtector", v))));
 
     // ENGINE
     out.push(heading("Engine"));

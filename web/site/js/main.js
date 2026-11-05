@@ -58,6 +58,7 @@ const state = {
   skinDim: typeof prefs.skinDim === "number" ? clampDim(prefs.skinDim) : DEFAULT_DIM,
   firmwareSkins: prefs.firmwareSkins !== false,             // a firmware's own skin shows: on by default
   userSkin: null, fwSkin: null, skinFailed: false,
+  screenProtector: prefs.screenProtector !== false,         // the screen protector's film (js/protector.js): on until peeled
 };
 let catalog = null, snapshot = null, emuHook = null, player = null, sheet = null, site = null, siteEmit = () => {}, fm1 = null;
 let soundOut = null;   // the output device: the system's or the FM-1's USB audio (sound-out.js)
@@ -83,6 +84,9 @@ const editorChanged = () => { if (editor) editor.update(); };
 const lcd = new Lcd();
 const controls = new Controls((p) => { if (player) player.panel(p); if (omx) omx.panelTurned(p.enc); });
 const device = new DeviceView($("device"), controls, lcd);
+device.setFilm(state.screenProtector);
+device.animate = () => invalidate();
+device.onFilmOff = () => app.set("screenProtector", false);
 const screen = new ScreenView($("screen"), lcd);
 device.setHints(state.keyHints);
 
@@ -695,6 +699,7 @@ const app = {
     else if (k === "keyHints") { state.keyHints = !!v; prefs.keyHints = !!v; device.setHints(state.keyHints); invalidate(); }
     else if (k === "knobSpeed") { state.knobSpeed = prefs.knobSpeed = speedOf(v); midiMap.setSpeed(state.knobSpeed); }
     else if (k === "skinDim") { state.skinDim = prefs.skinDim = clampDim(+v); applyTheme(); }
+    else if (k === "screenProtector") { state.screenProtector = prefs.screenProtector = !!v; device.setFilm(state.screenProtector); invalidate(); }
     else if (k === "firmwareSkins") { state.firmwareSkins = prefs.firmwareSkins = !!v; applyTheme(); }
     else { state[k] = v; prefs[k] = v; }
     savePrefs();
@@ -919,6 +924,7 @@ async function main() {
     midiIn: (b) => player && player.midi(b) });
   site = made.site; siteEmit = made.emit;
   window.FM1Site = site;
+  window.FM1Device = device;   // (the faceplate view: the e2e tests read its anchors)
   import(new URL(catalog.paths.remote, document.baseURI).href).then((m) => {
     if (m && typeof m.RemoteFM1 === "function") {          // W4's class: the section is ours (use-fm1.js)
       app.remoteMounted = true;
