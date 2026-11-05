@@ -418,13 +418,16 @@ export class Sheet {
         // a dual-core firmware, when it would run emulated: CPU-heavy
         const runsEmu = v.engine ? v.engine === "emu" : f.defaultEngine === "emu";
         const note = v.note || (runsEmu && DUAL_CORE.has(f.id) ? "CPU-heavy" : null);
+        // its Fantasy CFW / audio-in badges lead the meta line, so the name and version keep the top line
+        const tags = [fantasyCfw(f) ? fantasyTag() : null, usesAin(f) ? ainTag(f) : null].filter(Boolean);
         const card = h("button", { class: "card" + (f.badge ? " badged" : "") + (a.isCurrent(f) ? " current" : ""), title: `${f.name} ${v.version}\n${f.what || ""}`,
           "data-id": f.id, onclick: () => { a.openFirmware(f.id, v.engine); this.close(); } },
-          h("span", { class: "card-top" }, h("b", {}, f.name), f.badge ? h("span", { class: "card-tag" }, f.badge) : null, fantasyCfw(f) ? fantasyTag() : null, usesAin(f) ? ainTag(f) : null, h("span", { class: "card-ver" }, v.version)),
+          h("span", { class: "card-top" }, h("b", {}, f.name), f.badge ? h("span", { class: "card-tag" }, f.badge) : null, h("span", { class: "card-ver" }, v.version)),
           note
-            ? h("span", { class: "card-meta split" }, h("span", {}, meta), h("span", { class: "card-note" + (v.note ? "" : " heavy"),
+            ? h("span", { class: "card-meta split" }, ...tags, h("span", { class: "card-meta-text" }, meta), h("span", { class: "card-note" + (v.note ? "" : " heavy"),
                 title: v.note ? (eng === "native" ? `The Hub has ${f.version}; FM1VST's native core is ${f.native.version}` : `FM1VST's native core is ${f.native.version}; the Hub's latest ${f.version} runs emulated`)
                   : "Runs both of the FM-1's cores: heavy to emulate" }, note))
+            : tags.length ? h("span", { class: "card-meta split" }, ...tags, h("span", { class: "card-meta-text" }, meta))
             : h("span", { class: "card-meta" }, meta),
           f.native ? h("span", { class: "card-badge" + (f.native.by === "author" ? " author" : ""), title: f.native.by === "author" ? "Runs natively (WebAssembly), built by its author" : "Runs natively (WebAssembly)" })
             : siteRfm1(f) ? h("span", { class: "card-badge", title: "Runs natively (WebAssembly): this site's .rfm1 build of its release" }) : null);
@@ -478,8 +481,8 @@ export class Sheet {
     return h("div", { class: "card-wrap" },
       h("button", { class: "card" + (a.isCurrent(f) ? " current" : ""), title: `${f.name} ${f.version}\n${f.rfm1.fileName} (${Math.round(f.rfm1.size / 1024)} KiB), ${f.license || "no licence given"}`,
         "data-sha": sha, onclick: () => { a.openRfm1(sha); this.close(); } },
-        h("span", { class: "card-top" }, h("b", {}, f.name), fantasyCfw(f) ? fantasyTag() : null, usesAin(f) ? ainTag(f) : null, h("span", { class: "card-ver" }, f.version)),
-        h("span", { class: "card-meta" }, `.rfm1 · ${f.author}`),
+        h("span", { class: "card-top" }, h("b", {}, f.name), h("span", { class: "card-ver" }, f.version)),
+        h("span", { class: "card-meta split" }, fantasyCfw(f) ? fantasyTag() : null, usesAin(f) ? ainTag(f) : null, h("span", { class: "card-meta-text" }, `.rfm1 · ${f.author}`)),
         h("span", { class: "card-badge", title: "Runs natively (WebAssembly), from your .rfm1 file" })),
       h("button", { class: "card-x", "aria-label": `Remove ${f.name} ${f.version} from this browser`, title: "Remove from this browser",
         html: icon("close"), onclick: () => { this.inline = { kind: "rmfw", sha }; this.render(); } }));
