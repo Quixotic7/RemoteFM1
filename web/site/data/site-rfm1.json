@@ -2,14 +2,14 @@
  "about": "The firmwares this site hosts as .rfm1 files (web/site/fw/: FIZZ built by tools/rfm1/, the others by FM1VST's fm1_add_rfm1; fw/SHA256SUMS has their hashes). web/site/tools/build_catalog.mjs lists each on the rfm1 engine, its id, name, version, licence, authors, source and glue from the file's own manifest; the rest is here. The SHA-256 must be the file's.",
  "firmwares": [
   {
-   "file": "fw/fizz-0.12.0-beta.12.rfm1",
-   "sha256": "bb4808403d2f84026c832c5528c4b18eff9db29be0b8ef9e85292c77fd423bfe",
+   "file": "fw/fizz-0.12.0-beta.13.rfm1",
+   "sha256": "00b78d7a27b365b243ef565dafe05462474c8a8f4c988e8bd5e2e6ddfcfcf9f6",
    "author": "Quixotic7",
    "category": "Groovebox",
    "tag": "FM TONE step sequencer",
    "what": "A step sequencer for FM TONE, ChoralRoot's FM voice: eight tracks sharing 16 voices, p-locks, a pool of 128 sounds, pages with their own start and end, conditions, chance, ratchets and chords of up to six notes. Built by this site from FIZZ's release to WebAssembly (.rfm1) and run natively here; PLAY starts the demo pattern, REC turns the keys into a keyboard.",
-   "source": "https://github.com/Quixotic7/FIZZ/tree/v0.12.0-beta.12",
-   "release": "https://github.com/Quixotic7/FIZZ/releases/tag/v0.12.0-beta.12",
+   "source": "https://github.com/Quixotic7/FIZZ/tree/v0.12.0-beta.13",
+   "release": "https://github.com/Quixotic7/FIZZ/releases/tag/v0.12.0-beta.13",
    "site": "https://quixotic7.github.io/FIZZ/",
    "beta": true
   },
