@@ -3,7 +3,7 @@
  "firmwares": [
   {
    "file": "fw/fizz-0.12.0-beta.12.rfm1",
-   "sha256": "02095f423d29c86c9a00ac225125b7b228b03accd5c281e936890f3eb2aaa840",
+   "sha256": "bb4808403d2f84026c832c5528c4b18eff9db29be0b8ef9e85292c77fd423bfe",
    "author": "Quixotic7",
    "category": "Groovebox",
    "tag": "FM TONE step sequencer",

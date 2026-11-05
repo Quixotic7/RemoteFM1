@@ -1,7 +1,16 @@
 {
-  "body": "#0A0A10",
-  "key": "#1E1E28",
-  "knob": "#F1F0EA",
-  "led": "#FFD23F",
-  "bezel": "#22222C"
+  "body": "#C2367C",
+  "label": "#FFFFFF",
+  "bed": "#4A14C4",
+  "key": "#5A20D6",
+  "hi": "#6E36E6",
+  "lo": "#3410A0",
+  "keyText": "#FFFFFF",
+  "knob": "#3E1478",
+  "mark": "#FFFFFF",
+  "bezel": "#0A0A0A",
+  "lcd": "#000000",
+  "ink": "#F2F2F2",
+  "led": "#8CFF1E",
+  "ledOff": "#6B6F5A"
 }
