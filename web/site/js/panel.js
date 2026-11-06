@@ -84,7 +84,8 @@ const ledLit = (level) => level >= 176;
 export const KM = { KEY: 0, BTN: 1, OCTBOTH: 2, SELECT: 3, CYCLE: 4, TURN: 6, LCDVIEW: 7 };
 export const KEYMAP = [
   ["F1", KM.KEY, 1, "F1"], ["F2", KM.KEY, 3, "F2"], ["F3", KM.KEY, 5, "F3"], ["F4", KM.KEY, 8, "F4"],
-  ["Digit2", KM.KEY, 0, "2"], ["Digit3", KM.KEY, 2, "3"], ["Digit4", KM.KEY, 4, "4"], ["Digit5", KM.KEY, 7, "5"],
+  // 1 2 3 4 5 = F G A B C, the lowest five white keys (as RemoteFM1 for iOS; Tab plays B too)
+  ["Digit1", KM.KEY, 0, "1"], ["Digit2", KM.KEY, 2, "2"], ["Digit3", KM.KEY, 4, "3"], ["Digit4", KM.KEY, 6, "4"], ["Digit5", KM.KEY, 7, "5"],
   ["Tab", KM.KEY, 6, "TAB"],
   ["KeyA", KM.KEY, 7, "A"], ["KeyS", KM.KEY, 9, "S"], ["KeyD", KM.KEY, 11, "D"], ["KeyF", KM.KEY, 12, "F"],
   ["KeyG", KM.KEY, 14, "G"], ["KeyH", KM.KEY, 16, "H"], ["KeyJ", KM.KEY, 18, "J"], ["KeyK", KM.KEY, 19, "K"],
