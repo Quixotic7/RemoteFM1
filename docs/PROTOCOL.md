@@ -279,7 +279,9 @@ at once instead of through the heartbeat.
 ### MIDI_IN (`0x54`): the TRS jack's MIDI in (units with `caps` bit9)
 
 What comes into the FM-1's TRS MIDI jack during a session goes to the host, which feeds it to the firmware it runs
-as that firmware's own MIDI in (as if it came from the computer's MIDI input). Body: 1..`RFM_MIDI_IN_MAX` (64) bytes
+as that firmware's own MIDI in (as if it came from the computer's MIDI input). So does the MIDI of a USB keyboard
+on the FM-1's port while the standalone's USB HOST is on (a Bluetooth session: no computer is on USB then), merged
+with the jack's in the order they came; the body does not say which one sent a message. Body: 1..`RFM_MIDI_IN_MAX` (64) bytes
 of **whole MIDI messages, each with its status byte**, in the order they came:
 
 | status | bytes |

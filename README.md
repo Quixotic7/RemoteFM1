@@ -169,8 +169,29 @@ settings):
 | OCT KEYS | OCTAVE (in MIDI KEYS, OCT- / OCT+ shift the keys' octave) or CC 85/86 (they send their CCs) |
 | SCALE SHORTCUTS | ON (in MIDI KEYS, GLO + PRESETS / ALGORITHM set the scale) or OFF |
 | KNOB LEDS | ON (an absolute knob's or MASTER's value on the 16 white keys' LEDs for 1.5 s) or OFF |
+| VELOCITY | ON (the keys' own velocity) or OFF (every note at 100) |
+| USB HOST | OFF or ON (the FM-1's packages; never kept: below) |
 
 docs/PROTOCOL.md section 8 has the details.
+
+**USB Host** (the settings' last row): the FM-1's USB port becomes the host of a USB-MIDI keyboard or synth, so a
+keyboard plays the DX7 with no computer, and the FM-1's keys play a USB synth.
+
+- **Power**: the FM-1 gives the port no 5 V. Use a powered USB hub, or a powered OTG adapter, between the FM-1 and
+  the device.
+- The row reads LOOKING, then the device's name; NOT MIDI or LOW-SPEED when it will not do. A passing screen says
+  when a device comes or goes.
+- In: notes, CCs, pitch bend, aftertouch, program changes on the channel, and clock / start / stop for the tempo, the
+  arp and the loops, exactly as USB MIDI from a computer. Out: what the instrument sends over USB MIDI goes to the
+  device. A device that goes (unplugged, a fault, USB HOST off) lets go of its notes; the keys' stay.
+- Full-speed USB-MIDI devices only (no low-speed ones), directly or behind one hub; no SysEx, so no DX7 bank dumps
+  from the device.
+- No computer meanwhile: no USB session, USB audio or updates over USB. A Bluetooth host's session still works, and
+  in it the keyboard's MIDI goes to the host as the TRS jack's does.
+- Never kept: OFF, or a restart, gives the port back to the computer (every power-on is a USB device, so a computer
+  and the installers always find the FM-1).
+
+A computer that sleeps, or a USB cable pulled, also lets go of the notes it held.
 
 macOS keeps the MIDI port name of the first firmware it saw on the unit (for example "ChoralRoot FM-1"). The host
 finds RemoteFM1 by asking (HELLO), never by name. If the port shows up offline after a firmware change, use
