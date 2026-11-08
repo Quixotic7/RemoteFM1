@@ -45,7 +45,7 @@ wait 30
 # panel mode: TOUCH in the caps; a session without it: 100, no aftertouch
 rf hello usb
 wait 20
-expect rf_hello_caps 1967
+expect rf_hello_caps 4015
 rf session usb 1 0
 wait 20
 expect sa_panel 1

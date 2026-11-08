@@ -13,6 +13,10 @@
 // before render() (a mono source as both channels; none connected: the engine renders silence for it), and publish()
 // posts {type: "ainLevel", peak, latency} (the input's peak since the last one; the latency the cart was told). The
 // state outlives a load (a reboot keeps input on); engines without audioIn() (native, emu, mock) never see it.
+//
+// The tap (Bluetooth audio, web/remote README "Bluetooth audio"): {type: "tap", on, n}: while on, the engine's sound
+// as rendered (before the page's volume), mono ((L + R) / 2), goes to the page in chunks of n frames (1024: ~21 ms)
+// as {type: "tap", pcm}, the buffer transferred; the page sends it back ({type: "tapBuf", pcm}) for a later chunk.
 
 const ENGINES = (globalThis.FM1_ENGINES = globalThis.FM1_ENGINES || {});
 export const registerEngine = (name, mod) => { ENGINES[name] = mod; };
@@ -68,6 +72,7 @@ if (typeof AudioWorkletProcessor !== "undefined") {
       this.mon = null;   // the render load: { busy, frames, wall0 } (a report every half second: page js/cpu.js)
       this.rec = null; this.recFree = [];   // the recorder's take, and its spare chunk buffers (see recStart)
       this.ain = { on: false, latency: 0, peak: 0 };   // live audio input (above)
+      this.tap = null; this.tapFree = [];   // the tap (above): { n, at, pcm }
       this.port.onmessage = (e) => this.onMessage(e.data);
     }
     post(m, transfer) { try { this.port.postMessage(m, transfer || []); } catch (_) { /* (the page went away) */ } }
@@ -105,6 +110,13 @@ if (typeof AudioWorkletProcessor !== "undefined") {
         if (this.engine && typeof this.engine.audioIn === "function") { try { this.engine.audioIn(this.ain.on, this.ain.latency); } catch (e) { this.fail("ain", e); } }
         return;
       }
+      if (m.type === "tap") {
+        const n = Math.max(128, Math.min(8192, m.n | 0 || 1024));
+        this.tap = m.on ? { n, at: 0, pcm: this.tapFree.pop() || new Float32Array(n) } : null;
+        if (this.tap && this.tap.pcm.length !== n) this.tap.pcm = new Float32Array(n);
+        return;
+      }
+      if (m.type === "tapBuf") { if (m.pcm && this.tapFree.length < 4) this.tapFree.push(m.pcm); return; }
       if (m.type === "recBuf") { if (this.rec && m.l && m.l.length === this.rec.n) this.recFree.push([m.l, m.r]); return; }
       if (!this.engine) return;
       try {
@@ -127,6 +139,7 @@ if (typeof AudioWorkletProcessor !== "undefined") {
         const t0 = clock();
         eng.render(L, R);
         if (this.rec) this.capture(L, R);   // (inside the measured time: the load reports include it)
+        if (this.tap) this.tapTake(L, R);
         this.measure(clock(), t0, L.length);
         // the firmware's MIDI out every quantum, posted at once: a manager's reply (SysEx) waits ~3 ms, not a screen
         // frame, and the core's own out queue never has to hold more than a quantum's worth
@@ -173,6 +186,18 @@ if (typeof AudioWorkletProcessor !== "undefined") {
       r.l = p[0]; r.r = p[1]; r.at = 0;
     }
     recStop(reason) { if (this.rec) this.recChunk(true, reason); }
+    tapTake(L, R) {
+      const t = this.tap;
+      for (let i = 0; i < L.length; i++) {
+        t.pcm[t.at++] = 0.5 * (L[i] + R[i]);
+        if (t.at === t.n) {
+          this.post({ type: "tap", pcm: t.pcm }, [t.pcm.buffer]);
+          const b = this.tapFree.pop();
+          t.pcm = b && b.length === t.n ? b : new Float32Array(t.n);
+          t.at = 0;
+        }
+      }
+    }
     capture(L, R) {
       const r = this.rec, n = L.length;
       if (r.start < 0) r.start = currentFrame;

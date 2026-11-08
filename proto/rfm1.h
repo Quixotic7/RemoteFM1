@@ -28,10 +28,13 @@ enum {
     RFM_BLIT_BENCH = 0x07, RFM_TILE_M0 = 0x08, RFM_SA_BENCH = 0x09,
     RFM_SESSION = 0x10, RFM_LEDS = 0x11, RFM_TILES = 0x12, RFM_PANEL_REQ = 0x13,
     RFM_TOUCH = 0x14,                   /* 0.3.1: the keys' velocity / pressure in the panel events (RFM_CAP_TOUCH) */
+    RFM_AUDIO_MODE = 0x15,              /* 0.3.6: Bluetooth audio, no screen: on / off (RFM_CAP_BLE_AUDIO) */
+    RFM_AUDIO = 0x16,                   /* 0.3.6: a block of the host's sound (IMA ADPCM) in that mode */
     RFM_HELLO_R = 0x41, RFM_DATA = 0x43, RFM_ECHO_R = 0x44, RFM_STATS_R = 0x45, RFM_ACK = 0x46, RFM_BLIT_R = 0x47,
     RFM_SA_BENCH_R = 0x49,
     RFM_SOURCE_DONE = 0x50, RFM_FRAME_ACK = 0x52, RFM_PANEL_R = 0x53,
-    RFM_MIDI_IN = 0x54                  /* 0.3: the TRS jack's MIDI in, forwarded in a session (RFM_CAP_MIDI_IN) */
+    RFM_MIDI_IN = 0x54,                 /* 0.3: the TRS jack's MIDI in, forwarded in a session (RFM_CAP_MIDI_IN) */
+    RFM_AUDIO_R = 0x55                  /* 0.3.6: the audio mode's state and its buffer (RFM_CAP_BLE_AUDIO) */
 };
 
 /* HELLO_R: M0's 51 bytes (firmware/src/remote_proto.h), of which: */
@@ -59,7 +62,8 @@ enum {
     RFM_CAP_HOLD = 1u << 7,             /* 0.2.2: TILES' HOLD flag (a frame drawn into the shadow, shown later) */
     RFM_CAP_BLE_FAST = 1u << 8,         /* 0.2.2: Bluetooth at 2M, long link packets, MTU 247: ~35 KB/s, ~9 KB in flight clean */
     RFM_CAP_MIDI_IN = 1u << 9,          /* 0.3: the TRS jack's MIDI in comes to the host in a session (MIDI_IN) */
-    RFM_CAP_TOUCH = 1u << 10            /* 0.3.1: TOUCH: the keys' real velocity and their pressure as poly aftertouch */
+    RFM_CAP_TOUCH = 1u << 10,           /* 0.3.1: TOUCH: the keys' real velocity and their pressure as poly aftertouch */
+    RFM_CAP_BLE_AUDIO = 1u << 11        /* 0.3.6: AUDIO_MODE / AUDIO: the host's sound over the session's link, no screen */
 };
 
 /* TOUCH body (host -> device, in a session; no reply): flags8. A session starts with 0 (velocity 100, no
@@ -68,6 +72,32 @@ enum {
 enum { RFM_TOUCH_F_VEL = 1u << 0, RFM_TOUCH_F_PRESS = 1u << 1 };
 #define RFM_MIDI_KEY_AT_DEAD 2u         /* a key's pressure goes out on a change of >= 2 (and on reaching 0) */
 #define RFM_MIDI_KEY_AT_MS 10u          /* ... at most every 10 ms a key */
+
+/* AUDIO_MODE body (host -> device, in a session, on its transport): on8 flags8 div8 buffer_ms16. On: the host sends
+ * its sound as AUDIO blocks and no TILES; the unit plays them through its own output (MASTER its volume) and shows its
+ * own screen (the RemoteFM1 screen, or black with RFM_AUDIO_F_BLACK). Off, a session's start or end, the link gone:
+ * the mode ends, the unit's shadow is black and the next FRAME_ACK says "shadow reset". Reply: AUDIO_R */
+#define RFM_AUDIO_MODE_LEN 5u
+enum { RFM_AUDIO_F_BLACK = 1u << 0 };   /* the screen black instead of the RemoteFM1 screen */
+#define RFM_AUDIO_RATE_BASE 44100u      /* the stream's rate: RFM_AUDIO_RATE_BASE / div */
+#define RFM_AUDIO_DIV_MIN 2u            /* 22,050 Hz (the default) */
+#define RFM_AUDIO_DIV_MAX 4u            /* 11,025 Hz; 3: 14,700 Hz */
+#define RFM_AUDIO_DIV_DEFAULT 2u
+#define RFM_AUDIO_BUF_MS_MIN 40u        /* the unit's buffer before it plays: buffer_ms, clamped to these */
+#define RFM_AUDIO_BUF_MS_MAX 250u
+#define RFM_AUDIO_BUF_MS_DEFAULT 120u
+/* AUDIO body: seq16 pred16 index8 data[1..RFM_AUDIO_DATA_MAX]: mono IMA ADPCM (firmware/src/rfm_adpcm.h), two samples a
+ * byte, the low nibble first; pred (int16) and index (0..88) are the coder's state before the block's first sample, so
+ * every block decodes alone. seq counts blocks (wrapping); a gap is filled, a jump back restarts the stream */
+#define RFM_AUDIO_HDR 5u
+#define RFM_AUDIO_DATA_MAX 128u         /* 256 samples: 11.6 ms at 22,050 Hz */
+#define RFM_AUDIO_BLOCK (2u * RFM_AUDIO_DATA_MAX)
+/* AUDIO_R body: on8 flags8 div8 buffer_ms16 fill_ms16 blocks32 lost16 underruns16 skipped16. Sent for each AUDIO_MODE
+ * and with every PANEL_R (500 ms) while the mode is on. on 0 after an AUDIO_MODE on: refused (no session on this
+ * transport, or a bad div). fill_ms: what the unit holds now; blocks: AUDIO blocks taken since the mode began; lost:
+ * blocks missing (seq gaps) or dropped (the buffer full); underruns: times the buffer ran dry while playing; skipped:
+ * blocks dropped to catch up after a burst */
+#define RFM_AUDIO_R_LEN 17u
 
 /* SESSION body: start8 keepalive_ms16 */
 #define RFM_SESSION_LEN 3u

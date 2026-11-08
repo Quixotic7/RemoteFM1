@@ -14,6 +14,13 @@
  *   rfa_us()                      microseconds, wrapping (FRAME_ACK draw_us)
  *   rfa_diag(t, cmd, body, len)   every other command: M0's diagnostics (section 5), or unknown
  *
+ * Bluetooth audio (0.3.6, RFM_CAP_BLE_AUDIO, docs/PROTOCOL.md section 9): with rfm_app_audio_init's ring (rfm_audio.h;
+ * none: AUDIO_MODE is refused), AUDIO_MODE on in a session, on its transport, makes the session an audio one: AUDIO
+ * blocks go to the ring, TILES are acknowledged and dropped, never drawn (the includer draws its own screen:
+ * rfm_app_audio_on; the ring may be the shadow's own memory, rfm_main.c), and AUDIO_R answers each AUDIO_MODE and goes
+ * with every PANEL_R. The mode ends with AUDIO_MODE off, the session's start or end; then the shadow is black, pushed
+ * so, and the next FRAME_ACK says "shadow reset" (the host's model is black again, as at a session's start).
+ *
  * Calls in: rfm_app_init, rfm_app_msg (a whole message), rfm_app_activity (bytes arrived: the keepalive),
  * rfm_app_panel (the panel once a millisecond), rfm_app_poll (often: the push, ACKs, timers), rfm_app_usb_lost,
  * rfm_app_lcd_lost (somebody else drew on the panel), rfm_app_tile_m0, rfm_app_pushing, rfm_app_rx_wait. The push
@@ -43,6 +50,7 @@
  *    in a session or not (the spec: "a new session, or the device restarted"). */
 #include "rfm_draw.h"
 #include "rfm_push.h"
+#include "rfm_audio.h"
 
 static int rfa_tx(uint32_t t, uint32_t cmd, const uint8_t *body, uint32_t n);
 static void rfa_midi(uint32_t st, uint32_t d1, uint32_t d2);
@@ -99,6 +107,8 @@ static struct {
     uint8_t touch;                          /* TOUCH's flags (RFM_TOUCH_F_*) in this session */
     uint8_t at_last[RFM_NKEYS];             /* each held key's pressure as last sent (AF) */
     uint32_t at_ms[RFM_NKEYS];
+    rfm_au_t *au;                           /* Bluetooth audio's ring (rfm_app_audio_init); NULL: none */
+    uint8_t audio;                          /* the session is an audio one (AUDIO_MODE on) */
     /* counters */
     uint32_t frames, decode_errs, bad, sessions, lcd_lost, held_frames, hold_timeouts;
 } rfa;
@@ -112,6 +122,9 @@ static void rfm_app_init(uint16_t *fb, uint16_t *stage, uint32_t stage_px, const
     rfa.master = rfa.master_sent = -1;
     rfa.shadow_reset = 1;                               /* the device restarted: a host's model is invalid */
 }
+
+static void rfm_app_audio_init(rfm_au_t *au) { rfa.au = au; }
+static int rfm_app_audio_on(void) { return rfa.audio; }
 
 static void rfa_wr16(uint8_t *p, uint32_t v)
 {
@@ -142,7 +155,7 @@ static void rfa_hello(uint32_t t)
         h[43 + i] = (uint8_t)ID[i];
     rfa_wr16(h + RFM_HELLO_SCREEN_W, RFM_W);
     rfa_wr16(h + RFM_HELLO_SCREEN_H, RFM_H);
-    rfa_wr16(h + RFM_HELLO_CAPS, RFA_CAPS | (rfa.batt_mv ? RFM_CAP_BATTERY : 0u));
+    rfa_wr16(h + RFM_HELLO_CAPS, RFA_CAPS | (rfa.batt_mv ? RFM_CAP_BATTERY : 0u) | (rfa.au ? RFM_CAP_BLE_AUDIO : 0u));
     h[RFM_HELLO_INFLIGHT] = RFM_FRAMES_IN_FLIGHT;
     h[RFM_HELLO_SESSION] = rfa.session;
     for (i = 0; i < 8u && i < sizeof VER - 1u; i++)
@@ -193,6 +206,27 @@ static void rfa_master_send(void)
     rfa.master_ms = rfa.now;
 }
 
+static void rfa_audio_r(uint32_t t)
+{
+    uint8_t b[RFM_AUDIO_R_LEN];
+    const rfm_au_t *a = rfa.au;
+    uint32_t i;
+    for (i = 0; i < sizeof b; i++)
+        b[i] = 0;
+    b[0] = (uint8_t)(rfa.audio && t == rfa.st);         /* (another transport's request: off for it) */
+    if (a && b[0]) {
+        b[1] = a->flags;
+        b[2] = a->div;
+        rfa_wr16(b + 3, a->buf_ms);
+        rfa_wr16(b + 5, rfm_au_fill_ms(a));
+        rfa_wr32(b + 7, a->blocks);
+        rfa_wr16(b + 11, a->lost > 0xFFFFu ? 0xFFFFu : a->lost);
+        rfa_wr16(b + 13, a->underruns > 0xFFFFu ? 0xFFFFu : a->underruns);
+        rfa_wr16(b + 15, a->skipped > 0xFFFFu ? 0xFFFFu : a->skipped);
+    }
+    rfa_tx(t, RFM_AUDIO_R, b, sizeof b);
+}
+
 /* ------------------------------------------------------------ session --- */
 static void rfa_leds_off(void)
 {
@@ -221,10 +255,31 @@ static void rfa_set_touch(uint32_t f)               /* (TOUCH; a session's start
     rfa_touch_changed(f);
 }
 
+/* the audio mode ends: the shadow black and the panel with it (the host's model is black: its next FRAME_ACK says
+ * so); at a session's end the waiting screen takes the panel instead */
+static void rfa_audio_end(int repaint)
+{
+    if (!rfa.audio)
+        return;
+    rfa.audio = 0;
+    if (rfa.au)
+        rfm_au_stop(rfa.au);                            /* (first: the render reads the ring no more) */
+    if (repaint) {
+        rfa.qn = 0;
+        rfa_push_reset(0);
+    }
+    rfm_draw_clear(&rfa.draw, 0x0000u);                 /* (the ring may have been the shadow's last rows) */
+    if (repaint) {
+        rfa.flush = 1;
+        rfa.shadow_reset = 1;
+    }
+}
+
 static void rfa_session_end(void)
 {
     if (!rfa.session)
         return;
+    rfa_audio_end(0);
     rfa.session = 0;
     rfa_set_touch(0);
     rfa.qn = 0;                                         /* nobody waits for those ACKs any more */
@@ -236,6 +291,7 @@ static void rfa_session_end(void)
 
 static void rfa_session_start(uint32_t t, uint32_t keepalive)
 {
+    rfa_audio_end(0);                                   /* (a restart: the screen again, black below) */
     rfa.session = 1;
     rfa.sessions++;
     rfa_set_touch(0);                                   /* (a host that wants them says TOUCH after the ACK) */
@@ -298,9 +354,10 @@ static void rfa_cmd_leds(const uint8_t *b, uint32_t len)
 static void rfa_end_push(uint32_t t, uint32_t frame, uint32_t hold)
 {
     uint32_t st = rfa.f_err ? RFM_ACK_DECODE_ERR : 0u;
-    if (!rfa.session || !rfa.draw.fb || (hold && !rfa.qn)) {  /* no push outside a session (the waiting screen),
-                                                         * nor without a shadow (drawn as it was decoded), nor for
-                                                         * a held frame */
+    if (!rfa.session || rfa.audio || !rfa.draw.fb || (hold && !rfa.qn)) {   /* no push outside a session (the
+                                                         * waiting screen), nor in the audio mode (the includer's
+                                                         * screen), nor without a shadow (drawn as it was decoded),
+                                                         * nor for a held frame */
         rfa_frame_ack(t, frame, st, rfa.f_us, rfa.f_bytes, 0);
     } else {
         rfa_end_t *e;
@@ -331,6 +388,17 @@ static void rfa_cmd_tiles(uint32_t t, const uint8_t *b, uint32_t len)
 {
     rfm_draw_res_t r;
     uint32_t t0 = rfa_us();
+    if (rfa.audio) {                                    /* the audio mode: acknowledged, not drawn (the shadow is
+                                                         * black after it, the host's model too) */
+        rfa.f_bytes += len;
+        if (len < RFM_TILES_HDR) {
+            rfa.f_err = 1;
+            rfa.decode_errs++;
+        } else if (b[2] & RFM_TILES_F_END) {
+            rfa_end_push(t, (uint32_t)b[0] | (uint32_t)b[1] << 8, 0);
+        }
+        return;
+    }
     rfm_draw_tiles(&rfa.draw, b, len, &r);
     rfa.f_us += rfa_us() - t0;
     rfa.f_bytes += len;
@@ -340,7 +408,7 @@ static void rfa_cmd_tiles(uint32_t t, const uint8_t *b, uint32_t len)
     }
     rfa.tiles_ms = rfa.now;
     if (r.err != RFM_DRAW_E_HDR && (r.flags & RFM_TILES_F_END)) {
-        uint32_t hold = (r.flags & RFM_TILES_F_HOLD) && rfa.session && rfa.draw.fb;
+        uint32_t hold = (r.flags & RFM_TILES_F_HOLD) && rfa.session && !rfa.audio && rfa.draw.fb;
         if (hold) {
             rfa.hold_used = rfa.held = 1;
             rfa.held_frames++;
@@ -353,7 +421,7 @@ static void rfa_cmd_tiles(uint32_t t, const uint8_t *b, uint32_t len)
 static int rfm_app_tile_m0(const uint8_t *b, uint32_t len)
 {
     uint32_t x, y, w, h;
-    if (len < 4u)
+    if (len < 4u || rfa.audio)                          /* (the audio mode: the shadow holds its ring) */
         return 0;
     x = b[0];
     y = b[1];
@@ -396,6 +464,28 @@ static void rfm_app_msg(uint32_t t, uint32_t cmd, const uint8_t *body, uint32_t 
             rfa_set_touch(body[0]);
             rfa_panel_r(t);
         }
+        break;
+    case RFM_AUDIO_MODE:                                /* the reply: AUDIO_R, on 0 when refused */
+        if (len < RFM_AUDIO_MODE_LEN) {
+            rfa.bad++;
+            break;
+        }
+        if (body[0] && rfa.au && rfa.session && t == rfa.st &&
+            !rfm_au_start(rfa.au, body[2], (uint32_t)body[3] | (uint32_t)body[4] << 8, body[1])) {
+            if (!rfa.audio) {
+                rfa.audio = 1;
+                rfa_push_reset(0);                      /* (a push running stops: the screen is the includer's) */
+                rfa.qn = 0;
+                rfa.held = 0;
+            }
+        } else if (!body[0] || t == rfa.st) {
+            rfa_audio_end(rfa.session);
+        }
+        rfa_audio_r(t);
+        break;
+    case RFM_AUDIO:
+        if (rfa.audio && t == rfa.st)
+            rfm_au_put(rfa.au, body, len);
         break;
     case RFM_ECHO:
         rfa_tx(t, RFM_ECHO_R, body, len);
@@ -496,7 +586,7 @@ static void rfm_app_poll(uint32_t now_ms)
         rfa.flush = 1;                                  /* the host went quiet holding tiles: show them */
         rfa.hold_timeouts++;
     }
-    if (!rfa.push.active && ((rfa.session && rfa.qn) || (rfa.flush && rfm_push_pending(&rfa.push)))) {
+    if (!rfa.push.active && !rfa.audio && ((rfa.session && rfa.qn) || (rfa.flush && rfm_push_pending(&rfa.push)))) {
         rfa.flush = 0;
         rfa.held = 0;                                   /* the push takes every tile drawn so far */
         rfa.covered = rfa.qn;
@@ -505,8 +595,11 @@ static void rfm_app_poll(uint32_t now_ms)
         if (!rfm_push_step(&rfa.push))
             rfa_push_done();
     }
-    if (rfa.session && now_ms - rfa.panel_ms >= RFA_PANEL_MS)
+    if (rfa.session && now_ms - rfa.panel_ms >= RFA_PANEL_MS) {
         rfa_panel_r(rfa.st);
+        if (rfa.audio)
+            rfa_audio_r(rfa.st);
+    }
 }
 
 static void rfm_app_usb_lost(void) { rfa_session_end(); }

@@ -130,6 +130,57 @@ uint32_t rfm_build_touch(uint8_t *b, uint32_t flags)
     return RFM_TOUCH_LEN;
 }
 
+uint32_t rfm_build_audio_mode(uint8_t *b, int on, uint32_t flags, uint32_t div, uint32_t buffer_ms)
+{
+    b[0] = on ? 1u : 0u;
+    b[1] = (uint8_t)flags;
+    b[2] = (uint8_t)div;
+    rf_wr16(b + 3, buffer_ms > 0xFFFFu ? 0xFFFFu : buffer_ms);
+    return RFM_AUDIO_MODE_LEN;
+}
+
+int rfm_parse_audio_mode(const uint8_t *b, uint32_t n, rfm_audio_r_t *m)
+{
+    if (n < RFM_AUDIO_MODE_LEN)
+        return -1;
+    memset(m, 0, sizeof *m);
+    m->on = b[0] != 0;
+    m->flags = b[1];
+    m->div = b[2];
+    m->buffer_ms = (uint16_t)rf_rd16(b + 3);
+    return 0;
+}
+
+uint32_t rfm_build_audio_r(uint8_t *b, const rfm_audio_r_t *r)
+{
+    b[0] = r->on;
+    b[1] = r->flags;
+    b[2] = r->div;
+    rf_wr16(b + 3, r->buffer_ms);
+    rf_wr16(b + 5, r->fill_ms);
+    rf_wr32(b + 7, r->blocks);
+    rf_wr16(b + 11, r->lost);
+    rf_wr16(b + 13, r->underruns);
+    rf_wr16(b + 15, r->skipped);
+    return RFM_AUDIO_R_LEN;
+}
+
+int rfm_parse_audio_r(const uint8_t *b, uint32_t n, rfm_audio_r_t *r)
+{
+    if (n < RFM_AUDIO_R_LEN)
+        return -1;
+    r->on = b[0] != 0;
+    r->flags = b[1];
+    r->div = b[2];
+    r->buffer_ms = (uint16_t)rf_rd16(b + 3);
+    r->fill_ms = (uint16_t)rf_rd16(b + 5);
+    r->blocks = rf_rd32(b + 7);
+    r->lost = (uint16_t)rf_rd16(b + 11);
+    r->underruns = (uint16_t)rf_rd16(b + 13);
+    r->skipped = (uint16_t)rf_rd16(b + 15);
+    return 0;
+}
+
 int rfm_parse_session(const uint8_t *b, uint32_t n, int *start, uint32_t *keepalive_ms)
 {
     if (n < RFM_SESSION_LEN)

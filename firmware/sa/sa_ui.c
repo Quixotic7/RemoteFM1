@@ -190,7 +190,7 @@ static void sa_ui_snap(void)
     sa_theme_build(sa.theme, sa.bg, ui.cbuf);
     ui.c = ui.cbuf;
     ui.bg = sa.bg;
-    ui.scr = sa.panel ? SA_SCR_HOST : sa.ov;
+    ui.scr = sa.panel ? (rf_audio_on() ? SA_SCR_AUDIO : SA_SCR_HOST) : sa.ov;
     ui.t = ui.now - sa.ov_t0;
     ui.ch_txt[0] = 'C', ui.ch_txt[1] = 'H', ui.ch_txt[2] = ' ';
     ui.ch_txt[3] = (char)('0' + sa.ch / 10u), ui.ch_txt[4] = (char)('0' + sa.ch % 10u), ui.ch_txt[5] = 0;
@@ -207,6 +207,10 @@ static void sa_ui_snap(void)
     ui.knob = sa.knob;
     ui.latch = sa.latch;
     sa_ui_snap_more();
+    if (sa.panel && rf_audio_black()) {      /* Bluetooth audio, the host asked for black */
+        ui.cbuf[SA_TK_BG] = 0;
+        ui.blank = 1;
+    }
     ui.host_t = sa.host_t;
     if (sa.panel)
         rf_info(ui.info, &ui.warn);
@@ -375,6 +379,20 @@ static void sa_paint_host(void)
         sg_text_c(160 + 18 * i, 1, ui.info[i], (ui.warn >> i & 1u) ? UC(A1) : UC(SOFT));
 }
 
+/* a Bluetooth audio session (rfm_main.c rf_audio_on): the host's sound plays here, its screen does not come. The name
+ * as big as fits, the hand-over's chip and shadow, HOME's bars following the sound */
+static void sa_paint_audio(void)
+{
+    static const char NAME[] = "RemoteFM1";
+    int32_t n = 5, i;
+    while (n > 2 && sg_text_w(NAME, n) > SG_W - 20)
+        n--;
+    sg_chip_text((SG_W - 130) / 2, 8, 130, 22, 0, "BLUETOOTH AUDIO", UC(A4), UC(ON));
+    sg_text_sh((SG_W - sg_text_w(NAME, n)) / 2, 112 - 10 * n, n, NAME, UC(INK), n >= 4 ? 4 : n, UC(SHADOW));
+    for (i = 0; i < (int32_t)SA_NBARS; i++)
+        sg_rect(10 + 16 * i, 230 - ui.eq[i], 12, ui.eq[i], (i & 1) ? UC(A3) : UC(A1));
+}
+
 #include "sa_screens.c"
 
 static void sa_paint(void)
@@ -387,6 +405,7 @@ static void sa_paint(void)
     case SA_SCR_CHANNEL: sa_paint_channel(); break;
     case SA_SCR_OCTAVE: sa_paint_octave(); break;
     case SA_SCR_HOST: sa_paint_host(); break;
+    case SA_SCR_AUDIO: sa_paint_audio(); break;
     default: sa_paint_home(); break;
     }
     if (UC(BORDER) != UC(BG)) {              /* a theme's border (C64, SNES, Game Boy): 4 pixels inside the edge */

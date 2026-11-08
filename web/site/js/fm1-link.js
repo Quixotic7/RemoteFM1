@@ -24,9 +24,9 @@ export function viewOf(s, notFound = false, promptLate = false) {
   const ver = s.unit && s.unit.fwVer ? `, RemoteFM1 ${s.unit.fwVer}` : "";
   const quietSearch = s.state === "searching" && s.quiet && !notFound;
   if (s.state === "connected")
-    return { tone: "on", label: "FM-1 connected", via, live: true,
-      title: `Your FM-1 is the panel${via ? " (over " + via + ")" : ""}${ver}. Click to disconnect.`,
-      detail: `Connected${via ? " over " + via : ""}${ver}${s.fps ? ` · ${s.fps} fps` : ""}.` };
+    return { tone: "on", label: "FM-1 connected", via, live: true, audio: !!s.audio,
+      title: `Your FM-1 is the panel${via ? " (over " + via + ")" : ""}${ver}${s.audio ? ", the sound plays on it" : ""}. Click to disconnect.`,
+      detail: `Connected${via ? " over " + via : ""}${ver}${s.audio ? " · sound on the FM-1, no screen" : s.fps ? ` · ${s.fps} fps` : ""}.` };
   if (s.midiPrompt)
     return promptLate
       ? { tone: "bad", label: "Try again", via: "", live: true, prompt: true, title: MIDI_LATE_TEXT, detail: MIDI_LATE_TEXT }
@@ -78,6 +78,10 @@ export class Fm1Link {
   on(cb) { this._subs.add(cb); return () => this._subs.delete(cb); }
   view() { return viewOf(this.status, this.notFound, this.promptLate); }
   get connected() { return this.status.state === "connected"; }
+  // Bluetooth audio (RemoteFM1 0.3.6): the page's sound over a Bluetooth link instead of the screen; status.audio while
+  // the unit plays it, audio(pcm, rate) the page's sound (ignored otherwise)
+  setBleAudio(on) { if (typeof this.remote.setBleAudio === "function") this.remote.setBleAudio(!!on); }
+  audio(pcm, rate) { if (this.status.audio && typeof this.remote.audio === "function") this.remote.audio(pcm, rate); }
 
   // at load: connect where the browser already allows it (remote.js autoConnect: no prompt)
   auto() { return typeof this.remote.autoConnect === "function" ? this.remote.autoConnect().catch(() => null) : Promise.resolve(null); }

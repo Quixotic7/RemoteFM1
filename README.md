@@ -210,6 +210,12 @@ is on at every power-on. Connect the FM-1 in Audio MIDI Setup > MIDI Studio > Bl
 its port is named after what it advertises, "FM-1 1F2D". The site and FM1VST send HELLO to any port whose name holds
 "FM-1", so they find it there too. The update path stays USB-only.
 
+**Sound over Bluetooth** (0.3.6, off by default): Bluetooth has room for the screen or the sound, not both. With the
+site's Settings > Use my FM-1 > **Sound on the FM-1 over Bluetooth** on, a Bluetooth session sends the firmware's
+sound to the FM-1 instead of its screen: mono, 22,050 Hz, IMA ADPCM (~13.7 KB/s, about 30 dB SNR, ~150-200 ms from a
+key to its sound), MASTER its volume. The FM-1 shows "RemoteFM1" in its own pixel font while it plays; LEDs, keys and
+knobs work as always. [docs/BLE-AUDIO.md](docs/BLE-AUDIO.md) has the numbers and what the other apps need.
+
 **USB audio** (0.2.1): the Mac sees the FM-1 as a sound output ("FM-1" in System Settings > Sound and Audio MIDI
 Setup) and plays through its speaker and headphones, with MASTER as its volume. Pick it as the output of fm1remote's
 sound (or the Mac's) to hear the firmware on the unit. On the site, Settings > Playing > Sound output > FM-1 does it in

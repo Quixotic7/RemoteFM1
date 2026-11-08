@@ -8,6 +8,9 @@
 //   await p.load(entry, "native" | "emu" | "rfm1" | "mock", flashBytes | null)
 //   p.panel(msg); p.midi(bytes); p.flashReq();
 //   p.setVolume(0..1)                         the page's volume: a GainNode after the worklet (recordings are taken before it)
+//   p.setMuted(on)                            the page's own output silent (its sound plays on the FM-1 over Bluetooth)
+//   p.tap(on)                                 the engine's sound, mono, to "tap" (Float32Array chunks of 1024 frames at
+//                                             p.sampleRate); give each back with p.tapBuf(pcm)
 //   p.recStart({ id, chunkFrames, maxFrames }); p.recStop(); p.recBuf(l, r)   the recorder (js/rec-ui.js); events: rec(m)
 //   events.fs(m): a Fantasy CFW's file request (js/folder.js serve()); p.fsReply(reply, transfer); p.fsChanged()
 //   await p.ainStart(deviceId) / p.ainStop()   live audio input for an .rfm1 cart with "ain1" (js/ain-ui.js): the
@@ -70,7 +73,7 @@ export class Player {
   constructor(catalog, events = {}) {
     this.catalog = catalog;
     this.ev = events;
-    this.ctx = null; this.node = null; this.out = null; this.volume = 1;
+    this.ctx = null; this.node = null; this.out = null; this.volume = 1; this.muted = false; this.tapOn = false;
     this.setup = null;           // Promise: the worklet module and the host node
     this.sinkId = "";            // the output device asked for ("" the system's)
     this.applied = "";           // ... and the one the sound goes to
@@ -121,7 +124,8 @@ export class Player {
                                                                  channelCount: 2, channelCountMode: "explicit", channelInterpretation: "speakers" });
         this.node.port.onmessage = (e) => this.onMessage(e.data);
         this.out = this.ctx.createGain();
-        this.out.gain.value = this.volume;
+        this.out.gain.value = this.muted ? 0 : this.volume;
+        if (this.tapOn) this.node.port.postMessage({ type: "tap", on: true, n: 1024 });
         this.node.connect(this.out);
         this.out.connect(this.route && this.sinkId ? this.route.dest : this.ctx.destination);
       })();
@@ -189,6 +193,7 @@ export class Player {
     else if (m.type === "recChunk" || m.type === "recLevel") this.emit("rec", m);
     else if (m.type === "fs") this.emit("fs", m);
     else if (m.type === "ainLevel") this.emit("ainLevel", m);
+    else if (m.type === "tap") this.emit("tap", m.pcm);
   }
 
   // ---- live audio input (an .rfm1 cart with "ain1": engines/rfm1/engine.js audioIn; js/ain-ui.js)
@@ -327,8 +332,17 @@ export class Player {
   unload() { this.emit("beforeLoad"); if (this.node) this.node.port.postMessage({ type: "unload" }); this.current = null; }
   setVolume(v) {
     this.volume = Math.max(0, Math.min(1, +v || 0));
-    if (this.out) this.out.gain.setTargetAtTime(this.volume, this.ctx.currentTime, 0.015);
+    if (this.out) this.out.gain.setTargetAtTime(this.muted ? 0 : this.volume, this.ctx.currentTime, 0.015);
   }
+  setMuted(on) {
+    this.muted = !!on;
+    if (this.out) this.out.gain.setTargetAtTime(this.muted ? 0 : this.volume, this.ctx.currentTime, 0.015);
+  }
+  tap(on) {
+    this.tapOn = !!on;
+    if (this.node) this.node.port.postMessage({ type: "tap", on: this.tapOn, n: 1024 });
+  }
+  tapBuf(pcm) { if (this.node && pcm && pcm.buffer.byteLength) this.node.port.postMessage({ type: "tapBuf", pcm }, [pcm.buffer]); }
   get sampleRate() { return this.ctx ? this.ctx.sampleRate : 0; }
   recStart(o) { if (this.node) this.node.port.postMessage({ type: "rec", on: true, ...o }); }
   recStop() { if (this.node) this.node.port.postMessage({ type: "rec", on: false }); }

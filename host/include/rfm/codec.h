@@ -58,6 +58,19 @@ uint32_t rfm_build_session(uint8_t *body, int start, uint32_t keepalive_ms);
 uint32_t rfm_build_touch(uint8_t *body, uint32_t flags);   /* TOUCH (0.3.1): RFM_TOUCH_F_*; RFM_TOUCH_LEN */
 int rfm_parse_session(const uint8_t *b, uint32_t n, int *start, uint32_t *keepalive_ms);
 
+/* Bluetooth audio (0.3.6, RFM_CAP_BLE_AUDIO, docs/PROTOCOL.md section 9) */
+typedef struct {
+    uint8_t on, flags, div;                             /* AUDIO_MODE's (flags RFM_AUDIO_F_*) */
+    uint16_t buffer_ms;
+    /* AUDIO_R's state of the unit's buffer */
+    uint16_t fill_ms, lost, underruns, skipped;
+    uint32_t blocks;
+} rfm_audio_r_t;
+uint32_t rfm_build_audio_mode(uint8_t *body, int on, uint32_t flags, uint32_t div, uint32_t buffer_ms);   /* 5 B */
+int rfm_parse_audio_mode(const uint8_t *b, uint32_t n, rfm_audio_r_t *m);   /* (the fake) on flags div buffer_ms */
+uint32_t rfm_build_audio_r(uint8_t *body, const rfm_audio_r_t *r);          /* RFM_AUDIO_R_LEN (the fake) */
+int rfm_parse_audio_r(const uint8_t *b, uint32_t n, rfm_audio_r_t *r);
+
 typedef struct {
     uint8_t lit[RFM_NCOL], mid[RFM_NCOL], dim[RFM_NCOL], faint[RFM_NCOL];
     uint8_t flags;                                      /* RFM_LEDS_F_PLAY_GREEN */

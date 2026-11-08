@@ -46,7 +46,7 @@ SA_TESTS="firmware/tests/standalone_cc.txt firmware/tests/standalone_loop.txt fi
 echo "== the app in fm1-base's host simulator: USB SysEx, bulk, Bluetooth, the update's SysEx beside (firmware/tests)"
 env -u CC ./build.sh --host >/dev/null
 sim "$SIM/remotefm1_host" firmware/tests/session.txt firmware/tests/bulk_ota.txt firmware/tests/ble.txt \
-    firmware/tests/hold.txt firmware/tests/sa_bench.txt firmware/tests/standalone.txt firmware/tests/standalone_ble.txt firmware/tests/trs.txt firmware/tests/usb_host_ble.txt \
+    firmware/tests/hold.txt firmware/tests/sa_bench.txt firmware/tests/standalone.txt firmware/tests/standalone_ble.txt firmware/tests/trs.txt firmware/tests/usb_host_ble.txt firmware/tests/ble_audio.txt \
     $SA_TESTS
 if grep -q "SA_ROM_NBANKS 8u" firmware/build/gen/dx7_rom.h; then
     sim "$SIM/remotefm1_host" firmware/tests/standalone_rom.txt

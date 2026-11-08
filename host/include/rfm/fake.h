@@ -39,6 +39,9 @@ typedef struct {
                                                          * rfm_fake_trs sends MIDI_IN in a session */
     int touch;                                          /* 1 (default): HELLO_R caps has RFM_CAP_TOUCH and TOUCH works
                                                          * (rfm_fake_key_vel / rfm_fake_press); 0: a unit before 0.3.1 */
+    int audio;                                          /* 1 (default): HELLO_R caps has RFM_CAP_BLE_AUDIO and
+                                                         * AUDIO_MODE works (AUDIO_R; TILES drawn, never shown, while
+                                                         * on; AUDIO blocks counted and decoded, rfm_fake_audio) */
     int tiles_outside_session;                          /* 1 (default): TILES / LEDS outside a session are still
                                                          * drawn and acknowledged (FRAME_ACK says shadow reset after
                                                          * a reboot); 0: ignored, no FRAME_ACK */
@@ -52,6 +55,8 @@ typedef struct {
     uint32_t held_frames, hold_timeouts, panel_updates; /* ENDs with HOLD (held only with cfg.hold, in a session);
                                                          * held tiles shown by the timeout; times the panel took
                                                          * the shadow */
+    uint32_t audio_modes, audio_blocks, audio_bad, audio_gaps;   /* AUDIO_MODE taken; AUDIO blocks in the mode,
+                                                         * malformed, seq gaps */
 } rfm_fake_stats_t;
 
 typedef struct rfm_fake rfm_fake_t;
@@ -89,6 +94,8 @@ int rfm_fake_session(const rfm_fake_t *f);              /* 0 none, 1 on SysEx, 2
 const uint8_t *rfm_fake_shadow(const rfm_fake_t *f);    /* 240 x 240 x 2 bytes, BE: emu_hal_t.lcd's layout */
 const uint8_t *rfm_fake_panel(const rfm_fake_t *f);     /* what the unit shows (the same layout) */
 int rfm_fake_holding(const rfm_fake_t *f);              /* tiles drawn and not shown (HOLD) */
+/* the audio mode (cfg.audio): 1 while on; the last *n samples decoded from AUDIO blocks (up to 8192 kept) */
+int rfm_fake_audio(const rfm_fake_t *f, const int16_t **pcm, uint32_t *n);
 const rfm_leds_t *rfm_fake_leds(const rfm_fake_t *f);
 void rfm_fake_stats(const rfm_fake_t *f, rfm_fake_stats_t *st);
 

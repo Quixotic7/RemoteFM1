@@ -6,7 +6,7 @@ wait 1100
 master 2048
 rf hello usb
 expect rf_hello_fm1 1
-expect rf_hello_caps 1967
+expect rf_hello_caps 4015
 rf hello_dump out:hello_usb.txt
 rf hello bk
 rf hello_dump out:hello_bk.txt

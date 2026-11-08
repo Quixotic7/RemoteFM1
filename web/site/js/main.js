@@ -481,6 +481,7 @@ function makePlayer() {
     midiOut(bytes) { siteEmit("midiOut", bytes); if (editor) editor.fromEngine(bytes); },
     load: onLoad,
     rec(m) { if (rec) rec.onRec(m); else if (m.type === "recChunk") player.recBuf(m.l, m.r); },
+    tap(pcm) { if (fm1) fm1.audio(pcm, player.sampleRate); player.tapBuf(pcm); },
     beforeLoad() { if (rec) rec.beforeLoad(); },
     audioState(s) { if (s !== "running") setTimeout(soundHeldBack, 800); },
     error(msg) {
@@ -490,6 +491,7 @@ function makePlayer() {
     },
   });
   player.setVolume(state.volume);
+  if (fm1 && fm1.status.audio) { player.tap(true); player.setMuted(true); }   // (Bluetooth audio already on)
   soundOut = new SoundOut({ player, media: navigator.mediaDevices, prefs, save: savePrefs, onChange: () => { if (sheet) sheet.render(); } });
 }
 let flashTimer = 0, pendingSave = null;
@@ -929,8 +931,13 @@ async function main() {
     if (m && typeof m.RemoteFM1 === "function") {          // W4's class: the section is ours (use-fm1.js)
       app.remoteMounted = true;
       if (typeof m.isCandidatePortName === "function") midi.isUnitPort = m.isCandidatePortName;
-      fm1 = createFm1(site, m, { onUnitPorts: (ports) => { midi.unitPorts = ports; midi.bind(); }, keyTouch: prefs.fm1Touch !== false });
-      mountUseFm1(sheet.remoteSlot, fm1, site, { touch: { get: () => prefs.fm1Touch !== false, set: (v) => { prefs.fm1Touch = !!v; savePrefs(); } } });
+      fm1 = createFm1(site, m, { onUnitPorts: (ports) => { midi.unitPorts = ports; midi.bind(); }, keyTouch: prefs.fm1Touch !== false,
+        bleAudio: prefs.fm1BleAudio === true });
+      mountUseFm1(sheet.remoteSlot, fm1, site, { touch: { get: () => prefs.fm1Touch !== false, set: (v) => { prefs.fm1Touch = !!v; savePrefs(); } },
+        bleAudio: { get: () => prefs.fm1BleAudio === true, set: (v) => { prefs.fm1BleAudio = !!v; savePrefs(); } } });
+      // Bluetooth audio: while the unit plays the page's sound, the player's tap feeds it and the page's own output is
+      // silent (the FM-1 is the speaker)
+      fm1.on((v, s) => { const on = !!(s && s.audio); if (player && player.tapOn !== on) { player.tap(on); player.setMuted(on); } });
       mountHeader($("fm1-btn"), fm1, { openSheet: () => sheet.open() });
       fm1.on(onFm1);
       onFm1(fm1.view());

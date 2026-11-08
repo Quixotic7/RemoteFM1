@@ -7,7 +7,7 @@
 
 export const FAKE_STATS = ['hellos', 'sessions_started', 'sessions_ended', 'keepalive_expired', 'leds', 'tiles_msgs',
     'frames', 'acks', 'acks_dropped', 'tile_bytes', 'decode_errs', 'panel_r', 'panel_req', 'msgs', 'sx_msgs', 'bk_msgs',
-    'held_frames', 'hold_timeouts', 'panel_updates'];
+    'held_frames', 'hold_timeouts', 'panel_updates', 'audio_modes', 'audio_blocks', 'audio_bad', 'audio_gaps'];
 
 // split a MIDI byte stream into messages, as Web MIDI delivers them (one SysEx, or one channel message, per event)
 export function splitMidi(bytes, state) {

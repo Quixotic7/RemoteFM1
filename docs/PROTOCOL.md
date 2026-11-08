@@ -106,7 +106,7 @@ One message = a command byte + a body (8-bit bytes, multi-byte fields **little e
   | offset | field |
   |---|---|
   | 51 | `screen_w16` (240), `screen_h16` (240) |
-  | 55 | `caps16`: bit0 shadow frame buffer, bit1 COPY, bit2 RLE, bit3 PAL, bit4 battery reading, bit5 PLAY green LED, bit6 five LED levels (else: lit / dim / faint, mid shown as dim), bit7 TILES' HOLD flag (0.2.2, section 3), bit8 fast Bluetooth radio (0.2.2: 2M, long link packets, MTU 247; section 1), bit9 MIDI_IN: the TRS jack's MIDI in comes to the host in a session (section 4), bit10 TOUCH: the keys' velocity and pressure on request (0.3.1, TOUCH below) |
+  | 55 | `caps16`: bit0 shadow frame buffer, bit1 COPY, bit2 RLE, bit3 PAL, bit4 battery reading, bit5 PLAY green LED, bit6 five LED levels (else: lit / dim / faint, mid shown as dim), bit7 TILES' HOLD flag (0.2.2, section 3), bit8 fast Bluetooth radio (0.2.2: 2M, long link packets, MTU 247; section 1), bit9 MIDI_IN: the TRS jack's MIDI in comes to the host in a session (section 4), bit10 TOUCH: the keys' velocity and pressure on request (0.3.1, TOUCH below), bit11 BLE_AUDIO: the audio mode (0.3.6, section 9) |
   | 57 | `max_frames_in_flight8` (2) |
   | 58 | `session8` (1 while a session is active) |
   | 59 | `fw_ver[8]` (the RemoteFM1 version string) |
@@ -351,6 +351,8 @@ RemoteFM1 message starts `F0 7D 52 46`.
 - 0.3.1: TOUCH (`0x14`, section 2), `caps` bit10 (`RFM_CAP_TOUCH`; 0x7AF in all, 0x62C without the shadow): on the
   host's request, the keys' real velocity in their Note Ons and their pressure as poly aftertouch `AF 53+k p`
   (section 4); PANEL_R `flags` bits 1 and 2. docs/VELOCITY-HOSTS.md is the guide for hosts.
+- 0.3.6: Bluetooth audio (section 9): AUDIO_MODE (`0x15`), AUDIO (`0x16`), AUDIO_R (`0x55`), `caps` bit11
+  (`RFM_CAP_BLE_AUDIO`; 0xFAF in all; not in a build without the shadow, 0x62C).
 
 ## 8. The standalone build's own messages (STANDALONE-PLAN.md)
 
@@ -458,3 +460,41 @@ skipping empty slots), `arrival` (a count: the smallest is the oldest), `crc` (C
 as sent: a host matches it with the file it has), `name` (ASCII, spaces after: the bank's first voice's name until NAME
 gives one). A NAME's characters outside 0x20..0x7E are stored as spaces. Deleting the bank being played switches to the
 next stored user bank (or the bank before it if it was the last). Timing and examples: docs/CART-UPLOAD.md.
+
+## 9. Bluetooth audio (0.3.6, `caps` bit11 `RFM_CAP_BLE_AUDIO`)
+
+Over USB the FM-1 is a sound card: a host plays through it as a USB audio output. Bluetooth MIDI has no audio, and
+too little room for the screen and a sound stream both. So a host may trade the screen for the sound: in the
+**audio mode** it sends its sound as AUDIO messages and no TILES, and the unit shows a screen of its own. The LEDs,
+the panel's events, PANEL_R and MIDI_IN go on as in any session. Hosts offer it off by default (libremotefm1
+`cfg.ble_audio`, the site's "Sound on the FM-1 over Bluetooth") and use it only on a Bluetooth link; docs/BLE-AUDIO.md
+has the numbers and what each host needs.
+
+- **AUDIO_MODE** (`0x15`, body `on8 flags8 div8 buffer_ms16`, 5 bytes). Only in a session, on its transport.
+  - `on = 1`: the stream is mono at `44100 / div` Hz, `div` 2..4 (22,050, 14,700 or 11,025 Hz; libremotefm1 uses 2).
+    The unit holds `buffer_ms` (clamped to 40..250; 120 by default) before it plays. `flags` bit0
+    (`RFM_AUDIO_F_BLACK`): the screen black instead of the RemoteFM1 screen. Sent again while on: the stream starts
+    again (an empty buffer), with the new values.
+  - `on = 0`, a SESSION start or end, the transport gone: the mode ends. If the session goes on, the unit's shadow is
+    black, shown so, and its next FRAME_ACK says "shadow reset": the host's model is black, and it sends what differs
+    (all of the screen, as after a SESSION start).
+  - Reply: **AUDIO_R**. `on = 0` there after `on = 1`: refused (not in a session, another transport, a bad `div`,
+    or a build without it). A host retries an unanswered AUDIO_MODE after 1 s, at most 4 times a session.
+- **AUDIO** (`0x16`, body `seq16 pred16 index8 data[1..128]`), only in the mode: mono IMA ADPCM
+  (`firmware/src/rfm_adpcm.h`: the IMA's step and index tables, 4 bits a sample), two samples a byte, **low nibble
+  first**. `pred` (int16) and `index` (0..88) are the coder's state before the block's first sample, so every block
+  decodes alone. libremotefm1 sends 256 samples a block (11.6 ms at 22,050 Hz): 133 body bytes, 158 bytes of SysEx.
+  `seq` counts blocks, wrapping. The unit fills a gap of up to 8 blocks with the last sample fading (the timing
+  kept), counts a longer one as lost, and takes a jump back as a new stream. Blocks are sent as the sound is made,
+  never paced: the host's audio clock is the stream's clock.
+- **AUDIO_R** (`0x55`, body `on8 flags8 div8 buffer_ms16 fill_ms16 blocks32 lost16 underruns16 skipped16`, 17
+  bytes): sent for each AUDIO_MODE and with every PANEL_R (500 ms) while on. `fill_ms` what the unit holds now;
+  `blocks` taken since the mode began; `lost` blocks missing or dropped (the ring full); `underruns` times it ran
+  dry while playing (the sound fades out, and starts again once `buffer_ms` is back); `skipped` blocks dropped to
+  catch up after a burst (more than twice `buffer_ms` held).
+- **The unit's side** (`firmware/src/rfm_audio.h`): the blocks stay coded in a 32-block ring (4.3 KB, ~370 ms at
+  22,050 Hz) and are decoded in the render, upsampled to 44.1 kHz (4-point Hermite), and mixed after the
+  standalone's own render at MASTER (as its DX7 is). The playback rate follows the buffer's fill by at most ±0.3 %
+  (5 cents), so a host clock a little fast or slow keeps the buffer near `buffer_ms`. TILES in the mode are
+  acknowledged at once and dropped (not drawn: the ring is the shadow's last rows on the FM-1); HOLD is ignored.
+- Bytes, over SysEx: on at 22,050 Hz with a 120 ms buffer: `F0 7D 52 46 15 <01 00 02 78 00 packed> F7`.

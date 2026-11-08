@@ -12,12 +12,14 @@ import { Fm1Link } from "./fm1-link.js";
 import { mountCart } from "./cart.js";
 import { emuNavigator } from "./emu-port.js";
 
-export function createFm1(site, mod, { onUnitPorts, keyTouch = true } = {}) {
+export function createFm1(site, mod, { onUnitPorts, keyTouch = true, bleAudio = false } = {}) {
   // keyTouch: the keys' velocity and pressure from a unit with RemoteFM1 0.3.1 (TOUCH; the sheet's "Velocity &
   // pressure from my FM-1"), into the firmware as key velocity and key lean (API.md setPanel keyVel / keyLean)
   // ?unit=smk37-emu (hidden): the SMK-37 emulator's tab is a unit too, over Web MIDI only (emu-port.js)
   const emu = emuNavigator();
-  const remote = new mod.RemoteFM1({ keyTouch: !!keyTouch, ...(emu ? { navigator: emu, transport: "midi", usb: "off" } : {}) });
+  // bleAudio: the sheet's "Sound on the FM-1 over Bluetooth" (off by default): over a Bluetooth link the page's sound
+  // goes to the unit instead of the screen (RemoteFM1 0.3.6; main.js taps the player and mutes it while status.audio)
+  const remote = new mod.RemoteFM1({ keyTouch: !!keyTouch, bleAudio: !!bleAudio, ...(emu ? { navigator: emu, transport: "midi", usb: "off" } : {}) });
   const link = new Fm1Link(remote);
   link.setKeyTouch = (on) => { if (typeof remote.setKeyTouch === "function") remote.setKeyTouch(!!on); };
   let unitKeys = 0, unitButtons = 0;
@@ -77,7 +79,7 @@ function waitingFrame() {
 }
 
 // ---- the sheet's section
-export function mountUseFm1(slot, link, site, { touch } = {}) {
+export function mountUseFm1(slot, link, site, { touch, bleAudio } = {}) {
   const btn = h("button", { class: "pill primary" }, "Connect my FM-1");
   const line = h("p", { class: "remote-status small" });
   btn.addEventListener("click", () => { const v = link.view(); if (v.tone === "on" || v.tone === "busy") link.disconnect(); else link.connect(); });
@@ -95,6 +97,7 @@ export function mountUseFm1(slot, link, site, { touch } = {}) {
     h("div", { class: "pills two" }, btn, h("a", { class: "pill", href: site.installerUrl }, "Install RemoteFM1")),
     line,
     touch ? touchRow(link, touch) : null,
+    bleAudio ? bleAudioRow(link, bleAudio) : null,
     h("p", { class: "note" }, "Chrome or Edge. Once allowed, it connects by itself when the page opens or the FM-1 is plugged in. macOS and ChromeOS get the fast USB path; Windows and Linux fall back to MIDI."));
   mountCart(slot, link);
 }
@@ -115,6 +118,26 @@ function touchRow(link, touch) {
   link.on(show);
   show(null, link.status);
   return h("div", { class: "row" }, h("div", { class: "row-label" }, h("div", {}, "Velocity & pressure from my FM-1"), sub), sw);
+}
+
+// "Sound on the FM-1 over Bluetooth" (bleAudio: { get() -> bool, set(bool) }, the page's prefs; off by default): over a
+// Bluetooth link the sound plays on the FM-1 and its screen shows RemoteFM1 (Bluetooth has room for one or the other);
+// USB is unaffected (the FM-1 is a sound output there: Sound output > FM-1)
+function bleAudioRow(link, opt) {
+  const sw = h("button", { class: "switch", role: "switch", "aria-label": "Sound on the FM-1 over Bluetooth" }, h("span"));
+  const sub = h("div", { class: "row-sub" });
+  const show = (v, s) => {
+    const on = opt.get();
+    sw.className = "switch" + (on ? " on" : ""); sw.setAttribute("aria-checked", String(on));
+    const unit = s && s.state === "connected" ? s.unit : null;
+    sub.textContent = s && s.audio ? "playing on the FM-1 now; its screen shows RemoteFM1"
+      : on && unit && unit.bleAudio === false ? "this FM-1's RemoteFM1 is older than 0.3.6: update it for Bluetooth audio"
+      : "over Bluetooth only: the sound plays on the FM-1 instead of its screen (USB: Sound output > FM-1)";
+  };
+  sw.addEventListener("click", () => { const on = !opt.get(); opt.set(on); link.setBleAudio(on); show(null, link.status); });
+  link.on(show);
+  show(null, link.status);
+  return h("div", { class: "row" }, h("div", { class: "row-label" }, h("div", {}, "Sound on the FM-1 over Bluetooth"), sub), sw);
 }
 
 // ---- the header's Connect FM-1 button, and its menu while connected or connecting

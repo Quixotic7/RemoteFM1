@@ -108,7 +108,7 @@ if (hr) {
   check("HELLO_R: RemoteFM1, protocol 2", str(0, 16) === "RemoteFM1" && h[16] === 2, `${str(0, 16)} ${h[16]}`);
   check("HELLO_R: the FM-1's identity", str(43, 8) === "FM-1_520", str(43, 8));
   check("HELLO_R: USB configured, SysEx heard", (h[25] & 5) === 5, h[25].toString(2));
-  check("HELLO_R: caps 1967", (h[55] | h[56] << 8) === 1967, String(h[55] | h[56] << 8));
+  check("HELLO_R: caps 4015", (h[55] | h[56] << 8) === 4015, String(h[55] | h[56] << 8));
   if (helloDump && existsSync(helloDump)) {
     const want = readFileSync(helloDump, "utf8").trim();
     check("HELLO_R byte for byte the simulator's (smk_hello.txt)", hex(h) === want, hex(h));

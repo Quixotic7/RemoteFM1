@@ -42,7 +42,13 @@
  * screens and the hand-over screen (sa/sa_ui.c, a band at a time, never waiting either) draw only while no session or
  * push owns the panel (rf_panel_ours). A session that holds frames (TILES'
  * HOLD, 0.2.2) has its transport's input left in its ring while a push runs or is due (rfm_app_rx_wait): a byte at a
- * time on USB SysEx, a packet at a time on Bluetooth, a 256-byte piece at a time on bulk. */
+ * time on USB SysEx, a packet at a time on Bluetooth, a 256-byte piece at a time on bulk.
+ *
+ * Bluetooth audio (0.3.6, docs/PROTOCOL.md section 9). A host whose session runs over Bluetooth may ask for the audio
+ * mode (AUDIO_MODE): it then sends its sound as AUDIO blocks instead of the screen. rfm_app.c keeps them in rf_au's
+ * ring (rfm_audio.h, in the pool), app_render plays them after sa_render at MASTER, and the screen is the
+ * instrument's own "RemoteFM1" screen (sa_ui.c), black if the host asked: rf_panel_ours is true in such a session.
+ * The LEDs, the panel's events and MIDI_IN go on as in any session. */
 
 #define RF_T_BLE 2u                         /* SysEx over Bluetooth MIDI (remote_proto.h: RF_T_SX 0, RF_T_BK 1) */
 #define RF_NT 3u
@@ -68,6 +74,9 @@
                   RFM_CAP_BLE_FAST | RFM_CAP_MIDI_IN | RFM_CAP_TOUCH)  /* (the radio's settings: fm1.toml ble_dle, ble_2m, ble_rx_bufs) */
 #else
 #define RFA_CAPS (RFM_CAP_RLE | RFM_CAP_PAL | RFM_CAP_PLAY_GREEN | RFM_CAP_MIDI_IN | RFM_CAP_TOUCH)
+#endif
+#ifdef RING_PUBLISH
+#define RFM_AU_PUBLISH() RING_PUBLISH()             /* (rfm_audio.h: the render reads the ring in the interrupt) */
 #endif
 #include "rfm_app.c"
 
@@ -395,6 +404,16 @@ static void rf_send(uint32_t t, uint32_t cmd, const uint8_t *body, uint32_t n) {
 #if RFM_SHADOW
 static uint16_t rf_shadow[RFM_W * RFM_H] PLAT_POOL;     /* the screen as the host believes it */
 #endif
+#if RFM_SHADOW
+/* Bluetooth audio (rfm_audio.h): its ring, the blocks still coded (4.3 KB), is the shadow's last rows: the mode
+ * draws no TILES and leaves the shadow black (rfm_app.c), and the pool has no 4.3 KB to spare (build.py keeps 8 KB) */
+#define RF_AU_RING ((rfm_au_slot_t *)(void *)(rf_shadow + RFM_W * RFM_H) - RFM_AU_SLOTS)
+static rfm_au_t rf_au PLAT_POOL;
+#endif
+#ifdef PLAT_HOST
+static uint32_t rf_au_peak_seen;
+#endif
+
 #define RF_STAGE_PX (RFM_W * 16u)
 static uint16_t rf_stage[RF_STAGE_PX] PLAT_POOL;        /* the push's rows of a narrow rectangle */
 static uint32_t rf_tiles_m0, rf_tile_bytes, rf_src_us;
@@ -580,6 +599,10 @@ static void rfa_session_changed(uint32_t on)
 }
 
 static int rf_session_on(void) { return rfa.session; }
+/* Bluetooth audio (rfm_app.c, docs/PROTOCOL.md section 9): the session's screen is the instrument's own (sa_ui.c),
+ * black with the host's RFM_AUDIO_F_BLACK */
+static int rf_audio_on(void) { return rfa.audio; }
+static int rf_audio_black(void) { return rfa.audio && rfa.au && (rfa.au->flags & RFM_AUDIO_F_BLACK); }
 
 /* TOUCH (the host's): the keys' sensing on in panel mode while it wants velocity or pressure (sa_main.c) */
 static void rfa_touch_changed(uint32_t flags) { sa_panel_touch(flags != 0u); }
@@ -588,7 +611,7 @@ static void rfa_touch_changed(uint32_t flags) { sa_panel_touch(flags != 0u); }
  * bench); after somebody else drew on it, all of it again */
 static int rf_panel_ours(void)
 {
-    if (rfa.session || rfm_app_pushing() || (int32_t)(plat_ms() - rf_scr_hold) < 0)
+    if ((rfa.session && !rfa.audio) || rfm_app_pushing() || (int32_t)(plat_ms() - rf_scr_hold) < 0)
         return 0;
     if (rf_scr_full) {
         rf_scr_full = 0;
@@ -1340,6 +1363,8 @@ void app_init(void)
     rf_body_init(&rf_bk.b, &rf_st[RF_T_BK], rf_bk_buf, sizeof rf_bk_buf, rf_on_msg, (void *)(uintptr_t)RF_T_BK);
 #if RFM_SHADOW
     rfm_app_init(rf_shadow, rf_stage, RF_STAGE_PX, &RF_LCD);
+    rf_au.slot = RF_AU_RING;
+    rfm_app_audio_init(&rf_au);
 #else
     rfm_app_init(0, rf_stage, RF_STAGE_PX, &RF_LCD);
     rfa.draw.row = rf_row;
@@ -1357,7 +1382,21 @@ void app_init(void)
 #endif
 }
 
-void app_render(int32_t *lr, uint32_t n, uint32_t master_q12) { sa_render(lr, n, master_q12); }
+void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
+{
+    sa_render(lr, n, master_q12);                   /* (in panel mode: silence, the DX7 let go) */
+#if RFM_SHADOW
+    if (rf_au.on) {                                 /* the host's sound over Bluetooth, at MASTER as sa_render's */
+        uint32_t q = (uint32_t)(rfm_au_mix(&rf_au, lr, n, (float)master_q12 * (8388607.0f / 4096.0f)) * 32767.0f);
+        if (q > sa_peak_q15)
+            sa_peak_q15 = q;                        /* (the screen's bars follow it) */
+#ifdef PLAT_HOST
+        if (q > rf_au_peak_seen)
+            rf_au_peak_seen = q;                    /* (the simulator's check: rfm_host.c rf_audio_peak) */
+#endif
+    }
+#endif
+}
 
 void app_panic(void) { sa_ev(SA_EV_SOUNDOFF, 0, 0); }   /* (before an update: the render runs on) */
 

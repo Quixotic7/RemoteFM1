@@ -21,6 +21,7 @@ const TRANSPORTS = { auto: 0, midi: 1, bulk: 2 };
 const S_DISCOVER = 0, S_STARTING = 1, S_ACTIVE = 2, S_STOPPING = 3, S_STOPPED = 4;
 const EV_KEY = 1, EV_BUTTON = 2, EV_ENC = 3, EV_MASTER = 4, EV_PRESS = 5;
 export const CAP_TOUCH = 0x400;      // HELLO_R caps bit10 (RemoteFM1 0.3.1): the keys' velocity and pressure (TOUCH)
+export const CAP_BLE_AUDIO = 0x800;  // HELLO_R caps bit11 (RemoteFM1 0.3.6): Bluetooth audio (AUDIO_MODE / AUDIO)
 export const USB_FILTER = Object.freeze({ vendorId: 0x1209, productId: 0x0001, classCode: 0xff });
 const VENDOR_IF = 2, BULK_EP = 3, USB_IN_LEN = 16384 + 64;
 const NKEYS = 27, NBTN = 14, NENC = 7;
@@ -29,7 +30,8 @@ const STAT_NAMES = ['frames', 'msgs', 'tiles', 'rects', 'body_bytes', 'wire_byte
     'ack_ms_max', 'ack_timeouts', 'decode_errs', 'shadow_resets', 'leds_sent', 'keepalives', 'panel_r', 'events',
     'sessions', 'discoveries', 'lost', 'in_flight', 'pending', 'last_ack_ms', 'ble', 'frame_ms', 'wire_cap',
     'wire_in_flight', 'reduced', 'refined', 'inexact', 'lossy', 'hold', 'held', 'midi_in', 'midi_in_bytes',
-    'midi_in_bad', 'touch_sent', 'touch'];
+    'midi_in_bad', 'touch_sent', 'touch', 'audio', 'audio_rate', 'audio_blocks', 'audio_wire', 'audio_dropped',
+    'audio_buffer_ms', 'audio_fill_ms', 'audio_unit_blocks', 'audio_lost', 'audio_underruns', 'audio_skipped'];
 
 // A port that may be an FM-1: its name says so. Updater ports are never touched (as host/src/macos/coremidi.c).
 export function isCandidatePortName(name) {
@@ -87,6 +89,9 @@ export class RemoteFM1 {
     //         false every frame shown as it arrives),
     //         keyTouch: null (a unit from 0.3.1: null / true both the keys' velocity and pressure, false neither, or
     //         flags: 1 velocity, 2 pressure; the panel's keyVel 1..127 and keyLean 0..100),
+    //         bleAudio: false (Bluetooth audio, a unit from 0.3.6: the page's sound over Bluetooth MIDI, audio(), and
+    //         no screen; the unit shows "RemoteFM1"), audioBlack: false (its screen black instead), audioBufferMs: 0
+    //         (the unit's buffer before it plays; 0 the library's 120),
     //         quietHelloMs: 2000 (a quiet session's HELLO, per port, at most this often),
     //         autoMinMs: 2000, autoDebounceMs: 250 (autoConnect()'s looks after a plug-in),
     //         navigator (tests), now() -> ms (tests), timers: true (false: the caller calls tick()) }
@@ -108,7 +113,7 @@ export class RemoteFM1 {
         this._running = false;
         // midiPrompt: the browser's Web MIDI permission prompt is pending (a small bubble by the address bar, easy to
         // miss: the page says so, web/site/js/fm1-link.js)
-        this._status = { state: 'idle', transport: null, fps: 0, why: '', unit: null, ports: null, quiet: false, midiPrompt: false };
+        this._status = { state: 'idle', transport: null, fps: 0, why: '', unit: null, ports: null, quiet: false, midiPrompt: false, audio: false };
         this._quiet = false;                 // a session started without a gesture (autoConnect): no prompt, HELLO slower
         this._auto = null;                   // autoConnect()'s state
         this._autoAccess = null;             // its MIDIAccess (granted before: no prompt)
@@ -213,6 +218,8 @@ export class RemoteFM1 {
             M.rfmMidiIn = bytes => { for (const cb of this._ls.midi) cb(bytes); };
             M._rw_set_ble_colors(this.opts.bleColors == null ? -1 : this.opts.bleColors | 0);
             M._rw_set_ble_hold(this.opts.bleHold == null ? -1 : this.opts.bleHold ? 1 : 0);
+            M._rw_set_ble_audio(this.opts.bleAudio ? 1 : 0);
+            M._rw_set_audio_opts(this.opts.audioBlack ? 1 : 0, this.opts.audioBufferMs | 0);
             if (M._rw_init(this.opts.fps | 0, TRANSPORTS[this.opts.transport] ?? 0, this.opts.keepaliveMs | 0,
                 this.opts.budget | 0, np)) throw new Error('out of memory');
             M._free(np);
@@ -279,6 +286,29 @@ export class RemoteFM1 {
         if (this._M) this._M._rw_set_key_touch(touchFlags(on));
     }
 
+    // Bluetooth audio now (RemoteFM1 0.3.6, HELLO_R caps bit11): true sends the page's sound (audio()) over a Bluetooth
+    // MIDI link instead of the screen, the unit showing its own "RemoteFM1" screen; false (the default) the screen as
+    // before (the unit's screen black for a moment, then all of it again). USB links never use it. status.audio is
+    // true while the unit plays it (the page then mutes its own output).
+    setBleAudio(on) {
+        this.opts.bleAudio = !!on;
+        if (this._M) this._M._rw_set_ble_audio(on ? 1 : 0);
+    }
+
+    // The page's sound, mono (-1..1) at `rate` Hz, as it plays (web/site/worklet/host.js's tap). Ignored unless
+    // status.audio: nothing is copied then.
+    audio(pcm, rate) {
+        const M = this._M;
+        if (!M || !this._running || !this._status.audio || !pcm || !pcm.length) return;
+        const p = M._rw_audio_buf() >> 2;
+        for (let o = 0; o < pcm.length; o += 8192) {
+            const n = Math.min(8192, pcm.length - o);
+            M.HEAPF32.set(pcm.subarray(o, o + n), p);
+            M._rw_audio(n, rate >>> 0);
+        }
+        this._afterCall();
+    }
+
     // A session that keeps looking quietly (HELLO every opts.quietHelloMs), or back to normal.
     setQuiet(on) {
         if (!this._running) return;
@@ -323,7 +353,7 @@ export class RemoteFM1 {
         if (this._M) this._M._rw_free();
         this._wasActive = false;
         this._quiet = false;
-        this._setStatus({ state: 'idle', transport: null, fps: 0, why, unit: null, ports: null, quiet: false, midiPrompt: false });
+        this._setStatus({ state: 'idle', transport: null, fps: 0, why, unit: null, ports: null, quiet: false, midiPrompt: false, audio: false });
     }
 
     // The screen to show: engine.screen()'s { seq, pixels } (240*240 RGB565, host order). Same seq: ignored.
@@ -367,6 +397,7 @@ export class RemoteFM1 {
         for (const l of [...this._links.values()]) if (l.dead) this._dropLink(l);
         M._rw_poll(now);
         this._afterCall();
+        if (!!M._rw_audio_on() !== this._status.audio) this._setStatus({ audio: !!M._rw_audio_on() });
         if (this._status.state === 'connected' && now - this._fpsT >= 1000) {
             const s = this.stats();
             const fps = Math.round((s.acks - this._fpsAcks) * 10000 / (now - this._fpsT)) / 10;
@@ -596,7 +627,7 @@ export class RemoteFM1 {
             const unit = {
                 name: M.UTF8ToString(M._rw_hello_str(0)), fwVer: M.UTF8ToString(M._rw_hello_str(1)),
                 identity: M.UTF8ToString(M._rw_hello_str(2)), caps: h[hp], maxInFlight: h[hp + 1],
-                touch: (h[hp] & CAP_TOUCH) !== 0,
+                touch: (h[hp] & CAP_TOUCH) !== 0, bleAudio: (h[hp] & CAP_BLE_AUDIO) !== 0,
             };
             this._wasActive = true;
             this._fpsT = this._t();         // the fps window: frames acknowledged per second from here

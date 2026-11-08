@@ -2,6 +2,7 @@
  * Copyright (C) 2026 RemoteFM1 contributors */
 /* A fake RemoteFM1 unit (the device side of protocol v2) for tests and fm1remote's loopback. See rfm/fake.h. */
 #include "rfm/fake.h"
+#include "rfm/audio.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -53,7 +54,29 @@ struct rfm_fake {
     uint32_t drop_acks, drop_midi;
     int cur_link;                                       /* the link the message being handled came on */
     rfm_fake_stats_t st;
+    /* Bluetooth audio (cfg.audio) */
+    int audio;
+    rfm_audio_r_t au;
+    uint16_t au_seq;
+    int16_t au_pcm[8192];
+    uint32_t au_n;
 };
+
+static void send_audio_r(rfm_fake_t *f, int link);
+static void reply(rfm_fake_t *f, int link, uint8_t cmd, const uint8_t *body, uint32_t n);
+static void show(rfm_fake_t *f);
+static void audio_end(rfm_fake_t *f, int repaint)      /* (as rfm_app.c: the shadow black, the next ACK says so) */
+{
+    if (!f->audio)
+        return;
+    f->audio = 0;
+    if (repaint) {
+        memset(f->shadow, 0, sizeof f->shadow);
+        show(f);
+        f->nacks = 0;
+        f->reset_pending = 1;
+    }
+}
 
 void rfm_fake_cfg_default(rfm_fake_cfg_t *c)
 {
@@ -67,6 +90,7 @@ void rfm_fake_cfg_default(rfm_fake_cfg_t *c)
     c->hold = 1;
     c->midi_in = 1;
     c->touch = 1;
+    c->audio = 1;
 }
 
 static void show(rfm_fake_t *f)
@@ -191,7 +215,7 @@ static void on_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
         h.screen_h = RFM_H;
         h.caps = RFM_CAP_SHADOW | RFM_CAP_COPY | RFM_CAP_RLE | RFM_CAP_PAL | RFM_CAP_BATTERY | RFM_CAP_PLAY_GREEN |
                  RFM_CAP_LED5 | (f->cfg.hold ? RFM_CAP_HOLD : 0u) | (f->cfg.midi_in ? RFM_CAP_MIDI_IN : 0u) |
-                 (f->cfg.touch ? RFM_CAP_TOUCH : 0u);
+                 (f->cfg.touch ? RFM_CAP_TOUCH : 0u) | (f->cfg.audio ? RFM_CAP_BLE_AUDIO : 0u);
         h.max_in_flight = RFM_FRAMES_IN_FLIGHT;
         h.session = f->session ? 1 : 0;
         strncpy(h.fw_ver, "m1-fake", 8);
@@ -204,6 +228,7 @@ static void on_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
         uint32_t ka;
         if (rfm_parse_session(b, n, &start, &ka))
             break;
+        audio_end(f, 0);
         if (start) {
             f->session = 1 + link;
             f->touch = 0;                               /* (TOUCH: every session starts without it) */
@@ -245,6 +270,48 @@ static void on_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
         f->touch_msgs++;
         send_panel_r(f, link);
         break;
+    case RFM_AUDIO_MODE: {
+        rfm_audio_r_t m;
+        if (!f->cfg.audio || rfm_parse_audio_mode(b, n, &m))
+            break;
+        f->st.audio_modes++;
+        if (m.on && f->session == 1 + link && m.div >= RFM_AUDIO_DIV_MIN && m.div <= RFM_AUDIO_DIV_MAX) {
+            if (!f->audio) {
+                memset(&f->au, 0, sizeof f->au);
+                f->au_n = 0;
+                f->nacks = 0;
+            }
+            f->audio = 1;
+            f->au.flags = m.flags;
+            f->au.div = m.div;
+            f->au.buffer_ms = m.buffer_ms;
+        } else {
+            audio_end(f, f->session == 1 + link);
+        }
+        send_audio_r(f, link);
+        break;
+    }
+    case RFM_AUDIO: {
+        int16_t pcm[RFM_AUDIO_BLOCK];
+        uint32_t k, i;
+        if (!f->audio || f->session != 1 + link)
+            break;
+        if (!(k = rfm_audio_decode(b, n, pcm))) {
+            f->st.audio_bad++;
+            break;
+        }
+        {
+            const uint16_t seq = (uint16_t)(b[0] | b[1] << 8);
+            if (f->au.blocks && seq != f->au_seq)
+                f->st.audio_gaps++;
+            f->au_seq = (uint16_t)(seq + 1u);
+        }
+        f->au.blocks++;
+        f->st.audio_blocks++;
+        for (i = 0; i < k; i++)
+            f->au_pcm[f->au_n++ % 8192u] = pcm[i];
+        break;
+    }
     case RFM_TILES: {
         rfm_tiles_info_t info;
         int rc;
@@ -293,7 +360,9 @@ static void on_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
             f->frame_err = 0;
             if (info.flags & RFM_TILES_F_HOLD)
                 f->st.held_frames++;
-            if (f->cfg.hold && f->session && (info.flags & RFM_TILES_F_HOLD)) {
+            if (f->audio) {
+                /* (the audio mode: the unit's own screen; the shadow keeps the tiles) */
+            } else if (f->cfg.hold && f->session && (info.flags & RFM_TILES_F_HOLD)) {
                 f->held = 1;
             } else {
                 show(f);
@@ -409,6 +478,8 @@ void rfm_fake_poll(rfm_fake_t *f, uint32_t now)
             f->st.sessions_ended++;
         } else if ((int32_t)(now - f->last_panel_r) >= 500) {
             send_panel_r(f, f->session - 1);
+            if (f->audio)
+                send_audio_r(f, f->session - 1);
         }
     }
 }
@@ -524,3 +595,20 @@ const uint8_t *rfm_fake_panel(const rfm_fake_t *f) { return f->panel; }
 int rfm_fake_holding(const rfm_fake_t *f) { return f->held; }
 const rfm_leds_t *rfm_fake_leds(const rfm_fake_t *f) { return &f->leds; }
 void rfm_fake_stats(const rfm_fake_t *f, rfm_fake_stats_t *st) { *st = f->st; }
+
+static void send_audio_r(rfm_fake_t *f, int link)
+{
+    uint8_t b[RFM_AUDIO_R_LEN];
+    rfm_audio_r_t r = f->au;
+    r.on = (uint8_t)f->audio;
+    reply(f, link, RFM_AUDIO_R, b, rfm_build_audio_r(b, &r));
+}
+
+int rfm_fake_audio(const rfm_fake_t *f, const int16_t **pcm, uint32_t *n)
+{
+    if (pcm)
+        *pcm = f->au_pcm;
+    if (n)
+        *n = f->au_n < 8192u ? f->au_n : 8192u;
+    return f->audio;
+}

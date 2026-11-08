@@ -2,6 +2,7 @@
  * Copyright (C) 2026 RemoteFM1 contributors */
 /* The host session state machine. See rfm/session.h. */
 #include "rfm/session.h"
+#include "rfm/audio.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -52,6 +53,10 @@ struct rfm_session {
     rfm_panel_t panel;
     uint32_t body_max, budget;
     rfm_session_stats_t st;
+    /* Bluetooth audio: AUDIO_MODE on sent (and not off since); the unit confirmed it; when sent; tries this session */
+    int audio_asked, audio_on;
+    uint32_t t_audio, audio_tries;
+    rfm_audio_enc_t *enc;
     uint8_t tx[RFM_BK_HDR_LEN + RFM_BK_BODY_MAX + 64];
 };
 
@@ -77,6 +82,8 @@ void rfm_session_cfg_default(rfm_session_cfg_t *c)
     c->ble_refine_ms = RFM_BLE_REFINE_MS;
     c->ble_hold = 1;
     c->key_touch = RFM_TOUCH_F_VEL | RFM_TOUCH_F_PRESS;
+    c->audio_div = RFM_AUDIO_DIV_DEFAULT;
+    c->audio_buffer_ms = RFM_AUDIO_BUF_MS_DEFAULT;
 }
 
 static void logf_(rfm_session_t *s, const char *fmt, ...)
@@ -183,6 +190,8 @@ static int hold_on(const rfm_session_t *s)
 /* ---------------------------------------------------------------- states ---- */
 static void enter_discover(rfm_session_t *s, const char *why)
 {
+    s->audio_asked = s->audio_on = 0;                   /* (the unit leaves the mode with its session) */
+    s->st.audio = 0;
     s->frame_link = s->midi_link = -1;
     s->nfl = 0;
     s->link_lost = 0;
@@ -197,6 +206,8 @@ static void enter_discover(rfm_session_t *s, const char *why)
 
 static void enter_starting(rfm_session_t *s, const char *why)
 {
+    s->audio_asked = s->audio_on = 0;
+    s->st.audio = 0;
     s->tries = 1;
     s->nfl = 0;
     set_state(s, RFM_S_STARTING, why);
@@ -215,6 +226,34 @@ static void send_touch(rfm_session_t *s)
     s->t_touch = s->now;
 }
 
+/* Bluetooth audio wanted now: the option, an active session on a Bluetooth link, a unit that has it, not refused */
+static int audio_wanted(const rfm_session_t *s)
+{
+    return s->cfg.ble_audio && s->state == RFM_S_ACTIVE && s->frame_link >= 0 && s->ble &&
+           (s->hello.caps & RFM_CAP_BLE_AUDIO) && s->audio_tries <= RFM_AUDIO_TRIES;
+}
+
+static void send_audio_mode(rfm_session_t *s, int on)
+{
+    uint8_t b[RFM_AUDIO_MODE_LEN];
+    rfm_build_audio_mode(b, on, s->cfg.audio_flags, s->cfg.audio_div, s->cfg.audio_buffer_ms);
+    send_msg(s, s->frame_link, RFM_AUDIO_MODE, b, RFM_AUDIO_MODE_LEN);
+    s->t_audio = s->now;
+    if (on) {
+        s->audio_asked = 1;
+        s->audio_tries++;
+        return;
+    }
+    /* off: the unit's shadow is black now, its next FRAME_ACK says so; the whole screen again */
+    s->audio_asked = s->audio_on = 0;
+    s->st.audio = 0;
+    s->nfl = 0;
+    s->expect_reset = 1;
+    rfm_screen_reset_black(s->screen);
+    s->next_frame = s->now;
+    logf_(s, "audio mode off: the screen again");
+}
+
 static void enter_active(rfm_session_t *s)
 {
     s->frame_no = 0;
@@ -230,6 +269,9 @@ static void enter_active(rfm_session_t *s)
     s->last_panel_r = s->now;
     s->t_busy = s->now;
     s->st.sessions++;
+    s->audio_asked = s->audio_on = 0;                   /* (a session starts without it) */
+    s->audio_tries = 0;
+    s->st.audio = 0;
     set_state(s, RFM_S_ACTIVE, "session started");
     if (s->cfg.key_touch && (s->hello.caps & RFM_CAP_TOUCH))
         send_touch(s);                                  /* (every session starts without it) */
@@ -452,6 +494,31 @@ static void on_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
         if (s->cb.midi_in)
             s->cb.midi_in(s->cb.ctx, b, n);
         break;
+    case RFM_AUDIO_R: {
+        rfm_audio_r_t r;
+        if (l->id != s->frame_link || s->state != RFM_S_ACTIVE || rfm_parse_audio_r(b, n, &r))
+            return;
+        s->st.audio_buffer_ms = r.buffer_ms;
+        s->st.audio_fill_ms = r.fill_ms;
+        s->st.audio_unit_blocks = r.blocks;
+        s->st.audio_lost = r.lost;
+        s->st.audio_underruns = r.underruns;
+        s->st.audio_skipped = r.skipped;
+        if (r.on && s->audio_asked && !s->audio_on) {
+            s->audio_on = 1;
+            s->st.audio = 1;
+            s->nfl = 0;                                 /* (frames in flight: acknowledged unshown, or not at all) */
+            rfm_audio_enc_reset(s->enc, r.div);
+            s->st.audio_rate = rfm_audio_enc_rate(s->enc);
+            logf_(s, "audio mode on: %u Hz IMA ADPCM, the unit buffers %u ms; no screen sent", s->st.audio_rate,
+                  r.buffer_ms);
+        } else if (!r.on && s->audio_on) {
+            s->audio_on = 0;                            /* (the unit left it: asked again after RFM_AUDIO_RETRY_MS) */
+            s->st.audio = 0;
+            logf_(s, "AUDIO_R: the unit is not in the audio mode");
+        }
+        break;
+    }
     case RFM_PANEL_R: {
         rfm_panel_r_t p;
         if (!ours || rfm_parse_panel_r(b, n, &p))
@@ -502,10 +569,17 @@ rfm_session_t *rfm_session_new(const rfm_session_cfg_t *cfg, const rfm_session_c
     if (cb)
         s->cb = *cb;
     s->screen = rfm_screen_new();
-    if (!s->screen) {
+    s->enc = rfm_audio_enc_new();
+    if (!s->screen || !s->enc) {
+        rfm_screen_free(s->screen);
+        rfm_audio_enc_free(s->enc);
         free(s);
         return NULL;
     }
+    if (!s->cfg.audio_div)
+        s->cfg.audio_div = RFM_AUDIO_DIV_DEFAULT;
+    if (!s->cfg.audio_buffer_ms)
+        s->cfg.audio_buffer_ms = RFM_AUDIO_BUF_MS_DEFAULT;
     rfm_panel_init(&s->panel, s->cfg.settle_ms, on_event, s);
     s->period = 1000u / s->cfg.fps;
     if (!s->period)
@@ -530,6 +604,7 @@ void rfm_session_free(rfm_session_t *s)
     for (i = 0; i < RFM_MAX_LINKS; i++)
         rfm_rx_free(s->links[i].rx);
     rfm_screen_free(s->screen);
+    rfm_audio_enc_free(s->enc);
     free(s);
 }
 
@@ -650,8 +725,23 @@ void rfm_session_poll(rfm_session_t *s, uint32_t now)
         }
         if (s->leds_valid && (!rfm_leds_equal(&s->leds, &s->leds_sent) || after(now, s->last_led_tx, 1000u)))
             send_leds(s);
+        {
+            const int want = audio_wanted(s);
+            if (want && (!s->audio_asked || (!s->audio_on && after(now, s->t_audio, RFM_AUDIO_RETRY_MS)))) {
+                if (s->audio_tries == RFM_AUDIO_TRIES) {
+                    s->audio_tries++;                   /* (audio_wanted: 0 from now on, this session) */
+                    logf_(s, "audio mode: no AUDIO_R on after %u tries: the screen as before", RFM_AUDIO_TRIES);
+                    send_audio_mode(s, 0);
+                } else {
+                    send_audio_mode(s, 1);
+                }
+            } else if (!want && s->audio_asked) {
+                send_audio_mode(s, 0);
+            }
+        }
         refine_poll(s, now);
-        if (after(now, s->next_frame, 0) && s->nfl < s->max_in_flight && rfm_screen_pending(s->screen) &&
+        if (!s->audio_asked && after(now, s->next_frame, 0) && s->nfl < s->max_in_flight &&
+            rfm_screen_pending(s->screen) &&
             (!s->wire_cap || !s->nfl || wire_in_flight(s) + s->wire_frame_max <= s->wire_cap) &&
             (!s->nfl || rfm_screen_pending(s->screen) > rfm_screen_refining(s->screen))) {
             rfm_enc_stats_t es;
@@ -724,6 +814,34 @@ void rfm_session_set_key_touch(rfm_session_t *s, uint32_t flags)
     if (s->state == RFM_S_ACTIVE && (s->hello.caps & RFM_CAP_TOUCH))
         send_touch(s);
 }
+
+void rfm_session_set_ble_audio(rfm_session_t *s, int on)
+{
+    s->cfg.ble_audio = on ? 1 : 0;
+    if (on)
+        s->audio_tries = 0;                             /* (turned on again: a refused unit is asked anew) */
+}
+
+static void emit_audio(void *ctx, const uint8_t *body, uint32_t n)
+{
+    rfm_session_t *s = (rfm_session_t *)ctx;
+    const uint32_t before = s->st.wire_bytes;
+    if (!send_msg(s, s->frame_link, RFM_AUDIO, body, n)) {
+        s->st.audio_blocks++;
+        s->st.audio_wire += s->st.wire_bytes - before;
+    }
+}
+
+void rfm_session_audio(rfm_session_t *s, const float *pcm, uint32_t n, uint32_t rate)
+{
+    if (!s->audio_on || s->state != RFM_S_ACTIVE) {
+        s->st.audio_dropped += n;
+        return;
+    }
+    rfm_audio_enc_push(s->enc, pcm, n, rate, emit_audio, s);
+}
+
+int rfm_session_audio_on(const rfm_session_t *s) { return s->audio_on && s->state == RFM_S_ACTIVE; }
 
 void rfm_session_set_leds(rfm_session_t *s, const rfm_leds_t *l)
 {

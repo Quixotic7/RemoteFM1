@@ -307,6 +307,44 @@ for (const vendorIf of [4, 2]) {
     check(remote.stats().hold === 1, 'setBleHold(null): the default (on)');
     await Promise.all([remote.disconnect(), run(400)]);
 }
+// ------------------------------------------------------------------ 2c. Bluetooth audio (RemoteFM1 0.3.6, off by default)
+{
+    console.log('-- Web MIDI over Bluetooth with bleAudio: the sound goes, the screen does not; off: the screen again');
+    const { world, remote, run, until } = await setup({ usb: 'off', bleAudio: true }, w => {
+        w.unit = w.addUnit({ midiName: 'FM-1 7938', ble: true, sxRate: 6000 });
+    });
+    const u = world.unit;
+    const audioChanges = [];
+    remote.onStatus(s => { if (audioChanges[audioChanges.length - 1] !== s.audio) audioChanges.push(s.audio); });
+    remote.setFrame(600, testFrame(3));
+    await remote.connect();
+    let t = await until(() => remote.status.audio === true, 3000);
+    check(t >= 0 && remote.status.unit.bleAudio === true && world.stats(u).audio_modes === 1,
+        `audio mode on ${t} ms after connect (caps bit11, one AUDIO_MODE)`);
+    const tiles0 = world.stats(u).tiles_msgs;
+    remote.setFrame(601, testFrame(4));                 // (a new screen while the sound plays: not sent)
+    const chunk = new Float32Array(1024);
+    let ph = 0;
+    for (let i = 0; i < 94; i++) {                      // ~2 s at 48 kHz, a chunk every ~21 ms
+        for (let k = 0; k < chunk.length; k++) chunk[k] = 0.5 * Math.sin(ph += 2 * Math.PI * 440 / 48000);
+        remote.audio(chunk, 48000);
+        await run(21);
+    }
+    let s = remote.stats(), fs = world.stats(u);
+    check(fs.audio_blocks >= 170 && fs.audio_blocks === s.audio_blocks && fs.audio_gaps === 0 && fs.audio_bad === 0,
+        `${fs.audio_blocks} AUDIO blocks for 2 s (22,050 Hz), none lost or malformed`);
+    check(fs.tiles_msgs === tiles0, `no TILES while the sound goes (${fs.tiles_msgs - tiles0})`);
+    check(s.audio === 1 && s.audio_rate === 22050 && s.audio_buffer_ms === 120,
+        `stats: audio ${s.audio}, ${s.audio_rate} Hz, the unit's buffer ${s.audio_buffer_ms} ms`);
+    remote.setBleAudio(false);
+    t = await until(() => remote.status.audio === false && sameBytes(world.shadow(u), beBytes(testFrame(4))), 20000);
+    check(t >= 0, `setBleAudio(false): the screen again in ${t} ms`);
+    const n = world.stats(u).audio_blocks;
+    remote.audio(chunk, 48000);
+    check(world.stats(u).audio_blocks === n && audioChanges.join() === 'false,true,false',
+        `no sound sent once off; status.audio went ${audioChanges.join(' -> ')}`);
+    await Promise.all([remote.disconnect(), run(400)]);
+}
 {
     console.log('-- Web MIDI over Bluetooth to an older unit (no HOLD): every frame as before');
     const { world, remote, ev, run, until } = await setup({ usb: 'off' }, w => {

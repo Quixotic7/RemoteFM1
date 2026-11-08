@@ -49,6 +49,9 @@ static char host_name[17] = "web";
 static int ble_colors = -1;                             /* rw_set_ble_colors(); -1: the library's default */
 static int ble_hold = -1;                               /* rw_set_ble_hold(); -1: the library's default (on) */
 static int key_touch = -1;                              /* rw_set_key_touch(); -1: the library's default (both) */
+static int ble_audio = 0;                               /* rw_set_ble_audio(); off by default */
+static int audio_flags = 0, audio_buffer_ms = 0;        /* rw_set_audio_opts(); 0: the library's defaults */
+static float audio_in[8192];                            /* rw_audio_buf(): the page's samples */
 
 static int w_link(void *ctx, const uint8_t *p, uint32_t n) { return js_write((int)(intptr_t)ctx, p, n); }
 static void cb_event(void *ctx, const rfm_event_t *e)
@@ -98,6 +101,10 @@ EMSCRIPTEN_KEEPALIVE int rw_init(int fps, int transport, int keepalive_ms, int b
         c.ble_hold = ble_hold;
     if (key_touch >= 0)
         c.key_touch = (uint32_t)key_touch;
+    c.ble_audio = ble_audio;
+    c.audio_flags = (uint32_t)audio_flags;
+    if (audio_buffer_ms > 0)
+        c.audio_buffer_ms = (uint32_t)audio_buffer_ms;
     if (name && *name) {
         strncpy(host_name, name, 16);
         host_name[16] = 0;
@@ -211,6 +218,30 @@ EMSCRIPTEN_KEEPALIVE void rw_set_ble_hold(int on)
     if (S)
         rfm_session_set_ble_hold(S, on != 0);
 }
+
+/* Bluetooth audio (a unit from 0.3.6, RFM_CAP_BLE_AUDIO; host/include/rfm/session.h): 1 the page's sound goes over a
+ * Bluetooth link and the screen does not, 0 off (the default); now and for later sessions (rw_init) */
+EMSCRIPTEN_KEEPALIVE void rw_set_ble_audio(int on)
+{
+    ble_audio = on != 0;
+    if (S)
+        rfm_session_set_ble_audio(S, ble_audio);
+}
+/* for later sessions: flags (1: the unit's screen black), the unit's buffer in ms (0: 120) */
+EMSCRIPTEN_KEEPALIVE void rw_set_audio_opts(int flags, int buffer_ms)
+{
+    audio_flags = flags;
+    audio_buffer_ms = buffer_ms;
+}
+/* the page's sound: rw_audio_buf() holds up to 8192 mono samples (-1..1); rw_audio(n, rate) sends the first n (dropped
+ * unless the unit is in the audio mode) */
+EMSCRIPTEN_KEEPALIVE float *rw_audio_buf(void) { return audio_in; }
+EMSCRIPTEN_KEEPALIVE void rw_audio(uint32_t n, uint32_t rate)
+{
+    if (S)
+        rfm_session_audio(S, audio_in, n > 8192u ? 8192u : n, rate);
+}
+EMSCRIPTEN_KEEPALIVE int rw_audio_on(void) { return S ? rfm_session_audio_on(S) : 0; }
 
 /* TOUCH (a unit from 0.3.1, RFM_CAP_TOUCH): bit0 the keys' velocity, bit1 their pressure (poly aftertouch); 0 off;
  * -1 the library's default (both); now and for later sessions (rw_init) */

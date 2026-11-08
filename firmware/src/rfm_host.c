@@ -832,6 +832,14 @@ int app_expect(const char *what, int *got)
                 *got = 0;
     } else if (!strcmp(what, "rf_frames"))
         *got = (int)rfa.frames;
+    else if (!strcmp(what, "rf_audio"))             /* Bluetooth audio (rfm_app.c): the mode on; blocks, lost */
+        *got = rfa.audio;
+    else if (!strcmp(what, "rf_audio_blocks"))
+        *got = rfa.au ? (int)rfa.au->blocks : 0;
+    else if (!strcmp(what, "rf_audio_lost"))
+        *got = rfa.au ? (int)rfa.au->lost : 0;
+    else if (!strcmp(what, "rf_audio_peak"))        /* the render's output reached the screen's bars (Q15) */
+        *got = (int)rf_au_peak_seen;
     else if (!strcmp(what, "rf_decode_errs"))
         *got = (int)rfa.decode_errs;
     else if (!strcmp(what, "rf_ota_frames"))

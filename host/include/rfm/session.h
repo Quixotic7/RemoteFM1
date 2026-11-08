@@ -40,7 +40,15 @@
  * screen until the new one is all there, then shows it at once; a source that changes meanwhile is latched again
  * only when the snapshot is shown (the screens in between are skipped). Refinements are not held. A lost or late
  * frame resends the screen as before (a new snapshot, from the newest screen); the unit shows what it holds by itself
- * after RFM_HOLD_MS without TILES. USB, bulk and older units: no HOLD, every frame as before. */
+ * after RFM_HOLD_MS without TILES. USB, bulk and older units: no HOLD, every frame as before.
+ *
+ * Bluetooth audio (cfg.ble_audio, off by default; units with RFM_CAP_BLE_AUDIO, RemoteFM1 0.3.6; docs/PROTOCOL.md
+ * section 9): on a Bluetooth frame link the session asks for the audio mode (AUDIO_MODE, after every SESSION start's
+ * ACK; again after 1 s without AUDIO_R on, at most RFM_AUDIO_TRIES times a session). Once the unit's AUDIO_R says on,
+ * the sound given to rfm_session_audio goes out as AUDIO blocks (rfm/audio.h: 22,050 Hz IMA ADPCM, ~13.7 KB/s on the
+ * wire) and no TILES are sent (the unit shows its own screen); LEDs, the panel and MIDI_IN go on. The option turned
+ * off (or the link no longer Bluetooth) sends AUDIO_MODE off: the unit's screen is black again and the host's model
+ * with it, so the whole screen is sent again. USB links never use it (the FM-1 is a USB sound card there). */
 #ifndef RFM_SESSION_H
 #define RFM_SESSION_H
 #include <stdint.h>
@@ -67,6 +75,8 @@ enum { RFM_S_DISCOVER = 0, RFM_S_STARTING, RFM_S_ACTIVE, RFM_S_STOPPING, RFM_S_S
 #define RFM_BLE_COLORS 4u                               /* cfg.ble_colors' default: 2 bpp PAL tiles */
 #define RFM_BLE_REFINE_MS 1000u
 #define RFM_TOUCH_SETTLE_MS 300u                        /* a PANEL_R this soon after TOUCH may predate it */
+#define RFM_AUDIO_RETRY_MS 1000u                        /* AUDIO_MODE on not confirmed: asked again */
+#define RFM_AUDIO_TRIES 4u                              /* ... at most this often a session (refused: given up) */
 
 typedef struct {
     uint32_t fps;                                       /* 20 */
@@ -90,6 +100,11 @@ typedef struct {
      * default): asked after every SESSION start's ACK (and again when PANEL_R says otherwise), so key events carry
      * the keys' velocity (rfm_event_t.vel) and RFM_EV_PRESS their pressure. 0: velocity 100, no pressure, as before */
     uint32_t key_touch;
+    /* Bluetooth audio (above): 1 asks for it on a Bluetooth link (default 0); the stream's rate 44,100 / audio_div
+     * (RFM_AUDIO_DIV_DEFAULT: 22,050 Hz); the unit's buffer before it plays (RFM_AUDIO_BUF_MS_DEFAULT, 120 ms);
+     * RFM_AUDIO_F_BLACK: its screen black instead of "RemoteFM1" */
+    int ble_audio;
+    uint32_t audio_div, audio_buffer_ms, audio_flags;
 } rfm_session_cfg_t;
 void rfm_session_cfg_default(rfm_session_cfg_t *c);
 
@@ -126,7 +141,13 @@ typedef struct {
     uint32_t midi_in, midi_in_bytes, midi_in_bad;       /* MIDI_IN messages delivered, their bytes, malformed */
     uint32_t touch_sent;                                /* TOUCH messages sent */
     uint32_t touch;                                     /* RFM_TOUCH_F_* in force now (0: none, or a unit without) */
-} rfm_session_stats_t;
+    uint32_t audio;                                     /* 1: the unit is in the audio mode (no screen sent) */
+    uint32_t audio_rate;                                /* the stream's rate while on */
+    uint32_t audio_blocks, audio_wire;                  /* AUDIO blocks sent, their framed bytes */
+    uint32_t audio_dropped;                             /* samples given while the mode was not on */
+    /* the unit's last AUDIO_R: its buffer's target and fill (ms), blocks taken, lost, underruns, skipped */
+    uint32_t audio_buffer_ms, audio_fill_ms, audio_unit_blocks, audio_lost, audio_underruns, audio_skipped;
+} rfm_session_stats_t;                                  /* (all uint32: web/remote reads it as an array) */
 
 typedef struct rfm_session rfm_session_t;
 rfm_session_t *rfm_session_new(const rfm_session_cfg_t *cfg, const rfm_session_cb_t *cb);
@@ -145,6 +166,12 @@ void rfm_session_set_ble_colors(rfm_session_t *s, uint32_t colors);
 void rfm_session_set_ble_hold(rfm_session_t *s, int on);
 /* cfg.key_touch now (RFM_TOUCH_F_*; sent at once in a session with a unit that has RFM_CAP_TOUCH) */
 void rfm_session_set_key_touch(rfm_session_t *s, uint32_t flags);
+/* cfg.ble_audio now (sent at the next poll: on, or off and the screen again) */
+void rfm_session_set_ble_audio(rfm_session_t *s, int on);
+/* the host's sound: n mono samples (-1..1) at rate Hz, as it plays (blocks go out as they complete); dropped unless
+ * the unit is in the audio mode (rfm_session_audio_on) */
+void rfm_session_audio(rfm_session_t *s, const float *pcm, uint32_t n, uint32_t rate);
+int rfm_session_audio_on(const rfm_session_t *s);
 void rfm_session_stop(rfm_session_t *s, uint32_t now_ms);               /* SESSION start=0, then STOPPED */
 void rfm_session_restart(rfm_session_t *s, uint32_t now_ms);            /* back to DISCOVER (after stop too) */
 

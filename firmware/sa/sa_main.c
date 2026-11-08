@@ -65,6 +65,8 @@
 static void rf_ev_put(uint32_t pkt);        /* a MIDI event packet out (USB, and Bluetooth when a computer listens) */
 static int rf_panel_ours(void);             /* no session, no push, no hold: the screen is the standalone's */
 static int rf_session_on(void);
+static int rf_audio_on(void);                /* a Bluetooth audio session: the screen is ours (sa_paint_audio) */
+static int rf_audio_black(void);             /* ... and black */
 static void rf_info(char out[4][32], uint8_t *warn);   /* the hand-over screen's lines (the waiting screen's) */
 static void rf_sa_leds(uint32_t btns, uint32_t keys, uint32_t keys_root, uint32_t keys_mid);   /* the LEDs: lit (100 %),
                                               * a scale's root (75 %), its notes (40 %) */
@@ -90,7 +92,8 @@ static void rf_sa_leds(uint32_t btns, uint32_t keys, uint32_t keys_root, uint32_
 
 enum { SA_SCR_HOME, SA_SCR_PRESET, SA_SCR_CHANNEL, SA_SCR_OCTAVE, SA_SCR_HOST, SA_SCR_CCBANK, SA_SCR_CCTURN,
        SA_SCR_CCASSIGN, SA_SCR_SAVED, SA_SCR_REC, SA_SCR_LOOP, SA_SCR_LOOPS, SA_SCR_RECOPT, SA_SCR_ARP, SA_SCR_ARPSET,
-       SA_SCR_TEMPO, SA_SCR_THEME, SA_SCR_REMOTE, SA_SCR_LATCH, SA_SCR_SETTINGS, SA_SCR_SCALE, SA_SCR_USBH, SA_NSCR };
+       SA_SCR_TEMPO, SA_SCR_THEME, SA_SCR_REMOTE, SA_SCR_LATCH, SA_SCR_SETTINGS, SA_SCR_SCALE, SA_SCR_USBH,
+       SA_SCR_AUDIO, SA_NSCR };
 #define SA_HOLD_MS 500u                      /* SAVE, ARP, PLAY, REC, LFO, HOME: held this long is a hold, else a tap */
 /* the settings (HOME held): MIDI REMOTE's display, knobs, channels, keys */
 enum { SA_RMD_VOID, SA_RMD_SOLID, SA_RMD_ALL, SA_RMD_KNOBS, SA_RMD_N };   /* the screen in MIDI REMOTE */
