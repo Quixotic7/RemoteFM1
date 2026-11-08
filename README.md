@@ -179,8 +179,9 @@ keyboard plays the DX7 with no computer, and the FM-1's keys play a USB synth.
 
 - **Power**: the FM-1 gives the port no 5 V. Use a powered USB hub, or a powered OTG adapter, between the FM-1 and
   the device.
-- The row reads LOOKING, then the device's name; NOT MIDI or LOW-SPEED when it will not do. A passing screen says
-  when a device comes or goes.
+- The row reads LOOKING, then the device's name; NOT MIDI or LOW-SPEED when it will not do. A device that never
+  answers (no power?) leaves it at LOOKING after a few seconds of tries. A passing screen says when a device comes
+  or goes.
 - In: notes, CCs, pitch bend, aftertouch, program changes on the channel, and clock / start / stop for the tempo, the
   arp and the loops, exactly as USB MIDI from a computer. Out: what the instrument sends over USB MIDI goes to the
   device. A device that goes (unplugged, a fault, USB HOST off) lets go of its notes; the keys' stay.

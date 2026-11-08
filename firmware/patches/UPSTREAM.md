@@ -14,7 +14,7 @@ here are made (`diff -ruN`, paths `a/` and `b/` from the submodule's root, no ti
 The patches are opt-in for everyone else: a firmware that does not define the new macros builds byte for byte as
 before (checked: fm1-base's template, and felucca-bsp's update loader `ota.bin`, are identical with and without them),
 except the Bluetooth MIDI SysEx, which is new behaviour for every Bluetooth firmware (it was dropped before), and
-felucca-bsp 0007 and 0008 (USB Host Off, a device's suspend), fixes for every firmware with the USB host or that reads
+felucca-bsp 0007, 0008 and 0009 (USB Host Off, a device's suspend, the root reset), fixes for every firmware with the USB host or that reads
 `plat_usb_lost`.
 
 ## The move to fm1-base 317cb86 / felucca-bsp 5b0879b (2026-11-07)
@@ -132,6 +132,23 @@ raises midi_usb_lost**
 > the update loader (its `ota.bin` is as before). A firmware that does not read `plat_usb_lost` sees no change.
 > ChoralRoot does the same on the unit (its HISTORY 3y261: two FM-1s on a plain cable, the device kept the host's
 > note). The SIE model checks a configured and an unconfigured suspend.
+
+## felucca-bsp: `felucca-bsp/0009-usb-host-root-reset-retry.patch` (2026-11-08)
+
+`chip/usb_host.c`, `docs/USB_HOST.md`, `tests/usb_host_test.c`. PR title: **usb_host.c: a 50 ms root reset, and a
+device that does not answer reset again with a longer recovery; NO MIDI only for one that answered**
+
+> `uh_connect` reset the root port for 30 ms, waited 30 ms and probed once; any failure was NO MIDI, once per
+> attach. A second FM-1 on a plain cable (ChoralRoot, which serves USB from a 2 kHz timer) was "not MIDI" to
+> RemoteFM1's host, while ChoralRoot's own host, which does the following, plays it. The reset is now 50 ms (USB
+> 2.0's TDRSTR), the recovery 100 ms; a device that did not answer its first GET_DESCRIPTOR is reset again with the
+> recovery doubled (100, 200, 400, 800, 1600 ms), up to `UH_ROOT_TRIES` (5) times, stopping as soon as it answers.
+> NO MIDI is said only for a device that answered without a USB-MIDI interface; one that never answered says
+> nothing (the port is still looking; no new message, so `UH_MSG_*` and fm1-base's `USBH_MSG_*` stay as they are).
+> Enumeration blocks the main loop: a silent device now takes about 3.35 s of it, once per attach, where it took
+> 60 ms. Hub ports are as before (ChoralRoot's idle retry rounds for a downstream device that did not finish are a
+> larger change, not taken). The SIE model gains a device that answers 300 ms after a reset (found by the third)
+> and one that never answers (five resets, nothing said); the failed-probe test expects five resets.
 
 ## felucca-bsp: `felucca-bsp/0002-uac-out-gain-glide.patch`
 

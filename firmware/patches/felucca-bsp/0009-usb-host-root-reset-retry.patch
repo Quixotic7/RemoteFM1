@@ -1,0 +1,192 @@
+--- a/chip/usb_host.c
++++ b/chip/usb_host.c
+@@ -30,6 +30,7 @@ enum { S_DEVCTL = 15, S_TXTYPE = 24, S_TXINTERVAL = 25, S_RXTYPE = 26, S_RXINTER
+ enum { UH_MSG_NONE, UH_MSG_ON, UH_MSG_OFF, UH_MSG_MIDI, UH_MSG_NOMIDI, UH_MSG_LOW, UH_MSG_LOST };
+ #define UH_FIRST_ADDR 1u
+ #define UH_MAX_ERRORS 16u
++#define UH_ROOT_TRIES 5u                                /* root resets of a device that does not answer at all */
+ 
+ static uint8_t uh_rx[64 + 4] __attribute__((aligned(4)));
+ static uint8_t uh_cfg[320];                                  /* a configuration, cut short if longer */
+@@ -39,6 +40,7 @@ static struct {
+     volatile uint8_t run;                               /* TIMER5 owns the active MIDI endpoints */
+     volatile uint8_t fault;                             /* TIMER5 -> main loop: reset the bus and look again */
+     uint8_t seen, next_addr, dev, tried;
++    uint8_t answered;                                   /* the device on the root port answered its first request */
+     uint8_t hub_addr, hub_mps, hub_ports, hub_poll_port;
+     uint8_t in_ep, out_mps, tx_count, tx_errors, line_idle;
+     uint8_t msg;                                        /* one UH_MSG_* for the application */
+@@ -191,6 +193,8 @@ static int uh_probe(uint8_t depth, uh_midi_t *m)
+     r = uh_ctl(0, 0x80, 6, 0x0100, 0, 8, d8, 8);        /* GET_DESCRIPTOR(device), first 8 bytes */
+     if (r < 8)
+         return 0;
++    if (!depth)
++        uh.answered = 1;
+     mps = d8[7] == 16u || d8[7] == 32u || d8[7] == 64u ? d8[7] : 8u;
+     cls = d8[4];
+     if (uh_ctl(0, 0x00, 5, addr, 0, 0, 0, mps) < 0)     /* SET_ADDRESS */
+@@ -380,24 +384,35 @@ static void uh_host_down(void)
+ static void uh_connect(void)
+ {
+     uh_midi_t m;
++    uint32_t t;
++    int ok;
+     if (sie_rd(S_DEVCTL) & 0x20u) {                     /* low speed (FSDev is bit 6, LSDev bit 5) */
+         if (!uh.tried)
+             uh.msg = UH_MSG_LOW;                        /* said once per attach, as NO MIDI is */
+         uh.tried = 1;
+         return;
+     }
+-    sie_wr(S_POWER, 0x08u);                             /* bus reset */
+-    uh_wait(30);
+-    sie_wr(S_POWER, 0);
+-    uh_wait(30);
+-    uh.next_addr = UH_FIRST_ADDR;
+-    if (uh_probe(0, &m)) {
++    /* A root reset lasts 50 ms (USB 2.0 TDRSTR). A device that does not answer at all (one that serves USB from a
++     * slow timer, still starting, behind a hub that wakes late) is reset again with a longer recovery, 100 ms
++     * doubling, UH_ROOT_TRIES times (about 3.3 s of the main loop at most); one that answered is not */
++    for (t = 0;; t++) {
++        sie_wr(S_POWER, 0x08u);                         /* bus reset */
++        uh_wait(50);
++        sie_wr(S_POWER, 0);
++        uh_wait(100u << t);                             /* 100, 200, 400, 800, 1600 ms */
++        uh.next_addr = UH_FIRST_ADDR;
++        uh.answered = 0;
++        if ((ok = uh_probe(0, &m)) || uh.answered || t + 1u == UH_ROOT_TRIES)
++            break;
++    }
++    if (ok) {
+         uh_start_ep(&m);
+         uh.msg = UH_MSG_MIDI;
+         uh.tried = 0;
+     } else {
+-        if (!uh.tried)
+-            uh.msg = UH_MSG_NOMIDI;                     /* said once per attach */
++        if (!uh.tried && uh.answered)
++            uh.msg = UH_MSG_NOMIDI;                     /* said once per attach; nothing for a device that never
++                                                         * answered: the port is still looking */
+         uh.tried = 1;
+     }
+ }
+--- a/docs/USB_HOST.md
++++ b/docs/USB_HOST.md
+@@ -66,6 +66,9 @@ CC wiring and power negotiation depend on the board and adapter. Low-speed devic
+ nested hubs, MIDI 2.0, controller SysEx and device-specific LED protocols are not
+ supported. While one device is active, another hub port is not scanned.
+ 
++A direct device is reset for 50 ms and given 100 ms to recover; one that does not answer
++at all is reset again with the recovery doubled, up to five times (about 3.3 s of the main
++loop), and NOMIDI is said only for a device that answered without USB-MIDI.
+ Unsupported or unresponsive direct devices are probed once per attachment; unplug/replug
+ or toggle host mode to try again. Idle hubs remain configured and check one port's
+ connection-change status every 100 ms, probing only changed connections. Empty hubs
+--- a/tests/usb_host_test.c
++++ b/tests/usb_host_test.c
+@@ -87,6 +87,9 @@ static uint32_t USB_CON0, line_state;
+ static uint8_t bus_dead;                /* nothing answers (cable pulled) */
+ static uint8_t ep0_timeout;             /* SETUP stays busy until the driver's deadline */
+ static uint8_t devctl_ls;               /* the device is low speed */
++static uint32_t answer_after = 0;       /* the root device answers this many ms after a reset ends (~0u: never) */
++static uint32_t reset_end_ms;           /* when the last root reset ended */
++static uint32_t t_ms(void);              /* fm1_ms (usb.c, below) */
+ static uint32_t ctl_requests, setup_requests, rx_toggle_clears;
+ static uint32_t tx_toggle_clears, off_count;
+ static uint32_t root_resets, host_attaches, port_resets[8];
+@@ -235,6 +238,9 @@ static void mock_write(uint32_t r, uint32_t v)
+     } else if (r == 1 && (v & 8u)) {                    /* POWER: bus reset */
+         bus_reset();
+         common[r] = (uint8_t)v;
++    } else if (r == 1 && (common[1] & 8u)) {           /* POWER: the reset ends */
++        reset_end_ms = t_ms();
++        common[r] = (uint8_t)v;
+     } else if (r < 16) {
+         common[r] = (uint8_t)v;
+     } else if (index_reg == 0 && r == 17 && ep_radr[0]) { /* EP0 CSR, host (the host code gave EP0 its buffer) */
+@@ -245,7 +251,8 @@ static void mock_write(uint32_t r, uint32_t v)
+             memcpy(s, ep_radr[0], 8);
+             if (ep0_timeout)
+                 regs[0][17] = 2;
+-            else if (bus_dead || !d || !answer(d, s))
++            else if (bus_dead || !d || (d == &dev[root >= 0 ? root : 0] && answer_after &&
++                                         t_ms() - reset_end_ms < answer_after) || !answer(d, s))
+                 regs[0][17] = 0x10;                     /* no answer */
+             else
+                 regs[0][17] = 0;
+@@ -365,6 +372,7 @@ static uint8_t sx_seen[8];                              /* FELUCCA_SYSEX_BYTE: t
+ static uint32_t sx_seen_n;
+ #define FELUCCA_SYSEX_BYTE(b) (sx_seen_n < sizeof sx_seen ? (void)(sx_seen[sx_seen_n++] = (b)) : (void)0)
+ #include "../chip/usb.c"
++static uint32_t t_ms(void) { return fm1_ms; }
+ 
+ /* ------------------------------------------- the device's descriptors --- */
+ /* The configuration descriptor read as a host reads it: the interfaces in order, the audio control header's
+@@ -632,6 +640,7 @@ static void connect(int which)
+     devices_init();
+     root = which;
+     bus_dead = devctl_ls = ep0_timeout = 0;
++    answer_after = 0;
+     memset(common, 0, sizeof common);
+     memset(regs, 0, sizeof regs);
+     dflt = 0;
+@@ -899,7 +908,7 @@ static void test_failed_probe(void)
+     connect(-1);                                      /* a powered line with nothing answering EP0 */
+     ep0_timeout = 1;
+     host_on();
+-    assert(!enumerate() && uh.msg == UH_MSG_NOMIDI);
++    assert(!enumerate() && uh.msg == UH_MSG_NONE);      /* never answered: not NO MIDI */
+     uh.msg = 0;
+     uint32_t requests = setup_requests;
+     for (int k = 0; k < 3000; k++) {
+@@ -908,7 +917,7 @@ static void test_failed_probe(void)
+         usb_host_task(now);
+         assert(fm1_ms == now && !uh.run && !uh.msg);
+     }
+-    assert(root_resets == 1 && host_attaches == 1 && setup_requests == requests);
++    assert(root_resets == UH_ROOT_TRIES && host_attaches == 1 && setup_requests == requests);
+     usb_host_switch(0); usb_host_task(fm1_ms); uh.msg = 0;
+ 
+     connect(HUB);
+@@ -924,6 +933,34 @@ static void test_failed_probe(void)
+     puts("USB host: failed EP0 probe and unresponsive idle hub wait for unplug/replug: OK");
+ }
+ 
++static void test_slow_device(void)
++{
++    /* a device that answers only 300 ms after a reset (one serving USB from a slow timer): the third reset's
++     * 400 ms recovery finds it; no more resets after that */
++    connect(KBD);
++    answer_after = 300;
++    host_on();
++    assert(enumerate() && uh.msg == UH_MSG_MIDI && root_resets == 3);
++    uh.msg = 0;
++    usb_host_switch(0); usb_host_task(fm1_ms); uh.msg = 0;
++    /* one that never answers: five resets, then it waits for unplug; nothing said (it is not NO MIDI) */
++    connect(KBD);
++    answer_after = ~0u;
++    host_on();
++    uint32_t t0 = fm1_ms;
++    assert(!enumerate() && uh.msg == UH_MSG_NONE && root_resets == UH_ROOT_TRIES && uh.tried);
++    assert(fm1_ms - t0 >= 5u * 50u + 3100u);
++    for (int k = 0; k < 100; k++) { fm1_ms += 20; usb_host_task(fm1_ms); }
++    assert(root_resets == UH_ROOT_TRIES && !uh.msg);
++    /* a device that answers at once without MIDI: one reset, NO MIDI */
++    usb_host_switch(0); usb_host_task(fm1_ms); uh.msg = 0;
++    connect(STICK);
++    host_on();
++    assert(!enumerate() && uh.msg == UH_MSG_NOMIDI && root_resets == 1);
++    usb_host_switch(0); usb_host_task(fm1_ms); uh.msg = 0;
++    puts("USB host: a slow device found by a later reset, a silent one reset 5 times and not called NO MIDI: OK");
++}
++
+ static void test_hub_synth_unplug(void)
+ {
+     static const uint8_t synth[] = {9,2,25,0,1,1,0,0x80,50, 9,4,1,0,1,1,3,0,0, 7,5,2,2,8,0,0};
+@@ -1168,6 +1205,7 @@ int main(void)
+     test_idle_hub(0);
+     test_idle_hub(1);
+     test_failed_probe();
++    test_slow_device();
+     test_hub_synth_unplug();
+     test_host_output(0);
+     test_host_output(1);
