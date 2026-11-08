@@ -1,8 +1,8 @@
 <!-- SPDX-License-Identifier: MPL-2.0 -->
 # RemoteFM1's patches to fm1-base and felucca-bsp
 
-RemoteFM1 builds on [fm1-base](https://github.com/charlesvestal/fm1-base) (`base/`, a submodule pinned at `934e40d`)
-and [felucca-bsp](https://github.com/hugelton/felucca-bsp) (`base/bsp/`, pinned by fm1-base at `2cd696a`). The
+RemoteFM1 builds on [fm1-base](https://github.com/charlesvestal/fm1-base) (`base/`, a submodule pinned at `317cb86`)
+and [felucca-bsp](https://github.com/hugelton/felucca-bsp) (`base/bsp/`, pinned by fm1-base at `5b0879b`). The
 submodules stay as they are. `../../build.sh` copies `base/` to `build/fm1-base/` (rsync: only what changed), applies
 the patches below with `git apply` (exactly, or the build stops), and builds from the copy. Every patch is a change to
 MPL-2.0 files, published under MPL-2.0 like the files it changes, and each is meant to go upstream: the texts below
@@ -15,10 +15,50 @@ Both patches are opt-in for everyone else: a firmware that does not define the n
 before (checked: fm1-base's template, and felucca-bsp's update loader `ota.bin`, are identical with and without them),
 except the Bluetooth MIDI SysEx, which is new behaviour for every Bluetooth firmware (it was dropped before).
 
+## The move to fm1-base 317cb86 / felucca-bsp 5b0879b (2026-11-07)
+
+From `934e40d` / `2cd696a`. What it brings RemoteFM1: felucca-bsp #12 (Julius Vitkauskas, 2d37ec8), an erase or a
+program never goes back to XIP while the part is still busy (it waits up to 2 s for an erase and 50 ms for a page,
+then resets the part, 0x66 / 0x99, and the chip, all from RAM), where the old driver gave up after 500 ms and switched
+XIP back on under a part still erasing: a crash on a slower part, such as the UC25HQ80 (JEDEC 0xB36014) of the FM-1s
+with the logo on the front. With it: #8's flash gate (write regions, CPU0 only with its interrupts off, the second
+core in its idle loop), #20's queue of received SysEx frames, #26's fast install in the update loader (the loader
+RemoteFM1's packages carry: 8,340 -> 11,782 B), and fm1-base's `device/fm1_flash_ok.h` (`FM1B_FLASH_JEDEC_OK`).
+
+- **Dropped**: `fm1-base/0009-flash-b36014.patch`. `main_fm1.c` now takes `FM1B_FLASH_JEDEC_OK(id)`, 0x856014 or
+  0xB36014, from `device/fm1_flash_ok.h` (fm1-base #35, with `tests/flash_ok_test.c`). The SMK-37 series defines it
+  for its board (0xEB6014 and the FM-1's two) before that header.
+- **Dropped from 0001**: `FELUCCA_CIN_F_SYSEX` as a switch. felucca-bsp 80db9c9 takes a CIN 0xF byte inside a SysEx
+  (or with F0) as a SysEx byte for every firmware, as this patch did for RemoteFM1; the macro stays only as a counter
+  hook (RemoteFM1's STATS_R `RF_ST_USB_CINF`). `fm1_lcd_done()` is now `fm1_lcd_xfer_done()`: felucca-bsp's panel
+  driver (#9, `boards/fm1/fm1_lcd.h`) has a `fm1_lcd_done()` of its own (wait, deselect).
+- **Kept on top of upstream's**: 0003 (the audio input's stall by time) beside `FELUCCA_UAC_STALL_POLLS` (f1f8ca2):
+  that one counts polls, which RemoteFM1's main loop makes at no fixed rate; without `FELUCCA_USB_MS` the count is
+  upstream's. `FELUCCA_UAC_CH` and 5b0879b's input packet pacing change nothing for 0002 / 0003 (two channels; the
+  output's gain glide is in `uac_play`, untouched upstream).
+- **Kept**: 0005 (upstream's `.app_ram` and `tools/ramcode.py` are the general way to RAM code now; saadet's FM6 names
+  `.dsp_text` / `.audio_text` and calls through function pointers, which ramcode.py refuses without an fm1.toml
+  `ram_code_allow` list, so it stays under 0005's check, `.app_ram` left to ramcode.py); 0006 (the flash gate's
+  default write regions hold RemoteFM1's windows: 0xF2000..0xF3FFF in `FL_XDATA1`, the calibration's 0xFC000 in
+  `FL_GLOB`); 0007 (`plat_dim_ns` is one width for the whole dim layer, not two levels for keys); 0008 (the Bluetooth
+  sources are still globbed unsorted).
+- **New**: `felucca-bsp/0006-ota-identity-whole.patch` and `fm1-base/0009-firmware-json-repo-root.patch`, below.
+- **The identity reply**: fm1-base 3ae2a65 took the flash's JEDEC ID out of it again (no `OTA_FLASH_ID`: bytes 24..26
+  stay 0), because The Firmware Hub's installer, which strips only trailing zeros, then found "No FM-1". RemoteFM1
+  defines no `OTA_FLASH_ID` either: its reply is the text, then zeros, as before. felucca-bsp 41a6e86 answers a plain
+  handshake with the identity cut to the name, `_` and three digits (`FM-1_520`, for M-UPGRADE 3.11) and only a
+  handshake with the body 01 with the whole one; RemoteFM1's installers send the plain one and read the version from
+  it, so `firmware/app.h` defines `FELUCCA_ID_WHOLE` (0006): the whole identity to every handshake, as before.
+- **Defaults that moved**: fm1-base's `usb_midi_last` is true by default since 2026-10-31 (MIDI after the audio
+  streams, bcdDevice 4.D0 with the vendor interface); `firmware/fm1.toml` sets it false, so the interfaces and
+  bcdDevice 4.50 stay RemoteFM1 0.2.1's. The new opt-in parts (crash history, debug stats, `audio_aside`, headphones,
+  `usb_audio_channels`, MIDI stamps, ...) stay off. A `--release` build now needs firmware.json's keys (author,
+  description, tags, install, screenshot): `firmware/fm1.toml` has them, from `fmhub.json`.
+
 ## felucca-bsp: `felucca-bsp/0001-vendor-interface-and-app-hooks.patch`
 
 `chip/usb.c`, `boards/fm1/fm1_lcd_hw.h`. PR title: **usb.c: an optional vendor bulk interface (WebUSB), SysEx and
-EP1 hooks for apps; fm1_lcd_done()**
+EP1 hooks for apps; fm1_lcd_xfer_done()**
 
 > RemoteFM1 (an FM-1 firmware that is only the panel of a firmware running on a computer) moves frames of its
 > screen at 20 Hz: up to ~40 KB a frame, more than USB-MIDI carries. Its 0.1 (on TransitFM1) had a vendor-specific
@@ -28,7 +68,7 @@ EP1 hooks for apps; fm1_lcd_done()**
 >
 > - `FELUCCA_VENDOR=1`: a vendor-specific interface (class 0xFF) as the last interface: 2 after audio control and
 >   MIDI streaming, or after the audio streams with `FELUCCA_UAC` (3; 4 with `FELUCCA_UAC_OUT`), with a bulk OUT / IN
->   pair on EP3 (the CDC option's endpoint: not with CDC, the USB host or in the loader, `#error` otherwise; UAC's
+>   pair on EP3 (the CDC option's endpoint: not with CDC, disk mode, the USB host or in the loader, `#error` otherwise; UAC's
 >   endpoint is EP4, and its EP4 OUT is polled, so the interrupt enables are EP1's and EP3's as before). bcdUSB 2.10
 >   and a BOS descriptor with the WebUSB platform capability (vendor code 1, no landing page). bcdDevice (hosts cache
 >   descriptors per version): 3.50 without USB audio (RemoteFM1 0.1's; note that it is also what felucca-bsp gives
@@ -40,8 +80,8 @@ EP1 hooks for apps; fm1_lcd_done()**
 >   drops what waits to go out.
 > - `FELUCCA_SYSEX_TAP(b)`: every SysEx byte from USB-MIDI (and a status that ends one), in `usb_poll`'s context.
 >   Nonzero: the message is the app's, and is not collected for `ota.c` from that byte on, so a long stream of the
->   app's SysEx never holds the updater's one-frame slot (`sx_frame`), and messages longer than 640 bytes reach the
->   app whole.
+>   app's SysEx never takes room in the updater's frame queue (`sx_frame`, #20), and messages longer than 640 bytes
+>   reach the app whole.
 > - `FELUCCA_EP1_ROOM()`: before an EP1 OUT packet is taken; 0 leaves it for a later poll (NAKed). An app uses it to
 >   hold the host while its own SysEx ring is full, and to empty the MIDI-in ring from `usb_poll`'s context when it
 >   plays no USB MIDI in (so a DAW's clock can never fill the ring and shut the updater out while an update session
@@ -49,15 +89,13 @@ EP1 hooks for apps; fm1_lcd_done()**
 > - `FELUCCA_USB_FRAME_DUE()`: when the 10 ms frame-number check is due. An app that calls `usb_poll` from its main
 >   loop (100,000 times a second and more) needs it by the clock: by poll count, the frame number looked frozen and the
 >   bus "suspended".
-> - `FELUCCA_CIN_F_SYSEX`: a CIN 0xF packet (one unparsed byte, USB-MIDI 1.0 section 4) inside a SysEx, or with an F0,
->   is taken as a SysEx byte. macOS sends a long SysEx's odd byte at a split so: without it, a 2 KB message arrives one
->   byte short (RemoteFM1's M0 measured it). The update's frames are short enough not to hit it, which is why it is
->   opt-in here; consider making it the default.
-> - `fm1_lcd_done()` in `boards/fm1/fm1_lcd_hw.h`: the running transfer is over (a look, no wait), for an app that
->   never waits for the panel (fm1-base's `lcd_idle()`).
+> - `FELUCCA_CIN_F_SYSEX`: evaluated for each CIN 0xF byte taken into a SysEx (felucca-bsp takes them since 80db9c9),
+>   for an app's count of them.
+> - `fm1_lcd_xfer_done()` in `boards/fm1/fm1_lcd_hw.h`: the running transfer is over (a look, no wait), for an app
+>   that never waits for the panel (fm1-base's `lcd_idle()`).
 >
 > Tested: RemoteFM1's `tests/usb_midi_test.c` (the parser fed every SysEx length 6..3000, macOS's split, clocks inside,
-> the tap's claim against the updater's frame, EP1 held), both with and without `FELUCCA_CIN_F_SYSEX`; the vendor
+> the tap's claim against the updater's frame queue, EP1 held); the vendor
 > interface's descriptors alone (0.1's byte for byte) and after USB audio in + out (the configuration walked: five
 > interfaces in order, each endpoint in one, the vendor pair on interface 4); the loader's `ota.bin` is identical with
 > the patch. On an FM-1: RemoteFM1 0.1 ran the same descriptors and vendor service
@@ -70,6 +108,29 @@ EP1 hooks for apps; fm1_lcd_done()**
 > the speaker, RemoteFM1 0.2.1 on an FM-1, 2026-10-27). The gain now moves linearly from the last block's value to
 > this one's, sample by sample. No change while MASTER is still. Applies after 0001; useful to every fm1-base
 > firmware with `usb_audio_out`.
+
+## felucca-bsp: `felucca-bsp/0003-uac-in-stall-by-time.patch`
+
+> **chip/usb.c: FELUCCA_USB_MS(), the audio input's stall check by time.** A queued EP4 IN packet that waits more than
+> 20 ms means the host stopped reading. Counted in polls (`FELUCCA_UAC_STALL_POLLS`, 40 at the 2 kHz timer), a
+> firmware that also polls from its main loop, at no fixed rate, would drop the stream every frame; with
+> `FELUCCA_USB_MS()` (a millisecond clock) the check is 20 ms whoever polls. Without the macro nothing changes.
+
+## felucca-bsp: `felucca-bsp/0004-led-two-steady-levels.patch`
+
+> **fm1_input.h: two more steady LED levels (fm1_led_lv, fm1_led_levels).** Each lit on the first 0..8 of every 8
+> scan frames (~114 Hz), for keys shown at two brightnesses (RemoteFM1: a scale's root and its notes) beside the glow
+> and `fm1_led_mid`. Zero (the default) changes nothing.
+
+## felucca-bsp: `felucca-bsp/0006-ota-identity-whole.patch` (2026-11-07)
+
+`chip/ota.c`. PR title: **ota.c: FELUCCA_ID_WHOLE, the whole identity to every handshake**
+
+> Since 41a6e86 a plain handshake gets the identity cut to the name, `_` and three digits (M-UPGRADE 3.11's limit),
+> and only a handshake with the body 01 the whole one. A firmware whose own installers read its version from the
+> plain handshake (RemoteFM1's web installer and `fm1_install.py`: `FM-1_52000303` is 0.3.3, `FM-1_520` nothing) defines
+> `FELUCCA_ID_WHOLE` and answers as before 41a6e86. The loader's reply is whole anyway. Without the macro nothing
+> changes.
 
 ## fm1-base: `fm1-base/0001-ble-sysex-lcd-idle-sxq-host-sysex.patch`
 
@@ -92,7 +153,7 @@ Bluetooth queues sizable by the app; the simulator's `sysex` command**
 > - `plat_ble_name(name)`: the name the FM-1 advertises ("FM-1 1F2D"), for an app's screen; `""` without Bluetooth.
 >   The simulator makes it the same way from its own "chip ID".
 > - `lcd_idle()` (device `lcd.c`, and the simulator): the last blit's transfer is over, for an app that never waits
->   for the panel (it blits again only then). Uses felucca-bsp's `fm1_lcd_done()`.
+>   for the panel (it blits again only then). Uses felucca-bsp's `fm1_lcd_xfer_done()`.
 > - `device/unity.c`: `SXQ` (the SysEx send ring) only when the app's `app.h` did not give it.
 > - The host simulator: `sysex [PORT] F0 .. F7`, a SysEx message in on Bluetooth (or TRS) as packets through
 >   `plat_midi_in`, or on USB to the app's `app_sysex`.
@@ -182,16 +243,19 @@ fm1_multicore.h does (MPL), fixes it: checked on a unit (both FM-1 audio devices
 RemoteFM1 0.3.2's Bluetooth package is the first built with it (docs/RELEASING.md); FIZZ sorts the same lists in its
 own `firmware/build.py`.
 
-## fm1-base: `fm1-base/0009-flash-b36014.patch` (2026-11-04)
+## fm1-base: `fm1-base/0009-flash-b36014.patch` (2026-11-04; dropped 2026-11-07)
 
-`device/main_fm1.c`. PR title: **main_fm1.c: accept the FM-1's second flash chip (JEDEC 0xB36014)**
+`device/main_fm1.c`: the boot check took 0xB36014 (the UC25HQ80 of the FM-1s with the logo on the front) beside the
+Puya's 0x856014. RemoteFM1 0.3.3 was the first with it. fm1-base now does the same itself (`device/fm1_flash_ok.h`,
+`FM1B_FLASH_JEDEC_OK`, fm1-base #35), so the patch is gone; the SMK-37 series defines `FM1B_FLASH_JEDEC_OK` for its
+board (0xEB6014, 0x856014, 0xB36014) before that header.
 
-> FM-1s sold from late 2026 (the M-VAVE logo printed on the front) carry another maker's 1 MiB SPI NOR: it answers
-> 0xB36014 to 0x9F, where the older units' Puya part answers 0x856014 (the same type and capacity bytes). The boot
-> check takes only 0x856014, so on such a unit every fm1-base firmware runs from RAM only: no stores, no unit ID, and
-> no update session, so no installer can reach it (found on ChoralRoot 0.27, fixed there in 0.29.1; MvaveFM1Unbricker
-> 1.2.1 documents the part). The driver uses only generic SPI NOR commands (9F, 4B, 05/35, 06, 20, 02, 0B), as the
-> SDK firmware those units shipped with does on the same chip. Nothing changes on the older units.
+## fm1-base: `fm1-base/0009-firmware-json-repo-root.patch` (2026-11-07)
 
-RemoteFM1 0.3.3 is the first with it. The SMK-37 series (`smk37/`) follows: its `FL_JEDEC_OK` takes 0xB36014 too, and
-its hunk over this line keeps 0009's block for the FM-1.
+`tools/firmware_json.py`. PR title: **firmware_json.py: FM1B_REPO_ROOT, the repository for a layout of its own**
+
+> firmware.json's `screenshot` is a path in the firmware's repository, and the build checks the file there: the
+> parent of an APP_DIR named `app`, else APP_DIR. RemoteFM1's app is `firmware/` (and the SMK-37's a copy of it in
+> `build/app-smk37/`), so its `docs/hub-card.png` could not be named, and a `--release` build refused.
+> `FM1B_REPO_ROOT` in the environment names the repository instead (RemoteFM1's `build.sh` sets it). Unset, nothing
+> changes.
