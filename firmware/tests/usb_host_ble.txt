@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: MPL-2.0
+# RemoteFM1, USB HOST and a Bluetooth host's session (the Bluetooth build; tests/run_tests.sh): while the port hosts
+# a keyboard, a session over Bluetooth runs; the keyboard's MIDI goes to the host as MIDI_IN, as the TRS jack's does
+# (docs/PROTOCOL.md section 4), the DX7 silent; the hand-over screen's USB line names the device; the session's end
+# gives the keyboard back to the instrument.
+wait 1100
+press HOME
+wait 600
+release HOME
+turn SELECT 9
+turn K1 1
+tap HOME
+usbh plug Keystep_37
+wait 200
+expect usbh 2
+ble connect
+wait 10
+rf hello ble
+rf session ble 1 3000
+wait 20
+expect rf_session 1
+expect rf_session_t 2
+expect sa_panel 1
+expect usbh 2
+expect sa_usbh_line 1
+usbh midi 90 3C 64
+usbh midi B0 07 7F
+usbh midi F8 00 00
+wait 20
+expect sa_held 0
+expect rf_mi_n 7
+expect rf_mi_bad 0
+expect rf_mi_b0 144
+expect rf_mi_b1 60
+expect rf_mi_b2 100
+expect rf_mi_b3 176
+expect rf_mi_b6 248
+expect rf_n_ble_54 >0
+# the session's end: the keyboard plays the DX7 again
+rf session ble 0
+wait 20
+expect rf_session 0
+expect sa_panel 0
+usbh midi 90 3E 64
+wait 10
+expect sa_held 1

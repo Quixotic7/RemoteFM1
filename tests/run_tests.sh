@@ -8,6 +8,7 @@
 #   - the protocol code alone: M0's framing, the TILES decoder (with and without the shadow) and the push, the
 #     protocol layer in a scripted session;
 #   - felucca-bsp's usb.c as RemoteFM1 patches it (its SysEx tap, macOS's CIN 0xF byte), and as everyone else builds it;
+#   - felucca-bsp's USB host as RemoteFM1 patches it (its own SIE-model tests); USB HOST in the simulator (usb_host*.txt);
 #   - fm1-base's Bluetooth MIDI SysEx as RemoteFM1 patches it (le_midi.c's parser and encoder);
 #   - tools/fm1_install.py's package checks and identity names (the built packages too, when there);
 #   - the standalone DX7 (firmware/sa/sa_synth.c on saadet's FM6): its own checks, its bench over SysEx in the
@@ -41,11 +42,11 @@ sim() {   # sim BINARY SCRIPT...
     done
 }
 
-SA_TESTS="firmware/tests/standalone_cc.txt firmware/tests/standalone_loop.txt firmware/tests/standalone_arp.txt firmware/tests/standalone_s5.txt firmware/tests/standalone_remote.txt firmware/tests/standalone_menus.txt firmware/tests/standalone_latch.txt firmware/tests/standalone_settings.txt firmware/tests/standalone_scales.txt firmware/tests/standalone_return.txt firmware/tests/standalone_rec.txt firmware/tests/standalone_loops.txt firmware/tests/standalone_leds.txt firmware/tests/standalone_scale_look.txt firmware/tests/standalone_kled.txt firmware/tests/standalone_store.txt firmware/tests/standalone_carts.txt firmware/tests/standalone_velocity.txt"   # S2.. (the standalone's milestones)
+SA_TESTS="firmware/tests/standalone_cc.txt firmware/tests/standalone_loop.txt firmware/tests/standalone_arp.txt firmware/tests/standalone_s5.txt firmware/tests/standalone_remote.txt firmware/tests/standalone_menus.txt firmware/tests/standalone_latch.txt firmware/tests/standalone_settings.txt firmware/tests/standalone_scales.txt firmware/tests/standalone_return.txt firmware/tests/standalone_rec.txt firmware/tests/standalone_loops.txt firmware/tests/standalone_leds.txt firmware/tests/standalone_scale_look.txt firmware/tests/standalone_kled.txt firmware/tests/standalone_store.txt firmware/tests/standalone_carts.txt firmware/tests/standalone_velocity.txt firmware/tests/usb_host.txt"   # S2.. (the standalone's milestones)
 echo "== the app in fm1-base's host simulator: USB SysEx, bulk, Bluetooth, the update's SysEx beside (firmware/tests)"
 env -u CC ./build.sh --host >/dev/null
 sim "$SIM/remotefm1_host" firmware/tests/session.txt firmware/tests/bulk_ota.txt firmware/tests/ble.txt \
-    firmware/tests/hold.txt firmware/tests/sa_bench.txt firmware/tests/standalone.txt firmware/tests/standalone_ble.txt firmware/tests/trs.txt \
+    firmware/tests/hold.txt firmware/tests/sa_bench.txt firmware/tests/standalone.txt firmware/tests/standalone_ble.txt firmware/tests/trs.txt firmware/tests/usb_host_ble.txt \
     $SA_TESTS
 if grep -q "SA_ROM_NBANKS 8u" firmware/build/gen/dx7_rom.h; then
     sim "$SIM/remotefm1_host" firmware/tests/standalone_rom.txt
@@ -107,6 +108,11 @@ $TCC $SAN $B -DFELUCCA_VENDOR=1 '-DFELUCCA_USB_PRODUCT="FM-1"' -o "$H/usb_midi_t
 $TCC $SAN $B -DFELUCCA_VENDOR=1 -DFELUCCA_UAC=1 -DFELUCCA_UAC_OUT=1 -DFELUCCA_UAC_48K=0 \
     '-DFELUCCA_USB_PRODUCT="FM-1"' -o "$H/usb_midi_test_vendor_uac" tests/usb_midi_test.c
 "$H/usb_midi_test_vendor_uac"
+echo "== felucca-bsp's USB host, patched (build/fm1-base/bsp: 0001's vendor rings, 0007's Host Off, 0008's suspend):"
+echo "   its own SIE-model tests (tests/run_usb_host_tests.sh)"
+sh build/fm1-base/bsp/tests/run_usb_host_tests.sh > "$H/usb_host_tests.txt" 2>&1 ||
+    { cat "$H/usb_host_tests.txt"; echo "FAILED: felucca-bsp's run_usb_host_tests.sh"; exit 1; }
+grep -c "all OK" "$H/usb_host_tests.txt"
 echo "== fm1-base's Bluetooth MIDI SysEx, patched (le_midi.c's parser and encoder)"
 python3 - <<'EOF'
 src = open("build/fm1-base/ble/midi/le_midi.c").read()
@@ -151,9 +157,10 @@ grep -q "FAIL" "$OUT/log.txt" && { cat "$OUT/log.txt"; echo "FAILED: firmware/te
 echo "== the SMK-37 build of the simulator (BOARD=smk37 ./build.sh --host, firmware/patches/smk37): the panel as an"
 echo "   FM-1's (keys, pads as white keys, buttons, knobs, lights), the extras as MIDI, the flash map, the FM-1's scenarios"
 BOARD=smk37 env -u CC ./build.sh --host >/dev/null
-SMK_FM1_TESTS="firmware/tests/session.txt firmware/tests/bulk_ota.txt firmware/tests/ble.txt firmware/tests/hold.txt firmware/tests/standalone.txt firmware/tests/standalone_ble.txt $(echo $SA_TESTS | tr ' ' '\n' | grep -v "standalone_velocity\|standalone_store" | tr '\n' ' ')"
+SMK_FM1_TESTS="firmware/tests/session.txt firmware/tests/bulk_ota.txt firmware/tests/ble.txt firmware/tests/hold.txt firmware/tests/standalone.txt firmware/tests/standalone_ble.txt $(echo $SA_TESTS | tr ' ' '\n' | grep -v "standalone_velocity\|standalone_store\|usb_host" | tr '\n' ' ')"
 sim "$SIM/remotefm1-smk37_host" firmware/tests/smk_panel.txt firmware/tests/smk_extras.txt firmware/tests/smk_flash.txt \
     firmware/tests/smk_hello.txt $SMK_FM1_TESTS        # (not standalone_velocity: no aftertouch on the SMK, by design; standalone_store: 0.3.0's XDATA0 banks, none on the SMK)
+                                                       # (not usb_host: USB HOST is the FM-1's, build.sh)
 for f in hello_usb hello_bk hello_ble panel_idle panel_held; do
     cmp -s "$OUT/smk_fm1/$f.txt" "$OUT/$f.txt" ||
         { echo "FAILED: the SMK-37's $f differs from the FM-1's:"; cat "$OUT/smk_fm1/$f.txt" "$OUT/$f.txt"; exit 1; }

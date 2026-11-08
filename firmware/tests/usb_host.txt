@@ -1,0 +1,138 @@
+# SPDX-License-Identifier: MPL-2.0
+# RemoteFM1 and USB HOST (sa/sa_main.c, the settings' last row; felucca-bsp chip/usb_host.c through plat_usb_host, the
+# simulator's "usbh"): every boot is a device; the row turns the port into the host of a USB-MIDI keyboard or synth;
+# a keyboard plays the DX7 as a computer does, its name on the row; a device gone lets its notes go, the keys' stay;
+# an output-only synth gets the instrument's notes; Off gives the port back to the computer; a reboot is a device; a
+# computer asleep (felucca-bsp 0008) lets its notes go too. tests/run_tests.sh runs it (both builds).
+wait 400
+expect usbh 0
+expect sa_nset 10
+expect sa_set9 0
+expect sa_usbh_line 0
+# a device: the computer's MIDI plays it
+midi USB 90 3C 64
+wait 10
+expect sa_held 1
+midi USB 80 3C 00
+wait 10
+expect sa_held 0
+# the settings page (HOME held), its last row: USB HOST on
+press HOME
+wait 600
+release HOME
+expect sa_screen 19
+turn SELECT 9
+expect sa_mfocus 9
+turn K1 1
+expect sa_set9 1
+wait 10
+expect usbh 1
+expect sa_usbh_line 2
+expect sa_usb_lost 1
+wait 30
+shot sa_usbh_looking.png
+# no computer now: its MIDI is not there
+midi USB 90 3C 64
+wait 10
+expect sa_held 0
+# a keyboard (through a powered hub): connected, its name on the row (no passing screen over its own row)
+usbh plug Launchkey_Mini_MK3
+wait 200
+expect usbh 2
+expect sa_usbh_msg 3
+expect sa_screen 19
+expect sa_usbh_line 1
+wait 30
+shot sa_usbh_connected.png
+# its notes and pedal play the DX7, the keys' notes beside them
+usbh midi 90 3C 64
+usbh midi 90 40 64
+usbh midi B0 40 7F
+wait 10
+expect sa_held 2
+expect sa_sounding 2
+key 9 down 100
+wait 20
+expect sa_held 3
+# unplugged with them held: USB's notes let go, the key's kept
+usbh unplug
+wait 10
+expect usbh 1
+expect sa_usb_lost 2
+expect sa_held 1
+expect sa_usbh_msg 6
+key 9 up
+wait 20
+expect sa_held 0
+# the settings closed: a passing screen when a device comes
+tap HOME
+expect sa_screen 0
+usbh plug Volca_FM out
+wait 200
+expect usbh 2
+expect sa_screen 21
+wait 30
+shot sa_usbh_news.png
+# an output-only synth: the instrument's notes go to it
+out
+key 9 down 100
+wait 20
+expect_out USBH 90 3E 64
+key 9 up
+wait 20
+expect_out USBH 80 3E 40
+expect_no_out USB 90 3E 64
+wait 1500
+expect sa_screen 0
+# not a MIDI device: the row says so
+usbh unplug
+wait 10
+expect sa_usb_lost 3
+usbh plug USB_Stick nomidi
+wait 200
+expect usbh 1
+expect sa_usbh_said 4
+expect sa_screen 21
+# Off: a device again, the computer's MIDI plays it
+press HOME
+wait 600
+release HOME
+expect sa_screen 19
+turn SELECT 9
+expect sa_mfocus 9
+turn K1 -1
+expect sa_set9 0
+wait 10
+expect usbh 0
+expect sa_usbh_said 0
+expect sa_usb_lost 4
+midi USB 90 3C 64
+wait 10
+expect sa_held 1
+midi USB 80 3C 00
+wait 10
+expect sa_held 0
+out
+tapkey 9
+expect_out USB 90 3E 64
+# on again, then a reboot: a device, the row Off (never saved)
+turn K1 1
+wait 10
+expect usbh 1
+reboot
+wait 400
+expect usbh 0
+expect sa_set9 0
+# the computer asleep (its bus suspended) with notes held: they are let go
+midi USB 90 3C 64
+midi USB 90 40 64
+wait 10
+expect sa_held 2
+rf usb suspend
+wait 10
+expect sa_held 0
+expect sa_usb_lost 1
+rf usb resume
+midi USB 90 3C 64
+wait 10
+expect sa_held 1
