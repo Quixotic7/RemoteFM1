@@ -135,6 +135,11 @@ shows both on the keys' LEDs. SAVE held saves everything: the settings, and (0.3
 flash, back at the next power-on. A DX7 32-voice bank sent over USB or Bluetooth MIDI (any librarian, or the site)
 becomes a user bank after the ROM cartridges: up to 16 (0.3.1; 0.3.0 kept 3, taken over at 0.3.1's first start), a
 17th replaces the oldest; SA_INFO (docs/PROTOCOL.md section 8) tells a host how many are kept and their names.
+**MIDI clock out**: the standalone sends MIDI clock (24 a beat) at its tempo (SELECT) all the time, stopped or not,
+and a start (with song position 0) when the looper starts playing or recording (PLAY, or the first note of a REC
+take), a stop when it stops (PLAY again); over USB (to a computer, or USB HOST's device) and Bluetooth, with the
+notes. The arp alone sends no start or stop. While a clock comes in, the FM-1 follows it and sends none, and a start
+or stop that came in is not sent back. Nothing in MIDI REMOTE or while a host has the FM-1.
 **MIDI REMOTE**: GLO + FX turns the whole panel into a plain MIDI controller (GLO + FX again leaves; not kept across a
 power cycle); the DX7 is silent and every control sends MIDI on the channels of the settings page (HOME held):
 

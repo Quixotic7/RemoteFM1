@@ -360,7 +360,9 @@ like any other; their replies are long, so a host uses USB (a Bluetooth reply th
 
 **The TRS jack (MIDI in)**: outside a session the instrument plays what comes into it exactly as USB and Bluetooth
 MIDI in: notes, pitch bend, CCs, channel aftertouch and program change on its MIDI channel; clock, start, continue
-and stop for the tempo, the arp and the loops. In MIDI REMOTE it is ignored like the other MIDI in (the DX7 does not
+and stop for the tempo, the arp and the loops (outside a session the instrument also sends clock at its tempo, and
+start / stop with its looper, on USB and Bluetooth, while no clock comes in). In MIDI REMOTE it is ignored like the
+other MIDI in (the DX7 does not
 listen there; the jack has no out to pass it to, and a host already hears REMOTE's own messages). In a session it goes
 to the host (MIDI_IN, section 4).
 
