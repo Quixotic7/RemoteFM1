@@ -3,7 +3,7 @@
 Over USB the FM-1 is a sound card, so a host's sound already plays on it. Over Bluetooth MIDI there was no sound: the
 link carries the screen and nothing else. The audio mode trades one for the other. The host sends its sound as
 compressed blocks and stops sending the screen. The FM-1 plays the sound and shows its own "RemoteFM1" screen, in the
-standalone's pixel font and theme, with HOME's level bars following the sound. LEDs, keys, knobs, MASTER and the TRS
+standalone's pixel font and theme, and nothing else. LEDs, keys, knobs, MASTER and the TRS
 MIDI in work as in any session.
 
 It is **off by default**, on every host. The protocol is in docs/PROTOCOL.md section 9.
@@ -80,6 +80,11 @@ USB links never use it (libremotefm1 asks only on a Bluetooth frame link).
   screen".
 - remote.js: option `bleAudio`, `setBleAudio(on)`, `audio(pcm, rate)`, `status.audio`, `unit.bleAudio`, and the
   `audio*` stats (web/remote/README.md).
+
+Trying it from a checkout: `web/serve.sh [--build] [PORT]` serves `web/` on 127.0.0.1 after checking the engines are
+built (`web/site/tools/engines-check.mjs`). A checkout has the page but not its engines (build outputs), and a page
+without them plays the mock engine's "TEST SCREEN" on every firmware, on the page and on a connected FM-1: that is
+what a fresh worktree served with `python3 -m http.server` showed on 2026-11-08, with or without the audio mode.
 
 ## Tests
 

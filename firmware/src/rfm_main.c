@@ -1389,7 +1389,7 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
     if (rf_au.on) {                                 /* the host's sound over Bluetooth, at MASTER as sa_render's */
         uint32_t q = (uint32_t)(rfm_au_mix(&rf_au, lr, n, (float)master_q12 * (8388607.0f / 4096.0f)) * 32767.0f);
         if (q > sa_peak_q15)
-            sa_peak_q15 = q;                        /* (the screen's bars follow it) */
+            sa_peak_q15 = q;                        /* (the level, as the DX7's) */
 #ifdef PLAT_HOST
         if (q > rf_au_peak_seen)
             rf_au_peak_seen = q;                    /* (the simulator's check: rfm_host.c rf_audio_peak) */

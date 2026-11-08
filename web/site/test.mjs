@@ -1645,5 +1645,21 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   ok(dv.anchor("film") === null && (dv.hit(dv.L.film.tab.x + 5, dv.L.film.tab.y + 5) || {}).kind !== "film", "protector: peeled, the tab takes nothing");
 }
 
+// ---- the engines a served web/ needs (tools/engines-check.mjs, web/serve.sh): a checkout without its engine builds
+// plays the mock engine's TEST SCREEN on every firmware (2026-11-08: a worktree served on :8787)
+{
+  const { enginePaths, missingEngines } = await import("./tools/engines-check.mjs");
+  const cat = JSON.parse(readFileSync(new URL("./catalog.json", import.meta.url), "utf8"));
+  const paths = enginePaths(cat).map((e) => e.path);
+  const felucca = cat.firmwares.find((f) => f.id === "felucca");
+  ok(felucca && paths.includes(felucca.native.wasm.replace(/^\.\.\//, "")) && paths.includes("build/emu/fm1_web.wasm")
+     && paths.every((p) => p.startsWith("build/")),
+     `engines-check: the catalog's ${paths.length} engine files, Felucca's core and the emulator among them`);
+  const without = await missingEngines(cat, (p) => p.startsWith("build/remote/"));   // (only remote.js built: a fresh worktree)
+  ok(without.length === paths.length - 1 && without.some((m) => /felucca's native core/.test(m.why)),
+     "engines-check: a web/ without its engine builds is reported, every engine named");
+  ok((await missingEngines(cat, () => true)).length === 0, "engines-check: all built, nothing reported");
+}
+
 console.log(fails ? `site: ${fails} of ${checks} FAILED` : `site tests passed (${checks})`);
 process.exit(fails ? 1 : 0);

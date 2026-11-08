@@ -379,18 +379,15 @@ static void sa_paint_host(void)
         sg_text_c(160 + 18 * i, 1, ui.info[i], (ui.warn >> i & 1u) ? UC(A1) : UC(SOFT));
 }
 
-/* a Bluetooth audio session (rfm_main.c rf_audio_on): the host's sound plays here, its screen does not come. The name
- * as big as fits, the hand-over's chip and shadow, HOME's bars following the sound */
+/* a Bluetooth audio session (rfm_main.c rf_audio_on): the host's sound plays here, its screen does not come. Only
+ * the name, as big as fits, centred, with the hand-over's text shadow (the owner, 2026-11-08: no bars, nothing else) */
 static void sa_paint_audio(void)
 {
     static const char NAME[] = "RemoteFM1";
-    int32_t n = 5, i;
+    int32_t n = 5;
     while (n > 2 && sg_text_w(NAME, n) > SG_W - 20)
         n--;
-    sg_chip_text((SG_W - 130) / 2, 8, 130, 22, 0, "BLUETOOTH AUDIO", UC(A4), UC(ON));
-    sg_text_sh((SG_W - sg_text_w(NAME, n)) / 2, 112 - 10 * n, n, NAME, UC(INK), n >= 4 ? 4 : n, UC(SHADOW));
-    for (i = 0; i < (int32_t)SA_NBARS; i++)
-        sg_rect(10 + 16 * i, 230 - ui.eq[i], 12, ui.eq[i], (i & 1) ? UC(A3) : UC(A1));
+    sg_text_sh((SG_W - sg_text_w(NAME, n)) / 2, (SG_H - 10 * n) / 2, n, NAME, UC(INK), n >= 4 ? 4 : n, UC(SHADOW));
 }
 
 #include "sa_screens.c"
