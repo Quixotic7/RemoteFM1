@@ -1,0 +1,84 @@
+# SPDX-License-Identifier: MPL-2.0
+# RemoteFM1 standalone: MIDI clock and transport out (sa/sa_arp.c; as ChoralRoot's MIDI Clock Out): F8 at 24 a beat
+# of the tempo, stopped or playing; F2 00 00 and FA when the looper starts playing or recording, FC when it stops;
+# nothing while a clock comes in, no start or stop sent back, none in panel mode; USB HOST's device gets it too.
+# tests/run_tests.sh runs it (both builds).
+wait 400
+expect sa_bpm 120
+# stopped: the clock runs, 48 a second at 120 BPM
+sa clkmark
+wait 1000
+expect sa_clk_since >46
+expect sa_clk_since <50
+expect clocks_out >60
+expect sa_rt_out 0
+# REC arms, the first note starts the take: song position 0, start
+out
+tap REC
+wait 50
+expect_no_out USB FA
+key 0 down 100
+wait 20
+expect_out USB F2 00 00
+expect_out USB FA
+expect sa_rt_out 1
+key 0 up
+wait 400
+# REC ends the take, the loop plays on: the transport runs on (no stop)
+out
+press REC
+release REC
+wait 20
+expect sa_lstate 1
+expect_no_out USB FC
+# PLAY stops it (FC), PLAY again plays it (FA)
+tap PLAY
+wait 5
+expect sa_lstate 0
+expect_out USB FC
+out
+tap PLAY
+wait 5
+expect sa_lstate 1
+expect_out USB FA
+expect sa_rt_out 3
+# a stop that comes in stops the loop, and is not sent back; nor a start
+out
+midi USB FC 00 00
+wait 20
+expect sa_lstate 0
+expect_no_out USB FC
+midi USB FA 00 00
+wait 20
+expect sa_lstate 1
+expect_no_out USB FA
+expect sa_rt_out 3
+# a computer's clock comes in: none goes out, nor PLAY's stop
+sa clkmark
+clock 30 21
+expect sa_clk_since <3
+out
+tap PLAY
+wait 5
+expect sa_lstate 0
+expect_no_out USB FC
+expect sa_rt_out 3
+# the clock in gone: ours again
+wait 600
+sa clkmark
+wait 500
+expect sa_clk_since >22
+# panel mode (a host's session): none
+rf hello usb
+rf session usb 1 3000
+wait 20
+expect sa_panel 1
+sa clkmark
+wait 500
+expect sa_clk_since 0
+rf session usb 0
+wait 50
+expect sa_panel 0
+sa clkmark
+wait 500
+expect sa_clk_since >22

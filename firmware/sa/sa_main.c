@@ -1297,6 +1297,7 @@ static void sa_ms(uint32_t btns, const int32_t *steps)
         }
     }
     if (sa.panel) {
+        sar.run_was = 0;                     /* (the host has the time: no stop sent for the loop it halted) */
         if (!rf_session_on() && now - sa.host_ms >= SA_HOST_MS)
             sa_leave_panel();                /* a HELLO and nothing since */
         return;
@@ -1304,6 +1305,9 @@ static void sa_ms(uint32_t btns, const int32_t *steps)
     touch_poll();
     keys = touch_keys() & ((1u << NKEYS) - 1u);
     if (rm.on) {                             /* MIDI REMOTE: the panel only sends MIDI */
+        if (sar.run_was && !sl_clock_on())
+            sar_rt_send(0xFCu);              /* (the loop halted: the transport stops) */
+        sar.run_was = 0;
         sa_rm_ms(keys, btns & ((1u << NB) - 1u), steps);
         if (rm.on) {
             sa_rm_leds();

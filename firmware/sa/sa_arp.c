@@ -7,6 +7,14 @@
  * follow it (sa_loop.c). MIDI start (FA) restarts the arp's pattern and the playing loop at their starts; stop (FC)
  * stops the loop; continue (FB) goes on.
  *
+ * Clock out (as ChoralRoot's MIDI Clock Out, its default): while no clock comes in, each tick of the tempo is also an F8
+ * out, all the time, stopped or not (devices that follow a clock want it steady); with the looper's transport, F2 00 00
+ * (the song's start) and FA when a loop starts playing or recording (SL_PLAY, SL_REC, SL_DUB), FC when it stops. The
+ * arp alone is not transport: it starts and stops with every chord held. The looper has no pause: no FB. Nothing is
+ * sent while a clock comes in (sl_clock_on: the master has the time), nor a start or stop that came in (no echo);
+ * nothing in panel mode or MIDI REMOTE (sar_ms is not called there). They go out with the notes (rf_ev_put: USB, USB
+ * HOST's device, Bluetooth), from the 1 ms step that makes the ticks.
+ *
  * The arp (ARP: on / off): the keys held (in the order pressed) are not played but stepped through, one note a step
  * at the rate (1/4 .. 1/32, triplets), over 1..4 octaves, up, down, up-down (the ends once), random, or as played,
  * each note sounding for its gate (10..100 % of the step). Its notes go out like the keys' (the DX7, MIDI out). A
@@ -18,6 +26,7 @@
 #define SA_CLK_LOST_MS 400u                  /* no MIDI clock for this long: the tempo's own again */
 #define SA_CLK_AVG 24u
 #define SA_ARP_CHORD_MS 12u                  /* the first step waits this long for the rest of a chord's keys */
+#define SA_RT_ECHO_MS 100u                   /* a start / stop that came in this recently: the loop's change not sent */
 static const uint8_t SA_ARP_TICKS[SA_ARP_NRATES] = {24, 12, 8, 6, 4, 3};   /* 1/4 1/8 1/8T 1/16 1/16T 1/32 */
 
 static struct {
@@ -36,6 +45,10 @@ static struct {
     uint32_t clk_ms, clk_iv_q8, clk_n;       /* the last tick; the ticks' interval (ms x 256), averaged */
     uint8_t clk_run;                         /* started (FA / FB) and not stopped */
     uint32_t ticks_in, starts, stops;        /* (the simulator's checks) */
+    uint8_t run_was;                         /* the looper's transport ran (clock out: FA / FC on a change) */
+    uint8_t rt_in;                           /* a start / stop came in at rt_in_ms (its change is not sent back) */
+    uint32_t rt_in_ms;
+    uint32_t clk_out, rt_out;                /* (the simulator's checks: F8s, FA / FCs sent) */
     uint32_t notes;
 } sar;
 
@@ -176,10 +189,35 @@ static void sar_set(int on)                  /* ARP */
 }
 
 /* every millisecond (sa_ms): the tempo's ticks while no computer sends clock */
+static int sar_running(void) { return sl.state == SL_PLAY || sl.state == SL_REC || sl.state == SL_DUB; }
+static void sar_rt_send(uint32_t st) { rf_ev_put(0x0Fu | st << 8); }   /* a real-time byte out (CIN 0xF) */
+
+/* the looper's transport out: FA (after F2 00 00) when it starts, FC when it stops; not while a clock comes in, nor a
+ * change a start / stop that came in made */
+static void sar_transport(uint32_t now)
+{
+    uint8_t run = (uint8_t)sar_running();
+    if (run == sar.run_was)
+        return;
+    sar.run_was = run;
+    if (!sl_clock_on() && !(sar.rt_in && now - sar.rt_in_ms < SA_RT_ECHO_MS)) {
+        if (run) {
+            rf_ev_put(0x03u | 0xF2u << 8);   /* song position 0 (CIN 3: three bytes of system common) */
+            sar_rt_send(0xFAu);
+            sar.acc_q16 = 65535u;            /* the pulses start with it: the first at once (beat 1) */
+        } else {
+            sar_rt_send(0xFCu);
+        }
+        sar.rt_out++;
+    }
+    sar.rt_in = 0;
+}
+
 static void sar_ms(uint32_t now)
 {
     uint32_t dt = now - sar.last_ms;
     sar.last_ms = now;
+    sar_transport(now);
     if (dt > 100u)
         dt = 100u;
     if (sar.pending && (int32_t)(now - sar.start_ms) >= 0) {
@@ -191,6 +229,8 @@ static void sar_ms(uint32_t now)
     sar.acc_q16 += dt * (uint32_t)sa.bpm * (SA_PPQ * 65536u / 60u) / 1000u;
     while (sar.acc_q16 >= 65536u) {
         sar.acc_q16 -= 65536u;
+        sar_rt_send(0xF8u);                  /* clock out: the tempo's tick */
+        sar.clk_out++;
         sar_tick();
     }
 }
@@ -212,6 +252,8 @@ static void sar_realtime(uint32_t st)
         sar.ticks_in++;
         sar_tick();
     } else if (st == 0xFAu) {                /* start: the pattern and the loop from their starts */
+        sar.rt_in = 1;
+        sar.rt_in_ms = now;
         sar.clk_run = 1;
         sar.starts++;
         if (sar.playing) {
@@ -222,6 +264,8 @@ static void sar_realtime(uint32_t st)
     } else if (st == 0xFBu) {
         sar.clk_run = 1;
     } else if (st == 0xFCu) {
+        sar.rt_in = 1;
+        sar.rt_in_ms = now;
         sar.clk_run = 0;
         sar.stops++;
         if (sl.state == SL_PLAY) {

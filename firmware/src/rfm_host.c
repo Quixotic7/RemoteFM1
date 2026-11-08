@@ -339,8 +339,10 @@ static const char *hb_word(const char *line, int k)  /* the k-th word of the lin
 static void hb_run(void) { run_ms(2); }
 
 /* the standalone's checks by text: sa chord NAME (the Notes view's chord of the notes held now, "-" none), sa name
- * TEXT (the voice's name); a mismatch is a failure (app_host_fails) */
+ * TEXT (the voice's name); a mismatch is a failure (app_host_fails); sa clkmark: clock out counted from now
+ * (expect sa_clk_since) */
 static int sa_host_fails;
+static uint32_t sa_clk_mark;
 static void sa_host_check(const char *what, const char *got, const char *want)
 {
     if (strcmp(got, want)) {
@@ -358,6 +360,10 @@ int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, c
     uint8_t body[64];
     if (!strcmp(cmd, "sa")) {
         char got[40];
+        if (!strcmp(a, "clkmark")) {
+            sa_clk_mark = sar.clk_out;
+            return 1;
+        }
         if (!strcmp(a, "chord")) {
             uint8_t held[128];
             uint32_t n = 0, i;
@@ -941,7 +947,13 @@ int app_expect(const char *what, int *got)
         sa_usbh_name(n, 21);
         *got = !strncmp(rf_want[3], "USB HOST LOOKING", 16) ? 2 :
                (!strncmp(rf_want[3], "USB HOST ", 9) && n[0] && !strcmp(rf_want[3] + 9, n)) ? 1 : 0;
-    } else if (!strcmp(what, "sa_latch"))            /* LATCH (LFO held); the notes it holds */
+    } else if (!strcmp(what, "sa_clk_out"))          /* clock out (sa_arp.c): F8s, FA / FCs queued */
+        *got = (int)sar.clk_out;
+    else if (!strcmp(what, "sa_clk_since"))        /* ... since "sa clkmark" */
+        *got = (int)(sar.clk_out - sa_clk_mark);
+    else if (!strcmp(what, "sa_rt_out"))
+        *got = (int)sar.rt_out;
+    else if (!strcmp(what, "sa_latch"))            /* LATCH (LFO held); the notes it holds */
         *got = sa.latch;
     else if (!strcmp(what, "sa_lat_n"))
         *got = sa.lat_n;

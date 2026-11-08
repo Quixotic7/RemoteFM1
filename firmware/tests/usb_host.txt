@@ -84,6 +84,8 @@ expect_out USBH 80 3E 40
 expect_no_out USB 90 3E 64
 wait 1500
 expect sa_screen 0
+# and the clock (sa_arp.c's clock out: 48 a second at 120 BPM)
+expect usbh_clocks >70
 # not a MIDI device: the row says so
 usbh unplug
 wait 10
