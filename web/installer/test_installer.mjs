@@ -112,7 +112,7 @@ const UI = (answer = true) => {
   const ids = [...new Set([...js.matchAll(/(?:\$|put)\("([\w-]+)"/g)].map((m) => m[1]))];
   const missing = ids.filter((id) => !new RegExp(`id="${id}"`).test(page));
   ok(ids.length >= 10 && !missing.length, `the page has every element installer.js uses (${ids.length})${missing.length ? ": missing " + missing.join(", ") : ""}`);
-  for (const t of [/no sound on\s+its own/, /ChoralRoot users: back up first/, /answers\s+installers as itself/, /Close every app that uses MIDI/, /Chrome or Edge/,
+  for (const t of [/On its own, it is a DX7/, /<h2>Your DX7 cartridges<\/h2>/, /href="\.\.\/\?open=carts"[^>]*>DX7 cartridges</, /ChoralRoot users: back up first/, /answers\s+installers as itself/, /Close every app that uses MIDI/, /Chrome or Edge/,
                    /USB only/, /USB \+ Bluetooth MIDI/])
     ok(t.test(page), `the page says ${t.source.replace(/\\s\+/g, " ")}`);
 }

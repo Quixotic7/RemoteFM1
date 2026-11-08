@@ -1030,6 +1030,12 @@ async function main() {
   if (params.get("fw") && !findEntry(params.get("fw"))) toast(`No firmware "${params.get("fw")}": showing ${first.name}.`, "bad");
   layout();
   await openFirmware(first, params.get("engine"));
+  // ?open=carts (the installer's link): the settings sheet at Use my FM-1's DX7 cartridges
+  if (params.get("open") === "carts") {
+    sheet.open();
+    const cart = document.querySelector('.cart[data-cart="fm1"]');
+    if (cart) { cart.scrollIntoView({ block: "start" }); cart.classList.add("flash"); }
+  }
   if (await player_autostart()) return;
   $("start").hidden = false;
 }

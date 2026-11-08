@@ -87,12 +87,13 @@
 <body>
 <header>
   <a class="brand player" href="../"><span class="mark"></span>FM-1 Player</a>
-  <nav><a class="player" href="../">Play firmwares</a><a href="https://github.com/Quixotic7/FM1VST/releases/latest" target="_blank" rel="noopener" title="FM1VST: a VST3 / AU plugin and desktop app for Mac (Apple silicon)">Get FM1VST</a><a href="https://github.com/Quixotic7/RemoteFM1" target="_blank" rel="noopener">Source</a></nav>
+  <nav><a class="player" href="../">Play firmwares</a><a class="player" href="../?open=carts" title="Send DX7 cartridges (.syx) to your FM-1, list and delete them">DX7 cartridges</a><a href="https://github.com/Quixotic7/FM1VST/releases/latest" target="_blank" rel="noopener" title="FM1VST: a VST3 / AU plugin and desktop app for Mac (Apple silicon)">Get FM1VST</a><a href="https://github.com/Quixotic7/RemoteFM1" target="_blank" rel="noopener">Source</a></nav>
 </header>
 <main>
   <h1>Install Remote<span>FM1</span></h1>
   <p class="lede">RemoteFM1 turns the M-VAVE FM-1 into a panel, over USB or Bluetooth MIDI. Its keys, buttons, knobs and
-    MASTER go to the computer, and the computer draws its screen and lights its LEDs. <b>It makes no sound on its own:</b>
+    MASTER go to the computer, and the computer draws its screen and lights its LEDs. On its own, it is a DX7 with
+    Yamaha's 256 ROM voices and <a class="player" href="../?open=carts">your own cartridges</a>. Connected,
     a firmware running on the computer plays, in <a class="player" href="../">this site's player</a>, in <a href="https://github.com/Quixotic7/FM1VST/releases/latest" target="_blank" rel="noopener">FM1VST</a> or in <code>fm1remote</code>,
     and over USB the computer can play through the FM-1's speaker or headphones.</p>
 
@@ -153,6 +154,16 @@
       screen is slower that way. Installing always goes over USB.</p>
     <p><b>Sound on the FM-1:</b> over USB the computer sees an audio output named "FM-1"; pick it, and the FM-1's speaker
       or headphones play, with MASTER as the volume.</p>
+  </section>
+
+  <section class="card" id="carts">
+    <h2>Your DX7 cartridges</h2>
+    <p>On its own, RemoteFM1 is a DX7: Yamaha's 8 ROM cartridges, plus up to 16 of your own as USER banks (GLO + SELECT
+      picks a cartridge). Send them from the player: pick a 32-voice DX7 <code>.syx</code> file, send it to the FM-1,
+      and see, replace or delete the banks it keeps.</p>
+    <div class="row"><a class="player button primary" href="../?open=carts">Manage my DX7 cartridges</a></div>
+    <p class="meta">Chrome or Edge, with the FM-1 on USB running RemoteFM1 0.3.1 or newer. Installing ChoralRoot or the
+      stock firmware erases the banks: send them again after coming back.</p>
   </section>
 
   <section class="card">

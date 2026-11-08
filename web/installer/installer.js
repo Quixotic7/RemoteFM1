@@ -280,7 +280,7 @@ if (typeof document !== "undefined") {
   }));
   if (!navigator.requestMIDIAccess) $("browser-warn").hidden = false;
   // the player: ../ on the published site, ../site/ in the source tree (web/ served as is)
-  fetch("../site/catalog.json", { method: "HEAD" }).then((r) => { if (r.ok) for (const a of document.querySelectorAll("a.player")) a.href = "../site/"; }, () => {});
+  fetch("../site/catalog.json", { method: "HEAD" }).then((r) => { if (r.ok) for (const a of document.querySelectorAll("a.player")) a.href = "../site/" + new URL(a.getAttribute("href"), location.href).search; }, () => {});
   fetch("releases.json", { cache: "no-cache" }).then((r) => r.json()).then((list) => {
     rel = list.releases[0];
     $("go").textContent = `Install RemoteFM1 ${rel.version}`;

@@ -248,8 +248,9 @@ export function mountCart(slot, link, nav = globalThis.navigator, { inPage = nul
   drop.addEventListener("dragleave", () => drop.classList.remove("over"));
   drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); load(e.dataTransfer.files[0]); });
 
-  slot.append(h("div", { class: "cart" },
-    h("p", { class: "row-sub", style: { margin: inPage ? "0 0 6px" : "14px 0 6px" } }, W.head),
+  slot.append(h("div", { class: "cart", "data-cart": inPage ? "page" : "fm1" },
+    inPage ? null : h("div", { class: "cart-title" }, "DX7 cartridges"),
+    h("p", { class: "row-sub", style: { margin: inPage ? "0 0 6px" : "6px 0 6px" } }, W.head),
     drop, input, list, line, listBtn, stored,
     limits));
 }
