@@ -1,6 +1,6 @@
 --- a/ble/midi/le_midi.c
 +++ b/ble/midi/le_midi.c
-@@ -80,7 +80,7 @@
+@@ -80,7 +80,7 @@ static const uint8_t profile_data[] = {
  };
  
  #define ADV_INTERVAL_MIN     (160)              /* 0.625 ms units: 100 ms (the SDK demo: 500 ms) */

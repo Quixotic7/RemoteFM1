@@ -1,6 +1,6 @@
 --- a/chip/fm1_cpu1.h
 +++ b/chip/fm1_cpu1.h
-@@ -61,6 +61,20 @@
+@@ -69,6 +69,20 @@
  #define FM1_CPU1_TIMEOUT_US 8000u               /* a job not back by then: far past any audio block, or it faulted */
  #endif
  #define FM1_CPU1_SYNC() __asm__ volatile("csync" ::: "memory")
@@ -21,7 +21,7 @@
  #define FM1_C1_CON (*(volatile uint32_t *)0x1EEE004u)
  #define FM1_C1_SYS_DIV (*(volatile uint32_t *)0x10008u)
  #define FM1_C1_ENTRY_WORD (*(volatile uint32_t *)0x01C7FFF8u)
-@@ -136,8 +150,10 @@
+@@ -152,8 +166,10 @@ void __attribute__((section(".c1_text"), noreturn, used)) fm1_cpu1_main(void)
      for (;;) {
          uint32_t request = fm1_cpu1_mb.request;
          FM1_CPU1_SYNC();
@@ -33,7 +33,7 @@
          if (request == done + 1u) {
              fm1_cpu1_fn fn = fm1_cpu1_mb.fn;
              uint32_t arg = fm1_cpu1_mb.arg;
-@@ -307,6 +323,7 @@
+@@ -328,6 +344,7 @@ static int fm1_cpu1_wait(void)
              fm1_cpu1_retire(FM1_CPU1_LATE);
              return -1;
          }

@@ -1,6 +1,6 @@
 --- a/boards/fm1/fm1_input.h
 +++ b/boards/fm1/fm1_input.h
-@@ -210,6 +210,10 @@
+@@ -212,6 +212,10 @@ static uint8_t fm1_led[FM1_NCOL];
  static uint8_t fm1_led_dim[FM1_NCOL];
  static uint8_t fm1_led_breath[FM1_NCOL];   /* breathing LEDs (see top): dark .. ~60 % of lit, in step */
  static uint8_t fm1_led_mid[FM1_NCOL];      /* a steady mid level (see top): lit 1 frame in FM1_LED_MID_N */
@@ -11,7 +11,7 @@
  #ifndef FM1_INPUT_LED_OK
  #define FM1_INPUT_LED_OK(col, rowbit) 1
  #endif
-@@ -553,7 +557,13 @@
+@@ -584,7 +588,13 @@ static void fm1_led_dim_ns(uint32_t ns)
  }
  /* column c's lit lines this frame: lit, a breath's lit frame (not dim), the mid level's lit frame */
  #define FM1__LIT(c) (fm1_led[c] | (fm1__br_lit ? fm1_led_breath[c] & ~fm1_led_dim[c] : 0u) | \
@@ -26,7 +26,7 @@
  #if FM1_LED_DIM_DIV > 1
  static uint8_t fm1__dim_ph;
  #endif
-@@ -642,7 +652,7 @@
+@@ -673,7 +683,7 @@ static void fm1__anim_begin(uint32_t glow, uint32_t idle)
      for (i = 0; i < FM1_NKEY; i++)
          fm1__an_acc[i] = FM1_ANIM_FULL / 2u;
      for (c = 0; c < FM1_NCOL; c++)
@@ -35,7 +35,7 @@
      fm1__an_glow = glow != 0u;
      fm1__an_idle = idle != 0u;
      fm1__an_f = 1;
-@@ -713,6 +723,7 @@
+@@ -744,6 +754,7 @@ static void fm1_input_tick(void)
      fm1__sr_latch();                               /* column n, the lines dark */
      if (n == 0u) {                                 /* (a new frame: the mid level's turn, before column 0 lights) */
          fm1__mid_ph = (uint8_t)(fm1__mid_ph + 1u >= fm1__mid_n ? 0u : fm1__mid_ph + 1u);

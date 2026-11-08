@@ -1,7 +1,6 @@
-diff -ruN a/device/plat_fm1.c b/device/plat_fm1.c
 --- a/device/plat_fm1.c
 +++ b/device/plat_fm1.c
-@@ -327,10 +327,15 @@
+@@ -455,10 +455,15 @@ const uint8_t *plat_chip_uid(void) { return flash_ok ? flash_uid : 0; }
  #else
  const uint8_t *plat_chip_uid(void) { return 0; }
  #endif
@@ -18,13 +17,12 @@ diff -ruN a/device/plat_fm1.c b/device/plat_fm1.c
 +int PLAT_STORE_FN(head)(uint32_t obj, void *dst, uint32_t n) { return flash_ok ? st_load_head(obj, dst, n) : -1; }
 +int PLAT_STORE_FN(size)(uint32_t obj) { return flash_ok ? st_size(obj) : -1; }
 +int PLAT_STORE_FN(save)(uint32_t obj, const void *src, uint32_t len) { return flash_ok ? st_save(obj, src, len) : -9; }
- 
- static volatile uint32_t audio_cpu_pct, audio_xruns;
- uint32_t plat_cpu_pct(void) { return audio_cpu_pct; }
-diff -ruN a/device/unity.c b/device/unity.c
+ #ifdef APP_STORE_POOL
+ int plat_store_room(void) { return flash_ok ? st_pool_room() : 0; }
+ #else
 --- a/device/unity.c
 +++ b/device/unity.c
-@@ -147,17 +147,22 @@
+@@ -198,17 +198,22 @@ static int st_read(uint32_t off, void *dst, uint32_t n)   /* 256-byte IRQ-off wi
      }
      return 0;
  }
@@ -49,15 +47,12 @@ diff -ruN a/device/unity.c b/device/unity.c
          return -8;
      return fl_write(off, src, n);
  }
-diff -ruN a/host/plat_host.c b/host/plat_host.c
 --- a/host/plat_host.c
 +++ b/host/plat_host.c
-@@ -530,7 +530,22 @@
- static uint8_t store[OBJ_NOBJ][PLAT_STORE_MAX];
+@@ -1364,6 +1364,21 @@ static uint8_t store[OBJ_NOBJ][PLAT_STORE_MAX];
  static int store_len[OBJ_NOBJ];           /* -1 = nothing saved (store_ready) */
  static uint32_t store_writes, store_tries;
--static int store_fail;                    /* flash_fail 1: every save fails (a flash error) */
-+static int store_fail;
+ static int store_fail;                    /* flash_fail 1: every save fails (a flash error) */
 +#ifdef APP_STORE_MUX                            /* (plat.h: the app's plat_store_* sit on these) */
 +#define PLAT_STORE_FN(f) plat_store_raw_##f
 +#else
@@ -72,11 +67,11 @@ diff -ruN a/host/plat_host.c b/host/plat_host.c
 +    static const uint32_t map[OBJ_NOBJ] = APP_STORE_MAP;
 +    return APP_STORE_OK(map[obj], 0x1000u) && APP_STORE_OK(map[obj] + 0x1000u, 0x1000u);
 +}
-+#endif                    /* flash_fail 1: every save fails (a flash error) */
++#endif
  static void store_ready(void)             /* the flash starts empty: once, on first use (a "reboot" keeps it) */
  {
      static int done;
-@@ -546,7 +561,7 @@
+@@ -1379,7 +1394,7 @@ const uint8_t *plat_chip_uid(void)
      static const uint8_t U[16] = {0x46, 0x4D, 0x31, 0x2D, 0x68, 0x6F, 0x73, 0x74};   /* "FM1-host" */
      return U;
  }
@@ -85,7 +80,7 @@ diff -ruN a/host/plat_host.c b/host/plat_host.c
  {
      int n;
      store_ready();
-@@ -557,7 +572,7 @@
+@@ -1390,7 +1405,7 @@ int plat_store_load(uint32_t obj, void *dst, uint32_t max)
      memcpy(dst, store[obj], (size_t)n);
      return n;
  }
@@ -94,7 +89,7 @@ diff -ruN a/host/plat_host.c b/host/plat_host.c
  {
      store_ready();
      if (obj >= OBJ_NOBJ || store_len[obj] <= 0 || (uint32_t)store_len[obj] < n)
-@@ -565,17 +580,23 @@
+@@ -1398,18 +1413,24 @@ int plat_store_head(uint32_t obj, void *dst, uint32_t n)
      memcpy(dst, store[obj], (size_t)n);
      return (int)n;
  }
@@ -104,6 +99,7 @@ diff -ruN a/host/plat_host.c b/host/plat_host.c
      store_ready();
      return obj >= OBJ_NOBJ || store_len[obj] <= 0 ? -1 : store_len[obj];
  }
+ int plat_store_room(void) { return -1; }   /* (the simulator's store has no pool) */
 -int plat_store_save(uint32_t obj, const void *src, uint32_t len)
 +int PLAT_STORE_FN(save)(uint32_t obj, const void *src, uint32_t len)
  {
@@ -120,10 +116,10 @@ diff -ruN a/host/plat_host.c b/host/plat_host.c
      memcpy(store[obj], src, len);
      store_len[obj] = (int)len;
      store_writes++;
-@@ -1092,6 +1113,10 @@
-         got = (int)store_writes;
-     else if (!strcmp(what, "store_tries"))
-         got = (int)store_tries;
+@@ -2244,6 +2265,10 @@ static int expect(const char *what, const char *val)
+         got = hcr.magic == HCR_MAGIC ? (int)hcr.count : 0;
+     else if (!strcmp(what, "crash_boot_rc"))       /* the last boot's cl_boot: 1 kept, 0 nothing new, < 0 not kept */
+         got = hcr_rc;
 +#ifdef APP_STORE_OK
 +    else if (!strcmp(what, "store_outside"))        /* saves refused: outside the app's window (APP_STORE_OK) */
 +        got = (int)store_outside;
@@ -131,10 +127,9 @@ diff -ruN a/host/plat_host.c b/host/plat_host.c
  #if FM1B_BACKUP
      else if (!strcmp(what, "restore_rc"))
          got = restore_rc;
-diff -ruN a/include/plat.h b/include/plat.h
 --- a/include/plat.h
 +++ b/include/plat.h
-@@ -211,7 +211,10 @@
+@@ -475,7 +475,10 @@ uint32_t plat_analog_mask(void);       /* bit k: key k is on an analog row (PA7
   * for an address that must not change (the WiFi MAC, the Bluetooth name); 0 = unknown (and in a build without a radio) */
  const uint8_t *plat_chip_uid(void);
  

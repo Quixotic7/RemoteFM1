@@ -1,0 +1,16 @@
+--- a/tools/firmware_json.py
++++ b/tools/firmware_json.py
+@@ -147,8 +147,11 @@ def require(conf, release, toml="fm1.toml", app_dir=None):
+ 
+ 
+ def repo_root(app_dir, src=SRC):
+-    """the firmware's repository: the parent of an APP_DIR named app (fm1-ctl/app), else APP_DIR itself (fm1-base's
+-    template)"""
++    """the firmware's repository: FM1B_REPO_ROOT from the environment when set (a build script's word for a layout of
++    its own: RemoteFM1's app in firmware/, or a copy of it built elsewhere); else the parent of an APP_DIR named app
++    (fm1-ctl/app), else APP_DIR itself (fm1-base's template)"""
++    if os.environ.get("FM1B_REPO_ROOT"):
++        return Path(os.environ["FM1B_REPO_ROOT"]).resolve()
+     app = Path(app_dir).resolve()
+     return app.parent if app.name == "app" and app.parent != Path(src).resolve() else app
+ 

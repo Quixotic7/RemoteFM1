@@ -33,8 +33,18 @@ usb_audio_in = true            # USB audio (0.2.1): the computer sees the FM-1 a
 usb_audio_out = true           # its speaker / headphones, MASTER its volume (fm1-base builds the output only with the
                                # input: the FM-1 is recordable too). Interfaces: 0 audio control, 1 MIDI, 2 audio in,
                                # 3 audio out, 4 the vendor bulk pair (src/rfm_dev.c; 2 in 0.1 / 0.2.0); bcdDevice 4.50
+usb_midi_last = false          # that order kept: fm1-base's default since 2026-10-31 puts MIDI after the audio streams
+                               # (FELUCCA_UAC_MIDI_LAST, for macOS 13-15), which renumbers the interfaces and makes
+                               # bcdDevice 4.D0; not tried with the vendor interface on an FM-1 yet
 # the site (fm1-base's make_site.py is not used: RemoteFM1 has its own, web/)
 tagline = "the FM-1 as a DX7 of its own, and as the panel of a firmware on a computer"
 repo = "https://github.com/Quixotic7/RemoteFM1"
 licence = "MPL-2.0"
 credits = "Built on fm1-base (Charles Vestal) and felucca-bsp (Leo Kuroshita, Hügelton Instruments)."
+# firmware.json for firmware hubs (fm1-base docs/FIRMWARE-JSON.md; a --release build refuses without these): taken
+# from fmhub.json, The Firmware Hub card's own text and picture
+author = "Quixotic7"
+description = "A DX7 on your FM-1: Yamaha's 256 ROM voices and your own cartridges, with arp, scales, latch and a 16-loop looper. A MIDI controller over USB, Bluetooth and TRS. And the FM-1 as keys, knobs and screen for the RemoteFM1 apps on the web, iOS and Android, which run over 150 FM-1 firmwares."
+tags = ["synth", "fm", "controller", "midi"]
+install = "https://remotefm1.com/installer/"
+screenshot = "docs/hub-card.png"   # (a path in the repository: build.sh's FM1B_REPO_ROOT)

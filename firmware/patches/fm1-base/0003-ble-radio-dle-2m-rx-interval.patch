@@ -1,6 +1,6 @@
 --- a/ble/midi/le_midi.c
 +++ b/ble/midi/le_midi.c
-@@ -52,6 +52,18 @@
+@@ -52,6 +52,18 @@ const char log_tag_const_i_BLE_MIDI = 1;           /* the SDK keeps these in log
  #ifndef BLE_MIDI_CENTRAL
  #define BLE_MIDI_CENTRAL 0
  #endif
@@ -19,7 +19,7 @@
  extern void ble_midi_receive(uint32_t pkt, uint32_t ts);   /* ts: the sender's millisecond (13 bits) */
  extern uint32_t shim_ms(void);
  extern void ble_midi_name(char *name);              /* "FM-1 " + four hex digits: this FM-1's (device/radio.c) */
-@@ -109,6 +121,9 @@
+@@ -109,6 +121,9 @@ static OS_MUTEX mutex;
  static const uint8_t connection_update_enable = 1;
  static uint8_t connection_update_cnt;
  static const struct conn_update_param_t connection_param_table[] = {
@@ -29,11 +29,10 @@
      {9, 21, 0, 400},                /* 11.25..26.25 ms (1.25 ms units; Apple: max >= min + 15 ms), 4 s timeout */
      {9, 12, 0, 400},                /* 11.25..15 ms (BLE MIDI's own advice) */
      {12, 24, 0, 400},               /* 15..30 ms */
-@@ -136,6 +151,23 @@
- {
+@@ -137,6 +152,23 @@ static void check_connetion_updata_deal(void)
      if (connection_update_enable && connection_update_cnt < CONN_PARAM_TABLE_CNT)
          send_request_connect_parameter(connection_update_cnt);
-+}
+ }
 +static u8 radio_asked, radio_dl_seen;           /* bit 0 the data length asked, bit 1 the PHY; a length change seen */
 +static void radio_ask(int now)                   /* the next of what this build asks of the link (stack's context);
 +                                                  * now: the PHY too, without waiting for the length's change */
@@ -50,10 +49,11 @@
 +        radio_asked |= 2u;
 +        ble_op_set_ext_phy(con_handle, 0, CONN_SET_2M_PHY, CONN_SET_2M_PHY, CONN_SET_PHY_OPTIONS_NONE);
 +    }
- }
++}
  static void connection_update_complete_success(u8 *packet)
  {
-@@ -390,6 +422,8 @@
+     int conn_interval = hci_subevent_le_connection_update_complete_get_conn_interval(packet);
+@@ -390,6 +422,8 @@ static int att_write_callback(hci_con_handle_t connection_handle, uint16_t att_h
      case H_CCC:
          set_ble_work_state(BLE_ST_NOTIFY_IDICATE);
          check_connetion_updata_deal();
@@ -62,7 +62,7 @@
          log_info("ccc %02x\n", buffer[0]);
          CCC_SET(connection_handle, att_handle, buffer[0]);
          break;
-@@ -710,6 +744,7 @@
+@@ -710,6 +744,7 @@ static void bt_ble_adv_enable(u8 enable) { set_adv_enable(0, enable); }
  /* ---- the stack's events */
  static void server_profile_start(u16 handle)
  {
@@ -70,7 +70,7 @@
  #if BLE_MIDI_CENTRAL
      ble_op_multi_att_send_conn_handle(handle, 0, ROLE_SERVER);
  #else
-@@ -756,11 +791,27 @@
+@@ -756,11 +791,27 @@ static void cbk_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
              if (little_endian_read_16(packet, 4) == con_handle)
                  connection_update_complete_success(packet);
              break;
@@ -98,7 +98,7 @@
          printf("computer: disconnected %x\n", packet[5]);
          sx_reset(0);
  #if BLE_MIDI_CENTRAL
-@@ -791,6 +842,7 @@
+@@ -791,6 +842,7 @@ static void cbk_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
          ble_op_att_set_send_mtu(mtu);
  #endif
          send_mtu = (u16)(mtu > 64 ? 64 : mtu);
@@ -108,10 +108,10 @@
          if (little_endian_read_16(packet, 2) != con_handle)
 --- a/tools/build.py
 +++ b/tools/build.py
-@@ -38,6 +38,14 @@
-                              RAM: Melodee's measure ~18 KB and ~4 KB); not with ble_central
-   ble_no_pairing = true      with ble_trim: no pairing or encryption either (~19 KB more flash; iOS and macOS connect)
-   ble_central = true         and the FM-1 connects to Bluetooth MIDI devices too (FM1B_BLE_CENTRAL), beside a computer
+@@ -67,6 +67,14 @@ APP_DIR holds the app (app.h, app.c, its sources) and its fm1.toml:
+   bt_audio_sim = true        with bt_audio: the host simulator and the browser emulator built with FM1B_BT_AUDIO, on
+                              fm1-base's stand-in for plat_bta_* (the script's "bta add NAME"); off by default, so an
+                              app keeps its own stand-in there (without FM1B_BT_AUDIO)
 +  ble_dle = true             Bluetooth's link-layer packets 251 bytes (Data Length Extension; 27 without): the controller
 +                             says it can, ble/midi asks the computer once the link is up (a 244 B write in one packet)
 +  ble_2m = true              the 2M PHY: the controller says it can, ble/midi asks for it after the data length
@@ -122,13 +122,11 @@
 +                             ("" or "none": all off), whatever fm1.toml says
    usb_audio_in = true        the FM-1 recordable over USB (FM1B_UAC; the default: true)
    usb_audio_out = true       a computer plays through the FM-1 over USB (FM1B_UAC_OUT; the default: true)
-   usb_host = true            the USB port as a MIDI host when the app asks (FM1B_USB_HOST: felucca-bsp's
-@@ -371,10 +379,45 @@
- BLE_CONFIG_NO_SM = {"apps/common/config/log_config/lib_btctrler_config.c": [
-     (r"(const int config_le_sm_support_enable\s*=\s*)1", r"\g<1>0"),
+   usb_audio_channels = 10    the USB audio input's channels, 4, 6, 8 or 10 (the default 2: the master alone): the master on 1 and
+@@ -568,8 +576,43 @@ BLE_CONFIG_NO_SM = {"apps/common/config/log_config/lib_btctrler_config.c": [
      (r"(const uint64_t config_btctler_le_features\s*=\s*)\(LE_ENCRYPTION\)", r"\g<1>(0)")]}
-+
-+
+ 
+ 
 +def ble_radio():
 +    """the radio's options: fm1.toml ble_dle, ble_2m, ble_rx_bufs, ble_fast_interval, or FM1B_BLE_RADIO's
 +    ("dle,2m,rx16,ci"); {"dle": bool, "2m": bool, "rx": int or 0 (the SDK's), "ci": bool}"""
@@ -161,8 +159,8 @@
 +    if r["rx"]:
 +        cuts.append((r"(const int config_btctler_le_rx_nums\s*=\s*)[^;]+", rf"\g<1>{r['rx']}"))
 +    return {"apps/common/config/log_config/lib_btctrler_config.c": cuts} if cuts else {}
- 
- 
++
++
  def ble_config(sdk, dst):
 -    """the SDK's configuration sources into dst, as BLE_CONFIG cuts them (ble_trim); written only when changed"""
 +    """the SDK's configuration sources into dst, as BLE_CONFIG cuts them (ble_trim) and the radio's options; written
@@ -170,7 +168,7 @@
      import re as _re
      import shutil
      cuts = {}
-@@ -382,6 +425,9 @@
+@@ -577,6 +620,9 @@ def ble_config(sdk, dst):
          for d in (BLE_CONFIG, BLE_CONFIG_NO_SM if CONF.get("ble_no_pairing") else {}):
              for f, rs in d.items():
                  cuts.setdefault(f, []).extend(rs)
@@ -180,7 +178,7 @@
      for f in BLE_SDK_SRC:
          text = (sdk / f).read_text(errors="ignore")
          for rx, rep in cuts.get(f, []):
-@@ -489,6 +535,12 @@
+@@ -699,6 +745,12 @@ def radio_units():
      # controller's link count, the multi-link stack). Written from the SDK's each build, as this one wants it
      cfg = "apps/demo/demo_ble/include/app_config.h"
      text = (sdk / cfg).read_text(errors="ignore")

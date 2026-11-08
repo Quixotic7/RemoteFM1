@@ -39,6 +39,8 @@ if [ -z "${DYLD_LIBRARY_PATH:-}${DYLD_FALLBACK_LIBRARY_PATH:-}" ] && [ -d /opt/h
     export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib
 fi
 PY="${PYTHON:-python3}"
+export FM1B_REPO_ROOT="$ROOT"   # firmware.json's screenshot is a path in this repository (fm1.toml screenshot; fm1-base
+                                # patch 0009: the app is in firmware/, or a copy in build/app-smk37)
 
 [ -f base/tools/build.py ] && [ -f base/bsp/chip/usb.c ] ||
     { echo "build.sh: base/ is empty: git submodule update --init --recursive"; exit 1; }

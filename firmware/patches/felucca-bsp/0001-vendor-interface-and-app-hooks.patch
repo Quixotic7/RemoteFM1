@@ -1,32 +1,29 @@
-diff -ruN a/boards/fm1/fm1_lcd_hw.h b/boards/fm1/fm1_lcd_hw.h
 --- a/boards/fm1/fm1_lcd_hw.h
 +++ b/boards/fm1/fm1_lcd_hw.h
-@@ -8,6 +8,7 @@
-  *   fm1_lcd_send_cmd(c)        D/C low, CS low, one byte (then fm1_lcd_wait)
+@@ -10,6 +10,7 @@
   *   fm1_lcd_send_data(p, n)    D/C high, CS low, DMA n bytes from RAM p
-  *   fm1_lcd_wait()             SPI done (or timeout, counted), pending cleared
-+ *   fm1_lcd_done()             the running transfer is over (a look: no wait, nothing cleared)
+  *   fm1_lcd_wait()             0 done, -1 timeout (counted); pending cleared, the SPI left on either way
+  *   fm1_lcd_spi_off()          SPI1 off (fm1_lcd.h after a timeout; fm1_lcd_hw_init turns it on again)
++ *   fm1_lcd_xfer_done()        the running transfer is over (a look: no wait, nothing cleared)
   *   fm1_lcd_deselect()         CS high
   *   fm1_lcd_backlight(on)      PA2 low (on) / high (off); the TIMER5 scan writes port A too: IRQs off around it
   */
-@@ -64,6 +65,8 @@
-         fm1_lcd_timeouts++;
-     FM1_LCD_SPI_CON |= 0x4000u;
+@@ -77,6 +78,7 @@ static int fm1_lcd_wait(void)
  }
-+
-+FM1_INLINE uint32_t fm1_lcd_done(void) { return FM1_LCD_SPI_CON & 0x8000u; }   /* the transfer is over (no wait) */
+ 
+ FM1_INLINE void fm1_lcd_spi_off(void) { FM1_LCD_SPI_CON &= ~1u; }
++FM1_INLINE uint32_t fm1_lcd_xfer_done(void) { return FM1_LCD_SPI_CON & 0x8000u; }   /* the transfer is over (no wait) */
  
  FM1_INLINE void fm1_lcd_deselect(void) { FM1_LCD_PC_OUT |= FM1_LCD_CS; }
  
-diff -ruN a/chip/usb.c b/chip/usb.c
 --- a/chip/usb.c
 +++ b/chip/usb.c
-@@ -28,7 +28,25 @@
-  * stereo, 44.1 kHz, EP4 OUT isochronous adaptive). uac_service takes each packet into a ring (nested in the render
-  * too); uac_play, after each render, adds it to the output, resampled to the I2S clock (~44,117.6 Hz): the ring's
-  * fill steers the rate, so it neither runs dry nor overflows.
-- * FELUCCA_USB_HOST=1 adds opt-in MIDI host mode; see docs/USB_HOST.md for the main-loop contract. */
-+ * FELUCCA_USB_HOST=1 adds opt-in MIDI host mode; see docs/USB_HOST.md for the main-loop contract.
+@@ -33,7 +33,24 @@
+  * (bulk-only transport, EP3 bulk in and out; nothing else: no MIDI, no audio) until usb_msc_switch(0). The poll
+  * only moves packets: the commands (SCSI) and the disk are the main loop's (usb_msc_read, usb_msc_send).
+  * FELUCCA_MIDI_IN_RAW, a function of the firmware's (void f(uint32_t pkt)), is given every EP1 OUT event packet as
+- * it came, for a MIDI parser of its own (midi_in_event). */
++ * it came, for a MIDI parser of its own (midi_in_event).
 + * FELUCCA_VENDOR=1 (RemoteFM1's, the app only: not with CDC, the USB host or in the update loader) adds a
 + * vendor-specific interface (class 0xFF, the last one: 2 after audio control and MIDI streaming, 3 or 4 after the audio
 + * streams with FELUCCA_UAC / _OUT) with a bulk OUT / IN pair on EP3 (the endpoint of the CDC option), for a host that
@@ -42,26 +39,25 @@ diff -ruN a/chip/usb.c b/chip/usb.c
 + *   FELUCCA_EP1_ROOM()      before an EP1 OUT packet is taken: 0 leaves it for a later poll (NAKed meanwhile)
 + *   FELUCCA_USB_FRAME_DUE() the 10 ms frame-number check is due (nonzero): for an app that calls usb_poll from its
 + *                           main loop far more often than the 2 kHz timer does (default: every 20th poll)
-+ *   FELUCCA_CIN_F_SYSEX     defined: a CIN 0xF packet (one unparsed byte) inside a SysEx, or with an F0, is a SysEx
-+ *                           byte, as CIN 4..7's are (macOS sends a long SysEx's odd byte so: dropped, a 2 KB message
-+ *                           came one byte short) */
++ *   FELUCCA_CIN_F_SYSEX     evaluated for each CIN 0xF byte taken into a SysEx (macOS sends a long SysEx's odd byte
++ *                           at a split so), for an app's count of them */
  #include "fm1_usb.h"   /* registers (chip/) */
  /* Host is opt-in and excluded from update loaders, even with a global build flag. */
  #ifndef FELUCCA_USB_HOST
-@@ -56,6 +74,12 @@
- #undef FELUCCA_UAC_OUT
- #define FELUCCA_UAC_OUT 0
+@@ -116,6 +133,12 @@
+ #else
+ #define UA_MC 0
  #endif
 +#ifndef FELUCCA_VENDOR
 +#define FELUCCA_VENDOR 0
 +#endif
-+#if FELUCCA_VENDOR && (FELUCCA_CDC || FELUCCA_USB_HOST || defined(FELUCCA_LOADER))
-+#error "FELUCCA_VENDOR takes EP3 and the interface after audio + MIDI: no CDC, no USB host, not in the loader"
++#if FELUCCA_VENDOR && (FELUCCA_CDC || FELUCCA_MSC || FELUCCA_USB_HOST || defined(FELUCCA_LOADER))
++#error "FELUCCA_VENDOR takes EP3 and the interface after audio + MIDI: no CDC, no disk mode, no USB host, not in the loader"
 +#endif
  enum { S_FADDR = 0, S_POWER = 1, S_INTRTX1 = 2, S_INTRTX2 = 3, S_INTRRX1 = 4, S_INTRRX2 = 5, S_INTRUSB = 6,
         S_INTRTX1E = 7, S_INTRTX2E = 8, S_INTRRX1E = 9, S_INTRRX2E = 10, S_INTRUSBE = 11, S_FRAME1 = 12,
         S_FRAME2 = 13, S_INDEX = 14,
-@@ -82,6 +106,30 @@
+@@ -158,6 +181,30 @@ static struct {
      uint32_t rx_pkts, tx_pkts;
  } cdc = {{0x00, 0xC2, 0x01, 0x00, 0, 0, 8}};   /* 115200 8N1 */
  #endif
@@ -92,10 +88,11 @@ diff -ruN a/chip/usb.c b/chip/usb.c
  
  #if FELUCCA_UAC
  /* USB audio input. The I2S clock is not locked to USB (about 44,117.6 Hz against the host's 44,100):
-@@ -397,9 +445,36 @@
-     FELUCCA_USB_PID >> 8, BCD_LO(cdc), 0x03, 1, 2, 0, 1
- 
- /* without the console (FELUCCA_CDC=0, or usb_cdc_on = 0): class 0, no IAD, as a plain USB-MIDI / audio device */
+@@ -608,7 +655,32 @@ static uint32_t midi_out_room(void)                  /* free slots in the out ri
+ /* without the console (FELUCCA_CDC=0, or usb_cdc_on = 0): class 0, no IAD, as a plain USB-MIDI / audio device.
+  * FELUCCA_UAC_IAD=1: an IAD over the audio function (audio control + its collection), so the device is misc / IAD
+  * (EF 02 01, USB 2.00); with the console the IADs are there anyway. */
+-#if FELUCCA_UAC_IAD
 +#if FELUCCA_VENDOR
 +/* with the vendor interface (FELUCCA_VENDOR, never with CDC): the last interface, after audio control, MIDI and the
 + * audio streams (2, 3 or 4), its bulk pair on EP3; bcdUSB 2.10 (so the host asks for the BOS descriptor). bcdDevice
@@ -121,15 +118,11 @@ diff -ruN a/chip/usb.c b/chip/usb.c
 +    5, 0x0F, 29, 0, 1,
 +    24, 0x10, 0x05, 0, 0x38, 0xB6, 0x08, 0x34, 0xA9, 0x09, 0xA0, 0x47, 0x8B, 0xFD, 0xA0, 0x76, 0x88, 0x15, 0xB6, 0x65,
 +    0x00, 0x01, 0x01, 0};
-+#else
- #define CFG_LEN_PLAIN (9 + AUD_LEN)
- static const uint8_t DEV_DESC_PLAIN[18] = {D_DEV(0x0110, 0, 0, 0, 0)};
- static const uint8_t CFG_DESC_PLAIN[] = {D_CFG(CFG_LEN_PLAIN, AUD_NIF), D_AUDIO(0)};
-+#endif
- typedef char cfg_plain_len_ok[sizeof CFG_DESC_PLAIN == CFG_LEN_PLAIN ? 1 : -1];
- #if FELUCCA_CDC
- #define CFG_LEN (9 + 8 + AUD_LEN + CDC_LEN)
-@@ -509,6 +584,12 @@
++#elif FELUCCA_UAC_IAD
+ #define CFG_LEN_PLAIN (9 + 8 + AUD_LEN)
+ static const uint8_t DEV_DESC_PLAIN[18] = {D_DEV(0x0200, 0xEF, 0x02, 0x01, 0)};
+ static const uint8_t CFG_DESC_PLAIN[] = {D_CFG(CFG_LEN_PLAIN, AUD_NIF), D_IAD(0, AUD_FN_NIF, 1, 1, 0), D_AUDIO(0)};
+@@ -757,6 +829,12 @@ static int get_desc(uint32_t wvalue, const uint8_t **d, uint16_t *l)
          default:
              return 0;
          }
@@ -142,7 +135,7 @@ diff -ruN a/chip/usb.c b/chip/usb.c
      default:
          return 0;
      }
-@@ -640,6 +721,20 @@
+@@ -912,6 +990,20 @@ static void ep1_config(void)
      cdc.rx_pend = 1;                                    /* look once: a packet may already wait */
  no_cdc:;
  #endif
@@ -163,16 +156,16 @@ diff -ruN a/chip/usb.c b/chip/usb.c
  #if FELUCCA_UAC
      fm1_usb_ep4_txbuf(ep4tx);
      sie_wr(S_INDEX, 4);
-@@ -833,7 +928,7 @@
+@@ -1114,7 +1206,7 @@ static void ep0_service(void)
          e0_send(zero2, 1, wlength);
          return;
      case 0x0201: {                                      /* CLEAR_FEATURE(ENDPOINT_HALT): data toggle reset */
--        uint32_t ep = s[4] & 0x0Fu, last = USB_CDC_ON ? 3u : 1u;
-+        uint32_t ep = s[4] & 0x0Fu, last = USB_CDC_ON || FELUCCA_VENDOR ? 3u : 1u;   /* (the vendor pair: EP3) */
+-        uint32_t ep = s[4] & 0x0Fu, last = (USB_CDC_ON || USB_MSC_ON) ? 3u : 1u;
++        uint32_t ep = s[4] & 0x0Fu, last = (USB_CDC_ON || USB_MSC_ON || FELUCCA_VENDOR) ? 3u : 1u;   /* (the vendor pair: EP3) */
  #if FELUCCA_UAC
          if (wvalue == 0 && (s[4] == 0x84u || (FELUCCA_UAC_OUT && s[4] == 0x04u)))
              goto ack;                                   /* isochronous: no halt, no toggle */
-@@ -924,6 +1019,9 @@
+@@ -1293,6 +1385,9 @@ static void sysex_byte(uint8_t b)
      if (b >= 0xF8u)
          return;                                        /* realtime may occur anywhere in SysEx */
      if ((b & 0x80u) && b != 0xF0u && b != 0xF7u) {
@@ -182,8 +175,8 @@ diff -ruN a/chip/usb.c b/chip/usb.c
          usb.sx_on = 0;
  #if FELUCCA_OTA
          sx_collect = 0;
-@@ -938,6 +1036,13 @@
-         sx_pos = 0;
+@@ -1311,6 +1406,13 @@ static void sysex_byte(uint8_t b)
+         sx_start();
  #endif
      }
 +#ifdef FELUCCA_SYSEX_TAP
@@ -196,19 +189,18 @@ diff -ruN a/chip/usb.c b/chip/usb.c
      if (!usb.sx_on)
          return;
  #if FELUCCA_OTA
-@@ -980,7 +1085,19 @@
-             sysex_byte((uint8_t)(pkt >> (8u * (k + 1u))));
+@@ -1359,11 +1461,17 @@ static void midi_in_event(uint32_t pkt)                 /* one USB-MIDI event pa
          return;
      }
+     if (cin == 0xFu && st < 0xF8u && (usb.sx_on || st == 0xF0u)) {
+-        sysex_byte((uint8_t)st);                       /* a SysEx byte alone (CIN 0xF, a single byte): macOS sends some
 +#ifdef FELUCCA_CIN_F_SYSEX
-+    /* CIN 0xF, one unparsed byte (USB-MIDI 1.0 section 4), inside a SysEx (or an F0 starting one) is a SysEx byte
-+     * like CIN 4..7's: macOS sends a long SysEx's odd byte at a split so (a 2 KB message came one byte short) */
-+    if (cin == 0xFu && (st == 0xF0u || (usb.sx_on && (st < 0x80u || st == 0xF7u)))) {
-+        (void)(FELUCCA_CIN_F_SYSEX);
-+        sysex_byte((uint8_t)st);
-+        return;
-+    }
++        (void)(FELUCCA_CIN_F_SYSEX);                   /* (an app's count of them) */
 +#endif
++        sysex_byte((uint8_t)st);                      /* a SysEx byte alone (CIN 0xF, a single byte): macOS sends some
+                                                         * so inside a long frame (Melodee 55a0d62, for DX7 banks) */
+         return;
+     }
      if (st >= 0x80u && st < 0xF8u) {
 +#ifdef FELUCCA_SYSEX_TAP
 +        (void)FELUCCA_SYSEX_TAP(st);                   /* (it ends the app's message too) */
@@ -216,7 +208,7 @@ diff -ruN a/chip/usb.c b/chip/usb.c
          usb.sx_on = 0;                                 /* channel/system common also ends SysEx */
  #if FELUCCA_OTA
          sx_collect = 0;
-@@ -1004,6 +1121,10 @@
+@@ -1389,6 +1497,10 @@ static void midi_in_event(uint32_t pkt)                 /* one USB-MIDI event pa
  static int ep1_take(const uint8_t *b, uint32_t n)
  {
      uint32_t i;
@@ -227,7 +219,7 @@ diff -ruN a/chip/usb.c b/chip/usb.c
  #ifndef FELUCCA_LOADER
      if (MQ - (mi_w - mi_r) < EP1_ROOM)
          return 0;
-@@ -1216,6 +1337,94 @@
+@@ -1742,6 +1854,94 @@ static __attribute__((unused)) void usb_msc_switch(uint32_t on)
  }
  #endif
  
@@ -321,8 +313,8 @@ diff -ruN a/chip/usb.c b/chip/usb.c
 +
  #if FELUCCA_UAC
  /* ---- the audio input: audio.c produces (render start, then each block), TIMER5 consumes ---- */
- static __attribute__((noinline)) void uac_render_start(void)   /* audio ISR, before a half buffer renders */
-@@ -1538,7 +1747,11 @@
+ #if UA_MC
+@@ -2216,7 +2416,11 @@ static void usb_poll(void)                              /* TIMER5 ISR, 2 kHz */
      }
      if (usb.config) {                                   /* the frame number only advances with a real host */
          static uint32_t tick;
@@ -334,10 +326,10 @@ diff -ruN a/chip/usb.c b/chip/usb.c
              uint16_t f;
              tick = 0;
              f = (uint16_t)(sie_rd(S_FRAME1) | (sie_rd(S_FRAME2) & 7u) << 8);
-@@ -1584,6 +1797,10 @@
-         usb.e0_tx = 0;
-         usb.has_pend_addr = 0;
-         usb.rx_pend = 0;
+@@ -2269,6 +2473,10 @@ static void usb_poll(void)                              /* TIMER5 ISR, 2 kHz */
+ #if FELUCCA_MIDI_STAMP
+         ep1_seen = 0;
+ #endif
 +#if FELUCCA_VENDOR
 +        vo_r = vo_w;                                    /* nothing stale for the next host */
 +        vb.rx_pend = 0;
@@ -345,12 +337,10 @@ diff -ruN a/chip/usb.c b/chip/usb.c
  #if FELUCCA_CDC
          cdc.dtr = 0;
          cdc.e0_rx = 0;
-@@ -1618,6 +1835,15 @@
-             ep3_rx();
-         if (cdc.dtr)
+@@ -2322,6 +2530,15 @@ static void usb_poll(void)                              /* TIMER5 ISR, 2 kHz */
              ep3_tx();
-+    }
-+#endif
+     }
+ #endif
 +#if FELUCCA_VENDOR
 +    if (usb.config) {
 +        if (ir & 0x08u)
@@ -358,6 +348,8 @@ diff -ruN a/chip/usb.c b/chip/usb.c
 +        if (vb.rx_pend)                                 /* not every poll: 3 SIE round trips each */
 +            vb_ep3_rx();
 +        vb_ep3_tx();
-     }
- #endif
++    }
++#endif
  #if FELUCCA_UAC
+     uac_service();
+ #endif

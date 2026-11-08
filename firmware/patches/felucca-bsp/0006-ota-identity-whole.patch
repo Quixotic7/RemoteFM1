@@ -1,0 +1,13 @@
+--- a/chip/ota.c
++++ b/chip/ota.c
+@@ -151,6 +151,10 @@ static void ota_reply_identity(int full)
+     uint8_t id[27];
+     uint32_t i, n = sizeof ID - 1u, j = OTA_FLASH_ID();
+ #ifndef FELUCCA_LOADER
++#ifdef FELUCCA_ID_WHOLE
++    full = 1;                                    /* a firmware's choice: the whole identity to every handshake, as
++                                                  * before 41a6e86 (its own installers read the version from it) */
++#endif
+     if (!full) {
+         for (i = 0; i < n && ID[i] != '_'; i++)
+             ;

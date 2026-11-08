@@ -1,4 +1,3 @@
-diff -ruN a/ble/midi/le_midi.c b/ble/midi/le_midi.c
 --- a/ble/midi/le_midi.c
 +++ b/ble/midi/le_midi.c
 @@ -17,6 +17,10 @@
@@ -12,7 +11,7 @@ diff -ruN a/ble/midi/le_midi.c b/ble/midi/le_midi.c
   *   ble_midi_connected(link)      link 0: a central is connected and listens (CCC on); link 1 (BLE_MIDI_CENTRAL):
   *                                 the MIDI device we connected to is ready
   *
-@@ -163,42 +167,87 @@
+@@ -163,42 +167,87 @@ static u8 cin_of(u8 st, int n)
      if (st < 0xF0) return st >> 4;
      return n == 2 ? 3 : n == 1 ? 2 : 5;          /* system common */
  }
@@ -75,9 +74,7 @@ diff -ruN a/ble/midi/le_midi.c b/ble/midi/le_midi.c
 +        } else {
 +            i++;                                 /* a stray data byte */
 +            continue;
-         }
--        if (!st)
--            return;
++        }
 +        if (st == 0xF7) {                        /* a SysEx's end */
 +            if (*on)
 +                sx_put(cable, 0xF7, ts);
@@ -94,7 +91,9 @@ diff -ruN a/ble/midi/le_midi.c b/ble/midi/le_midi.c
 +            *on = 1;
 +            sx_put(cable, 0xF0, ts);
 +            continue;
-+        }
+         }
+-        if (!st)
+-            return;
          {
              int n = midi_len(st), k;
              u8 d[2] = {0, 0};
@@ -116,7 +115,7 @@ diff -ruN a/ble/midi/le_midi.c b/ble/midi/le_midi.c
              ble_midi_receive(cable | (uint32_t)cin_of(st, n) | (uint32_t)st << 8 | (uint32_t)d[0] << 16 |
                               (uint32_t)d[1] << 24, ts);
          }
-@@ -249,12 +298,30 @@
+@@ -249,12 +298,30 @@ int ble_midi_send_many(int link, const uint32_t *pkts, const uint16_t *ms, int n
      t0 = tp = ms[0] & 0x1FFFu;
      buf[len++] = (u8)(0x80 | ((t0 >> 7) & 0x3F));
      for (i = 0; i < n; i++) {
@@ -148,7 +147,7 @@ diff -ruN a/ble/midi/le_midi.c b/ble/midi/le_midi.c
          /* running status (channel messages only): the same status at the same time needs neither the
           * timestamp nor the status again, a new time only the timestamp */
          if (st < 0xF0 && st == run && i) {
-@@ -539,6 +606,7 @@
+@@ -539,6 +606,7 @@ static void client_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
          if (little_endian_read_16(packet, 3) != mc_handle)
              break;
          printf("central: disconnected %x\n", packet[5]);
@@ -156,7 +155,7 @@ diff -ruN a/ble/midi/le_midi.c b/ble/midi/le_midi.c
          ble_op_multi_att_send_conn_handle(0, 0, ROLE_CLIENT);
          mc_handle = 0;
          mc_value = 0;
-@@ -694,6 +762,7 @@
+@@ -694,6 +762,7 @@ static void cbk_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
          if (little_endian_read_16(packet, 3) != con_handle)
              break;
          printf("computer: disconnected %x\n", packet[5]);
@@ -164,37 +163,34 @@ diff -ruN a/ble/midi/le_midi.c b/ble/midi/le_midi.c
  #if BLE_MIDI_CENTRAL
          multi_att_clear_ccc_config(con_handle);
          ble_op_multi_att_send_conn_handle(0, 0, ROLE_SERVER);
-diff -ruN a/device/ble_none.c b/device/ble_none.c
 --- a/device/ble_none.c
 +++ b/device/ble_none.c
-@@ -11,6 +11,7 @@
+@@ -11,6 +11,7 @@ static uint32_t ble_midi_out_room(uint32_t to) { (void)to; return 0; }
  
  /* ---- plat.h */
  int plat_ble_state(void) { return BLE_OFF; }
 +void plat_ble_name(char *name) { name[0] = 0; }
  int plat_ble_connected(void) { return 0; }
  int plat_ble_linked(void) { return 0; }
- void plat_ble_start(void) {}
-diff -ruN a/device/lcd.c b/device/lcd.c
+ int plat_ble_stream(const struct plat_ble_stream *s) { (void)s; return 0; }   /* (send by plat_midi_send) */
 --- a/device/lcd.c
 +++ b/device/lcd.c
-@@ -39,6 +39,12 @@
+@@ -39,6 +39,12 @@ static void lcd_sync(void)          /* finish the running transfer (before touch
      lcd_busy = 0;
  }
  
 +static int lcd_idle(void)           /* no transfer runs: the next LCD access starts at once (an app that never waits
 +                                    * for the panel: it blits again when this says so) */
 +{
-+    return !lcd_busy || fm1_lcd_done();
++    return !lcd_busy || fm1_lcd_xfer_done();
 +}
 +
  static void lcd_cmd(uint8_t c)
  {
      lcd_sync();
-diff -ruN a/device/radio.c b/device/radio.c
 --- a/device/radio.c
 +++ b/device/radio.c
-@@ -421,9 +421,19 @@
+@@ -446,24 +446,34 @@ static uint32_t ble_rx_count, ble_tx_count;
  #define BLINKS (1 + FM1B_BLE_CENTRAL)
  static const uint32_t BLE_TO[2] = {TO_BLE_HOST, TO_BLE_DEV};
  static uint8_t ble_conn;                          /* bit l: ble_midi_connected(l), as of the last poll */
@@ -211,12 +207,31 @@ diff -ruN a/device/radio.c b/device/radio.c
 +#define BQ BLE_OUT_Q
 +static uint32_t ble_in_q[BLE_IN_Q];
  static uint32_t bi_w, bi_r;
+ #if FM1B_BLE_MIDI_TIME
+ /* fm1.toml ble_midi_time: every message goes in at once with the time it was sent, on plat_ticks24's clock (the own
+  * stack's ble_in_time, bt/ble/ble_time.c: the sender's own timestamps, the connection's bunching taken out), for
+  * plat_midi_in_t24; the transport is not held to the sender's time (ble_midi_receive, ble_transport: unused) */
+-static uint32_t ble_in_t[BQ], ble_in_t_last;
++static uint32_t ble_in_t[BLE_IN_Q], ble_in_t_last;
+ void ble_midi_receive_at(uint32_t pkt, uint32_t t24)   /* from the stack (in ble_poll): for plat_midi_in */
+ {
+-    if (bi_w - bi_r < BQ) {
+-        ble_in_q[bi_w % BQ] = pkt & ~0xE0u;
+-        ble_in_t[bi_w % BQ] = t24;
++    if (bi_w - bi_r < BLE_IN_Q) {
++        ble_in_q[bi_w % BLE_IN_Q] = pkt & ~0xE0u;
++        ble_in_t[bi_w % BLE_IN_Q] = t24;
+         bi_w++;
+         ble_rx_count++;
+     }
+ }
+ #endif
 +static uint32_t ble_rx_lost;                     /* packets in that found no room (a SysEx's rest among them) */
 +static uint8_t ble_sx_lost[2];                   /* per link: a SysEx lost a packet; the rest of it goes too */
  /* The transport (clock, start, continue, stop) by the sender's time: the radio bunches messages into its
   * connection events (7.5..30 ms apart), so ticks would come in clumps and a sequencer stepping on them would clump
   * too (LOOM-8 on a Mac's clock: its sixteenths 60..180 ms apart at 140 BPM, against 104..112 over USB). Each BLE
-@@ -498,11 +508,27 @@
+@@ -538,11 +548,27 @@ void ble_midi_receive(uint32_t pkt, uint32_t ts)  /* from the stack (in ble_poll
          ble_transport(pkt, ts);
          return;
      }
@@ -248,39 +263,40 @@ diff -ruN a/device/radio.c b/device/radio.c
  }
  static int ble_midi_in(uint32_t *pkt, uint32_t *from)   /* from: its link's out, TO_BLE_HOST or TO_BLE_DEV */
  {
-@@ -513,7 +539,7 @@
+@@ -553,9 +579,9 @@ static int ble_midi_in(uint32_t *pkt, uint32_t *from)   /* from: its link's out,
      } else if (bi_r == bi_w)
          return 0;
      else {
 -        p = ble_in_q[bi_r % BQ];
 +        p = ble_in_q[bi_r % BLE_IN_Q];
+ #if FM1B_BLE_MIDI_TIME
+-        ble_in_t_last = ble_in_t[bi_r % BQ];
++        ble_in_t_last = ble_in_t[bi_r % BLE_IN_Q];
+ #endif
          bi_r++;
      }
-     *from = (p >> 4 & 0xFu) == 1u ? TO_BLE_DEV : TO_BLE_HOST;
-@@ -733,6 +759,7 @@
+@@ -780,6 +806,7 @@ extern int ble_midi_peripheral_linked(void);
  extern void ble_midi_enable(int on);
  static uint8_t ble_off;                           /* switched off by the player (plat_ble_enable) */
  int plat_ble_state(void) { return ble_off ? BLE_OFF : ble_state; }
 +void plat_ble_name(char *name) { ble_midi_name(name); }
  int plat_ble_connected(void) { return !ble_off && ble_state == BLE_READY && ble_midi_peripheral_connected(); }
  int plat_ble_linked(void) { return !ble_off && ble_state == BLE_READY && ble_midi_peripheral_linked(); }
- void plat_ble_enable(int on)
-diff -ruN a/device/unity.c b/device/unity.c
+ int plat_ble_stream(const struct plat_ble_stream *s) { (void)s; return 0; }   /* (send by plat_midi_send) */
 --- a/device/unity.c
 +++ b/device/unity.c
-@@ -115,7 +115,10 @@
- #define FM1B_USB_HOST 0
+@@ -162,7 +162,10 @@ static volatile uint32_t fm1_ms;  /* milliseconds since boot (TIMER4-based, TIME
+ #if defined APP_USB_HOST_NAME && FM1B_USB_HOST
+ #define FELUCCA_USB_HOST_NAME 1      /* the device's product string (plat_usb_host_name) */
  #endif
- #define FELUCCA_USB_HOST FM1B_USB_HOST /* the USB MIDI host (plat_usb_host) */
 -#define SXQ 128u                  /* the SysEx send ring, in packets: a whole screen-reader SAY (ANN_MAX + 9 bytes) */
 +#ifndef SXQ
 +#define SXQ 128u                  /* the SysEx send ring, in packets: a whole screen-reader SAY (ANN_MAX + 9 bytes); an
 +                                   * app's app.h may give more (a power of two) */
 +#endif
- #include "usb.c"
- #ifndef FM1B_TRS
- #define FM1B_TRS 1
-diff -ruN a/host/plat_host.c b/host/plat_host.c
+ #ifdef APP_SYSEX_BYTE
+ #define FELUCCA_SYSEX_BYTE(b) app_sysex_byte(b)   /* the app's, every SysEx byte from USB (plat.h APP_SYSEX_BYTE) */
+ #endif
 --- a/host/plat_host.c
 +++ b/host/plat_host.c
 @@ -19,6 +19,9 @@
@@ -292,16 +308,16 @@ diff -ruN a/host/plat_host.c b/host/plat_host.c
 + *                                default) to the app's app_sysex (APP_SYSEX), as the device's updater passes it on
   *   ble connect | ble link | ble disconnect   a central listening, or linked and not yet listening (FM1B_BLE: the
   *                                stand-in stack is ready a second after the start)
-  *   wav FILE | wavstop           start / stop recording the output
-@@ -90,6 +93,7 @@
- /* ------------------------------------------------------------ screen --- */
- static uint16_t fb[240 * 240];          /* RGB565, byte-swapped as the panel takes it (gfx.c) */
+  *   bta add NAME | bta drop NAME a Bluetooth audio device around, or gone (FM1B_BT_AUDIO: a link to it is lost)
+@@ -150,6 +153,7 @@ static uint16_t fb[240 * 240];          /* RGB565, byte-swapped as the panel tak
+ #endif
+ static uint32_t lcd_changes;            /* every fill and blit (host/rfm1.c: the panel's lcd_writes) */
  static void lcd_sync(void) {}
 +static int lcd_idle(void) { return 1; }  /* (the device: no transfer runs; here every blit is done at once) */
  #if FM1B_MIRROR
  /* screen mirroring over USB (device/mirror.c), as lcd.c copies each blit and fill to it */
  static uint8_t mirror_on;
-@@ -292,6 +296,20 @@
+@@ -526,6 +530,20 @@ static char ble_log[8][40];
  static uint32_t ble_log_n;
  static void ble_say(const char *s) { snprintf(ble_log[ble_log_n++ % 8], 40, "%s", s); }
  int plat_ble_state(void) { return ble_state; }
@@ -322,11 +338,10 @@ diff -ruN a/host/plat_host.c b/host/plat_host.c
  static int ble_link;                            /* "ble link": a computer linked, not listening yet */
  int plat_ble_connected(void) { return ble_conn; }
  int plat_ble_linked(void) { return ble_conn || ble_link; }
-@@ -1350,6 +1368,46 @@
-             int dev = !strcmp(a, "BLE-DEV"), p = dev ? PORT_BLE : find_name(PORT_N, NPORTS, a);
-             min_q[mi_w % MQ] = p < 0 ? mk_pkt(a, b, c) : mk_pkt(b, c, d) | (dev ? 0x10u : 0u);   /* cable 1 */
-             min_port[mi_w++ % MQ] = p < 0 ? PORT_USB : (uint32_t)p;
-+            run_ms(2);
+@@ -2641,6 +2659,46 @@ int main(int argc, char **argv)
+         } else if (!strcmp(cmd, "usbh")) {
+             fails += usbh_cmd(a, b, c, d);
+             run_ms(2);
 +        } else if (!strcmp(cmd, "sysex")) {      /* sysex [PORT] F0 .. F7: a SysEx message in, as the device has it */
 +            const char *q = plat_host_line + strspn(plat_host_line, " \t") + 5;
 +            int dev = !strcmp(a, "BLE-DEV"), p = dev ? PORT_BLE : find_name(PORT_N, NPORTS, a);
@@ -366,10 +381,10 @@ diff -ruN a/host/plat_host.c b/host/plat_host.c
 +                    min_port[mi_w++ % MQ] = (uint32_t)p;
 +                }
 +            }
-             run_ms(2);
++            run_ms(2);
          } else if (!strcmp(cmd, "ble")) {
              if (!strcmp(a, "connect") && ble_state == BLE_READY) {
-diff -ruN a/include/plat.h b/include/plat.h
+                 ble_conn = 1;
 --- a/include/plat.h
 +++ b/include/plat.h
 @@ -6,7 +6,8 @@
@@ -382,7 +397,7 @@ diff -ruN a/include/plat.h b/include/plat.h
  #pragma once
  #include <stdint.h>
  
-@@ -55,7 +56,12 @@
+@@ -97,7 +98,12 @@ void plat_play_red(int red);
   * (in only: the FM-1 has no MIDI out jack) and Bluetooth (FM1B_BLE); out to USB and Bluetooth. Bluetooth has two
   * links with FM1B_BLE_CENTRAL (below), the computer's and the device's: both come in on PORT_BLE, TO_BLE goes to
   * both, TO_BLE_HOST or TO_BLE_DEV to one. MIDI thru with nothing echoed back where it came from: after plat_midi_in,
@@ -396,10 +411,10 @@ diff -ruN a/include/plat.h b/include/plat.h
  enum { PORT_USB, PORT_BLE, PORT_TRS, NPORTS };
  #define TO_USB (1u << PORT_USB)
  #define TO_BLE_HOST (1u << PORT_BLE)   /* the computer (a phone, a tablet) connected to the FM-1 */
-@@ -102,6 +108,7 @@
- int plat_ble_linked(void);             /* a central is connected, listening or not yet (a Mac whose MIDI driver
-                                         * never subscribed holds the link, and the FM-1 stops advertising) */
- void plat_ble_start(void);
+@@ -172,6 +178,7 @@ int plat_ble_stream(const struct plat_ble_stream *s);
+  * (octets), v[1] the ATT MTU, v[2] the connection interval (x 1.25 ms), v[3..6] the central's own LL_LENGTH values
+  * (MaxRxOctets, MaxRxTime, MaxTxOctets, MaxTxTime) */
+ void plat_ble_link_info(uint32_t v[7]);
 +void plat_ble_name(char *name);        /* the name it advertises, "FM-1 1F2D" (10 bytes; "" without Bluetooth) */
  uint32_t plat_ble_log_total(void);     /* lines written since the last start (survives a reset) */
  const char *plat_ble_log_line(int back);   /* 0 = the newest */
