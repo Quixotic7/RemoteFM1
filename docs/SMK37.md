@@ -264,6 +264,42 @@ package (it carries the SMK-37's region table), stages its loader and names it a
 the Bluetooth pairing and key areas were never written. The stock firmware's key / knob / fader mapping is as it was,
 or its factory one if RemoteFM1 saved into USRFLASH (its marker was erased first, so the stock firmware rebuilds it).
 
+## Bluetooth MIDI gone after another firmware
+
+Another firmware for the SMK-37 that wrote over 0xC0000 (BTIF) can leave the stock firmware with Bluetooth audio but no
+Bluetooth MIDI. Reinstalling the stock package does not help: its region table marks BTIF `AUTO` and carries no data
+for it. The sector can be rebuilt. It holds no calibration, only the classic Bluetooth address. Read from a healthy
+SMK-37 Pro's dump, it is one record in the JieLi SDK's VM format: id 102, 6 bytes. The radio's trims (ids 106, 107,
+108, 187) and the BLE keys (109, 113) are in the stock firmware's VM at 0x9D000 / 0xBE000, which the stock firmware
+recalibrates and rebuilds by itself when they are bad. 0xC1000 (USRTRIM) is the keys' calibration, not the radio's.
+
+All of this is in the chip's download mode (UBOOT), with [jl-uboot-tool](https://github.com/kagaimiq/jl-uboot-tool).
+The stock firmware has no way into that mode; a USB_KEY dongle does (a Raspberry Pi Pico sending the ROM's key on the
+USB data lines at power-on: [jvitkauskas/smk37-pro-backup](https://github.com/jvitkauskas/smk37-pro-backup) has the
+wiring and the script). RemoteFM1 enters it with OCTAVE- held at power-on. Not yet tried on a damaged unit.
+
+1. **Back up the whole flash first** (read-only): `read 0 0x100000 dump.bin`, twice, and compare.
+   `tools/smk37_btif.py show dump.bin` tells what is at 0xC0000 now.
+2. **Rebuild the sector.** The old address keeps existing pairings: a Mac or phone that was paired with the keyboard
+   shows it (macOS: System Information > Bluetooth). Then:
+
+   ```sh
+   tools/smk37_btif.py build AA:BB:CC:DD:EE:FF btif.bin
+   jluboottool.py --chip wl82 "erase 0xC0000 0x1000"
+   jluboottool.py --chip wl82 "write 0xC0000 btif.bin"
+   jluboottool.py --chip wl82 "read 0xC0000 0x1000 check.bin"
+   cmp btif.bin check.bin
+   ```
+
+   Without the old address, erase the sector only (`erase 0xC0000 0x1000`): on the FM-1 the stock firmware makes a new
+   address at its first start and writes it there (not yet seen on an SMK-37); the keyboard must then be paired again.
+   Never copy another unit's address: two keyboards with one address clash on the same computer.
+3. **Still no Bluetooth MIDI**: the other firmware hit the stock VM too. `erase 0x9D000 0x23000` makes the stock
+   firmware recalibrate the radio and rebuild the BLE keys at its next start. The keyboard's settings go back to their
+   defaults; the presets (USRFLASH, 0xC2000) and the key calibration (0xC1000) are not touched.
+
+Never erase or write 0xC1000-0xC1FFF: the factory key calibration cannot be made again.
+
 ## Safety
 
 - The unit's own ranges (above) are never written: refused at compile time, by the store, and in the flash driver.
