@@ -1,3 +1,23 @@
+# RemoteFM1 0.3.4
+
+Released 2026-11-07, built and signed on GitHub with `tools/hub_build.sh 0.3.4` (docs/RELEASING.md). It replaces 0.3.3.
+Both packages install as `FM-1_52000304`.
+
+| Package | sha256 |
+| --- | --- |
+| `remote-0.3.4.fwsc`, USB + Bluetooth MIDI (the default) | `d63db3e9caffd128e464e6382a7402d93035b3210a4674cf9483f50a286d20b2` |
+| `remote-usb-0.3.4.fwsc`, USB only | `b885ec8f98af163ca58053b377f31708b972806fb8cdd642def7a171f15c3ce9` |
+
+## What changed from 0.3.3
+
+- **Safer on the newer FM-1s' flash chip.** RemoteFM1 now builds on the latest fm1-base (317cb86) and felucca-bsp
+  (5b0879b). Their flash driver never goes back to running code from the flash while the chip is still erasing or
+  writing (felucca-bsp #12, Julius Vitkauskas): it waits up to 2 s for an erase and 50 ms for a page, then resets the
+  chip if it is still busy. The older driver gave up after 500 ms, which a slower part could overrun. The newer
+  units' chip (JEDEC 0xB36014) is now accepted by fm1-base itself, so RemoteFM1's own patch for it is gone.
+- **A faster update loader.** Updates from now on write only the parts of the flash that changed.
+- Nothing else changes in use: your cartridges, loops and settings stay.
+
 # RemoteFM1 0.3.3
 
 Released 2026-11-04, built and signed on GitHub with `tools/hub_build.sh 0.3.3` (docs/RELEASING.md). It replaces 0.3.2.

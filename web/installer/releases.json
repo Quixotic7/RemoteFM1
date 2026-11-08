@@ -3,6 +3,22 @@
   "repo": "https://github.com/Quixotic7/RemoteFM1",
   "releases": [
     {
+      "version": "0.3.4",
+      "date": "2026-11-07",
+      "tag": "v0.3.4",
+      "identity": "FM-1_52000304",
+      "license": "MPL-2.0",
+      "sha256": "d63db3e9caffd128e464e6382a7402d93035b3210a4674cf9483f50a286d20b2",
+      "usbOnly": {
+        "file": "remote-usb-0.3.4.fwsc",
+        "sha256": "b885ec8f98af163ca58053b377f31708b972806fb8cdd642def7a171f15c3ce9"
+      },
+      "notes": [
+        "Safer saving and updating on the newer FM-1s (the M-VAVE logo printed on the front): the flash driver now waits for their flash chip to finish every erase and write.",
+        "Built on the latest fm1-base and felucca-bsp. Nothing changes in use; your cartridges, loops and settings stay."
+      ]
+    },
+    {
       "version": "0.3.3",
       "date": "2026-11-04",
       "tag": "v0.3.3",
