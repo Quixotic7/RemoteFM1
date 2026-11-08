@@ -1,3 +1,30 @@
+# RemoteFM1 0.3.5
+
+Released 2026-11-08, built and signed on GitHub with `tools/hub_build.sh 0.3.5` (docs/RELEASING.md). It replaces 0.3.4.
+Both packages install as `FM-1_52000305`.
+
+| Package | sha256 |
+| --- | --- |
+| `remote-0.3.5.fwsc`, USB + Bluetooth MIDI (the default) | `0d687f546a6712b6da7d54b9a0f259a1c2042c6fe935adefb3267e3e0a8e2021` |
+| `remote-usb-0.3.5.fwsc`, USB only | `793b2f506b43a78c266a80e18764cc8dc8f160641d3ba64ed19dbca511bf798a` |
+
+## What changed from 0.3.4
+
+- **USB Host.** The settings page's last row (hold HOME), **USB HOST**, turns the FM-1's USB-C port into the host of
+  a USB MIDI keyboard or synth: the keyboard plays the DX7 with no computer, and the FM-1's keys play the synth. The
+  row shows the device's name once it is connected. A second FM-1 on a plain USB-C cable works too, MIDI both ways
+  (tested with ChoralRoot 0.31 on the other unit). The FM-1 gives the port no power: a keyboard needs a powered hub
+  or a powered OTG adapter. Full-speed USB MIDI devices only, directly or behind one hub; no SysEx. While it is on
+  there is no computer on USB (no USB audio or updates); a Bluetooth app session still works, and the keyboard's
+  MIDI goes to the app. It is never kept: OFF, or a restart, gives the port back to the computer.
+- **MIDI clock and transport out.** The standalone sends MIDI clock at its tempo all the time, and song position 0
+  + start when the looper starts (PLAY, or the first note of a REC take) and stop when it stops, over USB,
+  Bluetooth and USB Host. Nothing goes out while a clock comes in, and a start or stop that came in is not sent
+  back. The arp alone sends the clock but no start / stop.
+- **Held notes let go.** A computer that sleeps, or a USB cable pulled, now releases the notes it was holding; the
+  FM-1's own keys keep theirs.
+- Your cartridges, loops and settings stay.
+
 # RemoteFM1 0.3.4
 
 Released 2026-11-07, built and signed on GitHub with `tools/hub_build.sh 0.3.4` (docs/RELEASING.md). It replaces 0.3.3.

@@ -1523,7 +1523,7 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   mkdirSync(dir, { recursive: true });
   const files = { "sloop-9.9.rfm1": withManifest({ id: "sloop", name: "SLOOP", version: "9.9" }), "jiant-0.0.1.rfm1": withManifest({ id: "jiant", name: "JIANT FM", version: "0.0.1" }),
     "clipper-1.3.rfm1": withManifest({ id: "clipper", name: "Clipper", version: "1.3" }), "zzz-0.1.rfm1": withManifest({ id: "zzz", name: "Zzz", version: "0.1" }), "s1vave-1.0.rfm1": src,
-    "remotefm1-0.3.4.rfm1": withManifest({ id: "remotefm1", name: "RemoteFM1", version: "0.3.4", license: "MPL-2.0" }),
+    "remotefm1-0.3.5.rfm1": withManifest({ id: "remotefm1", name: "RemoteFM1", version: "0.3.5", license: "MPL-2.0" }),
     "hortator-0.26.0.rfm1": withManifest({ id: "hortator", name: "Hortator", version: "0.26.0" }) };
   let sums = "";
   for (const [n, b] of Object.entries(files)) { writeFileSync(new URL(n, dir), b); sums += `${createHash("sha256").update(b).digest("hex")}  ${n}\n`; }
@@ -1546,7 +1546,7 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
      "fw catalog: RemoteFM1FW's catalog.json: an editor where none, liveEditor where the Hub's differs, the port; junk left out");
   const rf = by.get("remotefm1");
   ok(c.firmwares.filter((f) => f.id === "remotefm1").length === 1 && rf.engines.join() === "rfm1,emu" && rf.defaultEngine === "rfm1" && rf.badge === "meta"
-     && rf.emu.from === "site" && rf.rfm1.file === `${rel}/remotefm1-0.3.4.rfm1` && L.siteRfm1(rf)
+     && rf.emu.from === "site" && rf.rfm1.file === `${rel}/remotefm1-0.3.5.rfm1` && L.siteRfm1(rf)
      && L.mergeLive(c, { firmwares: [{ id: "remotefm1", name: "Impostor", version: "9.9", pkg: "fw/x.fwsc", sha256: "c".repeat(64) }] }).firmwares.find((f) => f.id === "remotefm1") === rf,
      "fw catalog: RemoteFM1's own .rfm1 joins its meta entry (rfm1 the default, its package emulated), one entry; the live merge keeps it");
   ok(sl.defaultEngine === "rfm1" && sl.engines.join() === "rfm1,emu" && sl.rfm1.file === `${rel}/sloop-9.9.rfm1` && sl.rfm1.version === "9.9" && L.siteRfm1(sl) && sl.emu.pkg,

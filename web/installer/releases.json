@@ -3,6 +3,23 @@
   "repo": "https://github.com/Quixotic7/RemoteFM1",
   "releases": [
     {
+      "version": "0.3.5",
+      "date": "2026-11-08",
+      "tag": "v0.3.5",
+      "identity": "FM-1_52000305",
+      "license": "MPL-2.0",
+      "sha256": "0d687f546a6712b6da7d54b9a0f259a1c2042c6fe935adefb3267e3e0a8e2021",
+      "usbOnly": {
+        "file": "remote-usb-0.3.5.fwsc",
+        "sha256": "793b2f506b43a78c266a80e18764cc8dc8f160641d3ba64ed19dbca511bf798a"
+      },
+      "notes": [
+        "USB Host: the settings' last row (USB HOST) lets a USB MIDI keyboard or synth plug into the FM-1 itself, or a second FM-1 on a plain USB-C cable. A keyboard needs a powered hub or a powered OTG adapter. Never kept: every start-up is a normal USB device again.",
+        "MIDI clock and transport out: the standalone sends MIDI clock at its tempo, and start / stop with the looper, over USB, Bluetooth and USB Host. Nothing is sent while a clock comes in.",
+        "A computer that sleeps, or a USB cable pulled, now lets go of the notes it held."
+      ]
+    },
+    {
       "version": "0.3.4",
       "date": "2026-11-07",
       "tag": "v0.3.4",
