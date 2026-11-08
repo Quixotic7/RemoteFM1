@@ -1,4 +1,4 @@
---- a/boards/smk37/smk_decode.h
+--- /dev/null
 +++ b/boards/smk37/smk_decode.h
 @@ -0,0 +1,500 @@
 +/* SPDX-License-Identifier: MPL-2.0
@@ -501,7 +501,7 @@
 +            o[b] = (grb >> (23u - b) & 1u) ? 0xF0u : 0xC0u;
 +    }
 +}
---- a/boards/smk37/smk_input.h
+--- /dev/null
 +++ b/boards/smk37/smk_input.h
 @@ -0,0 +1,265 @@
 +/* SPDX-License-Identifier: MPL-2.0
@@ -769,7 +769,7 @@
 +            FM1_INPUT_IDLE();
 +    }
 +}
---- a/boards/smk37/smk_lcd_hw.h
+--- /dev/null
 +++ b/boards/smk37/smk_lcd_hw.h
 @@ -0,0 +1,114 @@
 +/* SPDX-License-Identifier: MPL-2.0
@@ -788,7 +788,7 @@
 + *
 + *   fm1_lcd_hw_init()          pins, SPI1 master at BAUD 4
 + *   fm1_lcd_baud(b)            SPI1 clock = lsb / (b + 1), for the panel
-+ *   fm1_lcd_send_cmd(c), fm1_lcd_send_data(p, n), fm1_lcd_wait(), fm1_lcd_done(), fm1_lcd_deselect()   as on the FM-1
++ *   fm1_lcd_send_cmd(c), fm1_lcd_send_data(p, n), fm1_lcd_wait(), fm1_lcd_xfer_done(), fm1_lcd_deselect()   as on the FM-1
 + *   fm1_lcd_backlight(on)      nothing (the SMK's is always on)
 + *   smk_padled_send(p, n)      the panel idle and deselected: n bytes from RAM p to the pads, waited for; 0 = sent */
 +#pragma once
@@ -846,7 +846,7 @@
 +    SMK_LCD_SPI_CON |= 0x4000u;
 +}
 +
-+FM1_INLINE uint32_t fm1_lcd_done(void) { return SMK_LCD_SPI_CON & 0x8000u; }   /* the transfer is over (no wait) */
++FM1_INLINE uint32_t fm1_lcd_xfer_done(void) { return SMK_LCD_SPI_CON & 0x8000u; }   /* the transfer is over (no wait) */
 +
 +FM1_INLINE void fm1_lcd_deselect(void) { SMK_LCD_PC_OUT |= SMK_LCD_CS; }
 +
@@ -888,14 +888,29 @@
 +}
 --- a/chip/fm1_flash.h
 +++ b/chip/fm1_flash.h
-@@ -36,6 +36,69 @@
- #define T4_CNT          REG32(0x10804u)            /* TIMER4, 24 MHz free-running */
+@@ -22,6 +22,7 @@
+ #include <stdint.h>
+ #include "fm1_xip.h"
+ #include "fm1_flash_policy.h"
++#ifndef FL_MAP_ONLY                               /* (a host test of the map: the macros, no driver) */
+ #include "fm1_flash_access.h"
  
- #define FL_XIP(off)     FM1_XIP(off)              /* fm1_xip.h */
+ #ifndef RAMFN
+@@ -308,3 +309,4 @@ static int fl_plain_window_init(void)
+ }
+ 
+ #include "fm1_flash_api.h"
++#endif /* FL_MAP_ONLY */
+--- a/chip/fm1_flash_policy.h
++++ b/chip/fm1_flash_policy.h
+@@ -35,6 +35,64 @@
+     (uint32_t)(off) >= (uint32_t)(lo) && (uint32_t)(off) <= (uint32_t)(hi) && \
+     (uint32_t)(n) <= (uint32_t)(hi) - (uint32_t)(off))
+ 
 +#if BOARD_SMK37
 +/* M-VAVE SMK-37 (genkigenki's porting guide fm1-to-smk37, docs/01-hardware.md section 2): the same 1 MiB of flash
 + * laid out otherwise, with ranges that are the unit's own and cannot be had again. Never erased or programmed here,
-+ * whatever FL_RANGE_OK a caller brings (the second net in fl_erase4k_ram / fl_prog_ram, FL_SMK_PROTECTED):
++ * whatever FL_RANGE_OK a caller brings (the second net in FL_WRITE_OK, FL_SMK_PROTECTED):
 + *   0x00000-0x03FFF  the flash header, the SPL, the boot config
 + *   0xC0000-0xC0FFF  BTIF: Bluetooth pairing          0xC1000-0xC1FFF  USRTRIM: the factory key, pad and wheel curves
 + *   0xF4000-0xFDFFF  USR: the stock resources (a return to stock needs them)
@@ -943,58 +958,34 @@
 +               FL_SMK_WIN_OK(0x4000u, 0x9D000u), "SMK-37: a window overlaps a protected range");
 +_Static_assert(FL_DATA_HI == FL_OTA_LO && FL_OTA_HI == FL_SMK_CAL_LO && FL_USRFLASH_HI == FL_SMK_MARK_LO &&
 +               FL_SMK_MARK_AT + 8u == FL_SMK_MARK_HI, "SMK-37: the map");
-+#define FL_IN(off, n, lo, hi) ((uint32_t)(off) >= (lo) && (uint32_t)(off) <= (hi) && \
-+                               (uint32_t)(n) <= (hi) - (uint32_t)(off))
 +#define FL_STORE_OK(off, n) (FL_IN(off, n, FL_DATA_LO, FL_DATA_HI) || FL_IN(off, n, FL_USRFLASH_LO, FL_USRFLASH_HI))
 +#define FL_SMK_MARK_OK(off, n) ((uint32_t)(off) == FL_SMK_MARK_LO && (uint32_t)(n) == 0x1000u)   /* (an erase) */
 +#ifndef FL_RANGE_OK
 +#define FL_RANGE_OK(off, n) (FL_STORE_OK(off, n) || FL_IN(off, n, FL_OTA_LO, FL_OTA_HI) || FL_SMK_MARK_OK(off, n))
 +#endif
-+#define FL_GUARD(off, n) (FL_RANGE_OK(off, n) && !FL_SMK_PROTECTED(off, n))
-+#define FL_JEDEC_OK(id) ((id) == 0xEB6014u || (id) == 0x856014u || (id) == 0xB36014u)   /* the SMK-37's part on
-+                                                     * the guide's unit; the FM-1's two (some units may carry
-+                                                     * them); the driver uses generic SPI NOR commands only */
++#define FL_GUARD(off, n) (FL_RANGE_OK(off, n) && !FL_SMK_PROTECTED(off, n))   /* what FL_WRITE_OK allows */
 +#else
- #define FL_DATA_LO      0x00097000u                /* Felucca main store */
- #define FL_DATA_HI      0x000E0000u
- #define FL_GLOB_LO      0x000FC000u                /* Felucca superblock / globals */
-@@ -65,6 +128,10 @@
- #ifndef FL_RANGE_OK
- #define FL_RANGE_OK(off, n) (FL_STORE_OK(off, n) || FL_XDATA_OK(off, n) || FL_IN(off, n, FL_OTA_LO, FL_OTA_HI))
+ /* Compatibility names; new applications supply their own regions above. */
+ #define FL_DATA_LO 0x00097000u
+ #define FL_DATA_HI 0x000E0000u
+@@ -69,8 +127,14 @@ static inline __attribute__((always_inline)) int fm1_flash_region_ok(uint32_t of
+ #define FL_RANGE_OK(off, n) fm1_flash_region_ok(off, n)
  #endif
-+#define FL_GUARD(off, n) FL_RANGE_OK(off, n)
-+#define FL_JEDEC_OK(id) ((id) == 0x856014u || (id) == 0xB36014u)   /* the FM-1's two parts (fm1-base patch 0009) */
+ 
 +#endif /* BOARD_SMK37 */
-+#ifndef FL_MAP_ONLY                               /* (a host test of the map: the macros above, no driver) */
- 
- typedef struct { uint32_t sfc_con, spi_con; } fl_saved_t;
- 
-@@ -196,7 +263,7 @@
- static RAMFN int fl_erase4k_ram(uint32_t off, uint32_t *took_us)
- {
-     fl_saved_t s; int rc;
--    if (!FL_RANGE_OK(off, 0x1000u) || (off & 0xFFFu))
-+    if (!FL_GUARD(off, 0x1000u) || (off & 0xFFFu))
-         return -1;
-     if (fl_enter(&s)) return -2;
-     fl_wren();
-@@ -213,7 +280,7 @@
- static RAMFN int fl_prog_ram(uint32_t off, const uint8_t *src, uint32_t n, uint32_t *took_us)
- {
-     fl_saved_t s; int rc; uint32_t i;
--    if (!FL_RANGE_OK(off, n) ||
-+    if (!FL_GUARD(off, n) ||
-         n == 0 || n > 256u || ((off & 0xFFu) + n) > 256u) return -1;    /* one page, no wrap */
-     if (fl_enter(&s)) return -2;
-     fl_wren();
-@@ -291,3 +358,4 @@
-     for (i = 0; i < n; i++) if (p[i] != ref[i]) return -(int)(i + 1);
-     return 0;
- }
-+#endif /* FL_MAP_ONLY */
++
+ #define FL_READ_OK(off, n) FL_IN(off, n, 0u, FM1_FLASH_SIZE)
++#if BOARD_SMK37
++#define FL_WRITE_OK(off, n) (FL_READ_OK(off, n) && FL_GUARD(off, n))
++#else
+ #define FL_WRITE_OK(off, n) (FL_READ_OK(off, n) && FL_RANGE_OK(off, n))
++#endif
+ #define FL_PLAIN_OK(off, n) FL_IN(off, n, FM1_FLASH_PLAIN_LO, FM1_FLASH_PLAIN_HI)
+ #define FL_RAM_OK(p, n) ((uintptr_t)(p) >= 0x01C00000u && \
+     (uintptr_t)(p) <= 0x01C80000u && (uint32_t)(n) <= 0x01C80000u - (uintptr_t)(p))
 --- a/chip/ota.c
 +++ b/chip/ota.c
-@@ -22,9 +22,39 @@
+@@ -30,9 +30,39 @@
   *   ota_show(step, code)       progress / result for the screen
   *   ota_commit(parm)           write RAM record + reset (never returns on hardware)
   */
@@ -1031,10 +1022,10 @@
 +#define OTA_BOARD "fm1"
 +#define OTA_BOARD_LEN 4u
 +#endif
- #define OTA_FRAME_MAX 640u                       /* 512-B response = 605 wire bytes */
- 
- static int ota_wire_send(const uint8_t *p, uint32_t n);
-@@ -252,12 +282,84 @@
+ #ifndef OTA_FRAME_MAX
+ #define OTA_FRAME_MAX 640u                       /* 512-B response = 605 wire bytes (the loader: a 4 KiB one) */
+ #endif
+@@ -302,12 +332,84 @@ static int ota_boot_valid(uint32_t fl_off, uint32_t fl_len, uint8_t *b)
          pcrc = ota_crc16(b + h, n - h, pcrc);
          fcrc = ota_crc16(b + h, n - h, fcrc);
          if (!i && ota_memeq(b + 16 + 0x40, (const uint8_t *)"AC79BLID", 8) &&
@@ -1120,7 +1111,7 @@
  /* JLFS head "LOADER.BIN" in front of the staged loader (vm_update_defrag), written last */
  static int ota_stage_head(uint32_t len)
  {
-@@ -328,6 +430,11 @@
+@@ -378,6 +480,11 @@ static int ota_stage(void)                       /* steps 1..6; 0 = host said su
          return -7;
      for (i = 0x48, own = 0; i + 16u <= 0x48u + 64u && !own; i++)    /* first LZ4 literals: crt0_ldr.S */
          own = ota_memeq(b + i, (const uint8_t *)"FELUCCA-LOADER-1", 16) && ota_rd32(b + 0x20 + 4) <= 0x14000u;
@@ -1132,7 +1123,7 @@
      /* 3. a flash image with it: Felucca's writer never writes its head (the app area only); any other may,
       *    so its boot area must be a bootable one for the FM-1 (no flash.bin: the writer brings its own) */
      if (fl_off && !own) {
-@@ -401,8 +508,11 @@
+@@ -451,8 +558,11 @@ static int ota_session(void)
      ota_wr16(parm + 2, 0x5A0Du);
      ota_wr16(parm + 4, 0x5A01u);
      ota_wr16(parm + 6, 0x5441u);
@@ -1148,9 +1139,9 @@
  #if FELUCCA_OTA_DRYRUN
 --- a/loader/ldr_core.c
 +++ b/loader/ldr_core.c
-@@ -28,12 +28,26 @@
-  *   ldr_record_clear()    forget the RAM update record
-  *   ldr_progress(done, total)  both passes on one scale: the check (2b, flash.bin) then the write (3, the app area)
+@@ -37,12 +37,26 @@
+  *   with LDR_FAST_CHUNK (the fast install, ldr_fast below): ldr_erase_begin(off) ldr_erase_end(), an erase while a
+  *   sector comes in (no flash access between)
   * plus the ota.c hooks (frames, time, idle). */
 +#if BOARD_SMK37
 +/* M-VAVE SMK-37: the app area is the stock PRCT [0x4000, 0x9D000) (written whole: what the stock app left above an
@@ -1158,14 +1149,14 @@
 + * 0xBFF00; the stock firmware's place is not known, so the whole VM is looked at, CRC-checked: a firmware's data
 + * there must not read as a record, as on the FM-1's XDATA windows). The package must be one for the SMK-37 (ota.c
 + * ota_board_ok), checked before anything is erased */
- #define LDR_APP_LO 0x4000u
++#define LDR_APP_LO 0x4000u
 +#define LDR_APP_HI 0x9D000u
 +#define LDR_REC_LO 0x9D000u
 +#define LDR_REC_HI 0xC0000u
 +#define LDR_DATA_LO 0u                          /* (no window skipped) */
 +#define LDR_DATA_HI 0u
 +#else
-+#define LDR_APP_LO 0x4000u
+ #define LDR_APP_LO 0x4000u
  #define LDR_APP_HI 0x93000u
  #define LDR_REC_LO 0x93000u                     /* update records live above the app ... */
  #define LDR_REC_HI 0xFC000u                     /* ... and below Felucca's globals (Felucca's records: 0xE4F00, */
@@ -1175,34 +1166,35 @@
  #define LDR_NSEC ((LDR_APP_HI - LDR_APP_LO) >> 12)
  #define LDR_FL_MAX 0x100000u                    /* flash.bin: at most the 1 MiB part */
  
-@@ -129,6 +143,10 @@
-     ldr_sfc(sec, 32, 0, key);
-     if (ota_crc16(sec + 2, 30, 0) != ota_rd16(sec))
+@@ -164,6 +178,10 @@ static int ldr_head(uint8_t *hdr, uint8_t *b, uint32_t *fl_off, uint32_t *fl_siz
+     ldr_sfc(b, 32, 0, *key);
+     if (ota_crc16(b + 2, 30, 0) != ota_rd16(b))
          return -6;                                       /* package for another chip key */
 +#if BOARD_SMK37
-+    if (ota_board_ok(fl_off, fl_size, sec))
++    if (ota_board_ok(*fl_off, *fl_size, b))
 +        return -15;                                      /* a package for another board (an FM-1's) */
 +#endif
-     /* 2b. the whole package first: nothing is erased for a damaged one */
-     if ((rc = ldr_check(fl_off, fl_size, want, sc, sec)) != 0)
-         return rc;
+     return 0;
+ }
+ 
 --- a/loader/ldr_screen.c
 +++ b/loader/ldr_screen.c
-@@ -4,7 +4,11 @@
-  * (ldr_progress), in the installer page's colours. The panel is started as the app's lcd.c does (fm1-base
-  * device/lcd.c: reset, sleep out, RGB565, IPS inversion), polled, at Felucca's SPI1 rate (BAUD 4).
+@@ -11,8 +11,12 @@
+  * IPS inversion), polled, at Felucca's SPI1 rate (BAUD 4).
   * Part of loader.c's single unit; every buffer is in RAM (the SPI DMA reads RAM only). */
+ #ifndef LDR_SCREEN_TEST                             /* (tests/ldr_screen_test.c brings a model of the panel) */
 +#if BOARD_SMK37
 +#include "../boards/smk37/smk_lcd_hw.h"            /* the SMK-37's panel pins (PA2, PC9 never driven) */
 +#else
  #include "../boards/fm1/fm1_lcd_hw.h"
+ #endif
 +#endif
  
  #define SCR_BG 0xFFBDu                              /* #faf4e8 cream */
  #define SCR_FG 0x49C5u                              /* #48392f brown */
 --- a/loader/loader.c
 +++ b/loader/loader.c
-@@ -12,13 +12,26 @@
+@@ -12,7 +12,14 @@
  #define FELUCCA_OTA 1
  #define FELUCCA_OTA_DRYRUN 0
  #define FELUCCA_USB_PID 0x0002
@@ -1214,11 +1206,13 @@
 +#else
  #define FELUCCA_ID "ota-FM-1_900"
 +#endif
+ #define LDR_FAST_CHUNK 4096u           /* the fast install (ldr_core.c): one sector per read */
+ #define OTA_FRAME_MAX 4200u            /* a decoded 4 KiB response (4111 B) */
  #define RING_PUBLISH() __asm__ volatile("" ::: "memory")
- #include "fm1_time.h"
+@@ -20,7 +27,13 @@
  #include "fm1_sys.h"
- /* the loader may write the app area and erase update records; never the head, nor Felucca's store
-  * [0x97000, 0xE0000) (user data, never a record: ldr_core.c) */
+ /* the loader may write the app area and clear update records (program over one, or erase its own staging); never
+  * the head, nor Felucca's store [0x97000, 0xE0000) (user data, never a record: ldr_core.c) */
 +#if BOARD_SMK37
 +/* SMK-37: the app area [0x4000, 0x9D000) and records in the stock VM [0x9D000, 0xC0000), below BTIF; fm1_flash.h's
 + * FL_SMK_PROTECTED holds the unit's own ranges off whatever this allows */

@@ -1,6 +1,6 @@
 --- a/tools/build.py
 +++ b/tools/build.py
-@@ -94,7 +94,8 @@
+@@ -244,7 +244,8 @@ The board: BOARD=smk37 in the environment builds for the M-VAVE SMK-37 (felucca-
  genkigenki's porting guide fm1-to-smk37), MODEL=pro (the default; also the Starrykey 37 Play), elite or mke its model:
  the package NAME-smk37[-elite|-mke][-usb][-X.Y.Z].fwsc, its identity the model's name and the firmware's own number
  ("SMK-37 Pro_" + id_prefix's digits + "00" or XXYYZZ), the SMK's flash layout and region table (fm1pkg_make
@@ -10,39 +10,44 @@
  
  The JieLi toolchain is Linux x86-64 only. JIELI_TOOLCHAIN points at it; on
  macOS (or with JIELI_DOCKER=1) each tool runs in a linux/amd64 container.
-@@ -960,12 +961,14 @@
+@@ -1524,16 +1525,18 @@ def build_web():
      import shutil
      emu = OUT / "emu"
      emu.mkdir(parents=True, exist_ok=True)
 -    web_inc = [f"-I{d}" for d in (SRC / "host", SRC / "device", SRC / "include", SRC / "lib", APP, GEN, *(APP / d for d in CONF.get("include", [])))]
--    o2_objs = o2_objects("emcc", ["-O2", "-ffp-contract=off", "-std=gnu99", "-w", "-DPLAT_HOST", "-DPLAT_WEB", *web_inc],
 +    web_inc = [f"-I{d}" for d in (SRC / "host", SRC / "device", SRC / "include", SRC / "lib", APP, GEN, *(APP / d for d in CONF.get("include", [])),
 +                                  *([BSP / "boards" / "smk37"] if SMK else []))]
 +    smk = [*smk_flags(), *([f'-DFELUCCA_ID="{PRODUCT}"', f'-DFM1B_FM1_ID="{FM1_PRODUCT}"'] if SMK else [])]   # (the SMK-37's panel)
-+    o2_objs = o2_objects("emcc", ["-O2", "-ffp-contract=off", "-std=gnu99", "-w", "-DPLAT_HOST", "-DPLAT_WEB", *smk, *web_inc],
+     wf = CONF.get("web_cflags", [])
+-    o2_objs = o2_objects("emcc", ["-O2", "-ffp-contract=off", "-std=gnu99", "-w", "-DPLAT_HOST", "-DPLAT_WEB", *wf, *opt_flags(), *web_inc],
++    o2_objs = o2_objects("emcc", ["-O2", "-ffp-contract=off", "-std=gnu99", "-w", "-DPLAT_HOST", "-DPLAT_WEB", *smk, *wf, *opt_flags(), *web_inc],
                           emu / "o2")
+-    o2_objs += web_objects(["-O2", "-ffp-contract=off", "-std=gnu99", "-w", "-DPLAT_HOST", "-DPLAT_WEB", *wf, *opt_flags(), *web_inc],
++    o2_objs += web_objects(["-O2", "-ffp-contract=off", "-std=gnu99", "-w", "-DPLAT_HOST", "-DPLAT_WEB", *smk, *wf, *opt_flags(), *web_inc],
+                            emu / "web")
+     parts = emu_parts()
      cmd = ["emcc", "-O2", "-ffp-contract=off", "-std=gnu99", "-Wall", "-Wno-unused-function", "-Wno-unused-parameter",
--           "-Wno-unused-variable", "-DPLAT_HOST", "-DPLAT_WEB", *opt_flags(), *["-DFM1B_BLE=1"] * BLE, *["-DFM1B_BLE_CENTRAL=1"] * (BLE and bool(CONF.get("ble_central"))), *["-DFM1B_WIFI=1"] * WIFI, *(f'-DAPP_VERSION="{VERSION}"',) * bool(VERSION),
+-           "-Wno-unused-variable", "-DPLAT_HOST", "-DPLAT_WEB", *opt_flags(), *(f"-DFM1B_EMU_{p.upper()}=1" for p in parts), *["-DFM1B_BLE=1"] * BLE, *["-DFM1B_BLE_CENTRAL=1"] * (BLE and bool(CONF.get("ble_central"))), *["-DFM1B_BT_AUDIO=1"] * bta_sim(), *(bta_mem_flags() if bta_sim() else []), *["-DFM1B_WIFI=1"] * WIFI, *(f'-DAPP_VERSION="{VERSION}"',) * bool(VERSION),
 -           *(f"-I{d}" for d in (SRC / "host", SRC / "device", SRC / "include", SRC / "lib", APP, GEN, *(APP / d for d in CONF.get("include", [])))),
-+           "-Wno-unused-variable", "-DPLAT_HOST", "-DPLAT_WEB", *smk, *opt_flags(), *["-DFM1B_BLE=1"] * BLE, *["-DFM1B_BLE_CENTRAL=1"] * (BLE and bool(CONF.get("ble_central"))), *["-DFM1B_WIFI=1"] * WIFI, *(f'-DAPP_VERSION="{VERSION}"',) * bool(VERSION),
++           "-Wno-unused-variable", "-DPLAT_HOST", "-DPLAT_WEB", *smk, *opt_flags(), *(f"-DFM1B_EMU_{p.upper()}=1" for p in parts), *["-DFM1B_BLE=1"] * BLE, *["-DFM1B_BLE_CENTRAL=1"] * (BLE and bool(CONF.get("ble_central"))), *["-DFM1B_BT_AUDIO=1"] * bta_sim(), *(bta_mem_flags() if bta_sim() else []), *["-DFM1B_WIFI=1"] * WIFI, *(f'-DAPP_VERSION="{VERSION}"',) * bool(VERSION),
 +           *web_inc,
-            "--no-entry", "-sSTANDALONE_WASM", "-sSTACK_SIZE=1048576", "-sINITIAL_MEMORY=33554432", "-sFILESYSTEM=0",
-            "-o", str(emu / "app.wasm"), str(SRC / "web" / "emu" / "emu_web.c"), *o2_objs]
-     r = subprocess.run(cmd, capture_output=True, text=True)
-@@ -1049,8 +1052,6 @@
+            *wf, "--no-entry", "-sSTANDALONE_WASM", "-sSTACK_SIZE=1048576", "-sINITIAL_MEMORY=33554432", "-sFILESYSTEM=0",
+            "-o", str(emu / "app.wasm"), str(SRC / "web" / "emu" / "emu_web.c"), *o2_objs,
+            *[str(f) for u in CONF.get("web_link", []) for f in (sorted(APP.glob(u)) if any(ch in u for ch in "*?[")
+@@ -1738,8 +1741,6 @@ def main():
          FM1_PRODUCT = PRODUCT
          PRODUCT = SMK_MODEL + "_" + prefix[len("FM-1_"):] + (digits or "00")
          fm1pkg_make.set_board("smk37")
 -        if a.web:
 -            raise SystemExit("build: --web is the FM-1's (BOARD=smk37: the device and --host)")
-     if a.host or a.web:
+     if a.host or a.web or a.rfm1:
          generate()
-         return build_host() if a.host else build_web()
+         return build_host() if a.host else build_web() if a.web else build_rfm1()
 --- a/web/emu/emu_web.c
 +++ b/web/emu/emu_web.c
-@@ -143,6 +143,93 @@
- __attribute__((used, visibility("default"))) uint32_t web_nobj(void) { return OBJ_NOBJ; }
- __attribute__((used, visibility("default"))) uint32_t web_store_max(void) { return PLAT_STORE_MAX; }
+@@ -241,6 +241,93 @@ __attribute__((used, visibility("default"))) int web_backup_restore(uint32_t n)
+ }
+ #endif
  
 +#if BOARD_SMK37
 +/* the M-VAVE SMK-37's panel (BOARD_SMK37): its controls as the simulator's "smk ..." commands set them, through the
