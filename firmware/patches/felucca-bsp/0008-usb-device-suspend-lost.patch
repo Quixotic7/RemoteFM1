@@ -1,0 +1,86 @@
+--- a/chip/usb.c
++++ b/chip/usb.c
+@@ -438,7 +438,8 @@ static uint32_t midi_in_ms[MQ];
+ static uint8_t midi_in_source[MQ];                    /* 1 USB, 2 TRS */
+ static volatile uint32_t fm1_ms;                    /* also declared by core.h; parser-only host tests */
+ static volatile uint32_t mi_w, mi_r, mo_w, mo_r;
+-static volatile uint8_t midi_usb_lost;                  /* consume in the app: release USB input owners */
++static volatile uint8_t midi_usb_lost;                  /* consume in the app: release USB input owners (a host's
++                                                         * session ended; a configured device's bus suspended) */
+ static uint32_t usb_retry_ms;
+ static int usb_midi_out_ready(void);
+ static volatile uint8_t midi_in_overflow;               /* audio ISR discards a broken stream and releases notes */
+@@ -2450,6 +2451,9 @@ static void usb_poll(void)                              /* TIMER5 ISR, 2 kHz */
+                 usb.suspended = 0;
+             } else if (++usb.frame_same >= 10u && !usb.suspended) {   /* 100 ms frozen: unplugged / host asleep */
+                 usb.suspended = 1;
++#ifndef FELUCCA_LOADER
++                midi_usb_lost = 1;                      /* (its held notes get no note-off now) */
++#endif
+                 usb.frame_stalls++;
+             }
+         }
+@@ -2468,6 +2472,10 @@ static void usb_poll(void)                              /* TIMER5 ISR, 2 kHz */
+ #endif
+     if (iu & 0x01u) {                                   /* suspend: the bus went idle */
+         usb.suspends++;
++#ifndef FELUCCA_LOADER
++        if (usb.config && !usb.suspended)
++            midi_usb_lost = 1;                          /* (unplugged, asleep: no note-off will come) */
++#endif
+         usb.suspended = 1;
+     }
+     if (iu & 0x02u)                                     /* resume */
+--- a/docs/USB_HOST.md
++++ b/docs/USB_HOST.md
+@@ -39,7 +39,9 @@ For host mode:
+   0 means disconnected, no OUT endpoint or ring full. `midi_out_event` retains its
+   existing fire-and-forget API. `midi_out_room()` and `midi_out_link()` expose output
+   capacity and connection generation. The application supplies valid event packets.
+-- Consume and clear `midi_usb_lost` in the CPU0 MIDI consumer. Discard input events
++- Consume and clear `midi_usb_lost` in the CPU0 MIDI consumer. It is raised when a host
++  session ends, and in device mode too when a configured port's bus suspends (the cable
++  pulled, the computer asleep: no note-off will come). Discard input events
+   from the old USB session and release its held notes/pedals while retaining local
+   and TRS owners. Arrange output note/pedal cleanup on a changed link before new
+   notes: a lost session can include an OUT packet with an uncertain ACK. The BSP
+--- a/tests/usb_host_test.c
++++ b/tests/usb_host_test.c
+@@ -1101,6 +1101,29 @@ static void test_device_mode_untouched(void)
+     puts("USB host: off at boot, the device side starts as before: OK");
+ }
+ 
++static void test_device_suspend_lost(void)
++{
++    /* a configured device's bus suspends (the computer asleep, the cable pulled): its notes are released */
++    connect(KBD);
++    usb_start();
++    usb.config = 1;
++    usb.suspended = 0;
++    midi_usb_lost = 0;
++    common[S_INTRUSB] = 0x01u;                          /* suspend */
++    usb_poll();
++    assert(usb.suspended && midi_usb_lost);
++    midi_usb_lost = 0;
++    usb_poll();                                         /* (still suspended: once) */
++    assert(!midi_usb_lost);
++    usb.config = 0;                                     /* not configured: nothing was held */
++    usb.suspended = 0;
++    usb_poll();
++    assert(usb.suspended && !midi_usb_lost);
++    common[S_INTRUSB] = 0;
++    usb.up = usb.suspended = 0;
++    puts("USB device: a configured port's suspend releases the host's notes (midi_usb_lost): OK");
++}
++
+ static void test_mode_lifecycle(void)
+ {
+     connect(KBD);
+@@ -1138,6 +1161,7 @@ int main(void)
+     devices_init();
+     test_parse();
+     test_device_mode_untouched();
++    test_device_suspend_lost();
+     test_keyboard(0);
+     test_keyboard(1);
+     test_no_midi();

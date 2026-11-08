@@ -11,9 +11,11 @@ are the pull requests. Once a change is merged upstream, move the submodule to t
 To change a patch: edit the files in `build/fm1-base` (or a copy of `base/`), then diff against `base/` as the files
 here are made (`diff -ruN`, paths `a/` and `b/` from the submodule's root, no timestamps).
 
-Both patches are opt-in for everyone else: a firmware that does not define the new macros builds byte for byte as
+The patches are opt-in for everyone else: a firmware that does not define the new macros builds byte for byte as
 before (checked: fm1-base's template, and felucca-bsp's update loader `ota.bin`, are identical with and without them),
-except the Bluetooth MIDI SysEx, which is new behaviour for every Bluetooth firmware (it was dropped before).
+except the Bluetooth MIDI SysEx, which is new behaviour for every Bluetooth firmware (it was dropped before), and
+felucca-bsp 0007 and 0008 (USB Host Off, a device's suspend), fixes for every firmware with the USB host or that reads
+`plat_usb_lost`.
 
 ## The move to fm1-base 317cb86 / felucca-bsp 5b0879b (2026-11-07)
 
@@ -68,8 +70,12 @@ EP1 hooks for apps; fm1_lcd_xfer_done()**
 >
 > - `FELUCCA_VENDOR=1`: a vendor-specific interface (class 0xFF) as the last interface: 2 after audio control and
 >   MIDI streaming, or after the audio streams with `FELUCCA_UAC` (3; 4 with `FELUCCA_UAC_OUT`), with a bulk OUT / IN
->   pair on EP3 (the CDC option's endpoint: not with CDC, disk mode, the USB host or in the loader, `#error` otherwise; UAC's
->   endpoint is EP4, and its EP4 OUT is polled, so the interrupt enables are EP1's and EP3's as before). bcdUSB 2.10
+>   pair on EP3 (the CDC option's endpoint: not with CDC, disk mode or in the loader, `#error` otherwise; UAC's
+>   endpoint is EP4, and its EP4 OUT is polled, so the interrupt enables are EP1's and EP3's as before). With the USB
+>   host (`FELUCCA_USB_HOST`, which uses EP0 and EP1 only): the vendor service is off while the port is a host
+>   (`usb.config` 0; `usb_vendor_send` -1, `usb_vendor_room` 0), host entry (`usb_host_task`) drops what both rings
+>   hold, as it drops CDC's, the updater's and the mirror's, and the next SET_CONFIGURATION sets EP3's buffers again
+>   (`fm1_usb_host_attach` pointed EP1..3 at EP0's). bcdUSB 2.10
 >   and a BOS descriptor with the WebUSB platform capability (vendor code 1, no landing page). bcdDevice (hosts cache
 >   descriptors per version): 3.50 without USB audio (RemoteFM1 0.1's; note that it is also what felucca-bsp gives
 >   audio in + out at 44.1 kHz, fm1-base's default, without the vendor interface); with USB audio 4.00 + the audio's
@@ -100,6 +106,32 @@ EP1 hooks for apps; fm1_lcd_xfer_done()**
 > interfaces in order, each endpoint in one, the vendor pair on interface 4); the loader's `ota.bin` is identical with
 > the patch. On an FM-1: RemoteFM1 0.1 ran the same descriptors and vendor service
 > (M0: ~830 KB/s bulk with the main loop polling).
+
+## felucca-bsp: `felucca-bsp/0007-usb-host-off-clean.patch` (2026-11-08)
+
+`chip/usb_host.c`, `docs/USB_HOST.md`, `tests/usb_host_test.c`. PR title: **usb_host.c: Host Off undoes the host's
+controller state and stays off the bus a second**
+
+> On an FM-1 (ChoralRoot 0.31, the same host code), switching the host off left the Mac seeing nothing on the port
+> until a power cycle. `uh_host_up` writes registers the device driver never writes: DEVCTL's session and host
+> request, EP1's TX / RX types and intervals and its TX mode, the function address, and a bus reset may be left on
+> POWER. `fm1_usb_reset` alone (the SIE's reset line) may not clear the OTG block's host state. `uh_host_down` now
+> clears them (EP1's FIFO flushed too) before `fm1_usb_off`, and `usb_retry` makes the port a device a second later
+> instead of at once, so a computer plugged in meanwhile sees a clean attach (as a cable plugged in). Fixed so on the
+> unit in ChoralRoot (its HISTORY 3y262). The SIE model checks the registers after Off and the second's wait.
+
+## felucca-bsp: `felucca-bsp/0008-usb-device-suspend-lost.patch` (2026-11-08)
+
+`chip/usb.c`, `docs/USB_HOST.md`, `tests/usb_host_test.c`. PR title: **usb.c: a configured device's bus suspend
+raises midi_usb_lost**
+
+> `midi_usb_lost` (fm1-base's `plat_usb_lost`) asks the app to let go of the notes and pedal USB holds, and is
+> raised when a host session ends. A computer that sleeps, or a cable pulled, ends a device's session the same way:
+> the note-offs of what it held never come. A configured port's suspend (the suspend interrupt, or 100 ms of a
+> frozen frame number) now raises it too, once per suspend; an unconfigured one (nothing was held) does not. Not in
+> the update loader (its `ota.bin` is as before). A firmware that does not read `plat_usb_lost` sees no change.
+> ChoralRoot does the same on the unit (its HISTORY 3y261: two FM-1s on a plain cable, the device kept the host's
+> note). The SIE model checks a configured and an unconfigured suspend.
 
 ## felucca-bsp: `felucca-bsp/0002-uac-out-gain-glide.patch`
 

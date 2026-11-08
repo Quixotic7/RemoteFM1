@@ -18,20 +18,22 @@
  
 --- a/chip/usb.c
 +++ b/chip/usb.c
-@@ -33,7 +33,24 @@
+@@ -33,7 +33,26 @@
   * (bulk-only transport, EP3 bulk in and out; nothing else: no MIDI, no audio) until usb_msc_switch(0). The poll
   * only moves packets: the commands (SCSI) and the disk are the main loop's (usb_msc_read, usb_msc_send).
   * FELUCCA_MIDI_IN_RAW, a function of the firmware's (void f(uint32_t pkt)), is given every EP1 OUT event packet as
 - * it came, for a MIDI parser of its own (midi_in_event). */
 + * it came, for a MIDI parser of its own (midi_in_event).
-+ * FELUCCA_VENDOR=1 (RemoteFM1's, the app only: not with CDC, the USB host or in the update loader) adds a
++ * FELUCCA_VENDOR=1 (RemoteFM1's, the app only: not with CDC or in the update loader) adds a
 + * vendor-specific interface (class 0xFF, the last one: 2 after audio control and MIDI streaming, 3 or 4 after the audio
 + * streams with FELUCCA_UAC / _OUT) with a bulk OUT / IN pair on EP3 (the endpoint of the CDC option), for a host that
 + * moves more than USB-MIDI carries (libusb, Chrome's WebUSB): bcdUSB 2.10 and a BOS descriptor with the WebUSB
 + * platform capability (vendor code 1, no landing page), bcdDevice 3.50 (4.xx with USB audio, below). Its bytes
 + * go through two rings (FELUCCA_VENDOR_IN_N / _OUT_N bytes, powers of two, in FELUCCA_VENDOR_RING_ATTR: the app's pool):
 + * usb_vendor_avail / usb_vendor_read / usb_vendor_room / usb_vendor_send (main loop), served by usb_poll. A bus reset
-+ * drops what waits to go out.
++ * drops what waits to go out. With FELUCCA_USB_HOST (which uses EP0 and EP1 only) the service is off while the port
++ * is a host (usb.config 0), host entry drops what both rings hold, and EP3's buffers are set again at the next
++ * SET_CONFIGURATION (ep1_config).
 + * Hooks an app may define (each optional; without them the code is as before):
 + *   FELUCCA_SYSEX_TAP(b)    every SysEx byte from USB-MIDI (F0, the data, F7) and a status byte that ends a SysEx, in
 + *                           usb_poll's context; nonzero: the message is the app's own (from that byte on it is not
@@ -44,20 +46,20 @@
  #include "fm1_usb.h"   /* registers (chip/) */
  /* Host is opt-in and excluded from update loaders, even with a global build flag. */
  #ifndef FELUCCA_USB_HOST
-@@ -116,6 +133,12 @@
+@@ -116,6 +135,12 @@
  #else
  #define UA_MC 0
  #endif
 +#ifndef FELUCCA_VENDOR
 +#define FELUCCA_VENDOR 0
 +#endif
-+#if FELUCCA_VENDOR && (FELUCCA_CDC || FELUCCA_MSC || FELUCCA_USB_HOST || defined(FELUCCA_LOADER))
-+#error "FELUCCA_VENDOR takes EP3 and the interface after audio + MIDI: no CDC, no disk mode, no USB host, not in the loader"
++#if FELUCCA_VENDOR && (FELUCCA_CDC || FELUCCA_MSC || defined(FELUCCA_LOADER))
++#error "FELUCCA_VENDOR takes EP3 and the interface after audio + MIDI: no CDC, no disk mode, not in the loader"
 +#endif
  enum { S_FADDR = 0, S_POWER = 1, S_INTRTX1 = 2, S_INTRTX2 = 3, S_INTRRX1 = 4, S_INTRRX2 = 5, S_INTRUSB = 6,
         S_INTRTX1E = 7, S_INTRTX2E = 8, S_INTRRX1E = 9, S_INTRRX2E = 10, S_INTRUSBE = 11, S_FRAME1 = 12,
         S_FRAME2 = 13, S_INDEX = 14,
-@@ -158,6 +181,30 @@ static struct {
+@@ -158,6 +183,30 @@ static struct {
      uint32_t rx_pkts, tx_pkts;
  } cdc = {{0x00, 0xC2, 0x01, 0x00, 0, 0, 8}};   /* 115200 8N1 */
  #endif
@@ -88,7 +90,7 @@
  
  #if FELUCCA_UAC
  /* USB audio input. The I2S clock is not locked to USB (about 44,117.6 Hz against the host's 44,100):
-@@ -608,7 +655,32 @@ static uint32_t midi_out_room(void)                  /* free slots in the out ri
+@@ -608,7 +657,32 @@ static uint32_t midi_out_room(void)                  /* free slots in the out ri
  /* without the console (FELUCCA_CDC=0, or usb_cdc_on = 0): class 0, no IAD, as a plain USB-MIDI / audio device.
   * FELUCCA_UAC_IAD=1: an IAD over the audio function (audio control + its collection), so the device is misc / IAD
   * (EF 02 01, USB 2.00); with the console the IADs are there anyway. */
@@ -122,7 +124,7 @@
  #define CFG_LEN_PLAIN (9 + 8 + AUD_LEN)
  static const uint8_t DEV_DESC_PLAIN[18] = {D_DEV(0x0200, 0xEF, 0x02, 0x01, 0)};
  static const uint8_t CFG_DESC_PLAIN[] = {D_CFG(CFG_LEN_PLAIN, AUD_NIF), D_IAD(0, AUD_FN_NIF, 1, 1, 0), D_AUDIO(0)};
-@@ -757,6 +829,12 @@ static int get_desc(uint32_t wvalue, const uint8_t **d, uint16_t *l)
+@@ -757,6 +831,12 @@ static int get_desc(uint32_t wvalue, const uint8_t **d, uint16_t *l)
          default:
              return 0;
          }
@@ -135,7 +137,7 @@
      default:
          return 0;
      }
-@@ -912,6 +990,20 @@ static void ep1_config(void)
+@@ -912,6 +992,20 @@ static void ep1_config(void)
      cdc.rx_pend = 1;                                    /* look once: a packet may already wait */
  no_cdc:;
  #endif
@@ -156,7 +158,7 @@
  #if FELUCCA_UAC
      fm1_usb_ep4_txbuf(ep4tx);
      sie_wr(S_INDEX, 4);
-@@ -1114,7 +1206,7 @@ static void ep0_service(void)
+@@ -1114,7 +1208,7 @@ static void ep0_service(void)
          e0_send(zero2, 1, wlength);
          return;
      case 0x0201: {                                      /* CLEAR_FEATURE(ENDPOINT_HALT): data toggle reset */
@@ -165,7 +167,7 @@
  #if FELUCCA_UAC
          if (wvalue == 0 && (s[4] == 0x84u || (FELUCCA_UAC_OUT && s[4] == 0x04u)))
              goto ack;                                   /* isochronous: no halt, no toggle */
-@@ -1293,6 +1385,9 @@ static void sysex_byte(uint8_t b)
+@@ -1293,6 +1387,9 @@ static void sysex_byte(uint8_t b)
      if (b >= 0xF8u)
          return;                                        /* realtime may occur anywhere in SysEx */
      if ((b & 0x80u) && b != 0xF0u && b != 0xF7u) {
@@ -175,7 +177,7 @@
          usb.sx_on = 0;
  #if FELUCCA_OTA
          sx_collect = 0;
-@@ -1311,6 +1406,13 @@ static void sysex_byte(uint8_t b)
+@@ -1311,6 +1408,13 @@ static void sysex_byte(uint8_t b)
          sx_start();
  #endif
      }
@@ -189,7 +191,7 @@
      if (!usb.sx_on)
          return;
  #if FELUCCA_OTA
-@@ -1359,11 +1461,17 @@ static void midi_in_event(uint32_t pkt)                 /* one USB-MIDI event pa
+@@ -1359,11 +1463,17 @@ static void midi_in_event(uint32_t pkt)                 /* one USB-MIDI event pa
          return;
      }
      if (cin == 0xFu && st < 0xF8u && (usb.sx_on || st == 0xF0u)) {
@@ -208,7 +210,7 @@
          usb.sx_on = 0;                                 /* channel/system common also ends SysEx */
  #if FELUCCA_OTA
          sx_collect = 0;
-@@ -1389,6 +1497,10 @@ static void midi_in_event(uint32_t pkt)                 /* one USB-MIDI event pa
+@@ -1389,6 +1499,10 @@ static void midi_in_event(uint32_t pkt)                 /* one USB-MIDI event pa
  static int ep1_take(const uint8_t *b, uint32_t n)
  {
      uint32_t i;
@@ -219,7 +221,7 @@
  #ifndef FELUCCA_LOADER
      if (MQ - (mi_w - mi_r) < EP1_ROOM)
          return 0;
-@@ -1742,6 +1854,94 @@ static __attribute__((unused)) void usb_msc_switch(uint32_t on)
+@@ -1742,6 +1856,94 @@ static __attribute__((unused)) void usb_msc_switch(uint32_t on)
  }
  #endif
  
@@ -314,7 +316,7 @@
  #if FELUCCA_UAC
  /* ---- the audio input: audio.c produces (render start, then each block), TIMER5 consumes ---- */
  #if UA_MC
-@@ -2216,7 +2416,11 @@ static void usb_poll(void)                              /* TIMER5 ISR, 2 kHz */
+@@ -2216,7 +2418,11 @@ static void usb_poll(void)                              /* TIMER5 ISR, 2 kHz */
      }
      if (usb.config) {                                   /* the frame number only advances with a real host */
          static uint32_t tick;
@@ -326,7 +328,7 @@
              uint16_t f;
              tick = 0;
              f = (uint16_t)(sie_rd(S_FRAME1) | (sie_rd(S_FRAME2) & 7u) << 8);
-@@ -2269,6 +2473,10 @@ static void usb_poll(void)                              /* TIMER5 ISR, 2 kHz */
+@@ -2269,6 +2475,10 @@ static void usb_poll(void)                              /* TIMER5 ISR, 2 kHz */
  #if FELUCCA_MIDI_STAMP
          ep1_seen = 0;
  #endif
@@ -337,7 +339,7 @@
  #if FELUCCA_CDC
          cdc.dtr = 0;
          cdc.e0_rx = 0;
-@@ -2322,6 +2530,15 @@ static void usb_poll(void)                              /* TIMER5 ISR, 2 kHz */
+@@ -2322,6 +2532,15 @@ static void usb_poll(void)                              /* TIMER5 ISR, 2 kHz */
              ep3_tx();
      }
  #endif
@@ -353,3 +355,17 @@
  #if FELUCCA_UAC
      uac_service();
  #endif
+--- a/chip/usb_host.c
++++ b/chip/usb_host.c
+@@ -413,6 +413,11 @@ static void usb_host_task(uint32_t now)
+ #if FELUCCA_MIRROR
+             mr_r = mr_w;
+             tx_mid = 0;
++#endif
++#if FELUCCA_VENDOR
++            vo_r = vo_w;                                /* (the vendor pair's bytes, both ways: dropped) */
++            vi_r = vi_w;
++            vb.rx_pend = 0;
+ #endif
+             usb.sx_on = 0;
+             fm1_usb_off();
