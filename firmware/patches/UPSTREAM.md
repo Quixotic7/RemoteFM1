@@ -149,6 +149,9 @@ device that does not answer reset again with a longer recovery; NO MIDI only for
 > 60 ms. Hub ports are as before (ChoralRoot's idle retry rounds for a downstream device that did not finish are a
 > larger change, not taken). The SIE model gains a device that answers 300 ms after a reset (found by the third)
 > and one that never answers (five resets, nothing said); the failed-probe test expects five resets.
+>
+> Tested on FM-1s (2026-11-08): RemoteFM1's host on a plain USB-C cable to a second FM-1 running ChoralRoot 0.31.
+> Before the patch: NOT MIDI. With it: connected, MIDI both ways.
 
 ## felucca-bsp: `felucca-bsp/0002-uac-out-gain-glide.patch`
 

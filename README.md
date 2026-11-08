@@ -189,6 +189,8 @@ keyboard plays the DX7 with no computer, and the FM-1's keys play a USB synth.
   from the device.
 - No computer meanwhile: no USB session, USB audio or updates over USB. A Bluetooth host's session still works, and
   in it the keyboard's MIDI goes to the host as the TRS jack's does.
+- **Two FM-1s**: a plain USB-C cable between this FM-1 (USB HOST on) and a second FM-1 works, MIDI both ways
+  (tested 2026-11-08 with the second one on ChoralRoot 0.31).
 - Never kept: OFF, or a restart, gives the port back to the computer (every power-on is a USB device, so a computer
   and the installers always find the FM-1).
 
