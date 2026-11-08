@@ -17,6 +17,7 @@
                                          * DX7 as USB and Bluetooth MIDI do; in a session it goes to the host (MIDI_IN) */
 #endif
 #define APP_TOUCH                        /* the keys' velocity (fm1-base lib/touch): standalone only (sa_main.c) */
+#define APP_USB_HOST_NAME                /* USB HOST's device by its name (plat_usb_host_name): the settings page */
 
 /* RFM_SHADOW 1: the 240 x 240 shadow frame buffer (115,200 B of the pool): TILES are decoded into it and pushed to
  * the panel at each END, COPY works, the panel is repainted from it after the update screen. 0 (a build short of

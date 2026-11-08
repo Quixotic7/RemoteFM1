@@ -82,6 +82,7 @@ esac
 APPDIR=firmware
 if [ $SMK = 1 ]; then
     [ $BENCH = 0 ] || { echo "build.sh: --bench is the FM-1's"; exit 1; }
+    export FM1B_USB_HOST=0                              # (fm1.toml usb_host: the FM-1's only, not tried on the SMK)
     for p in firmware/patches/smk37/fm1-base/*.patch; do
         GIT_CEILING_DIRECTORIES="$ROOT/build" git -C "$B" apply "$ROOT/$p" ||
             { echo "build.sh: $p does not apply"; exit 1; }

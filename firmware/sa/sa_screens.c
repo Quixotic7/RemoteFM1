@@ -891,8 +891,16 @@ static void sa_paint_scale(void)
 /* "Big options like ChoralRoot" (the owner, 2026-10-30): one setting big in the middle, its value bigger in its
  * colour, the value's place among its choices as stripes, the rows before and after peeking dim above and below, where
  * the row is on the right. SELECT the row, KN1 the value. */
-static const char *const SA_SET_LAB[SA_NSET] = {"SCREEN", "KNOBS", "CC CHANNEL", "KEY CHANNEL", "KEYS", "OCT KEYS",
-                                                "SCALE SHORTCUTS", "KNOB LEDS", "VELOCITY"};
+static const char *const SA_SET_LAB[10] = {"SCREEN", "KNOBS", "CC CHANNEL", "KEY CHANNEL", "KEYS", "OCT KEYS",
+                                           "SCALE SHORTCUTS", "KNOB LEDS", "VELOCITY", "USB HOST"};
+static const char *sa_usbh_txt(void)          /* USB HOST's row: what is on the port */
+{
+    if (!ui.set[SA_SET_USBH])
+        return "OFF";
+    if (ui.usbh_st == USBH_CONNECTED)
+        return ui.usbh_name[0] ? ui.usbh_name : "CONNECTED";
+    return ui.usbh_said == USBH_MSG_NOMIDI ? "NOT MIDI" : ui.usbh_said == USBH_MSG_LOW ? "LOW-SPEED" : "LOOKING";
+}
 static uint32_t sa_set_val(uint32_t i, char *num, const char **v)   /* row i's value as text; its choices' count */
 {
     static const char *const DISP[SA_RMD_N] = {"VOID", "SOLID", "ALL", "KNOBS ONLY"};
@@ -907,14 +915,15 @@ static uint32_t sa_set_val(uint32_t i, char *num, const char **v)   /* row i's v
     case 6: *v = SA_ONOFF[ui.set[6] & 1u]; return 2;
     case 7: *v = SA_ONOFF[ui.set[7] & 1u]; return 2;
     case 8: *v = SA_ONOFF[ui.set[8] & 1u]; return 2;
+    case SA_SET_USBH: *v = sa_usbh_txt(); return 2;
     default: sa_txt_num(num, ui.set[i]); *v = num; return 16;
     }
 }
 
 static void sa_paint_settings(void)
 {
-    static const uint8_t COL[SA_NSET] = {SA_TK_A5, SA_TK_A1, SA_TK_A3, SA_TK_A4, SA_TK_A2, SA_TK_A5, SA_TK_A1, SA_TK_A3,
-                                          SA_TK_A4};
+    static const uint8_t COL[10] = {SA_TK_A5, SA_TK_A1, SA_TK_A3, SA_TK_A4, SA_TK_A2, SA_TK_A5, SA_TK_A1, SA_TK_A3,
+                                    SA_TK_A4, SA_TK_A2};
     int32_t f = ui.mfocus < SA_NSET ? ui.mfocus : 0, n, i, w, nv, cur, sw, x0;
     uint16_t c = ui.c[COL[f]];
     char num[4];
@@ -927,9 +936,9 @@ static void sa_paint_settings(void)
         ;
     sg_text_sh((SG_W - sg_text_w(SA_SET_LAB[f], n)) / 2, 64, n, SA_SET_LAB[f], UC(INK), 3, UC(SHADOW));
     nv = (int32_t)sa_set_val((uint32_t)f, num, &v);
-    for (n = 5; n > 2 && sg_text_w(v, n) > 214; n--)
+    for (n = 5; n > 1 && sg_text_w(v, n) > 214; n--)   /* (scale 1: a USB device's long name) */
         ;
-    sg_text_sh((SG_W - sg_text_w(v, n)) / 2, 100 + (5 - n) * 5, n, v, c, 4, UC(SHADOW));
+    sg_text_sh((SG_W - sg_text_w(v, n)) / 2, 100 + (5 - n) * 5, n, v, c, n > 1 ? 4 : 2, UC(SHADOW));
     /* the value's place: a stripe a choice, the value's lit */
     cur = f == 2 || f == 3 ? ui.set[f] - 1 : ui.set[f];
     sw = (200 - 3 * (nv - 1)) / nv;
@@ -944,6 +953,26 @@ static void sa_paint_settings(void)
     sg_chip_text((SG_W - w) / 2, 210, w, 22, 7, "GLO + FX FOR REMOTE", UC(PANEL), UC(INK));
 }
 
+/* ------------------------------------------------------------------ USB HOST (a passing screen) --- */
+/* a device came (its name), went, or will not do (not USB-MIDI, low-speed) */
+static void sa_paint_usbh(void)
+{
+    static const char *const PLUG[] = {"...a...", "..aaa..", "...a...", "a..a.aa", "a..a.aa", "a..a.a.", ".a.a.a.",
+                                       "..aaa..", "...a...", "..aaa..", "..aaa.."};
+    int ok = ui.usbh_msg == USBH_MSG_MIDI;
+    const char *v = ok ? (ui.usbh_name[0] ? ui.usbh_name : "CONNECTED") : ui.usbh_msg == USBH_MSG_LOST ? "GONE" :
+                    ui.usbh_msg == USBH_MSG_NOMIDI ? "NOT MIDI" : "LOW-SPEED";
+    int32_t n, i;
+    sg_chip_text(10, 8, 0, 22, 7, "USB HOST", UC(A2), UC(ON));
+    sa_arrow_c = ok ? UC(A3) : UC(MID);
+    sg_sprite(102, 40, 5, PLUG, 11, sa_arrow_col);   /* (the USB trident: lit while a device plays) */
+    for (n = 5; n > 1 && sg_text_w(v, n) > 220; n--)
+        ;
+    sg_text_sh((SG_W - sg_text_w(v, n)) / 2, 128 + (5 - n) * 5, n, v, ok ? UC(INK) : UC(A1), n > 1 ? 4 : 2, UC(D1));
+    for (i = 0; i < 8; i++)
+        sg_rect(18 + 26 * i, 224, 22, 6, ok ? UC(A3) : UC(PANEL));
+}
+
 /* ------------------------------------------------------------------ the dispatch --- */
 static void sa_ui_snap_more(void)
 {
@@ -951,6 +980,11 @@ static void sa_ui_snap_more(void)
     ui.set[0] = sa.rm_disp, ui.set[1] = sa.rm_rel, ui.set[2] = sa.rm_cc_ch, ui.set[3] = sa.rm_key_ch;
     ui.set[4] = sa.rm_keys, ui.set[5] = sa.rm_octk, ui.set[6] = sa.rm_scl, ui.set[7] = sa.rm_kled;
     ui.set[8] = sa.vel_on;
+    ui.set[SA_SET_USBH] = sa.usbh;
+    ui.usbh_st = (uint8_t)plat_usb_host_state();
+    ui.usbh_said = sa.usbh_said;
+    ui.usbh_msg = sa.usbh_msg;
+    sa_usbh_name(ui.usbh_name, sizeof ui.usbh_name);
     ui.rm_info = rm.info;
     ui.rm_info_age = ui.now - rm.info_ms;
     ui.rm_oct = (uint8_t)(rm.oct + 3);
@@ -1025,6 +1059,7 @@ static int sa_paint_more(void)               /* 1: painted (a screen after S1) *
     case SA_SCR_LATCH: sa_paint_latch(); return 1;
     case SA_SCR_SETTINGS: sa_paint_settings(); return 1;
     case SA_SCR_SCALE: sa_paint_scale(); return 1;
+    case SA_SCR_USBH: sa_paint_usbh(); return 1;
     default: return 0;
     }
 }

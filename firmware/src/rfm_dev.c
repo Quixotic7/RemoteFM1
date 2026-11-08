@@ -9,13 +9,27 @@
  * context in the SIE at a time); a poll is a few microseconds */
 static void rp_service(void)
 {
-    uint32_t f = plat_lock();
+    uint32_t f;
+#if FELUCCA_USB_HOST
+    if (usb_host_active())
+        return;                                     /* (USB HOST: the SIE is the timer's poll's alone, at its pace:
+                                                     * felucca-bsp docs/USB_HOST.md) */
+#endif
+    f = plat_lock();
     usb_poll();
     plat_unlock(f);
 }
 
 static int rp_usb_cfg(void) { return usb.up && usb.config; }
 static int rp_usb_live(void) { return usb.up && usb.config && !usb.suspended; }
+static int rp_usb_out(void)
+{
+#if FELUCCA_USB_HOST
+    if (usb_host_active())
+        return (int)usb_midi_out_ready();           /* (USB HOST's device, with an OUT endpoint) */
+#endif
+    return rp_usb_cfg();
+}
 static uint32_t rp_usb_resets(void) { return usb.resets; }
 
 /* usb.c's SysEx send ring (sx_out_q, SXQ packets): a whole message written, then published at once (ep1_tx sends

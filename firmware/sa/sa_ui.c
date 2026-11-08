@@ -58,7 +58,9 @@ static struct {
     /* MIDI REMOTE (sa_remote.c) */
     uint8_t rm_last[3], rm_src, rm_src_i, rm_any;
     uint8_t latch;
-    uint8_t set[SA_NSET], blank;                   /* the settings' values (sa_setopt's rows); MIDI REMOTE's screen off */
+    uint8_t set[10], blank;                  /* the settings' values (sa_setopt's rows); MIDI REMOTE's screen off */
+    uint8_t usbh_st, usbh_said, usbh_msg;    /* USB HOST: plat_usb_host_state, sa.usbh_said, sa.usbh_msg */
+    char usbh_name[28];                      /* its device's name, in capitals (sa_usbh_name) */
     uint8_t rm_info, rm_oct, rm_keych, rm_kbd;
     uint8_t sc_root, sc;                     /* the scale */
     int8_t rm_rel;
@@ -83,6 +85,19 @@ static struct {                              /* across frames */
 #define UC(t) (ui.c[SA_TK_##t])
 
 /* ------------------------------------------------------------------ the snapshot --- */
+/* USB HOST's device's name (plat_usb_host_name), in capitals as every word on these screens, at most n - 1 characters
+ * ("" while none is connected); the hand-over screen's line too (rfm_main.c) */
+static void sa_usbh_name(char *d, uint32_t n)
+{
+    const char *s = plat_usb_host_name();
+    uint32_t i;
+    for (i = 0; s[i] && i + 1u < n; i++)
+        d[i] = s[i] >= 'a' && s[i] <= 'z' ? (char)(s[i] - 32) : s[i];
+    while (i && d[i - 1u] == ' ')
+        i--;
+    d[i] = 0;
+}
+
 static int sa_streq(const char *a, const char *b)
 {
     while (*a && *a == *b)

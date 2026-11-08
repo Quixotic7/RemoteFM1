@@ -10,7 +10,7 @@
  #ifndef FM1B_TRS
  #define FM1B_TRS 1                       /* MIDI in on the TRS jack (fm1-base device/midi_uart.c): standalone, it plays the
                                           * DX7 as USB and Bluetooth MIDI do; in a session it goes to the host (MIDI_IN) */
-@@ -49,12 +52,37 @@
+@@ -50,12 +53,37 @@
   * XDATA0 (0x93000..0x96FFF) are read once and taken over; XDATA0 is no longer written. APP_STORE_OK keeps fm1-base's
   * store and the app to exactly these windows (the device's st_erase / st_prog; the simulator refuses a save outside
   * them; tests/store_window_test.c). */
@@ -51,7 +51,7 @@
  int plat_store_raw_load(uint32_t obj, void *dst, uint32_t max);   /* (fm1-base's, under APP_STORE_MUX) */
 --- a/sa/sa_main.c
 +++ b/sa/sa_main.c
-@@ -62,6 +62,11 @@
+@@ -70,6 +70,11 @@
                                                * a scale's root (75 %), its notes (40 %) */
  
  #define SA_NOTE0 53u                         /* key 0 at octave 0: F3 */
@@ -63,7 +63,7 @@
  #define SA_HOST_MS 3000u                     /* a HELLO without a session: panel mode this long after its last message */
  #define SA_OVERLAY_MS 1000u
  #define SA_LED_REFRESH_MS 500u                /* the LEDs written again this often, changed or not */
-@@ -125,8 +130,11 @@
+@@ -137,8 +142,11 @@
      char name[12];                           /* the voice's */
      uint32_t keys;                           /* keys held (as played: lib/touch) */
      uint32_t btns;                           /* buttons held (plat.h's B_*) */
@@ -77,7 +77,7 @@
      uint8_t held[128];                       /* the notes sounding from the keys and MIDI in, counted: the screen */
      uint8_t latch;                           /* LATCH (LFO held): the keys' notes held after they are let go */
      uint8_t rm_disp, rm_rel, rm_cc_ch, rm_key_ch, rm_keys, rm_octk;   /* the settings (SA_RMD_*, SA_RMR_*, 1..16,
-@@ -331,14 +339,22 @@
+@@ -349,14 +357,22 @@
      sa.lat_n = 0;
  }
  
@@ -102,7 +102,7 @@
                  sa_latch_release();
              } else {
                  uint32_t i, j;
-@@ -402,6 +418,12 @@
+@@ -440,6 +456,12 @@
      for (k = 0; k < NKEYS; k++)
          if (sa.keys >> k & 1u)
              sa_key(k, 0);
@@ -115,7 +115,7 @@
      sa_latch_release();
      sa_remote_off_all();
      for (k = 0; k < 128u; k++)
-@@ -1288,7 +1310,7 @@
+@@ -1370,7 +1392,7 @@
      sl_init();
      sl_store_load();                         /* the loops kept (SAVE held) */
      sar_init();
@@ -124,7 +124,7 @@
          sa.key_note[k] = 0xFFu;
      sa.led_b = sa.led_k = 0xFFFFFFFFu;
      sa_load();
-@@ -1304,4 +1326,7 @@
+@@ -1386,4 +1408,7 @@
          touch_on(1);
  }
  
@@ -312,7 +312,7 @@
  {
 --- a/src/rfm_host.c
 +++ b/src/rfm_host.c
-@@ -606,6 +606,25 @@
+@@ -613,6 +613,25 @@
          hb_run();
          return 1;
      }
@@ -338,7 +338,7 @@
      if (t < 0) {
          printf("rf %s: a transport (usb, bk, ble)\n", a);
          exit(2);
-@@ -780,8 +799,10 @@
+@@ -787,8 +806,10 @@
      else if (!strcmp(what, "rf_hello_sxq"))
          *got = (int)rf_rd16(hs_hello + 29);
      else if (!strcmp(what, "rf_hello_ident"))
@@ -352,7 +352,7 @@
      else if (!strcmp(what, "rf_panel_keys"))
 --- a/src/rfm_main.c
 +++ b/src/rfm_main.c
-@@ -56,7 +56,16 @@
+@@ -62,7 +62,16 @@
  #define FELUCCA_ID "FM-1_5200"              /* (the host simulator; tools/build.py gives the FM-1's build its own) */
  #endif
  #define RFA_FW_VER APP_VERSION
@@ -369,7 +369,7 @@
  #if RFM_SHADOW
  #define RFA_CAPS (RFM_CAP_SHADOW | RFM_CAP_COPY | RFM_CAP_RLE | RFM_CAP_PAL | RFM_CAP_PLAY_GREEN | RFM_CAP_HOLD | \
                    RFM_CAP_BLE_FAST | RFM_CAP_MIDI_IN | RFM_CAP_TOUCH)  /* (the radio's settings: fm1.toml ble_dle, ble_2m, ble_rx_bufs) */
-@@ -84,9 +93,10 @@
+@@ -91,9 +100,10 @@
  static uint32_t rp_bk_rx_n(void), rp_bk_tx_n(void); /* the vendor rings' sizes (HELLO_R) */
  enum { RC_RESETS, RC_SETUPS, RC_EP1_RX, RC_EP1_TX, RC_EP3_RX, RC_EP3_TX, RC_EP3_HELD, RC_LCD_TIMEOUTS, RC_N };
  static void rp_counters(uint32_t *c);               /* USB's and the panel's counters (STATS_R) */
@@ -382,7 +382,7 @@
  static const int8_t RF_KEYMAP[6][RFM_NCOL] = {
      {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}, {5, 11, 4, 10, 3, 9, 2, 8, -1, -1, -1},
      {34, 35, 36, 37, 38, 40, 39, 13, 7, 6, 12},   {23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33},
-@@ -595,7 +605,10 @@
+@@ -603,7 +613,10 @@
      h[25] = (uint8_t)((rp_usb_cfg() ? 1u : 0u) | 2u | (uint32_t)(rf_heard & 3u) << 2 |
                        (plat_ble_connected() ? 0x10u : 0u) | (rf_heard & 4u ? 0x20u : 0u));
      h[26] = 1;                                      /* the main loop polls USB */
@@ -394,7 +394,7 @@
      h[27] = LCD_BAUD;
  #else
      h[27] = 0;
-@@ -1068,6 +1081,65 @@
+@@ -1077,6 +1090,65 @@
          rfm_app_activity();                         /* (SINK too: the keepalive counts every byte) */
  }
  
@@ -460,9 +460,9 @@
  /* ------------------------------------------------------------------ the panel, once a millisecond --- */
  static uint32_t rf_usb_resets_seen;
  static uint8_t rf_ble_was;
-@@ -1084,6 +1156,9 @@
-         steps[RF_ENC_OF_ROLE[e]] += roles[e];
+@@ -1094,6 +1166,9 @@
      }
+     sa_usb_step();                                  /* a USB session's end, USB HOST's news (both modes) */
      sa_ms(lb, roles);                               /* standalone: the instrument; panel mode: its timeout */
 +#if BOARD_SMK37
 +    rf_smk_ms();                                    /* the SMK-37's extra controls */

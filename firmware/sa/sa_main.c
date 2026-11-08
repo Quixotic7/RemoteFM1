@@ -26,7 +26,15 @@
  *
  * The scale (sa_scale.c): GLO + PRESETS its root, GLO + ALGORITHM the scale; the keys' notes snap onto it. GLO + a
  * black key the octave. HOME held or GLO + HOME: the settings page (MIDI REMOTE's screen, knobs, channels, keys;
- * sa_remote.c).
+ * sa_remote.c; and USB HOST, below).
+ *
+ * USB HOST (the settings' last row, fm1.toml usb_host: the FM-1's build): the USB port the host of a USB-MIDI keyboard
+ * or synth (felucca-bsp's chip/usb_host.c through plat_usb_host), never saved: every boot is a device, so a computer
+ * and the updater always find the FM-1. The device's MIDI comes in on PORT_USB and plays the DX7 as a computer's
+ * does; what goes out TO_USB goes to it. The row shows LOOKING, the device's name, NOT MIDI or LOW-SPEED; a passing
+ * screen says when one comes or goes. Whenever a USB session ends (USB HOST's device gone, the mode changed, a
+ * computer asleep or unplugged: plat_usb_lost) the notes, pedal and bend USB held are let go; the keys' and the other
+ * inputs' stay (sa_usb_lost).
  *
  * After S1 (STANDALONE-PLAN.md S2..S5): FX SEL ENV LFO EDIT the CC bank and KN1..KN4 its CCs (sa_cc.c); REC, PLAY
  * and their holds the looper (sa_loop.c); ARP and its hold the arp, SELECT the tempo, a computer's MIDI clock both
@@ -82,13 +90,17 @@ static void rf_sa_leds(uint32_t btns, uint32_t keys, uint32_t keys_root, uint32_
 
 enum { SA_SCR_HOME, SA_SCR_PRESET, SA_SCR_CHANNEL, SA_SCR_OCTAVE, SA_SCR_HOST, SA_SCR_CCBANK, SA_SCR_CCTURN,
        SA_SCR_CCASSIGN, SA_SCR_SAVED, SA_SCR_REC, SA_SCR_LOOP, SA_SCR_LOOPS, SA_SCR_RECOPT, SA_SCR_ARP, SA_SCR_ARPSET,
-       SA_SCR_TEMPO, SA_SCR_THEME, SA_SCR_REMOTE, SA_SCR_LATCH, SA_SCR_SETTINGS, SA_SCR_SCALE, SA_NSCR };
+       SA_SCR_TEMPO, SA_SCR_THEME, SA_SCR_REMOTE, SA_SCR_LATCH, SA_SCR_SETTINGS, SA_SCR_SCALE, SA_SCR_USBH, SA_NSCR };
 #define SA_HOLD_MS 500u                      /* SAVE, ARP, PLAY, REC, LFO, HOME: held this long is a hold, else a tap */
 /* the settings (HOME held): MIDI REMOTE's display, knobs, channels, keys */
 enum { SA_RMD_VOID, SA_RMD_SOLID, SA_RMD_ALL, SA_RMD_KNOBS, SA_RMD_N };   /* the screen in MIDI REMOTE */
 enum { SA_RMR_ABS, SA_RMR_2C, SA_RMR_OFS, SA_RMR_N };   /* its encoders: absolute; relative 1..63 / 127..65; 65 / 63 */
 enum { SA_RMK_FIXED, SA_RMK_PLAY, SA_RMK_N };           /* its keys: fixed (as 0.3); MIDI KEYBOARD */
-#define SA_NSET 9u                           /* the settings' rows */
+#ifndef FM1B_USB_HOST
+#define FM1B_USB_HOST 0
+#endif
+#define SA_NSET (9u + FM1B_USB_HOST)         /* the settings' rows: USB HOST the last, when built (fm1.toml usb_host) */
+#define SA_SET_USBH 9u                       /* (its row) */
 #define SA_VEL_FIXED 100u                    /* VELOCITY off: every key's notes at this velocity */
 #define SA_MENU_MS 6000u                     /* (a menu's ov_until: unused since menus stay; kept for the touch) */
 enum { SA_LE_ON, SA_LE_OFF, SA_LE_CC };      /* a loop's events (sa_loop.c) */
@@ -137,6 +149,11 @@ static struct {
                                               * shortcuts in MIDI KEYBOARD */
     uint8_t lat_n, lat_note[32], lat_ch[32], lat_arp[32];   /* the notes latched (let go, still held) */
     uint32_t rheld[4];                       /* MIDI in's notes held (bit n) */
+    uint32_t uheld[4];                       /* ... of them, the ones USB holds (plat_usb_lost lets them go) */
+    uint8_t upedal, ubend;                   /* USB's last sustain pedal down, its last bend off centre */
+    uint8_t usbh;                            /* USB HOST asked for (the settings; never saved) */
+    uint8_t usbh_said;                       /* NOT MIDI / LOW-SPEED (USBH_MSG_*) for what is on the port, else 0 */
+    uint8_t usbh_msg;                        /* the passing screen's (USBH_MSG_MIDI, _LOST, _NOMIDI, _LOW) */
     int8_t oct_before;                       /* the octave before the first of OCT- / OCT+ went down */
     uint8_t ov;                              /* the screen shown (SA_SCR_*), SA_SCR_HOME none */
     uint8_t base;                            /* the screen the user opened and that stays (a menu, CC-Bank) or
@@ -151,6 +168,7 @@ static struct {
     uint32_t frame_ms;
     uint32_t led_b, led_k, led_kr, led_km, led_ms;
     uint32_t notes_out, notes_in, ev_drop, panics, saves, loads, cc_out, save_holds;   /* (the simulator's checks) */
+    uint32_t usb_lost;
 } sa;
 
 #include "sa_store.c"
@@ -392,6 +410,26 @@ static void sa_remote_off_all(void)        /* MIDI in's notes released (a channe
         if (sa.rheld[n >> 5] >> (n & 31u) & 1u)
             sa_note(n, 0);
     sa.rheld[0] = sa.rheld[1] = sa.rheld[2] = sa.rheld[3] = 0;
+    sa.uheld[0] = sa.uheld[1] = sa.uheld[2] = sa.uheld[3] = 0;
+}
+
+/* a USB session ended (plat_usb_lost: USB HOST's device gone, the mode changed, a computer asleep or unplugged): the
+ * notes USB held let go, its pedal up, its bend centred; the keys' notes and the other inputs' stay */
+static void sa_usb_lost(void)
+{
+    uint32_t n;
+    for (n = 0; n < 128u; n++)
+        if (sa.uheld[n >> 5] >> (n & 31u) & 1u) {
+            sa.rheld[n >> 5] &= ~(1u << (n & 31u));
+            sa_note(n, 0);
+        }
+    sa.uheld[0] = sa.uheld[1] = sa.uheld[2] = sa.uheld[3] = 0;
+    if (sa.upedal)
+        sa_ev(SA_EV_CC, 64, 0);
+    if (sa.ubend)
+        sa_ev(SA_EV_BEND, 8192, 0);
+    sa.upedal = sa.ubend = 0;
+    sa.usb_lost++;
 }
 
 /* every note off: the keys' (MIDI note offs, as they were sent) and MIDI in's; the synth silent at once (panic, panel
@@ -726,9 +764,10 @@ static void sa_session(uint32_t on, uint32_t t)   /* (rfm_main.c rfa_session_cha
 }
 
 /* ------------------------------------------------------------------ MIDI in --- */
-static void sa_midi_in(uint32_t pkt)
+static void sa_midi_in(uint32_t pkt, int port)   /* (port: PORT_*; USB's notes, pedal and bend are kept apart) */
 {
     uint32_t cin = pkt & 15u, st = (pkt >> 8) & 0xFFu, d1 = (pkt >> 16) & 0x7Fu, d2 = (pkt >> 24) & 0x7Fu;
+    uint32_t usb = port == PORT_USB, bit = 1u << (d1 & 31u);
     if (!sa.panel && !rm.on && cin == 15u && st >= 0xF8u) {
         sar_realtime(st);                    /* MIDI clock, start, continue, stop (sa_arp.c) */
         return;
@@ -741,21 +780,25 @@ static void sa_midi_in(uint32_t pkt)
     switch (st & 0xF0u) {
     case 0x90u:
         if (d2) {
-            uint32_t *w = &sa.rheld[d1 >> 5], bit = 1u << (d1 & 31u);
+            uint32_t *w = &sa.rheld[d1 >> 5];
             if (*w & bit)
                 sa_note(d1, 0);              /* (the same note again: one count) */
             *w |= bit;
+            sa.uheld[d1 >> 5] = usb ? sa.uheld[d1 >> 5] | bit : sa.uheld[d1 >> 5] & ~bit;   /* (the last says) */
             sa_note(d1, d2);
             break;
         }
         /* fall through: velocity 0 is a note off */
     case 0x80u:
-        if (sa.rheld[d1 >> 5] >> (d1 & 31u) & 1u) {
-            sa.rheld[d1 >> 5] &= ~(1u << (d1 & 31u));
+        if (sa.rheld[d1 >> 5] & bit) {
+            sa.rheld[d1 >> 5] &= ~bit;
+            sa.uheld[d1 >> 5] &= ~bit;
             sa_note(d1, 0);
         }
         break;
     case 0xB0u:
+        if (d1 == 64u)
+            sa.upedal = (uint8_t)(usb && d2 >= 64u);   /* (the pedal: whoever moved it last holds it) */
         if (d1 == 120u || d1 == 123u) {
             sa_remote_off_all();
             sa_ev(d1 == 120u ? SA_EV_SOUNDOFF : SA_EV_ALLOFF, 0, 0);
@@ -763,7 +806,10 @@ static void sa_midi_in(uint32_t pkt)
             sa_ev(SA_EV_CC, d1, d2);
         }
         break;
-    case 0xE0u: sa_ev(SA_EV_BEND, d1 | d2 << 7, 0); break;
+    case 0xE0u:
+        sa.ubend = (uint8_t)(usb && (d1 | d2 << 7) != 8192u);
+        sa_ev(SA_EV_BEND, d1 | d2 << 7, 0);
+        break;
     case 0xD0u: sa_ev(SA_EV_AT, d1, 0); break;
     case 0xC0u:                              /* a program change: the voice of the cartridge */
         if (d1 < sa_bank_voices(sa.bank) && d1 != sa.voice) {
@@ -883,8 +929,40 @@ static void sa_arpopt(uint32_t o, int32_t d) /* the arp's settings: MODE, RATE, 
     }
 }
 
+/* USB HOST (the settings' last row): KN1 turns it on or off; never saved (sa_settings_fill leaves it out) */
+static void sa_usbh_set(int32_t d)
+{
+    uint8_t on = (uint8_t)clamp((int32_t)sa.usbh + d, 0, 1);
+    sa.mfocus = SA_SET_USBH;
+    if (on == sa.usbh)
+        return;
+    sa.usbh = on;
+    sa.usbh_said = 0;
+    plat_usb_host(on);
+    sa.poke = 1;
+}
+
+/* USB's news, every millisecond in both modes (rfm_main.c rf_ms_step): a session's end lets its notes go; USB HOST's
+ * messages kept for its row, and a passing screen for a device that comes or goes (not over its own row, which says
+ * it already) */
+static void sa_usb_step(void)
+{
+    int m = plat_usb_host_msg();
+    if (plat_usb_lost())
+        sa_usb_lost();
+    if (m == USBH_MSG_NONE)
+        return;
+    sa.usbh_said = (uint8_t)(m == USBH_MSG_NOMIDI || m == USBH_MSG_LOW ? m : 0);
+    sa.poke = 1;
+    if (m == USBH_MSG_ON || m == USBH_MSG_OFF)
+        return;
+    sa.usbh_msg = (uint8_t)m;
+    if (!sa.panel && !(sa.menu && sa.base == SA_SCR_SETTINGS && sa.mfocus == SA_SET_USBH))
+        sa_overlay(SA_SCR_USBH);
+}
+
 static void sa_setopt(uint32_t o, int32_t d) /* the settings' rows: SCREEN KNOBS CC-CH KEY-CH KEYS OCT-KEYS SCALES
-                                              * KNOB-LEDS VELOCITY */
+                                              * KNOB-LEDS VELOCITY (USB HOST) */
 {
     static const uint8_t LO[SA_NSET + 1u] = {0, 0, 1, 1, 0, 0, 0, 0, 0},
                          HI[SA_NSET + 1u] = {SA_RMD_N - 1u, SA_RMR_N - 1u, 16, 16, SA_RMK_N - 1u, 1, 1, 1, 1};
@@ -892,6 +970,10 @@ static void sa_setopt(uint32_t o, int32_t d) /* the settings' rows: SCREEN KNOBS
                                 &sa.rm_scl, &sa.rm_kled, &sa.vel_on};
     int32_t x;
     o = o < SA_NSET ? o : SA_NSET - 1u;
+    if (o == SA_SET_USBH) {
+        sa_usbh_set(d);
+        return;
+    }
     x = clamp((int32_t)*v[o] + d, LO[o], HI[o]);
     sa.mfocus = (uint8_t)o;
     if (x != *v[o]) {

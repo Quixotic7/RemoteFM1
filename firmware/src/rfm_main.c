@@ -31,6 +31,12 @@
  * (rf_ep1_room: nothing here plays USB MIDI in), so a DAW's clock can never fill it and shut the updater out, even
  * while an update session keeps the main loop away.
  *
+ * USB HOST (sa_main.c's setting): the port is the host of a USB-MIDI keyboard or synth, no computer on it, so no USB
+ * session (turning it on ends one: rp_usb_live goes); what the instrument sends to USB goes to the device (rp_usb_out).
+ * felucca-bsp's host owns the SIE from its 2 kHz timer alone, so rp_service leaves usb_poll to it while hosting, and
+ * the device's packets never pass rf_ep1_room: the main loop takes them, standalone into the instrument, in a
+ * Bluetooth session to the host as MIDI_IN beside the TRS jack's (rf_trs_in).
+ *
  * Screen. The push (rfm_push.c) never waits: it blits a piece only when lcd_idle() says the last DMA is over. With
  * RFM_SHADOW 0 (no 115,200 B shadow) rectangles go to the panel row by row as they are decoded (rf_row). The standalone
  * screens and the hand-over screen (sa/sa_ui.c, a band at a time, never waiting either) draw only while no session or
@@ -69,6 +75,7 @@
 static void rp_service(void);                       /* USB served now (main loop) */
 static int rp_usb_cfg(void);                        /* a USB host configured the FM-1 */
 static int rp_usb_live(void);                       /* ... and its bus runs (not suspended, not unplugged) */
+static int rp_usb_out(void);                        /* USB MIDI out is taken: such a computer, or USB HOST's device */
 static uint32_t rp_usb_resets(void);
 static uint32_t rp_sx_room(void);                   /* free packets in USB's SysEx send ring */
 static void rp_sx_begin(void);                      /* a whole message: begin, put each packet, end (published) */
@@ -437,7 +444,7 @@ static void rf_ev_flush(void)
     if (rfa.session)
         to = rfa.st == RF_T_BLE ? (plat_ble_connected() ? TO_BLE_HOST : 0u) : (rp_usb_cfg() ? TO_USB : 0u);
     else
-        to = (rp_usb_cfg() ? TO_USB : 0u) | (plat_ble_connected() ? TO_BLE_HOST : 0u);
+        to = (rp_usb_out() ? TO_USB : 0u) | (plat_ble_connected() ? TO_BLE_HOST : 0u);
     if (!to) {
         rf_ev_r = rf_ev_w;                              /* nobody listens */
         return;
@@ -450,7 +457,8 @@ static void rf_ev_flush(void)
     }
 }
 
-/* the TRS jack's MIDI in a session: whole messages, each with its status (no running status), batched into MIDI_IN
+/* the TRS jack's MIDI in a session (and USB HOST's device's: rf_rx_step): whole messages, each with its status (no
+ * running status), batched into MIDI_IN
  * (docs/PROTOCOL.md section 4) on the session's transport when it has room now; never waited for, so frames and
  * their acknowledgements go on as before. What finds the batch full, or comes with no session, is dropped (counted:
  * STATS_R's MIDI-in drops) */
@@ -1030,19 +1038,20 @@ static void rf_rx_step(void)
         got += n;
     }
     for (k = 0; k < 64 && !rfm_app_rx_wait(RF_T_BLE); k++) {   /* Bluetooth (and what is left of USB MIDI in) */
-        uint32_t f = plat_lock(), cin;              /* (usb.c empties the USB part from its context: rf_ep1_room) */
+        uint32_t f = plat_lock(), cin;              /* (usb.c empties the USB part from its context, rf_ep1_room,
+                                                     * except USB HOST's) */
         int have = plat_midi_in(&pkt, &port);
         plat_unlock(f);
         if (!have)
             break;
         cin = pkt & 15u;
-        if (port == PORT_TRS && !sa_standalone()) { /* the TRS jack in panel mode: to the host (MIDI_IN) */
-            rf_trs_in(pkt);
-            continue;
+        if ((port == PORT_TRS || (port == PORT_USB && plat_usb_host_state() != USBH_OFF)) && !sa_standalone()) {
+            rf_trs_in(pkt);                         /* the TRS jack, or USB HOST's device, in panel mode: to the
+            continue;                                * host (MIDI_IN) */
         }
         if (port != PORT_BLE) {                     /* USB and TRS MIDI in: the instrument's, standalone */
             if (sa_standalone())
-                sa_midi_in(pkt);
+                sa_midi_in(pkt, port);
             else
                 rf_midi_drop++;
             continue;
@@ -1060,7 +1069,7 @@ static void rf_rx_step(void)
             if (st < 0xF8u)
                 rf_sx_byte(&rf_sx[1], st);          /* (a status ends a SysEx cut short; real time does not) */
             if (sa_standalone())
-                sa_midi_in(pkt);                    /* (Bluetooth MIDI in: the instrument's, standalone) */
+                sa_midi_in(pkt, port);              /* (Bluetooth MIDI in: the instrument's, standalone) */
             rf_ble_other++;
         }
     }
@@ -1083,6 +1092,7 @@ static void rf_ms_step(void)
         roles[e] = plat_enc((int)e);
         steps[RF_ENC_OF_ROLE[e]] += roles[e];
     }
+    sa_usb_step();                                  /* a USB session's end, USB HOST's news (both modes) */
     sa_ms(lb, roles);                               /* standalone: the instrument; panel mode: its timeout */
     {
         uint8_t ab[3];
@@ -1174,7 +1184,15 @@ static void rf_lines(void)
     s_put(p, FELUCCA_ID);
     s_put(rf_want[2], "WAITING FOR HOST");
     p = s_put(rf_want[3], "USB ");
-    s_put(p, !rp_usb_cfg() ? "NO HOST" : !rp_usb_live() ? "IDLE" : "HOST CONNECTED");
+    if (plat_usb_host_state() == USBH_CONNECTED) {  /* USB HOST: the device's name */
+        char n[21];
+        sa_usbh_name(n, sizeof n);
+        s_put(s_put(p, "HOST "), n[0] ? n : "CONNECTED");
+    } else if (plat_usb_host_state() == USBH_LOOKING) {
+        s_put(p, "HOST LOOKING");
+    } else {
+        s_put(p, !rp_usb_cfg() ? "NO HOST" : !rp_usb_live() ? "IDLE" : "HOST CONNECTED");
+    }
     rf_want[4][0] = 0;
     if (FM1B_BLE) {
         char n[12];

@@ -36,6 +36,9 @@ usb_audio_out = true           # its speaker / headphones, MASTER its volume (fm
 usb_midi_last = false          # that order kept: fm1-base's default since 2026-10-31 puts MIDI after the audio streams
                                # (FELUCCA_UAC_MIDI_LAST, for macOS 13-15), which renumbers the interfaces and makes
                                # bcdDevice 4.D0; not tried with the vendor interface on an FM-1 yet
+usb_host = true                # USB HOST (README.md "USB Host"): the standalone's settings make the port the host of a
+                               # USB-MIDI keyboard or synth (felucca-bsp's chip/usb_host.c); never saved: every boot
+                               # is a device. The FM-1's only: build.sh turns it off for the SMK-37 (FM1B_USB_HOST=0)
 # the site (fm1-base's make_site.py is not used: RemoteFM1 has its own, web/)
 tagline = "the FM-1 as a DX7 of its own, and as the panel of a firmware on a computer"
 repo = "https://github.com/Quixotic7/RemoteFM1"

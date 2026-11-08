@@ -7,6 +7,7 @@
  * script's commands and checks:
  *
  *   rf usb unplug | plug | reset | suspend | resume     the USB host goes, comes back, resets the bus, sleeps, wakes
+ *                                (unplug and suspend: plat_usb_lost once, as felucca-bsp's patched usb.c has it)
  *   rf send T CMD [HEX...]       a message from the host on T (usb: SysEx through usb.c's tap, as the FM-1 has it;
  *                                bk: the vendor pair; ble: Bluetooth SysEx as packets through plat_midi_in), CMD hex
  *   rf hello T | rf panelreq T | rf session T 1|0 [KEEPALIVE_MS]
@@ -36,8 +37,12 @@ static void run_ms(uint32_t ms);                    /* (plat_host.c's, below) */
 static int hp_cfg = 1, hp_live = 1;
 static uint32_t hp_resets;
 static void rp_service(void) {}
-static int rp_usb_cfg(void) { return hp_cfg; }
-static int rp_usb_live(void) { return hp_cfg && hp_live; }
+static int rp_usb_cfg(void) { return hp_cfg && plat_usb_host_state() == USBH_OFF; }   /* (USB HOST: no computer) */
+static int rp_usb_live(void) { return rp_usb_cfg() && hp_live; }
+static int rp_usb_out(void)
+{
+    return plat_usb_host_state() == USBH_OFF ? rp_usb_cfg() : plat_midi_out_room(TO_USB) > 0u;   /* (its device) */
+}
 static uint32_t rp_usb_resets(void) { return hp_resets; }
 
 /* the host on the other end: what the device sends, parsed per transport */
@@ -400,7 +405,7 @@ int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, c
             int ms = atoi(c), i;
             for (i = 0; i < ms; i++) {
                 if (i >= (int)next) {
-                    sa_midi_in(0x0Fu | 0xF8u << 8);
+                    sa_midi_in(0x0Fu | 0xF8u << 8, PORT_USB);
                     next += iv;
                 }
                 run_ms(1);
@@ -581,6 +586,8 @@ int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, c
     if (strcmp(cmd, "rf"))
         return 0;
     if (!strcmp(a, "usb")) {
+        if ((!strcmp(b, "unplug") || !strcmp(b, "suspend")) && rp_usb_live())
+            uhs.lost = 1;                           /* (felucca-bsp patched, 0008: a configured device's suspend) */
         if (!strcmp(b, "unplug"))
             hp_cfg = 0;
         else if (!strcmp(b, "plug"))
@@ -863,7 +870,7 @@ int app_expect(const char *what, int *got)
                                                     * hand-over, 5 CC bank, 6 CC turn, 7 CC assign, 8 saved, 9 rec,
                                                     * 10 loop, 11 loops, 12 rec options, 13 arp, 14 arp settings,
                                                     * 15 tempo, 16 theme, 17 MIDI REMOTE, 18 latch,
-                                                    * 19 settings, 20 scale */
+                                                    * 19 settings, 20 scale, 21 USB HOST's news */
         *got = sa.panel ? SA_SCR_HOST : rm.on ? SA_SCR_REMOTE : sa.ov;
     else if (!strcmp(what, "sa_sounding"))         /* FM6's voices sounding */
         *got = (int)sa_synth_voices();
@@ -917,14 +924,31 @@ int app_expect(const char *what, int *got)
         *got = rm.last[0] << 16 | rm.last[1] << 8 | rm.last[2];
     else if (!strcmp(what, "sa_bg"))               /* the theme's background (sa_theme.h SA_BGS, 6 CLASSIC) */
         *got = sa.bg;
-    else if (!strcmp(what, "sa_latch"))            /* LATCH (LFO held); the notes it holds */
+    else if (!strcmp(what, "sa_nset"))             /* the settings' rows (USB HOST's: fm1.toml usb_host) */
+        *got = (int)SA_NSET;
+    else if (!strcmp(what, "sa_mfocus"))
+        *got = sa.mfocus;
+    else if (!strcmp(what, "sa_usb_lost"))         /* plat_usb_lost taken: USB's notes let go (sa_usb_lost) */
+        *got = (int)sa.usb_lost;
+    else if (!strcmp(what, "sa_usbh_said"))        /* USB HOST's row: NOT MIDI (4), LOW-SPEED (5), else 0 */
+        *got = sa.usbh_said;
+    else if (!strcmp(what, "sa_usbh_msg"))         /* its passing screen's: USBH_MSG_* */
+        *got = sa.usbh_msg;
+    else if (!strcmp(what, "sa_usbh_line")) {      /* the hand-over screen's USB line (rf_lines): 1 HOST + the
+                                                    * device's name, 2 HOST LOOKING, 0 a computer's */
+        char n[32];
+        rf_lines();
+        sa_usbh_name(n, 21);
+        *got = !strncmp(rf_want[3], "USB HOST LOOKING", 16) ? 2 :
+               (!strncmp(rf_want[3], "USB HOST ", 9) && n[0] && !strcmp(rf_want[3] + 9, n)) ? 1 : 0;
+    } else if (!strcmp(what, "sa_latch"))            /* LATCH (LFO held); the notes it holds */
         *got = sa.latch;
     else if (!strcmp(what, "sa_lat_n"))
         *got = sa.lat_n;
-    else if (!strncmp(what, "sa_set", 6) && what[6] >= '0' && what[6] <= '8') {   /* the settings' rows: screen,
-                               * knobs, CC channel, key channel, keys, OCT keys, scale shortcuts, knob LEDs, velocity */
-        const uint8_t v[9] = {sa.rm_disp, sa.rm_rel, sa.rm_cc_ch, sa.rm_key_ch, sa.rm_keys, sa.rm_octk, sa.rm_scl,
-                              sa.rm_kled, sa.vel_on};
+    else if (!strncmp(what, "sa_set", 6) && what[6] >= '0' && what[6] <= '9') {   /* the settings' rows: screen,
+                    * knobs, CC channel, key channel, keys, OCT keys, scale shortcuts, knob LEDs, velocity, USB host */
+        const uint8_t v[10] = {sa.rm_disp, sa.rm_rel, sa.rm_cc_ch, sa.rm_key_ch, sa.rm_keys, sa.rm_octk, sa.rm_scl,
+                               sa.rm_kled, sa.vel_on, sa.usbh};
         *got = v[what[6] - '0'];
     } else if (!strcmp(what, "sa_scale"))          /* the scale: root * 100 + scale */
         *got = sa.scale_root * 100 + sa.scale;
