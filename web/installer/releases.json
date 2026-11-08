@@ -3,6 +3,22 @@
   "repo": "https://github.com/Quixotic7/RemoteFM1",
   "releases": [
     {
+      "version": "0.3.6",
+      "date": "2026-11-08",
+      "tag": "v0.3.6",
+      "identity": "FM-1_52000306",
+      "license": "MPL-2.0",
+      "sha256": "5c712b1402a31a33b2c3227f771a5603a0facf8162933e699c5d29f1c762017e",
+      "usbOnly": {
+        "file": "remote-usb-0.3.6.fwsc",
+        "sha256": "9a3ace505de2cfcc67cec3f300040315e63b0cfd16eab5cb79fc1c8e07606cf2"
+      },
+      "notes": [
+        "Sound over Bluetooth (off unless the app asks): with the player's \"Sound on the FM-1 over Bluetooth\" on, a Bluetooth session plays the firmware's sound on the FM-1 instead of sending its screen; the FM-1 shows RemoteFM1 meanwhile. Mono, about 10 kHz of treble, some hiss on quiet sounds, about a fifth of a second from a key to its sound.",
+        "Over USB nothing changes: the FM-1 is a sound output there, as before."
+      ]
+    },
+    {
       "version": "0.3.5",
       "date": "2026-11-08",
       "tag": "v0.3.5",

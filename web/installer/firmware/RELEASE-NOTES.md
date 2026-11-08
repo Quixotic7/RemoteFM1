@@ -1,3 +1,30 @@
+# RemoteFM1 0.3.6
+
+Released 2026-11-08, built and signed on GitHub with `tools/hub_build.sh 0.3.6` (docs/RELEASING.md). It replaces 0.3.5.
+Both packages install as `FM-1_52000306`.
+
+| Package | sha256 |
+| --- | --- |
+| `remote-0.3.6.fwsc`, USB + Bluetooth MIDI (the default) | `5c712b1402a31a33b2c3227f771a5603a0facf8162933e699c5d29f1c762017e` |
+| `remote-usb-0.3.6.fwsc`, USB only | `9a3ace505de2cfcc67cec3f300040315e63b0cfd16eab5cb79fc1c8e07606cf2` |
+
+## What changed from 0.3.5
+
+- **Sound over Bluetooth, off by default.** Bluetooth has room for the screen or the sound, not both. With the
+  player's Settings > Use my FM-1 > **Sound on the FM-1 over Bluetooth** on, a session over Bluetooth plays the
+  firmware's sound through the FM-1's own speaker and headphones (MASTER is its volume) and stops sending the screen;
+  the FM-1 shows "RemoteFM1" in its own pixel font meanwhile. The keys, knobs, LEDs and the TRS MIDI in work as
+  always. Turn it off and the screen comes back.
+  - What it sounds like: mono, with the treble cut off around 10 kHz and a little hiss on quiet passages and
+    pure tones (about early-'90s sampler quality). Good for playing and listening, not for judging a mix.
+  - Delay: about a fifth of a second (150-200 ms) from pressing a key to hearing it, mostly a safety buffer
+    against Bluetooth hiccups. A hiccup longer than that fades the sound out for a moment.
+  - It uses about 14 KB/s, well inside what the FM-1's Bluetooth carries with a Mac. It was tried with a Mac;
+    Windows and Android Bluetooth MIDI may be too slow for it.
+  - Over USB nothing changes: the FM-1 is a sound output there, as before. The iOS and Android apps and FM1VST
+    don't offer it yet.
+- Your cartridges, loops and settings stay.
+
 # RemoteFM1 0.3.5
 
 Released 2026-11-08, built and signed on GitHub with `tools/hub_build.sh 0.3.5` (docs/RELEASING.md). It replaces 0.3.4.
