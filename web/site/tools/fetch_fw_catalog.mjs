@@ -18,6 +18,8 @@ import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const arg = (n, d) => { const i = process.argv.indexOf(n); return i > 0 ? process.argv[i + 1] : d; };
+// the site's own copies (the last deploy): a file whose SHA-256 is the release's comes from there, not GitHub
+const deployed = arg("--deployed", "https://remotefm1.com/fw/rfm1/");
 const repo = arg("--repo", "Quixotic7/RemoteFM1FW"), tag = arg("--tag", null), from = arg("--from", null), metaRef = arg("--meta-ref", "main");
 const out = arg("--out", join(HERE, "..", "fw", "rfm1"));
 const die = (m) => { console.error(`fetch_fw_catalog: ${m}`); process.exit(1); };
@@ -44,39 +46,50 @@ async function main() {
     const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
     const hdr = { Accept: "application/vnd.github+json", "User-Agent": "remotefm1-site", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
     const api = `https://api.github.com/repos/${repo}/releases/${tag ? `tags/${encodeURIComponent(tag)}` : "latest"}`;
-    // GitHub answers a 5xx or drops a download now and then: one such file made a deploy without any .rfm1
-    // (2026-11-09, a 504), so each request is tried up to 5 times before the whole fetch gives up
-    const retry = async (url, opts, ms, soft = false) => {
+    // GitHub's download host answers 5xx or hangs now and then (2026-11-09: a fifth of the files for hours; one
+    // such file made a deploy without any .rfm1, and long retries a deploy that ran past 30 min). So: tries with a
+    // short timeout each, and for each .rfm1 first the copy this site already serves (when its SHA-256 is the
+    // release's), then the download link, then the same file through api.github.com.
+    const retry = async (url, opts, { ms = 30000, tries = 1, soft = false } = {}) => {
       let last = "";
-      for (let i = 0; i < 5; i++) {
-        if (i) await new Promise((res) => setTimeout(res, 2000 * 2 ** (i - 1)));
+      for (let i = 0; i < tries; i++) {
+        if (i) await new Promise((res) => setTimeout(res, 2000 * i));
         try {
           const res = await fetch(url, { ...opts, signal: AbortSignal.timeout(ms) });
           if (res.ok) return Buffer.from(await res.arrayBuffer());
           last = String(res.status);
           if (res.status < 500 && res.status !== 429) break;    // (a 404 stays one)
         } catch (e) { last = e.message || String(e); }
-        console.warn(`fetch_fw_catalog: ${url}: ${last}${i < 4 ? ", trying again" : ""}`);
       }
-      if (soft) return null;
-      die(`${url}: ${last}`);
+      if (!soft) die(`${url}: ${last}`);
+      console.warn(`fetch_fw_catalog: ${url}: ${last}`);
+      return null;
     };
-    const j = JSON.parse((await retry(api, { headers: hdr }, 30000)).toString("utf8"));
+    const ua = { "User-Agent": "remotefm1-site" };
+    const j = JSON.parse((await retry(api, { headers: hdr }, { tries: 3 })).toString("utf8"));
     rel = { repo, tag: j.tag_name, url: j.html_url };
-    // an asset: its download link, else the API's (the same file through api.github.com: it answered when the
-    // download host gave 504s for a fifth of the files, 2026-11-09)
-    const asset = async (a, soft) => (await retry(a.browser_download_url, { headers: { "User-Agent": "remotefm1-site" } }, 120000, true))
-      || retry(a.url, { headers: { ...hdr, Accept: "application/octet-stream" } }, 120000, soft);
-    const get = (a) => asset(a, false);
+    const viaApi = (a, soft) => retry(a.url, { headers: { ...hdr, Accept: "application/octet-stream" } }, { ms: 60000, tries: 3, soft });
     const sumsAsset = j.assets.find((a) => a.name === "SHA256SUMS");
     if (!sumsAsset) die(`${repo} ${j.tag_name} has no SHA256SUMS`);
-    sumsText = (await get(sumsAsset)).toString("utf8");
-    // an .rfm1 GitHub won't hand over even after the retries is left out (its firmware only), not all of them
-    for (const a of j.assets) if (a.name.endsWith(".rfm1")) {
-      const b = await asset(a, true);
-      if (b) files.set(a.name, b);
-      else { skipped.add(a.name); console.log(`::warning title=RemoteFM1FW::${a.name} could not be downloaded: left out of this deploy`); }
-    }
+    sumsText = ((await retry(sumsAsset.browser_download_url, { headers: ua }, { soft: true })) || (await viaApi(sumsAsset, false))).toString("utf8");
+    const want = parseSums(sumsText);
+    let fromSite = 0;
+    const one = async (a) => {
+      const hash = want.get(a.name);
+      const kept = hash && (await retry(new URL(a.name, deployed).href, { headers: ua }, { ms: 20000, soft: true }));
+      if (kept && sha(kept) === hash) { fromSite++; return kept; }
+      return (await retry(a.browser_download_url, { headers: ua }, { soft: true })) || viaApi(a, true);
+    };
+    const todo = j.assets.filter((a) => a.name.endsWith(".rfm1"));
+    const work = async () => {
+      for (let a; (a = todo.shift()); ) {
+        const b = await one(a);
+        if (b) files.set(a.name, b);
+        else { skipped.add(a.name); console.log(`::warning title=RemoteFM1FW::${a.name} could not be downloaded: left out of this deploy`); }
+      }
+    };
+    await Promise.all(Array.from({ length: 8 }, work));
+    console.log(`fetch_fw_catalog: ${fromSite} of ${files.size} from this site's last deploy (${deployed}), the rest from GitHub`);
     if (skipped.size * 2 > skipped.size + files.size) die(`${skipped.size} of ${skipped.size + files.size} .rfm1 files could not be downloaded`);
     const mu = `https://raw.githubusercontent.com/${repo}/${metaRef}/catalog/catalog.json`;
     try {
