@@ -392,12 +392,13 @@ export function browse(list, { engine = "all", cat = "All", q = "" } = {}) {
     (cat === "All" || (f.categories || []).includes(cat)) &&
     (!s || [f.name, f.author, f.authorFull, f.tag, f.what, f.id].some((x) => x && String(x).toLowerCase().includes(s))));
 }
-// the browser's two sections (the owner: native first, the .fwsc ones below, less prominent): native, the firmwares
-// with an .rfm1 (this site's or RemoteFM1FW's) or a native core; emulated, the ones that only run as .fwsc packages
+// the browser's two sections (the owner, 2026-11-09: no engine filter, only the category chips): native, the firmwares
+// with an .rfm1 (this site's or RemoteFM1FW's) or a native core, a click always starts native; emulated, every
+// firmware with a .fwsc package (also a native one's, often the Hub's newer release), a click always starts emulated
 export const runsNative = (f) => (!!f.native && f.engines.includes("native")) || f.engines.includes("rfm1");
 export function browseSections(list, opts = {}) {
-  const all = browse(list, opts);
-  return { native: all.filter(runsNative), emulated: all.filter((f) => !runsNative(f)) };
+  const all = browse(list, { ...opts, engine: "all" });
+  return { native: all.filter(runsNative), emulated: all.filter((f) => f.engines.includes("emu")) };
 }
 // what a card shows under a filter: { version, note, engine } (engine: the one a click starts; null: the default)
 export function cardView(f, engine = "all") {

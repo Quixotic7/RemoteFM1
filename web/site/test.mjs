@@ -1594,10 +1594,18 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
      "fetch_fw_catalog: --from copies and checks; a file not its SHA256SUMS line fails, writing nothing");
   // the browser: native (.rfm1 / native core) first, the emulated-only (.fwsc) below
   const sec = L.browseSections(c.firmwares);
-  ok(sec.native.length + sec.emulated.length === c.firmwares.length && sec.native.every(L.runsNative) && sec.emulated.every((f) => !f.native && !f.engines.includes("rfm1"))
-     && sec.native.some((f) => f.id === "sloop") && sec.emulated.some((f) => f.id === "bubba")
-     && L.browseSections(c.firmwares, { q: "sloop" }).native.some((f) => f.id === "sloop") && L.browseSections(c.firmwares, { q: "bubba" }).emulated.length === 1,
-     "browser: native and .rfm1 firmwares first, the emulated-only ones in a section below; search spans both");
+  const both = c.firmwares.filter((f) => L.runsNative(f) && f.engines.includes("emu"));
+  ok(sec.native.every(L.runsNative) && sec.emulated.every((f) => f.engines.includes("emu"))
+     && c.firmwares.every((f) => sec.native.includes(f) || sec.emulated.includes(f))
+     && both.every((f) => sec.native.includes(f) && sec.emulated.includes(f))
+     && sec.native.some((f) => f.id === "sloop") && sec.emulated.some((f) => f.id === "bubba") && !sec.native.some((f) => f.id === "bubba")
+     && L.browseSections(c.firmwares, { q: "sloop" }).native.some((f) => f.id === "sloop") && L.browseSections(c.firmwares, { q: "bubba" }).emulated.length === 1
+     && L.browseSections(c.firmwares, { engine: "native" }).emulated.length === sec.emulated.length,
+     "browser: native and .rfm1 firmwares on top; every .fwsc package below (a native one's too); no engine filter; search spans both");
+  // a card starts its section's engine: native (or the .rfm1) on top, emulated below, whatever the default
+  const nb = c.firmwares.find((f) => f.native && f.engines.includes("native") && f.engines.includes("emu"));
+  ok(!nb || (L.cardView(nb, "native").engine === "native" && L.cardView(nb, "emu").engine === "emu"),
+     "browser: a native card starts native, the same firmware's emulated card starts emulated");
   rmSync(dir, { recursive: true, force: true }); rmSync(fout, { recursive: true, force: true }); unlinkSync(out);
 }
 
