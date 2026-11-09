@@ -1,0 +1,37 @@
+From 000fcdbba680d2deeac341de3d4575841332308d Mon Sep 17 00:00:00 2001
+From: Michael P Jones <QuixoticSeven@gmail.com>
+Date: Sun, 8 Nov 2026 21:10:23 -0800
+Subject: [PATCH] fm1-soc: the audio PLL reads as the stock boot leaves it
+
+felucca-bsp's checked audio start (#9, fm1_audio.h fm1_audio_init_checked)
+refuses to start the I2S unless the audio PLL's registers read the values
+M-VAVE's firmware and m-bootloader leave running (0x119A0 = 0x45400203,
+0x119A4 & 0x07FFFFFF = 0x07503026). The emulator's SFRs start at 0, so
+every app built on felucca-bsp f878800 or later (fm1-base 73f36ed on) got
+FM1_AUDIO_ERR_CLOCK; fm1-base's main_fm1.c drops that result, and the app
+ran, drew and was silent. RemoteFM1 0.3.4..0.3.6 in the browser.
+
+stock_boot now sets both words as the boot leaves them.
+---
+ crates/fm1-soc/src/lib.rs | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/crates/fm1-soc/src/lib.rs b/crates/fm1-soc/src/lib.rs
+index 9c4cc00..96e922b 100644
+--- a/crates/fm1-soc/src/lib.rs
++++ b/crates/fm1-soc/src/lib.rs
+@@ -1571,6 +1571,11 @@ pub fn stock_boot(soc: &mut Soc, flash: &[u8], params: u32, board: Board) -> u32
+     soc.set_board(board);
+     soc.flash.load(flash);
+     soc.xip_flash = true;
++    // the audio PLL (PLL0) as the stock firmware and m-bootloader leave it running: felucca-bsp's
++    // checked audio start (fm1_audio.h, FM1_AUDIO_PLL_STOCK0/1) refuses any other clock, and an
++    // app that drops its result (fm1-base's main_fm1.c) is then silent with nothing logged
++    soc.sfr_set(0x119a0, 0x4540_0203);
++    soc.sfr_set(0x119a4, 0x3f50_3026);
+     write_boot_info(soc, params, flash)
+ }
+ 
+-- 
+2.42.0
+

@@ -170,6 +170,12 @@ jobs:
           cp web/engines/emu/engine.js web/engines/emu/catalog.mjs _site/engines/emu/
           cp web/vendor/fm1-emu/LICENSE _site/engines/emu/LICENSE-fm1-emu.txt
 
+      # the emulator just built plays RemoteFM1's own release with a key held (0.3.4..0.3.6 were silent in it:
+      # felucca-bsp's audio PLL check, patches/0005); a silent emulator is not deployed
+      - name: Emulated engine sounds (RemoteFM1's own packages)
+        if: steps.emu.outcome == 'success'
+        run: node web/engines/emu/own-test.mjs --wasm="$PWD/_site/engines/emu/fm1_web.wasm"
+
       - name: Use my FM-1 (W4), libremotefm1 in WebAssembly
         id: remote
         if: steps.parts.outputs.remote == '1'

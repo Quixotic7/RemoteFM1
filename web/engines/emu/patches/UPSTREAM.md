@@ -9,6 +9,7 @@ and delete its patch. FM1VST's `core-glue/fm1emu/patches` carries the same files
 | --- | --- | --- |
 | `0002-fm1-core-the-wasm-JIT-computes-the-FPU-s-multiply-ac.patch` | Melodee's FPU multiply-accumulates leave compiled code (the rest of the old 0002 is in v0.4.0) | PR not opened yet (text below) |
 | `0004-fm1-web-run-for-a-span-of-emulated-time-fm1_run_fram.patch` | X0X 1.1.0 sounds garbled in Chrome (bursty rendering) | PR not opened yet (text below) |
+| `0005-fm1-soc-the-audio-PLL-reads-as-the-stock-boot-leaves.patch` | RemoteFM1 0.3.4..0.3.6 (any app on felucca-bsp f878800 or later) silent in the emulator | PR not opened yet (text below) |
 
 ## Dropped at the bump to v0.4.0 (2026-11-02)
 
@@ -103,3 +104,25 @@ Body:
 > half ahead. This is the other way round: the host picks the span and the lead, so a lead longer
 > than a half (RemoteFM1's 40 ms) also absorbs a slow quantum (a JIT compile, a GC).
 > `fm1_render(n, 0)` still runs nothing with `fm1_ahead` at 0, its default.
+
+## 0005: the audio PLL reads as the stock boot leaves it
+
+Found 2026-11-08: RemoteFM1 0.3.4, 0.3.5 and 0.3.6 drew their screen in the player's emulator and played nothing,
+while 0.3.3 and the native cores played. 0.3.4 moved onto fm1-base 317cb86, whose felucca-bsp (f878800 on, #9)
+starts audio through `fm1_audio_init_checked`. That refuses an audio PLL it does not recognise: 0x119A0 must read
+0x45400203 and 0x119A4 & 0x07FFFFFF must read 0x07503026, as M-VAVE's firmware and m-bootloader leave PLL0
+running. fm1-emu's SFRs start at 0, so the start returned `FM1_AUDIO_ERR_CLOCK`. fm1-base's `main_fm1.c` drops
+that result, so the app was silent with nothing logged. The patch sets both words in `stock_boot`. The test is
+`web/engines/emu/own-test.mjs` (the latest release's packages, a held key must sound), which the Pages workflow
+runs after it builds the emulator.
+
+### Pull request text (ready to paste)
+
+**fm1-soc: the audio PLL reads as the stock boot leaves it**
+
+felucca-bsp's checked audio start (hugelton/felucca-bsp#9, `fm1_audio_init_checked`) refuses to start the I2S
+unless the audio PLL's registers read the stock values: 0x119A0 = 0x45400203, and 0x119A4 = 0x3F503026 under the
+mask 0x07FFFFFF. M-VAVE's firmware and m-bootloader leave PLL0 running like that. The emulator's SFRs start at 0,
+so every app built on felucca-bsp f878800 or later (fm1-base 73f36ed and later) runs and draws but is silent;
+fm1-base's `main_fm1.c` ignores the error. `stock_boot` now sets both words as the boot leaves them.
+
