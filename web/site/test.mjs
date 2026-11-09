@@ -271,48 +271,50 @@ ok(cat.firmwares.every((f) => cat.categories.includes(f.category)), "catalog: ev
 // ---- the emulated CPU clock (js/cpu.js)
 {
   const P = await import("./js/cpu.js");
-  ok(P.mhzFor("choralroot", {}).mhz === 360 && P.mhzFor("choralroot", {}).choice === "auto" && P.DEVICE_MHZ === 360
-     && P.MHZ_CHOICES.join() === "auto,240,320,360,480,640" && P.inDeviceRange(320) && P.inDeviceRange(360) && P.isOverclock(480) && P.isOverclock(640) && !P.isOverclock(360),
-     "cpu: the default is Auto at 360 MHz; choices Auto 240 320 360 480 640 (320-360 the device's, 480 640 overclock)");
+  ok(P.mhzFor("choralroot", {}).mhz === 320 && P.mhzFor("choralroot", {}).choice === "auto"
+     && P.MHZ_CHOICES.join() === "auto,80,120,160,240,320,360" && P.inDeviceRange(320) && P.inDeviceRange(360) && !P.inDeviceRange(240),
+     "cpu: the default is Auto at 320 MHz; choices Auto 80 120 160 240 320 360 (no overclock)");
   let prefs = {};
-  Object.assign(prefs, P.pickMhz(prefs, "choralroot", 640));
+  Object.assign(prefs, P.pickMhz(120));
   const saved = JSON.parse(JSON.stringify(prefs));                           // (through localStorage)
-  ok(P.mhzFor("choralroot", saved).mhz === 640 && P.mhzFor("choralroot", saved).choice === 640 && P.mhzFor("felucca", saved).mhz === 360
-     && P.mhzFor("x", { mhz: { x: 100 } }).mhz === 360, "cpu: a pick is kept per firmware, before the default (100 is no choice)");
+  ok(P.mhzFor("choralroot", saved).mhz === 120 && P.mhzFor("choralroot", saved).choice === 120 && P.mhzFor("felucca", saved).mhz === 120
+     && P.mhzFor("x", { cpuMhz: 100 }).mhz === 320 && P.mhzFor("x", { cpuMhz: 640 }).mhz === 320,
+     "cpu: a pick is one for every firmware (switching firmware keeps it); 100 and 640 are no choice");
   // Auto, too slow: load above 80 % for 2 s (after the 4 s grace) -> 320
   const run = (g, samples) => { for (const [t, load, late] of samples) { const r = g.feed({ load, lateMs: late || 0 }, t); if (r) return [t, r]; } return null; };
   const busy = (from, to, load, late = 0) => { const s = []; for (let t = from; t <= to; t += 500) s.push([t, load, late]); return s; };
-  const g = new P.Governor({ choice: "auto", mhz: 360, now: 0 });
+  const g = new P.Governor({ choice: "auto", mhz: 320, now: 0 });
   const r = run(g, [...busy(500, 3500, 0.99), ...busy(4000, 5000, 0.5), ...busy(5500, 9000, 0.9)]);
-  ok(r && r[1].step === 320 && r[0] === 7500, `cpu: Auto, load 90 % for 2 s after the boot's grace -> steps to 320 MHz (at ${r && r[0]} ms)`);
-  prefs.autoMhz = P.stepDown({}, "x", 320);
-  ok(P.mhzFor("x", prefs).mhz === 320 && [360, 320, 240, 180].map(P.nextStep).join() === "320,240,180,120" && P.nextStep(120) === null,
-     "cpu: 360 -> 320 -> 240 -> 180 -> 120 (the floor), and the step is kept (never up by itself)");
+  ok(r && r[1].step === 240 && r[0] === 7500, `cpu: Auto, load 90 % for 2 s after the boot's grace -> steps to 240 MHz (at ${r && r[0]} ms)`);
+  prefs = { ...P.pickMhz("auto"), ...P.stepDown(120) };
+  ok(P.mhzFor("x", prefs).mhz === 120 && P.mhzFor("felucca", prefs).mhz === 120 && P.mhzFor("melodee", prefs, { cores: 2 }).mhz === 120
+     && [320, 240, 160, 120].map(P.nextStep).join() === "240,160,120,80" && P.nextStep(80) === null,
+     "cpu: 320 -> 240 -> 160 -> 120 -> 80 (the floor); Auto's step is kept for the next firmwares too (never up by itself)");
   const gl = new P.Governor({ choice: "auto", mhz: 240, now: 0 });
   const rl = run(gl, busy(4000, 9000, 0.3, 70));
-  ok(rl && rl[1].step === 180, "cpu: Auto, dropouts adding up (70 ms late a report) -> the next step down");
-  ok(run(new P.Governor({ choice: "auto", mhz: 360, now: 0 }), [...busy(4000, 20000, 0.7), ...busy(20500, 21500, 0.95), ...busy(22000, 40000, 0.6, 10)]) === null,
+  ok(rl && rl[1].step === 160, "cpu: Auto, dropouts adding up (70 ms late a report) -> the next step down");
+  ok(run(new P.Governor({ choice: "auto", mhz: 320, now: 0 }), [...busy(4000, 20000, 0.7), ...busy(20500, 21500, 0.95), ...busy(22000, 40000, 0.6, 10)]) === null,
      "cpu: Auto, 70 % load and short spikes -> stays");
-  const gm = new P.Governor({ choice: 640, mhz: 640, now: 0 }), rm = run(gm, busy(4000, 9000, 0.95));
-  ok(rm && rm[1].warn && !rm[1].step && gm.feed({ load: 0.99 }, 10000) === null, "cpu: a manual 640 never changes; it warns once");
-  ok(run(new P.Governor({ choice: "auto", mhz: 120, now: 0 }), busy(4000, 9000, 0.95))[1].warn, "cpu: Auto at the 120 MHz floor, still too slow -> a warning, no lower step");
+  const gm = new P.Governor({ choice: 360, mhz: 360, now: 0 }), rm = run(gm, busy(4000, 9000, 0.95));
+  ok(rm && rm[1].warn && !rm[1].step && gm.feed({ load: 0.99 }, 10000) === null, "cpu: a manual 360 never changes; it warns once");
+  ok(run(new P.Governor({ choice: "auto", mhz: 80, now: 0 }), busy(4000, 9000, 0.95))[1].warn, "cpu: Auto at the 80 MHz floor, still too slow -> a warning, no lower step");
   // headroom before the audio breaks: the busiest stretch (peak) or the browser's glitch count
   const feed = (g, samples) => { for (const [t, m] of samples) { const r = g.feed(m, t); if (r) return [t, r]; } return null; };
   const peaky = []; for (let t = 4000; t <= 9000; t += 500) peaky.push([t, { load: 0.6, peak: 0.97 }]);
-  const rp = feed(new P.Governor({ choice: "auto", mhz: 360, now: 0 }), peaky);
-  ok(rp && rp[1].step === 320 && rp[0] === 5000, `cpu: Auto, mean 60 % but its busiest 21 ms above 95 % in 3 of 4 reports -> 320 (at ${rp && rp[0]} ms)`);
+  const rp = feed(new P.Governor({ choice: "auto", mhz: 320, now: 0 }), peaky);
+  ok(rp && rp[1].step === 240 && rp[0] === 5000, `cpu: Auto, mean 60 % but its busiest 21 ms above 95 % in 3 of 4 reports -> 240 (at ${rp && rp[0]} ms)`);
   const oneSpike = []; for (let t = 4000; t <= 20000; t += 500) oneSpike.push([t, { load: 0.7, peak: t % 2500 ? 0.8 : 1.2 }]);
-  ok(feed(new P.Governor({ choice: "auto", mhz: 360, now: 0 }), oneSpike) === null, "cpu: Auto, a peak now and then (1 report in 5) -> stays");
+  ok(feed(new P.Governor({ choice: "auto", mhz: 320, now: 0 }), oneSpike) === null, "cpu: Auto, a peak now and then (1 report in 5) -> stays");
   const gl3 = []; let n = 40; for (let t = 1000; t <= 9000; t += 500) { if (t >= 6000) n += 1; gl3.push([t, { load: 0.5, peak: 0.6, glitches: t < 4000 ? (n += 10) : n }]); }
-  const rg = feed(new P.Governor({ choice: "auto", mhz: 360, now: 0 }), gl3);
-  ok(rg && rg[1].step === 320 && rg[0] === 7000, `cpu: Auto, 3 glitches within 3 s (the browser's count; boot glitches don't count) -> 320 (at ${rg && rg[0]} ms)`);
-  ok(feed(new P.Governor({ choice: "auto", mhz: 360, now: 0 }), busy(4000, 9000, 0.78).map(([t, l]) => [t, { load: l, peak: 0.9, glitches: 5 }])) === null,
+  const rg = feed(new P.Governor({ choice: "auto", mhz: 320, now: 0 }), gl3);
+  ok(rg && rg[1].step === 240 && rg[0] === 7000, `cpu: Auto, 3 glitches within 3 s (the browser's count; boot glitches don't count) -> 240 (at ${rg && rg[0]} ms)`);
+  ok(feed(new P.Governor({ choice: "auto", mhz: 320, now: 0 }), busy(4000, 9000, 0.78).map(([t, l]) => [t, { load: l, peak: 0.9, glitches: 5 }])) === null,
      "cpu: Auto, 78 % with a 90 % peak and no new glitches -> stays");
-  ok(P.mhzFor("melodee", {}, { cores: 4 }).mhz === 320 && P.mhzFor("felucca", {}, { cores: 4 }).mhz === 360 && P.mhzFor("melodee", {}, { cores: 8 }).mhz === 360
-     && P.mhzFor("melodee", {}, {}).mhz === 360 && P.mhzFor("melodee", { mhz: { melodee: 360 } }, { cores: 2 }).mhz === 360,
+  ok(P.mhzFor("melodee", {}, { cores: 4 }).mhz === 240 && P.mhzFor("felucca", {}, { cores: 4 }).mhz === 320 && P.mhzFor("melodee", {}, { cores: 8 }).mhz === 320
+     && P.mhzFor("melodee", {}, {}).mhz === 320 && P.mhzFor("melodee", { cpuMhz: 360 }, { cores: 2 }).mhz === 360,
      "cpu: a weak host (4 cores or fewer) starts Auto one step lower for a dual-core firmware; a pick or an unknown host does not");
-  Object.assign(prefs, P.pickMhz(prefs, "x", "auto"));
-  ok(P.mhzFor("x", prefs).mhz === 360, "cpu: picking Auto again starts at 360");
+  Object.assign(prefs, P.pickMhz("auto"));
+  ok(P.mhzFor("x", prefs).mhz === 320, "cpu: picking Auto again starts at 320");
   ok(["choralroot", "melodee", "sloopdx", "fm106", "coralflower"].every((id) => P.DUAL_CORE.has(id) && cat.firmwares.some((f) => f.id === id)), "cpu: the dual-core firmwares (CPU-heavy) are in the catalog");
 }
 

@@ -19,7 +19,7 @@ import { createFm1, mountUseFm1, mountHeader } from "./use-fm1.js";
 import { liveCatalog, mergeLive, packageFor, chooseEngine, compareVersions, sourceOf, nativeOrigin, nameOf, localRfm1, siteRfm1 } from "./live.js";
 import { loadPrefs, savePrefs as writePrefs, keyHintsOn, shiftHintDue } from "./prefs.js";
 import { DEFAULT_DIM, clampDim, pickSkin, firmwareSkin, loadUserSkin, setUserImage, removeUserImage } from "./skin.js";
-import { mhzFor, pickMhz, stepDown, Governor, DEVICE_MHZ } from "./cpu.js";
+import { mhzFor, pickMhz, stepDown, Governor, AUTO_START } from "./cpu.js";
 import { EditorPanel } from "./editor-panel.js";
 import { RecUI } from "./rec-ui.js";
 import { MidiMap, Learn, MODES, srcLabel, speedOf, targetOf, knobTarget, buttonTarget } from "./midi-map.js";
@@ -47,7 +47,7 @@ const state = {
   keyHints: keyHintsOn(prefs),                              // the computer-key letters on the panel: off by default
   fwNames: !prefs || prefs.fwButtonNames !== false,         // the firmware's own button names: on by default
   saves: [], selectedSave: null, carryOffer: null,
-  mhz: DEVICE_MHZ, mhzChoice: "auto", mhzPending: null,     // the emulated CPU clock of the running firmware (cpu.js); mhzPending: Auto's step, waiting for a take to end
+  mhz: AUTO_START, mhzChoice: "auto", mhzPending: null,     // the emulated CPU clock of the running firmware (cpu.js); mhzPending: Auto's step, waiting for a take to end
   browseEngine: ["all", "native", "emu"].includes(prefs.browseEngine) ? prefs.browseEngine : "all",   // the browser's filter
   pixels: null, frameSeq: 0, levels: new Uint8Array(44), playGreen: 0,
   volume: typeof prefs.volume === "number" ? Math.max(0, Math.min(1, prefs.volume)) : 1,   // the page's volume (not the recording's)
@@ -275,7 +275,7 @@ function onLoad(m) {
 
 function stepAuto(e, mhz) {
   state.mhzPending = null;
-  prefs.autoMhz = stepDown(prefs, e.id, mhz); savePrefs();
+  Object.assign(prefs, stepDown(mhz)); savePrefs();
   toast(`Your computer can't run this firmware at full speed: emulating at ${mhz} MHz.`, "bad", 7000);
   rebootKeepingFlash();
 }
@@ -748,7 +748,7 @@ const app = {
   setMhz(choice) {
     const e = state.entry;
     if (!e) return;
-    Object.assign(prefs, pickMhz(prefs, e.id, choice)); savePrefs();
+    Object.assign(prefs, pickMhz(choice)); savePrefs();
     const clk = mhzFor(e.id, prefs, HOST);
     const reload = clk.mhz !== state.mhz;
     state.mhzChoice = clk.choice;

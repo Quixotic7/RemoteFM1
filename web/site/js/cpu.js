@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // The emulated CPU clock (the emu engine's options.mhz: fm1-emu's instructions per emulated second, fixed at boot by
-// fm1_boot_fwsc, so a change reloads the firmware with its flash kept). The FM-1 runs at about 320-360 MHz: 360 is the
-// default. Per firmware the visitor picks Auto, 240, 320, 360, 480 or 640 MHz (320-360: the device's range; 480 and
-// 640: an overclock, more headroom for heavy firmwares). Auto is 360 and steps down (360 -> 320 -> 240 -> 180 -> 120,
-// the floor) when this computer can't keep up; it never steps up by itself (picking Auto again starts at 360). A
-// manual pick never changes; it only warns. A saved per-firmware pick comes before the default.
+// fm1_boot_fwsc, so a change reloads the firmware with its flash kept). The FM-1 runs at about 320-360 MHz.
+// One setting for every emulated firmware (the owner, 2026-11-09: a pick stays as firmwares change): Auto, 80, 120,
+// 160, 240, 320 or 360 MHz; no overclock (no computer of theirs kept up with one). Auto starts at 320 and steps down
+// (320 -> 240 -> 160 -> 120 -> 80, the floor) when this computer can't keep up, and the step is kept for every later
+// firmware too: a computer that needs 120 starts the next one at 120. It never steps up by itself (picking Auto
+// again starts at 320). A manual pick never changes; it only warns.
 // Pure code (no DOM): web/site/test.mjs runs it with fake timing.
 //
 // What "can't keep up" is: the worklet (worklet/host.js) reports every half second the share of the audio time it
@@ -15,14 +16,14 @@
 // reports (2 s), or 3 glitches within 3 s, or 250 ms late within 5 s. The first 4 s after a boot don't count (the
 // boot and fm1-emu's JIT compiling the hot code).
 //
-// A weak host (four or fewer cores: phones, old laptops) starts Auto one step lower (320 MHz) for the dual-core firmwares.
+// A weak host (four or fewer cores: phones, old laptops) starts Auto one step lower (240 MHz) for the dual-core
+// firmwares, unless Auto has already stepped lower than that.
 
-export const MHZ_CHOICES = ["auto", 240, 320, 360, 480, 640];
+export const MHZ_CHOICES = ["auto", 80, 120, 160, 240, 320, 360];
 export const DEVICE_MHZ = 360;
 export const DEVICE_RANGE = [320, 360];
-export const AUTO_STEPS = [360, 320, 240, 180, 120];
-export const OVERCLOCK = "overclock: more headroom for heavy firmwares";
-export const isOverclock = (m) => typeof m === "number" && m > DEVICE_RANGE[1];
+export const AUTO_START = 320;
+export const AUTO_STEPS = [320, 240, 160, 120, 80];
 export const inDeviceRange = (m) => typeof m === "number" && m >= DEVICE_RANGE[0] && m <= DEVICE_RANGE[1];
 
 // The FM-1 firmwares that run both cores (the owner's list): the heaviest ones to emulate.
@@ -30,25 +31,21 @@ export const DUAL_CORE = new Set(["choralroot", "melodee", "sloopdx", "fm106", "
 
 // a weak host: four or fewer cores (navigator.hardwareConcurrency; unknown counts as strong)
 export const weakHost = (host = {}) => typeof host.cores === "number" && host.cores > 0 && host.cores <= 4;
-// the visitor's choice for a firmware and the clock it gives. prefs: { mhz: { id: choice }, autoMhz: { id: mhz } };
-// host: { cores } (Auto starts one step lower for a dual-core firmware on a weak host)
+// the visitor's choice and the clock it gives a firmware. prefs: { cpuMhz: choice, cpuAutoMhz: mhz } (one for every
+// firmware); host: { cores } (Auto starts one step lower for a dual-core firmware on a weak host)
 export function mhzFor(id, prefs = {}, host = {}) {
-  const c = (prefs.mhz || {})[id];
-  const choice = MHZ_CHOICES.includes(c) ? c : "auto";
+  const choice = MHZ_CHOICES.includes(prefs.cpuMhz) ? prefs.cpuMhz : "auto";
   if (choice !== "auto") return { choice, mhz: choice };
-  const stepped = (prefs.autoMhz || {})[id];
-  if (AUTO_STEPS.includes(stepped)) return { choice, mhz: stepped };
-  return { choice, mhz: weakHost(host) && DUAL_CORE.has(id) ? nextStep(DEVICE_MHZ) : DEVICE_MHZ };
+  const at = AUTO_STEPS.includes(prefs.cpuAutoMhz) ? prefs.cpuAutoMhz : AUTO_START;
+  return { choice, mhz: weakHost(host) && DUAL_CORE.has(id) && at === AUTO_START ? nextStep(at) : at };
 }
 // a new choice (picking Auto again forgets an earlier step down); returns the new prefs fields
-export function pickMhz(prefs, id, choice) {
+export function pickMhz(choice) {
   if (!MHZ_CHOICES.includes(choice)) throw new Error(`no clock choice ${choice}`);
-  const mhz = { ...(prefs.mhz || {}), [id]: choice }, autoMhz = { ...(prefs.autoMhz || {}) };
-  delete autoMhz[id];
-  return { mhz, autoMhz };
+  return { cpuMhz: choice, cpuAutoMhz: null };
 }
-// Auto's step down for a firmware; returns the new prefs field
-export const stepDown = (prefs, id, to) => ({ ...(prefs.autoMhz || {}), [id]: to });
+// Auto's step down, for this firmware and the ones after it; returns the new prefs field
+export const stepDown = (to) => ({ cpuAutoMhz: to });
 export const nextStep = (mhz) => { const i = AUTO_STEPS.indexOf(mhz); return i >= 0 && i < AUTO_STEPS.length - 1 ? AUTO_STEPS[i + 1] : null; };
 
 export const GRACE_MS = 4000, HIGH_LOAD = 0.8, HIGH_FOR_MS = 2000, LATE_MS = 250, LATE_WINDOW_MS = 5000;

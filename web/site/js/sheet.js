@@ -10,7 +10,7 @@ import { PRESETS, CUSTOM_NAME, CHOICE_ROLES, accentOf, onAccent, css, hex } from
 import { AUTOSAVE } from "./saves.js";
 import { browse, browseSections, cardView, nativeOrigin, nameOf, siteRfm1, localRfm1, fantasyCfw, usesAin } from "./live.js";
 import { RELEASES } from "./library.js";
-import { MHZ_CHOICES, DEVICE_MHZ, DEVICE_RANGE, OVERCLOCK, DUAL_CORE, isOverclock, inDeviceRange } from "./cpu.js";
+import { MHZ_CHOICES, AUTO_START, DEVICE_RANGE, DUAL_CORE, inDeviceRange } from "./cpu.js";
 import { SPEEDS, srcLabel } from "./midi-map.js";
 import { MAX_DIM } from "./skin.js";
 
@@ -261,19 +261,19 @@ export class Sheet {
       }
       // the native build: FM1VST's core or the author's own (and, where both exist, which runs and why)
       if (e.native && (shown === "native" || e.nativeAlt)) out.push(this.nativeRow(e));
-      // the emulated CPU clock (emu only): Auto, the device's range (320-360), an overclock (480, 640)
+      // the emulated CPU clock (emu only), one for every emulated firmware: Auto, slower clocks, the device's range
       if (shown === "emu") {
         const c = st.mhzChoice;
         const sub = c === "auto" && st.mhzPending ? `Auto: ${st.mhz} MHz for now; steps down to ${st.mhzPending.mhz} MHz when the take ends`
-          : c === "auto" ? (st.mhz === DEVICE_MHZ ? `Auto: ${DEVICE_MHZ} MHz, the FM-1's own clock; lower if this computer can't keep up` : `Auto: stepped down to ${st.mhz} MHz for this computer`)
-          : isOverclock(c) ? `${c} MHz, ${OVERCLOCK}` : inDeviceRange(c) ? `${c} MHz, the FM-1's own range` : `${c} MHz, under the FM-1's clock: lighter, may stutter`;
+          : c === "auto" ? (st.mhz === AUTO_START ? `Auto: ${AUTO_START} MHz, the FM-1's own range; lower if this computer can't keep up` : `Auto: stepped down to ${st.mhz} MHz for this computer`)
+          : inDeviceRange(c) ? `${c} MHz, the FM-1's own range` : `${c} MHz, under the FM-1's clock: lighter, may run slow`;
         out.push(row("Emulated CPU", sub, null));
         out.push(h("div", { class: "seg wide", role: "radiogroup", "aria-label": "Emulated CPU clock" }, MHZ_CHOICES.map((m) =>
-          h("button", { class: (m === c ? "on" : "") + (isOverclock(m) ? " oc" : inDeviceRange(m) ? " dev" : ""), role: "radio", "aria-checked": String(m === c),
-            title: m === "auto" ? `${DEVICE_MHZ} MHz, stepping down if this computer can't keep up` : isOverclock(m) ? OVERCLOCK : inDeviceRange(m) ? "the FM-1's own range" : "under the FM-1's clock",
+          h("button", { class: (m === c ? "on" : "") + (inDeviceRange(m) ? " dev" : ""), role: "radio", "aria-checked": String(m === c),
+            title: m === "auto" ? `${AUTO_START} MHz, stepping down if this computer can't keep up` : inDeviceRange(m) ? "the FM-1's own range" : "under the FM-1's clock",
             onclick: () => a.setMhz(m) }, m === "auto" ? "Auto" : `${m}`))));
-        out.push(h("div", { class: "mhz-scale" }, h("span", { class: "dev" }, "the FM-1"), h("span", { class: "oc" }, "overclock")));
-        out.push(h("p", { class: "note" }, `MHz. The FM-1 runs at about ${DEVICE_RANGE[0]}-${DEVICE_RANGE[1]} MHz; 480 and 640 are an overclock: more headroom for heavy firmwares, more work for this computer. A change restarts the firmware from its running flash.`));
+        out.push(h("div", { class: "mhz-scale" }, h("span", { class: "slow" }, "lighter"), h("span", { class: "dev" }, "the FM-1")));
+        out.push(h("p", { class: "note" }, `MHz, for every emulated firmware. The FM-1 runs at about ${DEVICE_RANGE[0]}-${DEVICE_RANGE[1]} MHz; a lower clock is lighter for this computer, and a heavy firmware may run slow at it. A change restarts the firmware from its running flash.`));
       }
     }
 

@@ -419,10 +419,10 @@ body.learning #device { cursor: crosshair; }
 .seg.wide button.oc.on { background: color-mix(in srgb, var(--seg-on) 55%, var(--amber, #F5B544)); }
 .seg.wide button.dev:not(.on) { color: var(--row-text); }
 /* under the six choices: the device's range (320, 360) and the overclock (480, 640) */
-.mhz-scale { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0 4px; font-size: 10.5px; color: var(--muted); margin: 0 2px 6px; text-align: center; }
+.mhz-scale { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0 4px; font-size: 10.5px; color: var(--muted); margin: 0 2px 6px; text-align: center; }
 .mhz-scale span { border-top: 1px solid currentColor; padding-top: 3px; }
-.mhz-scale .dev { grid-column: 3 / 5; color: var(--row-text); }
-.mhz-scale .oc { grid-column: 5 / 7; color: var(--amber); }
+.mhz-scale .slow { grid-column: 2 / 6; }
+.mhz-scale .dev { grid-column: 6 / 8; color: var(--row-text); }
 /* the firmware browser's engine filter: All / Native / Emulated, above the category chips */
 .seg.engine-filter { display: inline-flex; margin: 12px 0 0; }
 .seg.engine-filter + .chips { margin-top: 8px; }
