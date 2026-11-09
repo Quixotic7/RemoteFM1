@@ -34,7 +34,7 @@ export function parseSums(text) {
 }
 
 async function main() {
-  let sumsText, files = new Map(), rel = { repo, tag: null, url: null }, meta = null;
+  let sumsText, files = new Map(), skipped = new Set(), rel = { repo, tag: null, url: null }, meta = null;
   if (from) {
     try { meta = readFileSync(join(from, "catalog.json"), "utf8"); } catch (_) { meta = null; }
     sumsText = readFileSync(join(from, "SHA256SUMS"), "utf8");
@@ -44,19 +44,36 @@ async function main() {
     const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
     const hdr = { Accept: "application/vnd.github+json", "User-Agent": "remotefm1-site", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
     const api = `https://api.github.com/repos/${repo}/releases/${tag ? `tags/${encodeURIComponent(tag)}` : "latest"}`;
-    const r = await fetch(api, { headers: hdr, signal: AbortSignal.timeout(30000) });
-    if (!r.ok) die(`${api}: ${r.status}`);
-    const j = await r.json();
-    rel = { repo, tag: j.tag_name, url: j.html_url };
-    const get = async (a) => {
-      const res = await fetch(a.browser_download_url, { headers: { "User-Agent": "remotefm1-site" }, signal: AbortSignal.timeout(120000) });
-      if (!res.ok) die(`${a.browser_download_url}: ${res.status}`);
-      return Buffer.from(await res.arrayBuffer());
+    // GitHub answers a 5xx or drops a download now and then: one such file made a deploy without any .rfm1
+    // (2026-11-09, a 504), so each request is tried up to 5 times before the whole fetch gives up
+    const retry = async (url, opts, ms, soft = false) => {
+      let last = "";
+      for (let i = 0; i < 5; i++) {
+        if (i) await new Promise((res) => setTimeout(res, 2000 * 2 ** (i - 1)));
+        try {
+          const res = await fetch(url, { ...opts, signal: AbortSignal.timeout(ms) });
+          if (res.ok) return Buffer.from(await res.arrayBuffer());
+          last = String(res.status);
+          if (res.status < 500 && res.status !== 429) break;    // (a 404 stays one)
+        } catch (e) { last = e.message || String(e); }
+        console.warn(`fetch_fw_catalog: ${url}: ${last}${i < 4 ? ", trying again" : ""}`);
+      }
+      if (soft) return null;
+      die(`${url}: ${last}`);
     };
+    const j = JSON.parse((await retry(api, { headers: hdr }, 30000)).toString("utf8"));
+    rel = { repo, tag: j.tag_name, url: j.html_url };
+    const get = (a) => retry(a.browser_download_url, { headers: { "User-Agent": "remotefm1-site" } }, 120000);
     const sumsAsset = j.assets.find((a) => a.name === "SHA256SUMS");
     if (!sumsAsset) die(`${repo} ${j.tag_name} has no SHA256SUMS`);
     sumsText = (await get(sumsAsset)).toString("utf8");
-    for (const a of j.assets) if (a.name.endsWith(".rfm1")) files.set(a.name, await get(a));
+    // an .rfm1 GitHub won't hand over even after the retries is left out (its firmware only), not all of them
+    for (const a of j.assets) if (a.name.endsWith(".rfm1")) {
+      const b = await retry(a.browser_download_url, { headers: { "User-Agent": "remotefm1-site" } }, 120000, true);
+      if (b) files.set(a.name, b);
+      else { skipped.add(a.name); console.log(`::warning title=RemoteFM1FW::${a.name} could not be downloaded: left out of this deploy`); }
+    }
+    if (skipped.size * 2 > skipped.size + files.size) die(`${skipped.size} of ${skipped.size + files.size} .rfm1 files could not be downloaded`);
     const mu = `https://raw.githubusercontent.com/${repo}/${metaRef}/catalog/catalog.json`;
     try {
       const res = await fetch(mu, { headers: { "User-Agent": "remotefm1-site" }, signal: AbortSignal.timeout(30000) });
@@ -71,7 +88,7 @@ async function main() {
   const sums = parseSums(sumsText);
   const listed = [...sums.keys()].filter((n) => n.endsWith(".rfm1"));
   if (!listed.length) die("SHA256SUMS lists no .rfm1");
-  for (const n of listed) if (!files.has(n)) die(`${n}: in SHA256SUMS, not in the release`);
+  for (const n of listed) if (!files.has(n) && !skipped.has(n)) die(`${n}: in SHA256SUMS, not in the release`);
   for (const [n, b] of files) {
     if (!sums.has(n)) die(`${n}: not in SHA256SUMS`);
     if (sha(b) !== sums.get(n)) die(`${n}: SHA-256 ${sha(b)}, SHA256SUMS says ${sums.get(n)}`);
@@ -84,6 +101,6 @@ async function main() {
   writeFileSync(join(out, "SHA256SUMS"), names.map((n) => `${sums.get(n)}  ${n}\n`).join(""));
   writeFileSync(join(out, "release.json"), JSON.stringify({ ...rel, files: names, ...(meta !== null ? { catalog: `catalog/catalog.json@${from ? "local" : metaRef}` } : {}) }, null, 1) + "\n");
   if (meta !== null) writeFileSync(join(out, "catalog.json"), meta);
-  console.log(`fetch_fw_catalog: ${names.length} .rfm1 files of ${rel.repo} ${rel.tag}, checked against SHA256SUMS -> ${out}`);
+  console.log(`fetch_fw_catalog: ${names.length} .rfm1 files of ${rel.repo} ${rel.tag}, checked against SHA256SUMS${skipped.size ? ` (${skipped.size} left out: ${[...skipped].join(", ")})` : ""} -> ${out}`);
 }
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) await main();
