@@ -48,7 +48,7 @@ RemoteFM1's packages carry: 8,340 -> 11,782 B), and fm1-base's `device/fm1_flash
 - **The identity reply**: fm1-base 3ae2a65 took the flash's JEDEC ID out of it again (no `OTA_FLASH_ID`: bytes 24..26
   stay 0), because The Firmware Hub's installer, which strips only trailing zeros, then found "No FM-1". RemoteFM1
   defines no `OTA_FLASH_ID` either: its reply is the text, then zeros, as before. felucca-bsp 41a6e86 answers a plain
-  handshake with the identity cut to the name, `_` and three digits (`FM-1_520`, for M-UPGRADE 3.11) and only a
+  handshake with the identity cut to the name, `_` and three digits (`FM-1_720`, for M-UPGRADE 3.11) and only a
   handshake with the body 01 with the whole one; RemoteFM1's installers send the plain one and read the version from
   it, so `firmware/app.h` defines `FELUCCA_ID_WHOLE` (0006): the whole identity to every handshake, as before.
 - **Defaults that moved**: fm1-base's `usb_midi_last` is true by default since 2026-10-31 (MIDI after the audio
@@ -180,7 +180,7 @@ device that does not answer reset again with a longer recovery; NO MIDI only for
 
 > Since 41a6e86 a plain handshake gets the identity cut to the name, `_` and three digits (M-UPGRADE 3.11's limit),
 > and only a handshake with the body 01 the whole one. A firmware whose own installers read its version from the
-> plain handshake (RemoteFM1's web installer and `fm1_install.py`: `FM-1_52000303` is 0.3.3, `FM-1_520` nothing) defines
+> plain handshake (RemoteFM1's web installer and `fm1_install.py`: `FM-1_72000307` is 0.3.7, `FM-1_720` nothing) defines
 > `FELUCCA_ID_WHOLE` and answers as before 41a6e86. The loader's reply is whole anyway. Without the macro nothing
 > changes.
 

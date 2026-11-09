@@ -23,10 +23,10 @@ loader / no restart), 6 wrong model, another identity after the install, or the
 FM-1 is in the update mode of another firmware (only SLOOP's own loader,
 ota-FM-1_9XX, is resumed).
 
-The M-Vave SMK-37 (docs/SMK37.md): RemoteFM1's SMK-37 packages (identity "SMK-37 Pro_52...", "SMK-37 Elite_52...",
-"MKE-P37_52...": 36 identity blocks, as the SMK-37's stock packages) install on an SMK-37 of any model (one board),
-never on an FM-1, and an FM-1 package never on an SMK-37, on every path (the install and the resume of one cut off:
-the loader's model, ota-MODEL_9XX, is checked the same way). The keyboard is found by its port ("FM-1" while
+The M-Vave SMK-37 (docs/SMK37.md): RemoteFM1's SMK-37 packages (identity "SMK-37 Pro_72...", "SMK-37 Elite_72...",
+"MKE-P37_72...", 52 before 0.3.7: 36 identity blocks, as the SMK-37's stock packages) install on an SMK-37 of any
+model (one board), never on an FM-1, and an FM-1 package never on an SMK-37, on every path (the install and the
+resume of one cut off: the loader's model, ota-MODEL_9XX, is checked the same way). The keyboard is found by its port ("FM-1" while
 RemoteFM1 runs, "SMK-37 Pro ..." under its stock firmware).
 """
 import argparse
@@ -57,8 +57,10 @@ OFFICIAL = {
 # where the image ends. V16's ends at 0xA9000 (its app area head runs to 0xA8071, app.bin alone to 0x960E8): it would
 # be cut short, so it is refused here before the FM-1 is asked anything
 APP_HI = 0x93000
-# RemoteFM1's package identity since 0.2 (fm1-base's scheme, firmware/fm1.toml id_prefix): FM-1_5200 a development
-# build, FM-1_52XXYYZZ release X.Y.Z. 0.1 answered as M-VAVE's V15 (FM-1_015), and cannot be told from it here
+# RemoteFM1's package identity (fm1-base's scheme, firmware/fm1.toml id_prefix): FM-1_7200 a development build,
+# FM-1_72XXYYZZ release X.Y.Z, since 0.3.7. 0.2 to 0.3.6 were FM-1_52XXYYZZ (dev FM-1_5200), still read as RemoteFM1:
+# 52 moved to 72 as QUADRO numbers its releases FM-1_52XXYYZZ too. 0.1 answered as M-VAVE's V15 (FM-1_015), and
+# cannot be told from it here
 
 
 def describe_identity(text):
@@ -67,17 +69,17 @@ def describe_identity(text):
         return "update loader (update not finished)"
     if is_smk(model_of(text)):
         model, _, num = text.partition("_")
-        if num == "5200":
+        if num in ("5200", "7200"):
             return f"running RemoteFM1 (a development build) on an {model}"
-        m = re.fullmatch(r"52(\d\d)(\d\d)(\d\d)", num)
+        m = re.fullmatch(r"[57]2(\d\d)(\d\d)(\d\d)", num)
         if m:
             return f"running RemoteFM1 {int(m[1])}.{int(m[2])}.{int(m[3])} on an {model}"
         if re.fullmatch(r"0\d\d", num):
             return f"running M-VAVE's official {model} V{int(num)}"
         return f"running (an {model})"
-    if text == "FM-1_5200":
+    if text in ("FM-1_5200", "FM-1_7200"):
         return "running RemoteFM1 (a development build)"
-    m = re.fullmatch(r"FM-1_52(\d\d)(\d\d)(\d\d)", text)
+    m = re.fullmatch(r"FM-1_[57]2(\d\d)(\d\d)(\d\d)", text)
     if m:
         return f"running RemoteFM1 {int(m[1])}.{int(m[2])}.{int(m[3])}"
     m = re.fullmatch(r"FM-1_0(\d\d)", text)

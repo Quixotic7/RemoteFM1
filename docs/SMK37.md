@@ -13,8 +13,8 @@ fm1-base's build hashes the app's source text into the image (`FM1B_BUILD`, the 
 **To every host the SMK-37 is an FM-1.** RemoteFM1.com, the iOS and Android apps, FM1VST and libremotefm1 see exactly
 what an FM-1 running RemoteFM1 shows them: the USB descriptors and the product name `FM-1`, the Bluetooth name
 `FM-1 XXXX`, USB audio, the protocol, HELLO_R byte for byte (version `0.3.1`, the capabilities, the 240 x 240 screen,
-the identity `FM-1_520`), PANEL_R with the FM-1's 27 keys, 14 buttons and 7 encoders. The firmware maps the SMK-37's
-controls onto the FM-1's; no host knows or needs to know. Only the **update identity** (what an installer,
+the identity `FM-1_720`; `FM-1_520` before 0.3.7), PANEL_R with the FM-1's 27 keys, 14 buttons and 7 encoders. The
+firmware maps the SMK-37's controls onto the FM-1's; no host knows or needs to know. Only the **update identity** (what an installer,
 `fm1_install.py --info` and M-Vave's M-UPGRADE ask for) names the model, so that installers tell the boards apart and
 M-UPGRADE still takes the unit's stock package for the way back.
 
@@ -122,12 +122,13 @@ packages, staged where the FM-1's update is, so the unit can be put right with a
 
 | Model | Package (`firmware/build/`) | Update identity |
 | --- | --- | --- |
-| SMK-37 Pro (and the Starrykey 37 Play) | `remotefm1-smk37[-usb][-0.3.1].fwsc` | `SMK-37 Pro_52000301` (dev `SMK-37 Pro_5200`) |
-| SMK-37 Elite | `remotefm1-smk37-elite[-usb][-0.3.1].fwsc` | `SMK-37 Elite_52000301` (dev `SMK-37 Elite_5200`) |
-| MKE-P37 | `remotefm1-smk37-mke[-usb][-0.3.1].fwsc` | `MKE-P37_52000301` (dev `MKE-P37_5200`) |
+| SMK-37 Pro (and the Starrykey 37 Play) | `remotefm1-smk37[-usb][-0.3.1].fwsc` | `SMK-37 Pro_72XXYYZZ` (dev `SMK-37 Pro_7200`; 0.3.1: `SMK-37 Pro_52000301`) |
+| SMK-37 Elite | `remotefm1-smk37-elite[-usb][-0.3.1].fwsc` | `SMK-37 Elite_72XXYYZZ` (dev `SMK-37 Elite_7200`; 0.3.1: `SMK-37 Elite_52000301`) |
+| MKE-P37 | `remotefm1-smk37-mke[-usb][-0.3.1].fwsc` | `MKE-P37_72XXYYZZ` (dev `MKE-P37_7200`; 0.3.1: `MKE-P37_52000301`) |
 
 `-usb` is the build without Bluetooth, as on the FM-1. The identity is the model's name and RemoteFM1's own number
-(`52` and the version, as the FM-1's `FM-1_52000301`); its update loader answers `ota-MODEL_900`, and the update's
+(`72` and the version, from `firmware/fm1.toml` `id_prefix`, as the FM-1's `FM-1_72000307`; `52` before 0.3.7,
+still read as RemoteFM1); its update loader answers `ota-MODEL_900`, and the update's
 record names the model's stock loader (`ota-SMK-37 Pro_016` etc.), so M-UPGRADE finds it under the name it expects
 during a return to stock. The firmware's version (0.3.1, in HELLO_R and on the screen) is the FM-1's.
 
@@ -154,7 +155,7 @@ BOARD=smk37 ./build.sh                          # firmware/build/remotefm1-smk37
 BOARD=smk37 MODEL=elite ./build.sh              # remotefm1-smk37-elite.fwsc
 BOARD=smk37 MODEL=mke ./build.sh                # remotefm1-smk37-mke.fwsc
 BOARD=smk37 ./build.sh --no-ble                 # remotefm1-smk37-usb.fwsc (no Bluetooth)
-BOARD=smk37 ./build.sh --release 0.3.1          # remotefm1-smk37-0.3.1.fwsc, identity SMK-37 Pro_52000301
+BOARD=smk37 ./build.sh --release 0.3.7          # remotefm1-smk37-0.3.7.fwsc, identity SMK-37 Pro_72000307
 BOARD=smk37 ./build.sh --host                   # the simulator with the SMK-37's panel: build/host/remotefm1-smk37_host
 BOARD=smk37 ./build.sh --web                    # the browser emulator: firmware/build/emu-smk37/ (below)
 ./build.sh                                      # the FM-1 build, as before

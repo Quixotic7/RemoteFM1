@@ -25,7 +25,7 @@
 /* ---------------------------------------------------------------- the device's own code ---- */
 #include "remote_proto.h"
 #define RFA_FW_VER "0.3.6-x"
-#define RFA_IDENTITY "FM-1_520"
+#define RFA_IDENTITY "FM-1_720"
 #include "rfm_draw.c"
 #include "rfm_push.c"
 #include "rfm_app.c"

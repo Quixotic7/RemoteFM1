@@ -43,4 +43,5 @@ under the same licence too.
 
 "M-VAVE" and "FM-1" belong to their owners; "Felucca" and "Hügelton Instruments" are names of Hügelton Instruments.
 RemoteFM1 is not made or endorsed by M-VAVE. 0.1.1 answers the update protocol with the official firmware's
-identity (`FM-1_015`) so that installers accept it; 0.2 answers as itself (`FM-1_52XXYYZZ`).
+identity (`FM-1_015`) so that installers accept it; 0.2 answers as itself (`FM-1_72XXYYZZ` since 0.3.7,
+`FM-1_52XXYYZZ` before).

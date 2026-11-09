@@ -13,7 +13,7 @@
 # The two packages, as the site has always named them:
 #   remote-V.fwsc       USB + Bluetooth MIDI (./build.sh --release V): the one The Firmware Hub lists
 #   remote-usb-V.fwsc   USB only (./build.sh --release V --no-ble)
-# Both install as FM-1_52XXYYZZ (firmware/fm1.toml id_prefix).
+# Both install as FM-1_72XXYYZZ (firmware/fm1.toml id_prefix; FM-1_52XXYYZZ for 0.2 to 0.3.6).
 #
 # Yamaha's DX7 ROM cartridges (the standalone's 256 voices) are never in this repository or a release: the build
 # downloads the eight 32-voice dumps from Yamaha Black Boxes and stops unless each one's sha256 is the one pinned below
@@ -60,7 +60,7 @@ else
     echo "hub_build.sh: no version (an argument X.Y.Z, a tag vX.Y.Z or a run's version input)" >&2
     exit 1
 fi
-# X.Y.Z, two digits at most each: the identity is FM-1_52 + XXYYZZ
+# X.Y.Z, two digits at most each: the identity is FM-1_72 + XXYYZZ
 if ! [[ "$v" =~ ^[0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
     echo "::error::version '$v' is not X.Y.Z (tags are vX.Y.Z)"
     exit 1

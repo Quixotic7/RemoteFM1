@@ -30,10 +30,11 @@ export function modelOf(model) {
   if (k) return { key: k, any: false };
   return sameKeyboard(n, "SMK-37 Pro") ? { key: "pro", any: true } : null;
 }
-// RemoteFM1's own SMK-37 identity (MODEL_52XXYYZZ, MODEL_5200 a development build) -> "0.3.1" | "development build" | null
+// RemoteFM1's own SMK-37 identity (MODEL_72XXYYZZ, MODEL_7200 a development build; 52 before 0.3.7, still read)
+// -> "0.3.1" | "development build" | null
 export function smkRemoteVersion(identity) {
-  if (/^(SMK-37 Pro|SMK-37 Elite|MKE-P37)_5200$/i.test(identity || "")) return "development build";
-  const m = /^(SMK-37 Pro|SMK-37 Elite|MKE-P37)_52(\d\d)(\d\d)(\d\d)$/i.exec(identity || "");
+  if (/^(SMK-37 Pro|SMK-37 Elite|MKE-P37)_[57]200$/i.test(identity || "")) return "development build";
+  const m = /^(SMK-37 Pro|SMK-37 Elite|MKE-P37)_[57]2(\d\d)(\d\d)(\d\d)$/i.exec(identity || "");
   return m ? `${+m[2]}.${+m[3]}.${+m[4]}` : null;
 }
 // the update modes that are resumed: RemoteFM1's SMK loader (ota-MODEL_900), as fm1_install.py (ota-MODEL_9NN)

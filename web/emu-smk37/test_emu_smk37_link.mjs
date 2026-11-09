@@ -106,7 +106,7 @@ check("HELLO answered with HELLO_R", !!hr, r.map((m) => m.cmd.toString(16)).join
 if (hr) {
   const h = hr.body, str = (o, n) => String.fromCharCode(...h.slice(o, o + n)).replace(/\0.*$/, "");
   check("HELLO_R: RemoteFM1, protocol 2", str(0, 16) === "RemoteFM1" && h[16] === 2, `${str(0, 16)} ${h[16]}`);
-  check("HELLO_R: the FM-1's identity", str(43, 8) === "FM-1_520", str(43, 8));
+  check("HELLO_R: the FM-1's identity", str(43, 8) === "FM-1_720", str(43, 8));
   check("HELLO_R: USB configured, SysEx heard", (h[25] & 5) === 5, h[25].toString(2));
   check("HELLO_R: caps 4015", (h[55] | h[56] << 8) === 4015, String(h[55] | h[56] << 8));
   if (helloDump && existsSync(helloDump)) {

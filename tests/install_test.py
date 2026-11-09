@@ -111,14 +111,20 @@ if v16:
 else:
     print("(M-VAVE's V16 not found: set V16_PKG; its checks skipped)")
 
-# --info's words for an identity: RemoteFM1's own (fm1-base's FM-1_52 since 0.2) never "official"
+# --info's words for an identity: RemoteFM1's own (fm1-base's FM-1_72 since 0.3.7, FM-1_52 for 0.2 .. 0.3.6) never
+# "official"
 D = I.describe_identity
 ok(D("FM-1_52000200") == "running RemoteFM1 0.2.0" and D("FM-1_52011003") == "running RemoteFM1 1.10.3",
    "--info: FM-1_52XXYYZZ is RemoteFM1 X.Y.Z")
 ok("RemoteFM1" in D("FM-1_5200") and "official" not in D("FM-1_5200"), "--info: FM-1_5200 is a RemoteFM1 development build")
+ok(D("FM-1_52000306") == "running RemoteFM1 0.3.6" and D("FM-1_72000307") == "running RemoteFM1 0.3.7",
+   "--info: FM-1_52000306 (old) and FM-1_72000307 (since 0.3.7) are both RemoteFM1")
+ok(D("FM-1_7200") == "running RemoteFM1 (a development build)" and D("FM-1_62000307") == "running",
+   "--info: FM-1_7200 is a development build, FM-1_62... not RemoteFM1")
 ok("official V15" in D("FM-1_015") and "RemoteFM1 0.1" in D("FM-1_015"), "--info: FM-1_015 is V15, or RemoteFM1 0.1")
 ok(D("FM-1_016") == "running M-VAVE's official V16" and "update loader" in D("ota-FM-1_900"), "--info: V16, a loader")
-ok(D("FM-1_46000100") == "running" and D("FM-1_099") == "running" and D("FM-1_520") == "running",
+ok(D("FM-1_46000100") == "running" and D("FM-1_099") == "running" and D("FM-1_520") == "running" and
+   D("FM-1_720") == "running",
    "--info: another firmware (FIZZ, m-bootloader's installer, a short 52) not named")
 # RemoteFM1 0.2's own package, when built (./build.sh): fm1-base's, with the loader marker, the app area's size; the
 # M-Vave SMK-37's (BOARD=smk37 ./build.sh, docs/SMK37.md): its model's identity in 36 blocks, the SMK's app area
@@ -127,11 +133,11 @@ for pkg in sorted((ROOT / "firmware" / "build").glob("remotefm1*.fwsc")):
     product, _, off = I.load_package(str(pkg), False)
     if "-smk37" in pkg.name:
         model = "SMK-37 Elite" if "-elite" in pkg.name else "MKE-P37" if "-mke" in pkg.name else "SMK-37 Pro"
-        ok(product.startswith(model + "_52") and off is None and I.marker_blocks(r) == I.SMK_BLOCKS and
+        ok(re.match(re.escape(model) + "_[57]2", product) and off is None and I.marker_blocks(r) == I.SMK_BLOCKS and
            I.package_damage(I.logical_image(r)) is None and I.flash_size(I.logical_image(r)) == I.APP_HI_SMK,
            f"the built {pkg.name}: {product}, 36 blocks, loads without --force, no damage, the SMK's app area")
         continue
-    ok(product.startswith("FM-1_52") and off is None and I.marker_blocks(r) == I.BLOCKS and
+    ok(re.match("FM-1_[57]2", product) and off is None and I.marker_blocks(r) == I.BLOCKS and
        I.package_damage(I.logical_image(r)) is None and
        I.flash_size(I.logical_image(r)) <= I.APP_HI, f"the built {pkg.name}: {product}, loads without --force, no damage")
 
@@ -166,7 +172,8 @@ for dev_id, product, what in (("SMK-37 Pro_016", "FM-1_52000301", "an FM-1 packa
     ok(code == "model" and not link.sent, f"install: {what}: refused (model), nothing sent")
 D = I.describe_identity
 ok(D("SMK-37 Pro_52000301") == "running RemoteFM1 0.3.1 on an SMK-37 Pro" and
-   "development" in D("SMK-37 Elite_5200") and D("SMK-37 Pro_016") == "running M-VAVE's official SMK-37 Pro V16" and
+   "development" in D("SMK-37 Elite_5200") and D("SMK-37 Pro_72000307") == "running RemoteFM1 0.3.7 on an SMK-37 Pro" and
+   "development" in D("MKE-P37_7200") and D("SMK-37 Pro_016") == "running M-VAVE's official SMK-37 Pro V16" and
    "update loader" in D("ota-SMK-37 Pro_900"), "--info: RemoteFM1 on an SMK-37, its stock firmware, a loader")
 ok(I.PORT_RE.search("SMK-37 Pro Midi") and I.PORT_RE.search("FM-1"), "the SMK-37's stock port is looked at, as RemoteFM1's")
 

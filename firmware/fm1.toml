@@ -3,8 +3,10 @@
 # RemoteFM1's build settings for fm1-base's tools/build.py (run through ../build.sh: fm1-base, patched, in
 # firmware/build/base; firmware/patches/)
 name = "RemoteFM1"             # the build's files: build/remotefm1.fwsc, remotefm1-usb.fwsc (--no-ble)
-id_prefix = "FM-1_52"          # package identity: dev FM-1_5200, releases FM-1_52XXYYZZ (52: "R", RemoteFM1's SysEx
-                               # 7D 52 46; FIZZ is FM-1_46, CTL-1 FM-1_6, Radio FM-1_13, the template FM-1_11)
+id_prefix = "FM-1_72"          # package identity: dev FM-1_7200, releases FM-1_72XXYYZZ (72: "r"), since 0.3.7.
+                               # 0.2 to 0.3.6 were FM-1_52 (52: "R", as RemoteFM1's SysEx 7D 52 46): QUADRO numbers
+                               # its releases FM-1_52XXYYZZ too. FIZZ is FM-1_46, CTL-1 FM-1_6, Radio FM-1_13, the
+                               # template FM-1_11
 usb_product = "FM-1"           # the USB product name as RemoteFM1 0.1 had it (the manufacturer: felucca-bsp's own,
                                # "Hügelton Instruments", as 0.1): the same descriptors, so hosts see the same device
 include = ["src"]              # the protocol layer, the decoder and the push (src/: host/ compiles them too)

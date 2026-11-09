@@ -288,7 +288,8 @@ and felucca-bsp; all the Felucca / TransitFM1-derived platform code goes, Remote
 RTP-MIDI) later. The firmware becomes MPL-2.0 (to link JieLi's Bluetooth library); the site, `host/` and the tools stay
 GPL-3.0-only. The vendor bulk interface stays, carried as a patch to felucca-bsp's `usb.c`. Identity: fm1-base's
 scheme, `id_prefix = "FM-1_52"` (52: "R", as RemoteFM1's SysEx `7D 52 46`; FIZZ is 46, CTL-1 6, Radio 13, the template
-11). Version 0.2.0.
+11). Version 0.2.0. From 0.3.7 `"FM-1_72"` (72: "r"): QUADRO numbers its releases `FM-1_52XXYYZZ` too, so its 1.x
+would collide with RemoteFM1 1.0; the installers still read 52 (0.2 to 0.3.6) as RemoteFM1.
 
 **What moved where.**
 - `base/`: fm1-base, a submodule pinned at `934e40d` (felucca-bsp `2cd696a` in `base/bsp`). `build.sh` copies it to

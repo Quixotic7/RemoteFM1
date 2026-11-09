@@ -12,7 +12,7 @@
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createHash } from "node:crypto";
-import { pack7, unpack7 } from "./fm1ota.js";
+import { pack7, unpack7, remoteFm1Version, classifyFirmware } from "./fm1ota.js";
 import { install, look, describe, packageFrom, releasedPackage, releaseFile, IDENTITY, rfPack7, rfUnpack7, requestMidi,
          MIDI_PROMPT, MIDI_LATE, MIDI_DENIED } from "./installer.js";
 import { validateStockPackage } from "./fm1pkg.js";
@@ -52,7 +52,7 @@ class FakeFM1 {
   rx(d) {
     if (d[0] === 0xF0 && d[1] === 0x7D && d[2] === 0x52 && d[3] === 0x46) {     // RemoteFM1's HELLO
       this.hellos++;
-      if (d[4] === 0x01 && this.remote && (this.identity === "FM-1_015" || /^FM-1_52/.test(this.identity))) {
+      if (d[4] === 0x01 && this.remote && (this.identity === "FM-1_015" || /^FM-1_[57]2/.test(this.identity))) {
         const b = new Array(67).fill(0), put = (o, s) => [...new TextEncoder().encode(s)].forEach((c, i) => { b[o + i] = c; });
         put(0, "RemoteFM1"); b[16] = 2; put(17, this.remote); put(43, this.identity.slice(0, 8));
         this.tx([0xF0, 0x7D, 0x52, 0x46, 0x41, ...rfPack7(b), 0xF7]);
@@ -176,7 +176,7 @@ const fakeFetch = (bytes) => async (url) => ({ ok: url === "firmware/remote-9.9.
 // the package
 const pkg = await releasedPackage(rel, fakeFetch(raw));
 FINAL = pkg.product;
-ok((pkg.product === IDENTITY || /^FM-1_52\d{6}$/.test(pkg.product)) && !pkg.official && pkg.label === "RemoteFM1 9.9", `the released package: identity ${pkg.product}, labelled`);
+ok((pkg.product === IDENTITY || /^FM-1_[57]2\d{6}$/.test(pkg.product)) && !pkg.official && pkg.label === "RemoteFM1 9.9", `the released package: identity ${pkg.product}, labelled`);
 let err = "";
 try { const bad = raw.slice(); bad[5000] ^= 1; await releasedPackage(rel, fakeFetch(bad)); } catch (e) { err = e.message; }
 ok(/not the released one/.test(err), "a package whose SHA-256 differs is refused before anything");
@@ -203,7 +203,18 @@ ok(/runs RemoteFM1 0\.1\.1 /.test(await st({ remote: "0.1.1" })), "look: RemoteF
   const e = await st({ identity: "FM-1_52000200" });
   ok(e === "The FM-1 runs RemoteFM1 0.2.0 (FM-1_52000200).", "look: RemoteFM1 0.2 by its identity alone (no HELLO answer)");
   ok(/development build/.test(await st({ identity: "FM-1_5200" })), "look: a RemoteFM1 development build (FM-1_5200)");
+  const f = await st({ identity: "FM-1_72000307" });
+  ok(f === "The FM-1 runs RemoteFM1 0.3.7 (FM-1_72000307).", "look: RemoteFM1 0.3.7 by its identity (FM-1_72 since 0.3.7)");
+  ok(/development build/.test(await st({ identity: "FM-1_7200" })), "look: a RemoteFM1 development build (FM-1_7200)");
 }
+// the identity: FM-1_72XXYYZZ since 0.3.7, FM-1_52XXYYZZ for 0.2 .. 0.3.6 (units in the field), both RemoteFM1
+ok(remoteFm1Version("FM-1_52000306") === "0.3.6" && remoteFm1Version("FM-1_72000307") === "0.3.7" &&
+   remoteFm1Version("FM-1_5200") === "development build" && remoteFm1Version("FM-1_7200") === "development build",
+   "remoteFm1Version: FM-1_52000306 is 0.3.6, FM-1_72000307 0.3.7, both dev builds");
+ok(remoteFm1Version("FM-1_62000307") === null && remoteFm1Version("FM-1_720") === null && remoteFm1Version("FM-1_015") === null,
+   "remoteFm1Version: other numbers are not RemoteFM1");
+ok(classifyFirmware("FM-1_52000306").kind === "remotefm1" && classifyFirmware("FM-1_72000307").kind === "remotefm1" &&
+   classifyFirmware("FM-1_72000307").name === "RemoteFM1 0.3.7", "classifyFirmware: RemoteFM1 by either identity");
 ok(/ChoralRoot 0\.25\.1\./.test(await st({ identity: "FM-1_920", name: "ChoralRoot FM-1", version: "ChoralRoot 0.25.1" })),
    "look: ChoralRoot by its INFO");
 ok(/Bubba Machine/.test(await st({ identity: "FM-1_003", name: "FM-1 Bubba Machine" })), "look: Bubba Machine by its port");

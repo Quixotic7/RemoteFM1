@@ -65,8 +65,8 @@ enum { RF_T_SX = 0, RF_T_BK = 1 };
  *  heard over Bluetooth)   26 usb_mode8 (1: the main loop polls USB)   27 lcd_baud8   28 loader_state (int8: 0 the
  *  updates work, -2 an unknown flash chip; 0.1: its own staged loader)   29 sxq16 (SysEx TX packets free for
  *  RemoteFM1 on the transport asked: USB's ring, or Bluetooth's)   31 bk_rx_ring32   35 bk_tx_ring32
- * 39 sx_body_max16   41 bk_body_max16   43 identity[8] (the first 8 characters: "FM-1_520" for FM-1_52XXYYZZ;
- *  0.1 answered "FM-1_015") */
+ * 39 sx_body_max16   41 bk_body_max16   43 identity[8] (the first 8 characters: "FM-1_720" for FM-1_72XXYYZZ;
+ *  0.2 to 0.3.6 "FM-1_520" for FM-1_52XXYYZZ, 0.1 "FM-1_015") */
 
 /* STATS_R, in this order (n x u32) */
 enum {
