@@ -31,7 +31,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { siteEntry, CATEGORIES, HUB, authorNative, preferNative, rfm1Entry, compareVersions, isPrerelease } from "../js/live.js";
+import { siteEntry, CATEGORIES, HUB, authorNative, preferNative, rfm1Entry, compareVersions, isPrerelease, unblocked } from "../js/live.js";
 import { inspect } from "../../engines/rfm1/engine.js";
 import { nativeAvailability, ungatedCores, annotate } from "./site_guard.mjs";
 
@@ -389,7 +389,7 @@ const catalog = {
   fwCatalog: fwDir ? { repo: fwRelease && fwRelease.repo, tag: fwRelease && fwRelease.tag, url: fwRelease && fwRelease.url } : null,
   nativeAuthors: ext ? { workflow: ext.workflow, trustedRefs: ext.trustedRefs, docs: "native/",
     accepted: ext.accepted.map((b) => `${b.id} ${b.version}`), rejected: ext.rejected.map((r) => ({ repo: r.repo, tag: r.tag, why: r.why })) } : null,
-  firmwares,
+  firmwares: unblocked(firmwares),   // (live.js BLOCKED: never listed)
 };
 writeFileSync(out, JSON.stringify(catalog, null, 1) + "\n");
 const nNative = firmwares.filter((f) => f.native).length;

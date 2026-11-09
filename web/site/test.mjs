@@ -224,6 +224,10 @@ ok(cat.firmwares.every((f) => cat.categories.includes(f.category)), "catalog: ev
      && nativeOnly.some((f) => f.id === "fizz")
      && emuOnly.every((f) => f.engines.includes("emu") && !f.emuNote) && !emuOnly.some((f) => f.id === "bubba" || f.id === "amb") && emuOnly.some((f) => f.id === "felucca"),
      "filter: All everything; Native the cores and the site's .rfm1 (FIZZ); Emulated what fm1-emu runs (not bubba, not a native-only one)");
+  // blocked (live.js BLOCKED): Bubba Machine bricks FM-1s; never listed, from the snapshot or the live Hub
+  ok(L.BLOCKED.has("bubba") && !m.firmwares.some((f) => f.id === "bubba") && !cat.firmwares.some((f) => f.id === "bubba")
+     && L.unblocked([{ id: "bubba" }, { id: "felucca" }]).map((f) => f.id).join() === "felucca",
+     "blocked: Bubba Machine is in neither the site's catalog nor the live Hub's list");
   ok(L.browse(m.firmwares, { engine: "native", cat: "Groovebox", q: "fel" }).map((f) => f.id).join() === "felucca,melodee,pigeon,skiff" && L.browse(m.firmwares, { engine: "emu", q: "zzzz" }).length === 0,
      "filter: combines with a category chip and the search (Melodee's, PIGEON's, Skiff's blurbs name Felucca)");
   const cvN = L.cardView(mf, "native"), cvE = L.cardView(mf, "emu"), cvA = L.cardView(mf, "all");
@@ -1600,8 +1604,8 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   ok(sec.native.every(L.runsNative) && sec.emulated.every((f) => f.engines.includes("emu"))
      && c.firmwares.every((f) => sec.native.includes(f) || sec.emulated.includes(f))
      && both.every((f) => sec.native.includes(f) && sec.emulated.includes(f))
-     && sec.native.some((f) => f.id === "sloop") && sec.emulated.some((f) => f.id === "bubba") && !sec.native.some((f) => f.id === "bubba")
-     && L.browseSections(c.firmwares, { q: "sloop" }).native.some((f) => f.id === "sloop") && L.browseSections(c.firmwares, { q: "bubba" }).emulated.length === 1
+     && sec.native.some((f) => f.id === "sloop") && sec.emulated.some((f) => f.id === "beetle") && !sec.native.some((f) => f.id === "beetle")
+     && L.browseSections(c.firmwares, { q: "sloop" }).native.some((f) => f.id === "sloop") && L.browseSections(c.firmwares, { q: "beetle" }).emulated.some((f) => f.id === "beetle") && !L.browseSections(c.firmwares, { q: "beetle" }).native.length
      && L.browseSections(c.firmwares, { engine: "native" }).emulated.length === sec.emulated.length,
      "browser: native and .rfm1 firmwares on top; every .fwsc package below (a native one's too); no engine filter; search spans both");
   // a card starts its section's engine: native (or the .rfm1) on top, emulated below, whatever the default

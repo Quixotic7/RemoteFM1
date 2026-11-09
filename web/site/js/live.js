@@ -240,6 +240,12 @@ const byName = (a, b) => a.name.localeCompare(b.name, "en", { sensitivity: "base
 //   - RemoteFM1's entry (a same-origin package) stays as it is; so does a firmware this site hosts as an .rfm1: on the
 //     Hub too, it gets the Hub's package as its emulated engine, the .rfm1 stays its default; unless the emulator
 //     can't run that package (emuSkip: FIZZ's needs its data blob), then the .rfm1 alone.
+// Firmwares this site never lists, plays or links, whatever the Hub says (the owner's call): Bubba Machine bricks
+// FM-1s and its author has not answered for weeks (2026-11-09). build_catalog.mjs leaves them out of catalog.json,
+// mergeLive out of the live Hub's list.
+export const BLOCKED = new Set(["bubba"]);
+export const unblocked = (list) => list.filter((f) => f && !BLOCKED.has(f.id));
+
 export function mergeLive(snapshot, hub, { emuSkip = {} } = {}) {
   const byId = new Map(snapshot.firmwares.map((f) => [f.id, f]));
   const seen = new Set(), out = [];
@@ -265,7 +271,7 @@ export function mergeLive(snapshot, hub, { emuSkip = {} } = {}) {
     else if (f.native) out.push({ ...f, engines: ["native"], defaultEngine: "native", nativeBehind: false, offHub: true });
   }
   out.sort(byName);
-  return { ...snapshot, firmwares: out, hubUpdated: hub.updated || snapshot.hubUpdated, live: true };
+  return { ...snapshot, firmwares: unblocked(out), hubUpdated: hub.updated || snapshot.hubUpdated, live: true };
 }
 
 // fetchHub(signal) -> the Hub's catalog JSON. The snapshot (live: false) when it fails or takes longer than timeoutMs.

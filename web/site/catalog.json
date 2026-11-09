@@ -133,41 +133,6 @@
    }
   },
   {
-   "id": "bubba",
-   "name": "Bubba Machine",
-   "version": "0.8.0-beta",
-   "author": "Erbubar23",
-   "authorFull": "Erbubar23",
-   "category": "Groovebox",
-   "categories": [
-    "Groovebox",
-    "Drums",
-    "Synth"
-   ],
-   "tag": "Six-track groovebox written…",
-   "what": "A six-track groovebox written from scratch: TR drums from Plaits' 808 and 909 models, a sampler with a 16-slice slicer, a bass and three free tracks (analog, 6-op FM, 303 acid), scenes and fills, all at 44.1 kHz.",
-   "license": null,
-   "source": "https://github.com/Erbubar23/bubba-machine/tree/v0.8.0-beta",
-   "repo": "Erbubar23/bubba-machine",
-   "release": "https://github.com/Erbubar23/bubba-machine/releases/tag/v0.8.0-beta",
-   "site": "https://erbubar23.github.io/bubba-machine/en/",
-   "play": "https://erbubar23.github.io/bubba-machine/en/",
-   "editor": null,
-   "beta": true,
-   "engines": [
-    "emu"
-   ],
-   "defaultEngine": "emu",
-   "native": null,
-   "emu": {
-    "pkg": "https://thefirmwarehub.com/fw/bubba-0.8.0-beta.fwsc",
-    "sha256": "e8fc401adb9bc7a8d853f8a12ab8b392c3fc2b26d9812716c0472c7dc69e3bfa",
-    "size": 699956,
-    "product": "FM-1_003"
-   },
-   "emuNote": "runs and draws its screen, but no sound comes out (PLAY, the keys)"
-  },
-  {
    "id": "choralroot",
    "name": "ChoralRoot",
    "version": "0.25.1",
