@@ -63,13 +63,17 @@ async function main() {
     };
     const j = JSON.parse((await retry(api, { headers: hdr }, 30000)).toString("utf8"));
     rel = { repo, tag: j.tag_name, url: j.html_url };
-    const get = (a) => retry(a.browser_download_url, { headers: { "User-Agent": "remotefm1-site" } }, 120000);
+    // an asset: its download link, else the API's (the same file through api.github.com: it answered when the
+    // download host gave 504s for a fifth of the files, 2026-11-09)
+    const asset = async (a, soft) => (await retry(a.browser_download_url, { headers: { "User-Agent": "remotefm1-site" } }, 120000, true))
+      || retry(a.url, { headers: { ...hdr, Accept: "application/octet-stream" } }, 120000, soft);
+    const get = (a) => asset(a, false);
     const sumsAsset = j.assets.find((a) => a.name === "SHA256SUMS");
     if (!sumsAsset) die(`${repo} ${j.tag_name} has no SHA256SUMS`);
     sumsText = (await get(sumsAsset)).toString("utf8");
     // an .rfm1 GitHub won't hand over even after the retries is left out (its firmware only), not all of them
     for (const a of j.assets) if (a.name.endsWith(".rfm1")) {
-      const b = await retry(a.browser_download_url, { headers: { "User-Agent": "remotefm1-site" } }, 120000, true);
+      const b = await asset(a, true);
       if (b) files.set(a.name, b);
       else { skipped.add(a.name); console.log(`::warning title=RemoteFM1FW::${a.name} could not be downloaded: left out of this deploy`); }
     }
