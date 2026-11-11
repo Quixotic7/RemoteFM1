@@ -104,15 +104,15 @@ ok(cat.firmwares.every((f) => cat.categories.includes(f.category)), "catalog: ev
   const L = await import("./js/live.js");
   const { inspect } = await import("../engines/rfm1/engine.js");
   const fz = cat.firmwares.find((f) => f.id === "fizz"), d = JSON.parse(readFileSync(new URL("./data/site-rfm1.json", import.meta.url), "utf8")).firmwares.find((x) => /\/fizz-/.test(x.file));
-  ok(fz && fz.name === "FIZZ" && fz.author === "Quixotic7" && fz.authorFull === "Michael P Jones (Quixotic7)" && fz.version === "0.12.0-beta.13" && fz.beta
-     && fz.category === "Groovebox" && fz.tag && fz.what && fz.source === "https://github.com/Quixotic7/FIZZ/tree/v0.12.0-beta.13" && fz.repo === "Quixotic7/FIZZ"
-     && fz.release === "https://github.com/Quixotic7/FIZZ/releases/tag/v0.12.0-beta.13", "fizz: in the catalog: FIZZ 0.12.0-beta.13 by Quixotic7, beta, Groovebox, its source and release at the tag");
+  ok(fz && fz.name === "FIZZ" && fz.author === "Quixotic7" && fz.authorFull === "Michael P Jones (Quixotic7)" && fz.version === "0.12.0-beta.15" && fz.beta
+     && fz.category === "Groovebox" && fz.tag && fz.what && fz.source === "https://github.com/Quixotic7/FIZZ/tree/v0.12.0-beta.15" && fz.repo === "Quixotic7/FIZZ"
+     && fz.release === "https://github.com/Quixotic7/FIZZ/releases/tag/v0.12.0-beta.15", "fizz: in the catalog: FIZZ 0.12.0-beta.15 by Quixotic7, beta, Groovebox, its source and release at the tag");
   ok(fz.engines.join() === "rfm1" && fz.defaultEngine === "rfm1" && !fz.native && !fz.emu && !fz.local && L.siteRfm1(fz) && !L.localRfm1(fz)
-     && fz.rfm1.file === "fw/fizz-0.12.0-beta.13.rfm1" && /^[0-9a-f]{64}$/.test(fz.rfm1.sha256) && fz.rfm1.size > 0,
+     && fz.rfm1.file === "fw/fizz-0.12.0-beta.15.rfm1" && /^[0-9a-f]{64}$/.test(fz.rfm1.sha256) && fz.rfm1.size > 0,
      "fizz: the rfm1 engine only, its file this site's (rfm1: file, sha256, size; not a visitor's)");
   const bytes = readFileSync(new URL(fz.rfm1.file, import.meta.url)), sha = createHash("sha256").update(bytes).digest("hex");
   const sums = readFileSync(new URL("./fw/SHA256SUMS", import.meta.url), "utf8");
-  ok(sha === fz.rfm1.sha256 && sha === d.sha256 && bytes.length === fz.rfm1.size && sums.includes(`${sha}  fizz-0.12.0-beta.13.rfm1`),
+  ok(sha === fz.rfm1.sha256 && sha === d.sha256 && bytes.length === fz.rfm1.size && sums.includes(`${sha}  fizz-0.12.0-beta.15.rfm1`),
      `fizz: the file is there; its SHA-256 is the catalog's, data/site-rfm1.json's and fw/SHA256SUMS's (${sha.slice(0, 12)}...)`);
   const m = inspect(new Uint8Array(bytes)).manifest;
   ok(m.id === "fizz" && m.version === fz.version && m.license === "MPL-2.0 AND GPL-3.0-only AND MIT AND FTL AND OFL-1.1" && fz.license === m.license
@@ -125,14 +125,14 @@ ok(cat.firmwares.every((f) => cat.categories.includes(f.category)), "catalog: ev
   const s = L.sourceOf(fz, "rfm1", cat.credits);
   ok(s.url === `https://github.com/Quixotic7/FIZZ/tree/${m.source_url.split("@")[1]}` && s.refKind === "commit" && s.glue && /^Quixotic7\/FM1VST @ [0-9a-f]{7}$/.test(s.glue.label)
      && s.title.includes(` · ${m.license} · source at commit`), "fizz: the header's source link: FIZZ at its commit, FM1VST's glue at its commit");
-  const hubFizz = { id: "fizz", name: "FIZZ", kind: "groove", author: "Quixotic7", version: "0.12.0-beta.13", pkg: "fw/fizz-0.12.0-beta.13.fwsc", sha256: "d".repeat(64), size: 611496, what: "The Hub's text." };
+  const hubFizz = { id: "fizz", name: "FIZZ", kind: "groove", author: "Quixotic7", version: "0.12.0-beta.15", pkg: "fw/fizz-0.12.0-beta.15.fwsc", sha256: "d".repeat(64), size: 611496, what: "The Hub's text." };
   const hub0 = JSON.parse(readFileSync(new URL("./data/hub-catalog.snapshot.json", import.meta.url), "utf8"));
   const without = L.mergeLive(cat, hub0, {}), skip = L.mergeLive(cat, { ...hub0, firmwares: [...hub0.firmwares, hubFizz] }, { emuSkip: { fizz: "needs its data" } });
   const withEmu = L.mergeLive(cat, { ...hub0, firmwares: [...hub0.firmwares, hubFizz] }, {});
   const one = (c) => c.firmwares.filter((f) => f.id === "fizz");
   const we = one(withEmu)[0];
   ok(one(without).length === 1 && one(without)[0].engines.join() === "rfm1" && one(skip).length === 1 && one(skip)[0].engines.join() === "rfm1" && !one(skip)[0].emu
-     && one(withEmu).length === 1 && we.engines.join() === "rfm1,emu" && we.defaultEngine === "rfm1" && we.emu.pkg === "https://thefirmwarehub.com/fw/fizz-0.12.0-beta.13.fwsc" && L.siteRfm1(we),
+     && one(withEmu).length === 1 && we.engines.join() === "rfm1,emu" && we.defaultEngine === "rfm1" && we.emu.pkg === "https://thefirmwarehub.com/fw/fizz-0.12.0-beta.15.fwsc" && L.siteRfm1(we),
      "fizz: the live merge keeps it off the Hub; on the Hub, one entry: the .rfm1 alone where the package can't be emulated, else rfm1 + the Hub's package");
 }
 
