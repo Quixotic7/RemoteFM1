@@ -375,3 +375,5 @@ Hügelton Instruments), both MPL-2.0. Everything else (the site, `host/`, the to
 firmware's versions before 0.2 (on TransitFM1, from [Dinghy](https://github.com/zvenson/dinghy) and
 [Felucca](https://github.com/hugelton/Felucca)). See [LICENSING.md](LICENSING.md) for who made what. "M-VAVE" and
 "FM-1" belong to their owners; RemoteFM1 is not made or endorsed by them.
+
+You can also try RemoteFM1 in the browser, no flashing needed, in the free community [FM-1 Emulator](https://fm1-emulator.atst.tools/).
