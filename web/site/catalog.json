@@ -1,6 +1,6 @@
 {
  "about": "Built by web/site/tools/build_catalog.mjs from the FM-1 Firmware Hub's catalog, FM1VST's cores, RemoteFM1's own release (web/installer/releases.json) and the site's .rfm1 files (data/site-rfm1.json). Edit those, not this file.",
- "generated": "2026-11-11",
+ "generated": "2026-11-14",
  "hubUpdated": "2026-10-18 17:01 UTC",
  "hubSource": "snapshot",
  "hub": "https://thefirmwarehub.com/",
@@ -572,7 +572,7 @@
   {
    "id": "fizz",
    "name": "FIZZ",
-   "version": "0.12.0-beta.15",
+   "version": "0.12.0-beta.19",
    "author": "Quixotic7",
    "authorFull": "Michael P Jones (Quixotic7)",
    "category": "Groovebox",
@@ -582,9 +582,9 @@
    "tag": "FM TONE step sequencer",
    "what": "A step sequencer for FM TONE, ChoralRoot's FM voice: eight tracks sharing 16 voices, p-locks, a pool of 128 sounds, pages with their own start and end, conditions, chance, ratchets and chords of up to six notes. Built by this site from FIZZ's release to WebAssembly (.rfm1) and run natively here; PLAY starts the demo pattern, REC turns the keys into a keyboard.",
    "license": "MPL-2.0 AND GPL-3.0-only AND MIT AND FTL AND OFL-1.1",
-   "source": "https://github.com/Quixotic7/FIZZ/tree/v0.12.0-beta.15",
+   "source": "https://github.com/Quixotic7/FIZZ/tree/v0.12.0-beta.19",
    "repo": "Quixotic7/FIZZ",
-   "release": "https://github.com/Quixotic7/FIZZ/releases/tag/v0.12.0-beta.15",
+   "release": "https://github.com/Quixotic7/FIZZ/releases/tag/v0.12.0-beta.19",
    "site": "https://quixotic7.github.io/FIZZ/",
    "play": null,
    "editor": "https://quixotic7.github.io/FIZZ/manager/",
@@ -597,14 +597,14 @@
    "emu": null,
    "rfm1": {
     "from": "site",
-    "file": "fw/fizz-0.12.0-beta.15.rfm1",
-    "sha256": "db316614fa5dd26d380d8375bee9678e19e7ce298e6d10481023497cf2049d94",
-    "size": 1640389,
-    "fileName": "fizz-0.12.0-beta.15.rfm1",
-    "version": "0.12.0-beta.15",
-    "sourceUrl": "https://github.com/Quixotic7/FIZZ@b62601813a01cb201dbf56de7c9b3c8985fdf3c8",
+    "file": "fw/fizz-0.12.0-beta.19.rfm1",
+    "sha256": "4e7375d7e6848b6a5989b9e71ec36b22fb0d439a202b0ad3141c8d8759c11de4",
+    "size": 1593432,
+    "fileName": "fizz-0.12.0-beta.19.rfm1",
+    "version": "0.12.0-beta.19",
+    "sourceUrl": "https://github.com/Quixotic7/FIZZ@d46d452a8be97b40027c289d1865bc4b13f0cc1c",
     "glueUrl": "https://github.com/Quixotic7/FM1VST/tree/d5f8f64101b401abf6fd9aaa3f20c3c507e34d60",
-    "builtBy": "FM1VST 0.6.2 (d5f8f64101b4) fm1_add_rfm1, emcc 6.0.13",
+    "builtBy": "FM1VST 0.6.2 (d5f8f64101b4) fm1_add_rfm1, emcc 6.0.11",
     "authors": [
      "Michael P Jones (Quixotic7)"
     ]

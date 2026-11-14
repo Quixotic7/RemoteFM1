@@ -16,8 +16,8 @@
 # Nothing GPL of FIZZ is built: its site/ and core/tests/ are left out of the copy compiled (build/rfm1-fizz/src).
 set -euo pipefail
 
-FIZZ_VERSION=0.12.0-beta.15
-FIZZ_COMMIT=b62601813a01cb201dbf56de7c9b3c8985fdf3c8      # (tag v0.12.0-beta.15)
+FIZZ_VERSION=0.12.0-beta.19
+FIZZ_COMMIT=d46d452a8be97b40027c289d1865bc4b13f0cc1c      # (tag v0.12.0-beta.19)
 FM1VST_COMMIT=d5f8f64101b401abf6fd9aaa3f20c3c507e34d60    # (branch rfm1-target: fm1_add_rfm1, the 15 published .rfm1)
 FELUCCA_BSP_COMMIT=2cd696a2b94341077303e9132bb4be3d0a87ebcf   # (FIZZ's firmware/fm1-base 934e40d's bsp)
 # the package identity a FIZZ unit of this release answers (fm1-base tools/build.py --release: fm1.toml's id_prefix
