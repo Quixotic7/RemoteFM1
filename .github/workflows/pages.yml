@@ -171,7 +171,7 @@ jobs:
           cp web/vendor/fm1-emu/LICENSE _site/engines/emu/LICENSE-fm1-emu.txt
 
       # the emulator just built plays RemoteFM1's own release with a key held (0.3.4..0.3.6 were silent in it:
-      # felucca-bsp's audio PLL check, patches/0005); a silent emulator is not deployed
+      # felucca-bsp's audio PLL check, upstream d2bcc33); a silent emulator is not deployed
       - name: Emulated engine sounds (RemoteFM1's own packages)
         if: steps.emu.outcome == 'success'
         run: node web/engines/emu/own-test.mjs --wasm="$PWD/_site/engines/emu/fm1_web.wasm"
