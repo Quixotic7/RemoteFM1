@@ -309,7 +309,14 @@ if (fwDir) {
     const card = cardOf(m.id);
     const d = { file: `${rel}/${name}`, release: fwRelease && fwRelease.url, ...(card || {}) };
     const r = rfm1Entry(d, m, { sha256: sha, size: bytes.length });
-    const i = firmwares.findIndex((f) => f.id === r.id);
+    let i = firmwares.findIndex((f) => f.id === r.id);
+    if (i < 0) {
+      // the author's manifest id spelled with - or _ where the Hub's id has none (kris_jangle, the Hub's krisjangle):
+      // the Hub's entry, when exactly one matches that way (the entry keeps the Hub's id, so its links stay)
+      const bare = (s) => String(s).replace(/[-_]/g, "");
+      const near = firmwares.map((f, k) => [f, k]).filter(([f]) => bare(f.id) === bare(r.id));
+      if (near.length === 1) { i = near[0][1]; console.log(`build_catalog: ${r.id}: ${name} joins the Hub's ${firmwares[i].id}`); }
+    }
     if (i < 0) {
       if (!card) console.log(`build_catalog: ${r.id} (${name}) has no card text in data/fw-catalog.json or RemoteFM1FW's catalog: category Other`);
       if (!r.what) r.what = `${r.name} by ${r.authorFull}, built to WebAssembly (.rfm1) and run natively here.`;
