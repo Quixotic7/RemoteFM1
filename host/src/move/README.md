@@ -107,7 +107,7 @@ the firmware's MIDI in), `SETTINGS` (save them). Buttons and encoders are in pro
 libremotefm1's `rfm_event_t`: buttons 0 OCT- 1 OCT+ 2 FX 3 SEL 4 ENV 5 LFO 6 EDIT 7 GLO 8 HOME 9 SAVE 10 ARP 11 SEQ
 12 PLAY 13 REC; encoders 0 SELECT 1 ALGO 2..5 K1..K4 6 PRESETS (panel.js `labelToMatrix` / `roleToMatrix`).
 
-The screen (128 × 64): the FM-1's screen as a 64 × 64 dithered thumbnail on the right; on the left the mode, and in
+The screen (128 × 64): the FM-1's screen as a 64 × 64 black-and-white thumbnail (a luminance threshold, RFM_MOVE_THUMB_LUMA; no dither) on the right; on the left the mode, and in
 FM-1 mode the last knob touched or turned (the firmware's label when the host gave one, else SELECT .. PRESETS,
 MASTER) with its turn or value; in the MIDI modes the layout or bank, channel, octave, key and the last control.
 While a Track button is held, that mode's menu fills the screen.

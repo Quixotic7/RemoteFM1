@@ -56,7 +56,8 @@ enum {
 #define RFM_MOVE_OCT_MIN (-4)                           /* the octave: the lowest pad of layouts 1, 2, 4 is */
 #define RFM_MOVE_OCT_MAX 4                              /* 48 + root + 12 * octave (C3 = 48 at octave 0) */
 #define RFM_MOVE_DRUM_BASE 36                           /* the drum layout's bottom-right pad (C2) */
-#define RFM_MOVE_MASTER_STEP 16                         /* MASTER per volume knob detent */
+#define RFM_MOVE_THUMB_LUMA 80                          /* screen thumbnail: an FM-1 pixel above this luma (0..255) is white */
+#define RFM_MOVE_MASTER_STEP 16                        /* MASTER per volume knob detent */
 
 /* ---- actions (the OMX-27 link's vocabulary: web/site/js/omx27-views.js) */
 enum {
@@ -142,7 +143,7 @@ typedef struct {
     uint8_t sent[RFM_MOVE_NLEDS][3];
     uint8_t sent_ok[RFM_MOVE_NLEDS];
     /* the screen */
-    uint8_t thumb[64][64];                              /* the last FM-1 screen, 1 bit a pixel (dithered) */
+    uint8_t thumb[64][64];                              /* the last FM-1 screen, 1 bit a pixel (thresholded) */
 } rfm_move_t;
 
 /* settings NULL: the defaults. fn gets every action (it may be NULL). */

@@ -548,8 +548,8 @@ static void write_pbm(const char *path, const uint8_t *packed)
 
 /* golden frames (FNV-1a of the 1024 packed bytes); a change in the drawing is a change here, made on purpose:
  * look at the PBMs this test writes into the build directory first */
-#define GOLD_DEFAULT 0x935d3b21u
-#define GOLD_MIDI 0x1a2f8edcu
+#define GOLD_DEFAULT 0x8931f095u
+#define GOLD_MIDI 0x04969954u
 #define GOLD_HELD 0xeb71336du
 
 static void test_screen(void)
@@ -604,6 +604,38 @@ static void test_screen(void)
     CHECK(GOLD_DEFAULT && GOLD_MIDI && GOLD_HELD);
 }
 
+/* the thumbnail is a luminance threshold, no dither: flat colours come out solid, 1 px strokes survive */
+static void test_threshold(void)
+{
+    static uint16_t lcd[240 * 240];
+    rfm_move_t m;
+    uint8_t out[MR_SCREEN_BYTES];
+    int x, y, solid_white = 1, solid_black = 1, line = 0;
+    for (y = 0; y < 240; y++)
+        for (x = 0; x < 240; x++)
+            lcd[y * 240 + x] = x < 120 ? 0x4208 /* dark grey, luma ~66: black */ : 0xF800 /* red, luma ~76+: see below */;
+    for (y = 0; y < 240; y++)
+        for (x = 0; x < 120; x++)
+            if (y < 120)
+                lcd[y * 240 + x] = 0x8410;              /* mid grey, luma ~132: white */
+    for (y = 120; y < 240; y++)
+        lcd[y * 240 + 60] = 0xFFFF;                     /* a 1 px white line in the dark grey */
+    rfm_move_init(&m, NULL, on_act, NULL);
+    rfm_move_screen(&m, lcd, out);
+    for (y = 0; y < 64; y++)
+        for (x = 0; x < 64; x++) {
+            const int v = m.thumb[y][x];
+            if (y < 31 && x < 31 && !v) solid_white = 0;      /* mid grey quarter */
+            if (y >= 33 && x < 31 && x != 16 && v) solid_black = 0;  /* dark grey quarter but the line's column */
+            if (y >= 33 && x == 16 && v) line++;
+        }
+    CHECK(solid_white);
+    CHECK(solid_black);
+    CHECKF(line >= 30, "the 1 px line survives (%d of 31 rows)", line);
+    /* pure red (luma 76) is under the threshold (80): black */
+    CHECK(m.thumb[10][50] == (((77 * 255) >> 8) > RFM_MOVE_THUMB_LUMA));
+}
+
 int main(void)
 {
     test_fm1_pads();
@@ -615,5 +647,6 @@ int main(void)
     test_control();
     test_leds();
     test_screen();
+    test_threshold();
     return check_done("move");
 }

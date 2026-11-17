@@ -1814,7 +1814,7 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
     // the screen: at most one DISPLAY per 33 ms, only when it changed
     w.clock.advance(100);
     w.T().out.length = 0;
-    const white = new Uint16Array(240 * 240).fill(0xFFFF), grey = new Uint16Array(240 * 240).fill(0x8410);
+    const white = new Uint16Array(240 * 240).fill(0xFFFF), grey = new Uint16Array(240 * 240).fill(0x2104);
     w.setPx(white);
     ok(w.types().filter((x) => x === 0x84).length === 1, "MoveLink: a new FM-1 frame: a DISPLAY at once (none for 33 ms before)");
     w.clock.advance(5); w.setPx(grey); w.clock.advance(5); w.setPx(white);

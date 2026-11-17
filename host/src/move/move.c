@@ -706,24 +706,25 @@ int rfm_move_leds(rfm_move_t *m, rfm_move_led_t *out, int max)
 void rfm_move_leds_invalidate(rfm_move_t *m) { memset(m->sent_ok, 0, sizeof m->sent_ok); }
 
 /* ================================================================ the screen === */
+/* The thumbnail is plain black and white, no dither (the owner's call: it reads more clearly). Each FM-1 pixel is
+ * white when its luminance is above RFM_MOVE_THUMB_LUMA; a thumbnail pixel (a 3..4 px box of them) is white when at
+ * least a quarter of its box is, so 1 px lines and text strokes survive the 3.75x reduction. */
 static void thumb_from(rfm_move_t *m, const uint16_t *px)
 {
-    static const uint8_t BAYER[4][4] = { { 8, 136, 40, 168 }, { 200, 72, 232, 104 }, { 56, 184, 24, 152 },
-                                         { 248, 120, 216, 88 } };
     int x, y, i, j;
     for (y = 0; y < 64; y++) {
         const int y0 = y * 240 / 64, y1 = (y + 1) * 240 / 64;
         for (x = 0; x < 64; x++) {
             const int x0 = x * 240 / 64, x1 = (x + 1) * 240 / 64;
-            uint32_t sum = 0, cnt = 0;
+            uint32_t lit = 0, cnt = 0;
             for (j = y0; j < y1; j++)
                 for (i = x0; i < x1; i++) {
                     const uint16_t v = px[j * 240 + i];
                     const uint32_t r = (v >> 11 & 31) * 255 / 31, g = (v >> 5 & 63) * 255 / 63, b = (v & 31) * 255 / 31;
-                    sum += (77 * r + 150 * g + 29 * b) >> 8;
+                    lit += ((77 * r + 150 * g + 29 * b) >> 8) > RFM_MOVE_THUMB_LUMA;
                     cnt++;
                 }
-            m->thumb[y][x] = (uint8_t)(sum / cnt > BAYER[y & 3][x & 3]);
+            m->thumb[y][x] = (uint8_t)(lit * 4 >= cnt);
         }
     }
 }
