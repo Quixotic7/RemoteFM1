@@ -24,6 +24,8 @@ import { EditorPanel } from "./editor-panel.js";
 import { RecUI } from "./rec-ui.js";
 import { MidiMap, Learn, MODES, srcLabel, speedOf, targetOf, knobTarget, buttonTarget } from "./midi-map.js";
 import { OmxLink, mountOmx } from "./omx-link.js";
+import { MoveLink, mountMove } from "./move-link.js";
+import { MoveCore } from "./move-core.js";
 import { Folder } from "./folder.js";
 import { FolderUI } from "./folder-ui.js";
 import { AinUI } from "./ain-ui.js";
@@ -65,6 +67,7 @@ let soundOut = null;   // the output device: the system's or the FM-1's USB audi
 let editor = null;   // the Editor button and panel: the firmware's own manager, hosted (editor-panel.js)
 let rec = null;      // the recorder: the header's record button and Takes (rec-ui.js)
 let omx = null;      // an OMX-27 in REMOTE mode as the controller (omx-link.js)
+let move = null;     // an Ableton Move running Move Remote as the controller (move-link.js)
 let folderUi = null; // a Fantasy CFW's RemoteFM1 folder: the sheet's section and the prompt (folder-ui.js)
 const folder = new Folder();   // its files (folder.js): the file API's requests are answered there
 // the running Fantasy CFW, for the folder: its id, folders, and whether it reads files (null: none runs)
@@ -424,6 +427,7 @@ function applyButtonNames() {
   const l = panelLabels(state.info && state.info.buttonNames, state.labels, state.fwNames);
   device.setLabels(l);
   if (omx) omx.views.setButtonNames(l.buttons);
+  if (move) move.setLabels(l.knobs);
 }
 
 // ------------------------------------------------------------------ audio ---
@@ -953,6 +957,15 @@ async function main() {
   mountOmx(sheet.omxSlot, omx);
   window.FM1Omx = omx;
   omx.auto();                                              // connects by itself where it was before and MIDI is allowed
+
+  // USE MY ABLETON MOVE: Move Remote's WebSocket (rfm_move in WebAssembly does the mapping: catalog paths.move)
+  move = new MoveLink({ controls, site, prefs, save: savePrefs, toast, mapAct,
+    core: (settings) => MoveCore.load(settings, new URL(catalog.paths.move || "../build/move/rfm_move.mjs", document.baseURI).href),
+    onActive: () => { if (sheet) sheet.render(); } });
+  mountMove(sheet.moveSlot, move);
+  window.FM1Move = move;
+  applyButtonNames();
+  move.auto();                                             // connects by itself where it was connected before
 
   // the recorder
   if (!EMBED) {

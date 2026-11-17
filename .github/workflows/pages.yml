@@ -185,6 +185,10 @@ jobs:
           mkdir -p _site/remote _site/build/remote
           cp web/remote/remote.js _site/remote/
           cp web/build/remote/remotefm1.mjs _site/build/remote/
+          # Use my Ableton Move: rfm_move (host/src/move) in WebAssembly, the module js/move-core.js loads (catalog paths.move)
+          .github/scripts/logged.sh move bash web/move/build.sh
+          mkdir -p _site/build/move
+          cp web/build/move/rfm_move.mjs _site/build/move/
 
       - name: Authors' native builds (docs/NATIVE-AUTHORS.md), checked and copied to engines/native/ext/
         id: authors

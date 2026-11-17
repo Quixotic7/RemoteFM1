@@ -69,6 +69,26 @@ screen, LEDs and flash go to the page by `postMessage` at up to 30 Hz.
   the port there). Disconnect or closing the page clears the OMX; leaving REMOTE mode is AUX + encoder hold on it.
   Tests: `web/site/test.mjs` and `web/site/tools/omx-e2e.mjs` (a fake OMX-27, `tools/omx-fake.js`; pictures of its
   LEDs and screen per view in `web/build/test/omx-*.png`).
+- **An Ableton Move as the controller** (Settings > Use my Ableton Move; `js/move-core.js` rfm_move in WebAssembly,
+  `js/move-link.js` the protocol, the link and the sheet): a Move running [Move Remote](https://github.com/Quixotic7/abletonmoveremote)
+  (its `docs/PROTOCOL.md`: `u16 len | u8 type | payload`, a WebSocket at `ws://<move>:7720/ws`). The mapping is the
+  portable C core every host shares, `host/src/move/move.c` (its README has the tables: Track 1..4 = FM-1, MIDI,
+  Control, Sequencer modes), built by `web/move/build.sh` into `web/build/move/rfm_move.mjs` (a single-file ES module,
+  ~45 KB, never committed; the Pages workflow builds it with the remote module; catalog `paths.move`). HELLO (proto 1),
+  then CONFIG audio clock off (the page plays its own sound); INPUT records go through the core into actions on the
+  panel (source `SRC.MOVE`, bit 256: the holds are 16-bit), MASTER through `mapAct`, MIDI into the firmware's MIDI in;
+  the FM-1's LEDs go out as the core's changed LED writes only (`LED_RGB` / `LED`), the screen (the mode, the last
+  control, a 64 x 64 thumbnail of the FM-1's) at most ~30 a second and only when it changed (`DISPLAY`); the firmware's
+  live knob labels name the knobs on it. PING every second, nothing heard for 3 s is a lost link: everything the Move
+  held is let go and it connects again (1, 2, 4 s); `BYE` for the exit gesture or another host ends it. The settings
+  (mode, layout, channel, octave, CC banks, drum notes: `rfm_move_save`) and the address are kept in the page's prefs;
+  connected once, it connects by itself on the next visit. The link is a transport interface (`connect`, `send`,
+  `onmessage`, `onclose`, `close`, `name`); `MoveWebSocket` is the one there is. **https:** browsers block `ws://` from
+  an https page (mixed content) except to localhost, so on the published site the link says so instead of failing;
+  until an https-capable transport exists (Web MIDI SysEx over the Move's USB-C, or a localhost bridge), it works from
+  the page served over http (`web/serve.sh`). Tests: `web/site/test.mjs` (framing, the wasm core against
+  `host/tests/test_move.c`'s answers, `MoveLink` on a fake transport and clock) and `web/site/tools/move-e2e.mjs`
+  (headless Chromium against Move Remote's own simulator, `moveremote-sim`, driven through its test FIFO).
 - **Saves:** per firmware and version in IndexedDB, with backup export and import (`.fm1save`-compatible if
   fm1-emu's format can be shared).
 - **Use my FM-1:** connects to a unit running RemoteFM1, through Web MIDI everywhere it exists and WebUSB bulk in

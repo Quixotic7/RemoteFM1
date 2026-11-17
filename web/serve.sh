@@ -15,6 +15,7 @@ if ! node site/tools/engines-check.mjs .; then
         [ -f build/emu/fm1_web.wasm ] || bash engines/emu/build.sh
         FM1VST_DIR="${FM1VST_DIR:-$PWD/vendor/FM1VST}" bash engines/native/build.sh || true
         [ -f build/remote/remotefm1.mjs ] || sh remote/build.sh
+        [ -f build/move/rfm_move.mjs ] || sh move/build.sh
         node site/tools/engines-check.mjs . || echo "serve.sh: still missing some (above): those firmwares play the test engine"
     else
         echo "serve.sh: serving anyway; web/serve.sh --build builds them"

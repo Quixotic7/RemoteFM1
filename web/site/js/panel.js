@@ -114,14 +114,15 @@ const KEY_HINT = Array.from({ length: NKEY }, (_, k) => hintText(KM.KEY, k));
 const BTN_HINT = Array.from({ length: NB }, (_, b) => hintText(KM.BTN, b));
 // ================================================================ controls ===
 // The panel's input state, from every source (bits): the computer keys, the pointer, a latch, Web MIDI, the user's
-// own FM-1 (web/remote), a learned MIDI control (js/midi-map.js), an OMX-27 in REMOTE mode (js/omx-link.js). Every change calls onChange(msg) with the engine's
-// panel in matrix order; enc holds the detents since the previous message.
-export const SRC = { KEY: 1, ESC: 2, POINTER: 4, LATCH: 8, MIDI: 16, REMOTE: 32, MAP: 64, OMX: 128 };
+// own FM-1 (web/remote), a learned MIDI control (js/midi-map.js), an OMX-27 in REMOTE mode (js/omx-link.js), an Ableton
+// Move (js/move-link.js). Every change calls onChange(msg) with the engine's panel in matrix order; enc holds the detents
+// since the previous message. The holds are bit masks of the sources (16 bits: room for more).
+export const SRC = { KEY: 1, ESC: 2, POINTER: 4, LATCH: 8, MIDI: 16, REMOTE: 32, MAP: 64, OMX: 128, MOVE: 256 };
 export class Controls {
   constructor(onChange) {
     this.onChange = onChange;
-    this.keySrc = new Uint8Array(NKEY);
-    this.btnSrc = new Uint8Array(NB);
+    this.keySrc = new Uint16Array(NKEY);
+    this.btnSrc = new Uint16Array(NB);
     this.keyVel = new Uint8Array(NKEY);
     this.keyLean = new Uint8Array(NKEY);   // a held key's pressure 0..100 (the user's FM-1: TOUCH), fm1core's key_lean
     this.angle = new Float32Array(NE);

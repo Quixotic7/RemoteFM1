@@ -457,6 +457,15 @@ body.learning #device { cursor: crosshair; }
 .search input { flex: 1; min-width: 0; background: none; border: 0; outline: none; color: var(--text); font: 500 15px var(--ui); }
 .search input::placeholder { color: var(--muted); }
 .search:focus-within { border-color: var(--accent); }
+/* USE MY ABLETON MOVE (js/move-link.js): the address field and the USB-C shortcut */
+.move-row { display: flex; gap: 8px; align-items: center; }
+.move-addr {
+  flex: 1; min-width: 0; height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface);
+  color: var(--text); font: 500 14px var(--ui); outline: none;
+}
+.move-addr:focus { border-color: var(--accent); }
+.move-addr:disabled { opacity: .6; }
+.move-row .pill { flex: none; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 10px; }
 .chip { height: 30px; padding: 0 12px; border: 0; border-radius: 999px; background: var(--surface); color: var(--knob-off); font-weight: 600; font-size: 12.5px; cursor: pointer; }
 .chip:hover:not(.on) { background: var(--raised-hover); color: var(--text); }

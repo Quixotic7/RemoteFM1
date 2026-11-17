@@ -126,8 +126,8 @@ the LED writes, and the simulator's screen shot against the frame sent. Without 
 - **FM1VST (Mac)**: a `MoveLink` beside `RemoteLink.cpp`: `mr_connect` / `mr_poll` on a thread, the actions into
   fm1panel_t, the LEDs and screen out each frame, sound on the Mac or (optional) the Move.
 - **iOS (RFMKit)** and **Android (NDK)**: compile `move.c` and the vendored client as they compile libremotefm1.
-- **The web player**: `move.c` to WebAssembly, a link like `OmxLink` applying the same actions; it needs a
-  socket-free `mr_decode` (today in `mr_client.c` with the sockets) and a way past https → `ws://` (docs/REMOTEFM1.md
-  upstream lists the options).
+- **The web player**: done over WebSocket (WEB-PLAN.md, "An Ableton Move as the controller": `web/move/build.sh`,
+  `web/site/js/move-core.js`, `move-link.js`; `mr_client.c` compiles under Emscripten and the linker drops its
+  sockets). Still to come: a way past https → `ws://` (docs/REMOTEFM1.md upstream lists the options).
 - **The sequencer (mode 4)**: Move-style steps, 16 tracks by MIDI channel, session view; the settings image's version
   goes up with it.
