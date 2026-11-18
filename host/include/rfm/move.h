@@ -210,6 +210,7 @@ enum { RFM_MOVE_FN_NONE, RFM_MOVE_FN_RESTART, RFM_MOVE_FN_REVERSE, RFM_MOVE_FN_F
 #define RFM_MOVE_SEQ_BPM10_MIN 200                      /* 20.0 .. 300.0 BPM */
 #define RFM_MOVE_SEQ_BPM10_MAX 3000
 #define RFM_MOVE_PROJECTS 32
+#define RFM_MOVE_SAMPLE_BARS 60                         /* the Sampling waveform's bars (2 px apart) */
 #define RFM_MOVE_PROJECT_VERSION 4                      /* (versions 1, 2 and 3 load too) */
 #define RFM_MOVE_AUTOSAVE_MS 2000                       /* an edited project is saved this long after the last edit */
 /* the blob: header 24, tracks 16 x 4, clip lengths 256 x 2, notes 2 + n x 7, locks 2 + n x 4, (version 2) loop
@@ -333,6 +334,8 @@ typedef struct {
     uint32_t steps_chord;                               /* .. pads of the chord being written (bits) */
     uint8_t take;                                       /* the live take's mark on its notes (Replace keeps them) */
     uint8_t arec;                                       /* Sample's audio loop: 1 armed, 2 recording, 3 to stop */
+    uint8_t samp[RFM_MOVE_SAMPLE_BARS];                 /* .. its recent levels (the Sampling waveform: 1..17 a bar) */
+    uint8_t samp_n, samp_head;                          /* .. how many (a take: from none), the next one's place */
     int32_t arec_T;                                     /* .. the song tick it started at */
     uint8_t qstrength;                                  /* Quantize's amount, % (Workflow Settings) */
     uint8_t smenu;                                      /* a Shift + step menu open (RFM_MOVE_SM_*) */
@@ -465,6 +468,10 @@ void rfm_move_set_master(rfm_move_t *m, int value);    /* MASTER as the host has
 /* the Move's battery from Move Remote's STATUS (battery8, byte 4, as the surface reports it: taken as a percentage,
  * clamped to 100; power8, byte 5); shown in the Global Settings menu. Returns 1 when it changed (a redraw) */
 int rfm_move_set_battery(rfm_move_t *m, int battery, int power_bits);
+/* Sample's audio loop: the recorded audio's peaks, 0..255 each (the web page: one a ~16 ms window of the take, from
+ * the worklet), drawn as the Sampling screen's scrolling waveform. Taken only while the loop records (armed and
+ * waiting for its bar: flat); a new take starts empty. Returns how many were taken (a redraw when > 0). */
+int rfm_move_sample_levels(rfm_move_t *m, const uint8_t *peaks, int n);
 /* a knob's label from the firmware (fm1core labels: by encoder, RFM_MOVE_E_MASTER for MASTER); NULL or "" = default */
 void rfm_move_set_label(rfm_move_t *m, int enc, const char *text);
 /* the panel's wiring (FM1P_KEYMAP_INIT's shape: id at [row][col], rows 1..4 = LED lines 0..3); NULL = the FM-1's */

@@ -167,6 +167,7 @@ export class RecUI {
     }
     if (m.type === "recLevel" && cur && m.id === cur.id && this.phase === "rec") {
       cur.frames = m.frames;
+      if (cur.loop && m.wins && m.wins.length && this.o.loopLevels) this.o.loopLevels(m.wins);   // (the Move's waveform)
       // the meter: the peak, falling back at about 24 dB a second
       for (let c = 0; c < 2; c++) this.meter[c] = Math.max(m.peak[c], this.meter[c] * 0.82);
       if (!cur.warned && cur.frames >= WARN_TAKE_S * cur.writer.sampleRate) {

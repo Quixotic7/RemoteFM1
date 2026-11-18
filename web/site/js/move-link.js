@@ -203,6 +203,7 @@ export class MoveLink {
     s.on("frame", (px) => { this.px = px; this.screenSoon(); });
     s.on("info", (info) => this.onInfo(info));
     s.on("firmware", () => { const sc = s.screen(); this.px = sc.pixels; this.onInfo(s.current().info); this.screenSoon(); });
+    s.on("loopLevels", (peaks) => { if (this.live && this.core && this.core.sampleLevels(peaks) > 0) this.screenSoon(); });   // (Sample's waveform)
     s.on("midiOut", (bytes, frame) => { if (this.live && this.core) { this.seq.clock(bytes, frame); this.afterSeq(); } });
     if (typeof addEventListener === "function") addEventListener("pagehide", () => { this.flush(); this.release(); if (this.t) this.t.close(); });
   }

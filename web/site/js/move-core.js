@@ -129,6 +129,16 @@ export class MoveCore {
   // the Move's battery from its STATUS (byte 4, byte 5 the power bits): true when it changed (redraw); -1 unknown
   setBattery(battery, power) { return !!this.M._mw_set_battery(this.w, battery | 0, power | 0); }
   get battery() { return this.M._mw_battery(this.w); }
+  // Sample's loop: the recorded audio's window peaks (0..255 each) for the Sampling waveform; how many were taken
+  sampleLevels(peaks) {
+    const n = Math.min(peaks.length | 0, 256);
+    if (!n) return 0;
+    const M = this.M, p = M._malloc(n);
+    M.HEAPU8.set(Array.from(peaks).slice(0, n).map((v) => Math.max(0, Math.min(255, v | 0))), p);
+    const k = M._mw_sample_levels(this.w, p, n);
+    M._free(p);
+    return k;
+  }
   // enc: matrix encoder 0..6, 7 MASTER; text "" or null: the default name
   setLabel(enc, text) {
     const M = this.M, s = String(text || "").slice(0, 16), n = M.lengthBytesUTF8(s) + 1, p = M._malloc(n);

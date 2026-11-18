@@ -72,6 +72,20 @@ export class LabelWatch {
 }
 
 // the timed MIDI queue (above): entries kept in order of `at` (equal ones in arrival order)
+// a loop take's window peaks (the Move's Sampling waveform): over frames off..n of a quantum, the louder channel's peak
+// in each window of r.win frames, 0..255 (full scale 255), into r.wins (up to its length until the next publish)
+export function winPeaks(r, L, R, off, n) {
+  let wp = r.wp, wf = r.wf;
+  for (let i = off; i < n; i++) {
+    const a = L[i] < 0 ? -L[i] : L[i], b = R[i] < 0 ? -R[i] : R[i], v = a > b ? a : b;
+    if (v > wp) wp = v;
+    if (++wf === r.win) {
+      if (r.wn < r.wins.length) r.wins[r.wn++] = Math.round((wp > 1 ? 1 : wp) * 255);
+      wp = 0; wf = 0;
+    }
+  }
+  r.wp = wp; r.wf = wf;
+}
 export const TIMED_MAX = 8192;
 const isOff = (b, i) => (b[i] & 0xf0) === 0x80 || ((b[i] & 0xf0) === 0x90 && b[i + 2] === 0);
 export class TimedMidi {
@@ -240,7 +254,10 @@ if (typeof AudioWorkletProcessor !== "undefined") {
       while (this.recFree.length < 2) this.recFree.push([new Float32Array(n), new Float32Array(n)]);
       const [l, r] = this.recFree.pop();
       this.rec = { id: m.id, n, max: m.maxFrames > 0 ? m.maxFrames : Infinity, frames: 0, at: 0, l, r, start: -1, pl: 0, pr: 0,
-                   startAt: typeof m.startAt === "number" ? m.startAt : -1, stopAt: -1 };
+                   startAt: typeof m.startAt === "number" ? m.startAt : -1, stopAt: -1,
+                   // a loop take (the Move's Sample): its peak over each ~16 ms window, 0..255, posted with recLevel
+                   win: typeof m.startAt === "number" ? Math.max(1, Math.round(sampleRate * 0.016)) : 0, wp: 0, wf: 0,
+                   wins: new Uint8Array(64), wn: 0 };
     }
     recChunk(final, reason) {
       const r = this.rec;
@@ -273,6 +290,7 @@ if (typeof AudioWorkletProcessor !== "undefined") {
       let pl = r.pl, pr = r.pr;
       for (let i = off; i < n; i++) { const a = L[i] < 0 ? -L[i] : L[i], b = R[i] < 0 ? -R[i] : R[i]; if (a > pl) pl = a; if (b > pr) pr = b; }
       r.pl = pl; r.pr = pr;
+      if (r.win) winPeaks(r, L, R, off, n);
       while (off < n) {
         const k = Math.min(n - off, r.n - r.at, r.max - r.frames);
         if (k === n) { r.l.set(L, r.at); r.r.set(R, r.at); }
@@ -307,7 +325,10 @@ if (typeof AudioWorkletProcessor !== "undefined") {
     }
     publish(eng) {
       const rc = this.rec;
-      if (rc && rc.start >= 0) { this.post({ type: "recLevel", id: rc.id, peak: [rc.pl, rc.pr], frames: rc.frames }); rc.pl = 0; rc.pr = 0; }
+      if (rc && rc.start >= 0) {
+        this.post({ type: "recLevel", id: rc.id, peak: [rc.pl, rc.pr], frames: rc.frames, ...(rc.win ? { wins: Array.from(rc.wins.subarray(0, rc.wn)) } : {}) });
+        rc.pl = 0; rc.pr = 0; rc.wn = 0;
+      }
       if (this.ain.on && typeof eng.audioInStats === "function") {
         const st = eng.audioInStats();
         this.post({ type: "ainLevel", peak: this.ain.peak, latency: st.latency, missing: st.missing });

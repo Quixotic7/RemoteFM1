@@ -10,7 +10,8 @@
 //     site.screen()                        { seq, pixels: Uint16Array(240*240) } the latest frame, RGB565 host order
 //     site.leds()                          { levels: Uint8Array(44), playGreen } levels[col * 4 + line]
 //     site.on(event, cb) -> off()          events: "frame" (pixels, seq), "leds" (levels, playGreen), "info" (info),
-//                                          "midiOut" (bytes, frame), "firmware" ({ entry, engine })
+//                                          "midiOut" (bytes, frame), "firmware" ({ entry, engine }),
+//                                          "loopLevels" (peaks: 0..255, a ~16 ms window each, while a loop take records)
 //     site.panel.key(k, down, vel?)        note key 0..26 (F3..G5), from the user's FM-1
 //     site.panel.button(matrixId, down)    matrix button 0 OCT- 1 OCT+ 2 FX .. 13 REC
 //     site.panel.turn(matrixEnc, detents)  matrix encoder 0 SELECT 1 ALGO 2..5 KNOB1..4 6 PRESETS, + = clockwise

@@ -978,6 +978,7 @@ async function main() {
       nameParts: () => ({ id: state.entry ? state.entry.id : "fm1", version: state.entry ? versionOf(state.entry, state.engine === "mock" ? state.wantEngine : state.engine) : "" }),
       settings: () => ({ bits: state.recBits, countIn: state.recCountIn }),
       onIdle: recIdle,
+      loopLevels: (peaks) => siteEmit("loopLevels", peaks),   // (a loop take's window peaks: the Move's Sampling waveform)
       toast,
     });
     window.FM1Rec = rec;

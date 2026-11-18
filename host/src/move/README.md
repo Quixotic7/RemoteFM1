@@ -453,6 +453,12 @@ compares each with the mockup's own pixels (`tests/move_v2_ref.h`, made by `test
 `V2Screen.dc.html`), then sets each situation up on a live core and writes `core_<name>.pbm` beside `v2_<name>.pbm`
 for a contact sheet.
 
+**The Sampling waveform**: the host passes the recorded audio's peaks with `rfm_move_sample_levels(m, peaks, n)`
+(0..255 each; taken only while the loop records, a new take starts empty). The web page computes them in the worklet,
+the louder channel's peak over each ~16 ms window of a loop take (`winPeaks`), posts them with the recorder's level
+(`recLevel.wins`, 30 a second), and the page passes them on as the site event `loopLevels` to MoveLink, which draws
+the Move's screen again when any were taken.
+
 **Note names** are Ableton's everywhere (popups, MIDI Notes, chords, drum notes, the step popup, the key / scale
 screen): MIDI 60 = C3, flats (Db Eb Gb Ab Bb).
 
@@ -471,7 +477,7 @@ clock alone.
 | MIDI Pads (midi.pads) | the 8 × 4 pads: the root filled, in the scale outlined, out of it a dot; a pressed pad carries a 6 × 6 square in the opposite colour |
 | MIDI Notes (midi.notes, midi.chord) | left black at rest; playing: the chord's name at 3x (2x, 1x when wider), the held notes on a one-octave keyboard (white keys filled, black keys a dot) |
 | Control mode (ctl.rest) | the 8 values as filled bars over their knobs on a base line, the bank on the strip |
-| Track view (seq.track) | the shown page as a piano roll, full height (8 px a step, rows of 4 px, the page's notes centred, squeezed past 12 semitones; the beats dashed; the playhead a line); the strip: the clip's pages, the shown one thick, the playhead tick over the whole clip (a ghost page shown: the real pages a line, a + at the far end). The steps row (seq.clip) only while a step, Copy or Delete is held or Step record is on: notes filled, empty outlined, copied dashed, cut crossed, the held ones marked above. Recording: a record icon and "Recording" on top (rec.capture); the audio loop: a wave icon and "Sample" (armed, blinking) / "Sampling" (rec.sample) |
+| Track view (seq.track) | the shown page as a piano roll, full height (8 px a step, rows of 4 px, the page's notes centred, squeezed past 12 semitones; the beats dashed; the playhead a line); the strip: the clip's pages, the shown one thick, the playhead tick over the whole clip (a ghost page shown: the real pages a line, a + at the far end). The steps row (seq.clip) only while a step, Copy or Delete is held or Step record is on: notes filled, empty outlined, copied dashed, cut crossed, the held ones marked above. Recording: a record icon and "Recording" on top (rec.capture); the audio loop: a wave icon and "Sample" (armed, blinking) / "Sampling", the take's levels as a waveform scrolling in from the right (bars about the centre line, 60 of them 2 px apart; flat while armed), the bar lines dashed, the strip its bars and where it is (rec.sample, pixel for pixel) |
 | Loop page edit (loop.edit) | Loop held or latched: the loop icon, "Bars 3-6", the 16 pages as cells (looped filled, the clip's others outlined, past it a dot, cut crossed, copied dashed), the shown one underlined |
 | Session view (sess.rest) | the owner's mockup: 8 tracks across, 4 slots down; playing filled with a black play icon, recording with a black square, queued doubled (blinking), stopping blinking, a clip outlined, empty a dot, copied dashed, cut crossed; a bar over the selected track, a dashed line over muted ones |
 | Projects (proj.grid) | the 32 slots as the pads are: the open one filled, saved ones outlined, each with three bars (how full its tracks are), empty a dot; cut crossed, copied dashed; loading blinks. Entering: the set icon over "Projects" (mode.proj) |
@@ -519,8 +525,7 @@ CC, the rate, the layout, the scale) shows as its edit popup ("Channel 5", "Knob
 then the tracks again.
 
 **Where it differs from the mockups** (behaviour kept, looks as close as the data allows): the arp's page 1 keeps all 8 knobs (the legend shows
-8 rings, the mockup 4); the arp's lanes have 16 steps (the mockup draws 8); the arp's rates are named as said (1/32Q for 40 a bar, where the screen once showed 1/40); the audio loop has no waveform (the core
-does not see the audio), only the bar lines and the strip; there is no charging screen (no STATUS power bit is known
+8 rings, the mockup 4); the arp's lanes have 16 steps (the mockup draws 8); the arp's rates are named as said (1/32Q for 40 a bar, where the screen once showed 1/40); there is no charging screen (no STATUS power bit is known
 to mean charging); the play triangle in FM-1 mode stays; the FM-1
 drawing's touch marks follow our drawing's cells (the mockup's examples sit one pixel off).
 

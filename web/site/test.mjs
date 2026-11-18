@@ -1838,6 +1838,25 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
         g.free();
       }
 
+      // the Sampling waveform: the worklet's window peaks of a loop take, into the core while it records
+      {
+        const { winPeaks } = await import("./worklet/host.js");
+        const r = { win: 4, wp: 0, wf: 0, wins: new Uint8Array(4), wn: 0 };
+        const L = Float32Array.of(0.1, -0.5, 0.2, 0, 0, 0.25, 0, 0, 1.5, 0), R = Float32Array.of(0, 0, 0, 0.3, 0, 0, -0.75, 0, 0, 0);
+        winPeaks(r, L, R, 0, 6), winPeaks(r, L, R, 6, 10);
+        ok(r.wn === 2 && r.wins[0] === 128 && r.wins[1] === 191 && r.wf === 2 && r.wp === 1.5,
+           `worklet: a loop take's ~16 ms window peaks, the louder channel, 0..255 (${Array.from(r.wins.subarray(0, r.wn))})`);
+        const g = await load(), ginp = (...pk) => pk.flatMap((p) => g.input(p));
+        ginp(cc(40, 127), cc(40, 0));
+        ginp(cc(118, 127), cc(118, 0));                // Sample: armed
+        const armed = g.sampleLevels([200, 200]);
+        ginp(cc(85, 127), cc(85, 0));                  // Play: it records from the first bar line
+        for (let i = 0; i < 20; i++) g.seqAdvance(128, 48000);
+        const took = g.sampleLevels([0, 128, 255]);
+        ok(armed === 0 && took === 3, `move core: Sample's levels taken only while the loop records (armed ${armed}, recording ${took})`);
+        g.free();
+      }
+
       // the worklet's timed MIDI queue
       const tm = new TimedMidi(), dl = [];
       tm.add(Uint8Array.of(0x90, 60, 100), 1000, 0); tm.add(Uint8Array.of(0x80, 60, 0), 1200, 0); tm.add(Uint8Array.of(0x90, 62, 100), 1100, 0);

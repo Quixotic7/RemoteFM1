@@ -2120,10 +2120,30 @@ static void track_screen(const rfm_move_t *m, mr_canvas_t *cv)
     const rfm_move_seq_t *q = &m->seq;
     const int cells = q->step_held || (q->mods & (SEQ_M_COPY | SEQ_M_DELETE)) || q->steprec;
     int y0 = 0, h = cells ? 46 : 56;
-    if (q->arec >= 2 || (q->arec == 1 && !blink(q))) {  /* the audio loop: armed (blinking), recording */
-        v2_ic(cv, V2I_WAVE, 0, 2, 1);
-        v2_T(cv, 16, 1, q->arec == 1 ? "Sample" : "Sampling", 2, 1);
-        y0 = 20, h = cells ? 26 : 36;
+    if (q->arec && !cells) {                            /* the audio loop (V2Record rec.sample): the wave icon and
+                                                         * "Sampling" (armed: "Sample", blinking), the take's levels
+                                                         * scrolling from the right as bars about the centre line (flat
+                                                         * before), the bar lines dashed; the strip its bars, the tick
+                                                         * where it is */
+        int i, k;
+        if (q->arec >= 2 || !blink(q)) {
+            v2_ic(cv, V2I_WAVE, 0, 2, 1);
+            v2_T(cv, 16, 1, q->arec == 1 ? "Sample" : "Sampling", 2, 1);
+        }
+        for (i = 0; i < RFM_MOVE_SAMPLE_BARS; i++) {
+            const int back = RFM_MOVE_SAMPLE_BARS - i;  /* (the newest at the right) */
+            const int a = back <= q->samp_n ? q->samp[(q->samp_head + RFM_MOVE_SAMPLE_BARS - back) % RFM_MOVE_SAMPLE_BARS] : 1;
+            v2_R(cv, i * 2, 38 - a, 1, a * 2, 1);
+        }
+        for (k = 1; k < 4; k++)
+            v2_dotV(cv, k * 32, 20, 36);
+        if (q->arec >= 2 && q->T >= q->arec_T) {
+            const int32_t in = q->T - q->arec_T;
+            const int cur = (int)(in / RFM_MOVE_SEQ_BAR), n = cur + 1 > 4 ? cur + 1 : 4;
+            v2_strip(cv, n > 16 ? 16 : n, 1u << (cur < 16 ? cur : 15), (double)in / ((double)n * RFM_MOVE_SEQ_BAR), 0, 128);
+        } else
+            v2_strip(cv, 4, 0, -1, 0, 128);
+        return;
     } else if (q->rec && running(q) && q->rec_mode != RFM_MOVE_RM_STEP) {
         v2_ic(cv, V2I_REC, 0, 2, 1);
         v2_T(cv, 16, 1, "Recording", 2, 1);

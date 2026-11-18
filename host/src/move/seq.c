@@ -1710,6 +1710,23 @@ void rfmv_seq_audio_rec(rfm_move_t *m)
 {
     rfm_move_seq_t *q = &m->seq;
     q->arec = (uint8_t)(q->arec == 0 ? 1 : q->arec == 1 ? 0 : 3);
+    if (q->arec == 1)
+        q->samp_n = 0, q->samp_head = 0;                /* (a new take: its waveform from none) */
+}
+
+int rfm_move_sample_levels(rfm_move_t *m, const uint8_t *peaks, int n)
+{
+    rfm_move_seq_t *q = &m->seq;
+    int i;
+    if (q->arec < 2 || !peaks || n <= 0)
+        return 0;                                       /* (armed, waiting for the bar: flat) */
+    for (i = 0; i < n; i++) {
+        q->samp[q->samp_head] = (uint8_t)((peaks[i] * 16 + 127) / 255 + 1);
+        q->samp_head = (uint8_t)((q->samp_head + 1) % RFM_MOVE_SAMPLE_BARS);
+        if (q->samp_n < RFM_MOVE_SAMPLE_BARS)
+            q->samp_n++;
+    }
+    return n;
 }
 
 /* Record in Capture mode, stopped (the owner's intentional capture): a press arms it (again: disarmed); the first

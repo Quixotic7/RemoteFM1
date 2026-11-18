@@ -303,6 +303,19 @@ static void shot(const char *name)
             fprintf(f, "%d ", out[(y >> 3) * 128 + x] >> (y & 7) & 1);
     fclose(f);
 }
+static int core_diff(const char *name)                 /* the core's screen now vs the mockup's, in pixels */
+{
+    static B b;
+    uint8_t out[MR_SCREEN_BYTES];
+    int x, y, d = 0;
+    memset(&b, 0, sizeof b);
+    draw(&b, name);
+    rfm_move_screen(&C, NULL, out);
+    for (y = 0; y < 64; y++)
+        for (x = 0; x < 128; x++)
+            d += (out[(y >> 3) * 128 + x] >> (y & 7) & 1) != b.px[y][x];
+    return d;
+}
 static void shift_step(int s) { button(MR_CC_SHIFT, 1), step(s, 1), step(s, 0), button(MR_CC_SHIFT, 0); }
 
 static void core_screens(void)
@@ -435,7 +448,26 @@ static void core_screens(void)
     button(MR_CC_DELETE, 1), pad(24 + 1, 100), pad(24 + 1, 0), button(MR_CC_DELETE, 0), rest(), shot("proj.marks");
     /* recording */
     reset(3), C.seq.rec_mode = RFM_MOVE_RM_RECORD, seq_notes(0), press(MR_CC_REC), press(MR_CC_PLAY), adv_ms(2000 + 500 * 23 / 2), shot("rec.capture");
-    reset(3), press(MR_CC_SAMPLE), press(MR_CC_PLAY), adv_ms(2000 + 1000), shot("rec.sample");
+    reset(3), press(MR_CC_SAMPLE), press(MR_CC_PLAY);
+    for (i = 0; i < 4000 && !(C.seq.arec == 2 && C.seq.T - C.seq.arec_T >= 737); i++)
+        rfm_move_seq_advance(&C, 250, 48000);          /* (a tick at a time: 1.92 bars into the take) */
+    {
+        uint8_t pk[60];
+        for (i = 0; i < 60; i++) {                      /* the mockup's levels, as peaks */
+            const int a = (int)floor(fabs(sin(i * 0.9) * cos(i * 0.21)) * 16 + 0.5);
+            pk[i] = (uint8_t)((a * 255 + 8) / 16);
+        }
+        CHECKF(rfm_move_sample_levels(&C, pk, 60) == 60, "levels taken while recording");
+    }
+    shot("rec.sample");
+    CHECKF(core_diff("rec.sample") == 0, "the Sampling screen: the mockup's, pixel for pixel (%d px apart)", core_diff("rec.sample"));
+    {
+        const uint8_t one = 255;
+        press(MR_CC_SAMPLE);                            /* (stopping at the next bar line: still taken) */
+        CHECKF(C.seq.arec == 3 && rfm_move_sample_levels(&C, &one, 1) == 1, "levels taken while the take ends");
+        reset(3), press(MR_CC_SAMPLE);                  /* a new take, armed: empty, levels not taken (flat) */
+        CHECKF(C.seq.arec == 1 && rfm_move_sample_levels(&C, &one, 1) == 0 && C.seq.samp_n == 0, "armed: flat");
+    }
     reset(3);
     for (i = 0; i < 4; i++)
         pad(i, 100), adv_ms(250), pad(i, 0), adv_ms(100);
