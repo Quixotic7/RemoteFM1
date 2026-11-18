@@ -269,9 +269,11 @@ try {
   ok((await js("FM1Move.core.projectSlot()")) === 0 && (await js("FM1Move.core.projectSave().length")) === notes1, `project 1's pad: project 1 back from the store (${notes1} bytes)`);
   const slots = await js("FM1Move.store.list().then((l) => l.map((r) => r.slot).join())");
   ok(slots === "0,2", `the store holds projects 1 and 3 (slots ${slots})`);
-  await press("cc 51 127\ncc 51 0", 300);              // (Back: out of projects mode, then out of the sequencer)
+  await press("cc 51 127\ncc 51 0", 300);              // (Back: out of projects mode; the sequencer stays)
   await press("cc 51 127\ncc 51 0", 300);
-  ok((await js("FM1Move.core.state().mode")) === 0, "Back, Back: projects mode left, then FM-1 mode for the rest");
+  ok((await js("FM1Move.core.state().mode")) === 3, "Back, Back: projects mode left, the sequencer stays (only a Track tap changes the mode)");
+  await press("cc 43 127\ncc 43 0", 300);
+  ok((await js("FM1Move.core.state().mode")) === 0, "a Track 1 tap: FM-1 mode for the rest");
 
   // 4. a reload connects by itself (with the settings)
   await js("(window.__before = true)");

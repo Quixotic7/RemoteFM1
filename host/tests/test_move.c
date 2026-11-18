@@ -1275,6 +1275,51 @@ static void test_velocity(void)
     pad(&m, 0, 0);
 }
 
+/* the owner's: only a quick Track tap changes the mode. Every other button (alone, with Shift, with Back after), the
+ * jog and the knobs leave it as it was, in every mode */
+static void test_mode_only_by_tap(void)
+{
+    static const int CC[] = { MR_CC_CAPTURE, MR_CC_SAMPLE, MR_CC_MUTE, MR_CC_DELETE, MR_CC_COPY, MR_CC_SHIFT,
+                              MR_CC_MENU, MR_CC_UNDO, MR_CC_LOOP, MR_CC_BACK, MR_CC_PLAY, MR_CC_REC, MR_CC_LEFT,
+                              MR_CC_RIGHT, MR_CC_UP, MR_CC_DOWN };
+    static rfm_move_t m;
+    int mode, i, k, ok = 1;
+    rfm_move_init(&m, NULL, on_act, NULL);
+    for (mode = 0; mode < 4; mode++) {
+        if (m.s.mode != mode)
+            track(&m, mode, 1), track(&m, mode, 0);
+        CHECK(m.s.mode == mode);
+        for (i = 0; i < (int)(sizeof CC / sizeof CC[0]); i++) {
+            button(&m, CC[i], 1), button(&m, CC[i], 0);
+            button(&m, MR_CC_SHIFT, 1), button(&m, CC[i], 1), button(&m, CC[i], 0), button(&m, MR_CC_SHIFT, 0);
+            track(&m, 0, 1), button(&m, CC[i], 1), button(&m, CC[i], 0), now_ms += 400, track(&m, 0, 0);
+            for (k = 0; k < 4; k++)
+                button(&m, MR_CC_BACK, 1), button(&m, MR_CC_BACK, 0);
+            jog(&m, 1), knob(&m, 0, 2);
+            if (m.s.mode != mode) {
+                CHECKF(0, "mode %d changed to %d by CC %d", mode, m.s.mode, CC[i]);
+                ok = 0;
+                track(&m, mode, 1), track(&m, mode, 0);
+            }
+        }
+        for (i = 0; i < 16; i++) {                      /* (the Shift layer's shortcuts, Back after each) */
+            if (mode == RFM_MOVE_MODE_SEQ)
+                button(&m, MR_CC_SHIFT, 1), step(&m, i, 1), step(&m, i, 0), button(&m, MR_CC_SHIFT, 0);
+            else
+                track(&m, 0, 1), step(&m, i, 1), step(&m, i, 0), now_ms += 400, track(&m, 0, 0);
+            for (k = 0; k < 4; k++)
+                button(&m, MR_CC_BACK, 1), button(&m, MR_CC_BACK, 0);
+            if (m.s.mode != mode) {
+                CHECKF(0, "mode %d changed to %d by shortcut %d", mode, m.s.mode, i + 1);
+                ok = 0;
+                track(&m, mode, 1), track(&m, mode, 0);
+            }
+        }
+        rfm_move_seq_play(&m, 0);
+    }
+    CHECK(ok);
+}
+
 int main(void)
 {
     test_fm1_pads();
@@ -1292,5 +1337,6 @@ int main(void)
     test_mode_name_first();
     test_track1_anywhere();
     test_velocity();
+    test_mode_only_by_tap();
     return check_done("move");
 }

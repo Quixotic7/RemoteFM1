@@ -121,7 +121,7 @@ and the rest of the TRIG page on top. It takes over the whole surface except the
 everywhere) and the volume knob (MASTER). 16 tracks, each with its own MIDI channel (track n: channel n), rate,
 groove (or the project's), key and scale (or the project's), arp, pad layout and CC numbers; 16 scenes; a clip per
 track and scene; projects. It keeps playing in every mode (in FM-1 mode a small play triangle over the drawing says
-so); Back returns to FM-1 mode when nothing else is open (below).
+so). Back only closes layers; it never changes the mode (only a quick Track tap does, the owner's).
 
 **Tracks: Track 4 held** (the owner's). The 16 steps are the 16 tracks: **a tap selects** one, **a double tap solos**
 it (on / off), **a hold mutes** it (on / off, 300 ms). LEDs: the selected track full, the others dim, muted red,
@@ -265,7 +265,7 @@ the screen's corner while it records. (Tap tempo: Shift + step 5.)
 | Shift (the icons) | while Shift is held or locked (and in FM-1 mode while Track 1 is held), the white icon LEDs under the steps (CC 16..31) light every step with a shortcut: dim, full where it is on (a toggle on, its menu open); off otherwise and in MIDI and Control mode. Written on change only, like every LED; the step pads' own LEDs are separate |
 | Shift | double-tap (a tap, then a press within 300 ms): latched (its LED lit, every Shift combination without holding it); a press unlatches it. Shift + Sample: nothing (the Move has none) |
 | Menu | Track <-> Session view (or out of the project grid) |
-| Back | the universal escape: closes the latest layer still on, one a press (a Shift menu, the project grid, Loop's latch, Shift's lock, the step / clip clipboard's marks, the page clipboard's); with none: FM-1 mode |
+| Back | the universal escape: closes the latest layer still on, one a press (a Shift menu, the project grid, Loop's latch, Shift's lock, the step / clip clipboard's marks, the page clipboard's); with none: nothing (never a mode change) |
 | Track 1..4 | the modes (FM-1, MIDI, Control, Sequencer); Track 4 held in the sequencer: the tracks and the track's settings (above; the screen: layout, scale, what changed at 2x, the channel and the rate as strips) |
 
 **Shift + step** (the Move's printed functions, its manual's numbers; a menu opens on the screen, the same Shift +
@@ -325,7 +325,7 @@ owner chose otherwise, the owner's way: Delete = cut / paste, Copy pastes to emp
 first), Sample = an audio loop (tap tempo on Shift + step 5), the Loop wheel a step a detent (Shift: a page; the
 Move's: a bar, Shift a 16th), a hold never clears a step, an empty slot makes a clip. Left as they are:
 
-- **The design's buttons**: Menu = Track / Session, Back = FM-1 mode, the Track buttons = the four modes, so Track
+- **The design's buttons**: Menu = Track / Session (a view, not a mode), Back = close a layer, the Track buttons = the four modes, so Track
   4 held + step stands in for Move's Track buttons (select, solo, mute) and Mute + step for Mute + Track.
 - **Not here**: copying a range of steps, per-step automation shown as red steps, count-in on / off, the
   Move's Repeat for drums (step 11 is the arp).

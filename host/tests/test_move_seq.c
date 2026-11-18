@@ -625,12 +625,12 @@ static void test_note_offs(void)
     rfmv_seq_note_put(m, 0, 0, 72, 100, 24 * 3, 0);
     rfm_move_seq_play(m, 1);
     adv(m, FPS);
-    press(m, MR_CC_BACK);
+    track(m, 0, 1), track(m, 0, 0);
     CHECK(m->s.mode == RFM_MOVE_MODE_FM1 && m->seq.playing && sounding[0][72] == 1);
     adv(m, 3 * FPS);
     CHECK(sounding[0][72] == 0);
     track(m, 3, 1), track(m, 3, 0);
-    press(m, MR_CC_BACK);                               /* Back: FM-1 mode, still playing */
+    track(m, 0, 1), track(m, 0, 0);                   /* a Track 1 tap: FM-1 mode, still playing */
     CHECK(m->s.mode == RFM_MOVE_MODE_FM1 && m->seq.playing);
     rfm_move_release_all(m);
     CHECK(stuck() == 0);
@@ -945,7 +945,7 @@ static void test_scale_root(void)
     rfm_move_t *m = &M;
     int i;
     fresh(m);
-    press(m, MR_CC_BACK);                               /* (FM-1 mode; the sequencer's Track buttons are its tracks) */
+    track(m, 0, 1), track(m, 0, 0);                   /* (FM-1 mode; the sequencer's Track buttons are its tracks) */
     track(m, 1, 1);                                     /* Track 2 held (MIDI mode) */
     jog(m, 2);                                          /* root D */
     pad(m, 17, 100), pad(m, 17, 0);                     /* row 2, column 2: minor */
@@ -1472,7 +1472,7 @@ static void test_screens_leds(void)
     /* other modes while it plays: a small triangle over the FM-1 drawing */
     rfm_move_seq_play(m, 1);
     adv(m, FPS);
-    press(m, MR_CC_BACK);
+    track(m, 0, 1), track(m, 0, 0), adv(m, RATE * RFM_MOVE_POPUP_MS / 1000 + 256);   /* (its name gone) */
     rfm_move_screen(m, NULL, out);
     CHECK(px_at(out, 3, 3) && px_at(out, 7, 7) && !px_at(out, 8, 7) && !px_at(out, 7, 3));
     CHECK(GOLD_TRACK && GOLD_STEP && GOLD_SESSION && GOLD_PROJECTS && GOLD_PROJECT && GOLD_TRACKS && GOLD_COUNT &&
@@ -2199,8 +2199,8 @@ static void test_tracks16(void)
     CHECK(rfmv_seq_src_step(m, clip_of(m), 3) == 1);
     press(m, MR_CC_BACK);
     CHECK(rfmv_seq_src_step(m, clip_of(m), 3) == 0 && m->s.mode == RFM_MOVE_MODE_SEQ);
-    press(m, MR_CC_BACK);                               /* nothing on: FM-1 mode */
-    CHECK(m->s.mode == RFM_MOVE_MODE_FM1);
+    press(m, MR_CC_BACK);                               /* nothing on: nothing (only a Track tap changes the mode) */
+    CHECK(m->s.mode == RFM_MOVE_MODE_SEQ);
     track(m, 3, 1), track(m, 3, 0);
     /* a held step: the jog the length (LENGTH's popup), Left / Right the micro timing (MICRO's), the volume knob the
      * velocity (VELO's; MASTER untouched) */

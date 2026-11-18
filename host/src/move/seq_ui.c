@@ -1047,7 +1047,7 @@ int rfmv_seq_button(rfm_move_t *m, int cc, int down, uint32_t now)
         return 1;
     case MR_CC_BACK:                                    /* the universal escape: the latest layer still on closes
                                                          * (a Shift menu, the project grid, Loop's latch, Shift's
-                                                         * lock, the clipboard's marks), one a press; none: FM-1 mode */
+                                                         * lock, the clipboard's marks), one a press; none: nothing */
         while (q->nlayer) {
             const int id = q->layer[--q->nlayer];
             if (layer_on(q, id)) {
@@ -1063,8 +1063,8 @@ int rfmv_seq_button(rfm_move_t *m, int cc, int down, uint32_t now)
                     return 1;
                 }
         }
-        rfm_move_set_mode(m, RFM_MOVE_MODE_FM1);        /* back to FM-1 mode; the sequencer keeps playing */
-        return 1;
+        return 1;                                       /* (nothing to close: nothing. Only a Track tap changes the
+                                                         * mode, the owner's) */
     case MR_CC_PLAY:
         q->ncap = 0;                                    /* (Move: the transport clears the capture) */
         if ((q->mods & SEQ_M_SHIFT) && q->view) {       /* session: Shift + Play: every clip stops (at the bar) */
