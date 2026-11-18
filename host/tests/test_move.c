@@ -555,8 +555,8 @@ static void write_pbm(const char *path, const uint8_t *packed)
  * look at the PBMs this test writes into the build directory first (move_*.pbm) */
 #define GOLD_FM1 0xca84fa11u
 #define GOLD_FM1_LIVE 0x714e834du
-#define GOLD_KNOB 0xb0ac5da6u
-#define GOLD_MASTER 0x0a5b87ccu
+#define GOLD_KNOB 0x5eab3fb5u
+#define GOLD_MASTER 0x08fb6a96u
 #define GOLD_MIDI 0x3de84831u
 #define GOLD_MIDI_HIT 0x570d8447u
 #define GOLD_CONTROL 0xdaa9dc11u
@@ -718,7 +718,11 @@ static void test_screen(void)
     knob(&m, 4, 2), knob(&m, 4, 1);
     rfm_move_screen(&m, NULL, out);
     CHECK(m.pop == POP_ENC && m.pop_val == 3);
-    CHECK(px_at(out, 2, 2) && px_at(out, 125, 61) && !px_at(out, 3, 3));     /* the frame */
+    CHECK(px_at(out, 0, 0) && px_at(out, 63, 63) && !px_at(out, 1, 1));       /* the frame: the left half only */
+    for (d = 0, y = 0; y < 64; y++)
+        for (x = 0; x < 64; x++)
+            d += px_at(out, 64 + x, y) != m.thumb[y][x];
+    CHECK(d == 0);                                      /* (the FM-1's screen stays in view) */
     gold("knob", out, GOLD_KNOB);
     ms(&m, 3 * RFM_MOVE_POPUP_MS);                      /* held: it stays */
     rfm_move_screen(&m, NULL, out2);
@@ -737,6 +741,10 @@ static void test_screen(void)
     knob(&m, 8, -16);                                   /* the volume knob: MASTER (768 - 256 = 512: 50 %) */
     rfm_move_screen(&m, NULL, out);
     CHECK(m.pop == POP_MASTER);
+    for (d = 0, y = 0; y < 64; y++)
+        for (x = 0; x < 64; x++)
+            d += px_at(out, 64 + x, y) != m.thumb[y][x];
+    CHECK(d == 0);
     gold("master", out, GOLD_MASTER);
     ms(&m, RFM_MOVE_POPUP_MS);
 

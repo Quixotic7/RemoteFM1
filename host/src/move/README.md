@@ -30,6 +30,8 @@ FM-1's except in Control mode. Sequencer mode has its own (section 4).
 
 ### 1. FM-1 mode
 
+In FM-1 mode every popup (a knob, MASTER, a message) keeps to the left half, over the drawing: the FM-1's screen on the right stays in view.
+
 | Move | FM-1 |
 |---|---|
 | pads, row 2 (second from the top) | white keys F G A B C D E F: keys 0 2 4 6 7 9 11 12 (F3..F4) |

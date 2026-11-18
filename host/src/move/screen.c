@@ -190,10 +190,40 @@ int rfmv_pop_up(const rfm_move_t *m, int kind)
 
 /* KnobPopup: the label and the value at 2x (the unit small), a thick bar, a dial; the right half hatched behind.
  * frac 0..1000 fills the bar from the left; centred (an FM-1 encoder's relative turn): -1000..1000 from the middle */
+/* FM-1 mode: popups keep to the left half, so the FM-1's screen (the right half) stays in view */
+static int g_half;
+
+/* the left-half knob popup: the label (2x when it fits, else 1x), the value at 2x, the bar */
+static void knob_popup_half(mr_canvas_t *cv, const char *label, const char *value, const char *unit, int frac,
+                            int centred)
+{
+    int w;
+    rfmv_frame(cv, 0, 0, 64, 64);
+    if (rfmv_big_w(label, 2) <= 58)
+        rfmv_big(cv, 4, 5, label, 2, 1);
+    else
+        mr_gfx_text(cv, 4, 8, label, 1);
+    w = big_fit(cv, 4, 24, value, 2, 56, 1) - 4;
+    if (unit && *unit && w + 8 + 6 * (int)strlen(unit) <= 60)
+        mr_gfx_text(cv, 4 + w + 4, 31, unit, 1);
+    box(cv, 4, 46, 56, 10);
+    if (!centred)
+        fill(cv, 6, 48, clampi(frac, 0, 1000) * 52 / 1000, 6, 1);
+    else {
+        const int d = clampi(frac, -1000, 1000) * 26 / 1000;
+        fill(cv, d >= 0 ? 32 : 32 + d, 48, d >= 0 ? d : -d, 6, 1);
+        fill(cv, 32, 47, 1, 8, 1);                      /* (the middle) */
+    }
+}
+
 static void knob_popup(mr_canvas_t *cv, const char *label, const char *value, const char *unit, int frac, int centred,
                        int deg)
 {
     int w;
+    if (g_half) {
+        knob_popup_half(cv, label, value, unit, frac, centred);
+        return;
+    }
     mr_gfx_clear(cv, 0);
     hatch(cv, 64, 0, 64, 64);
     rfmv_frame(cv, 2, 2, 124, 60);
@@ -560,6 +590,21 @@ static void message_popup(mr_canvas_t *cv, const char *msg)
 {
     char a[24], b[24];
     const char *sp = strchr(msg, ' ');
+    if (g_half) {                                       /* the left half: a word a line, 2x when it fits */
+        rfmv_frame(cv, 0, 0, 64, 64);
+        snprintf(a, sizeof a, "%.*s", sp ? (int)(sp - msg) : (int)strlen(msg), msg);
+        snprintf(b, sizeof b, "%s", sp ? sp + 1 : "");
+        if (rfmv_big_w(a, 2) <= 58 && rfmv_big_w(b, 2) <= 58) {
+            big_mid(cv, 32, *b ? 15 : 25, a, 2, 1);
+            if (*b)
+                big_mid(cv, 32, 35, b, 2, 1);
+        } else {
+            mr_gfx_text(cv, 32 - 3 * (int)strlen(a), *b ? 22 : 28, a, 1);
+            if (*b)
+                mr_gfx_text(cv, 32 - 3 * (int)strlen(b), 34, b, 1);
+        }
+        return;
+    }
     rfmv_frame(cv, 2, 2, 124, 60);
     if (rfmv_big_w(msg, 2) <= 118 || !sp) {
         big_mid(cv, 64, 25, msg, 2, 1);
@@ -856,6 +901,13 @@ void rfm_move_screen(rfm_move_t *m, const uint16_t *rgb565, uint8_t out[MR_SCREE
                 cv.px[y][64 + x] = m->thumb[y][x];
         break;
     }
+    g_half = m->s.mode == RFM_MOVE_MODE_FM1;
     popups(m, &cv);
+    if (g_half) {                                       /* (any wider popup: the FM-1's screen drawn back over it) */
+        for (y = 0; y < 64; y++)
+            for (x = 0; x < 64; x++)
+                cv.px[y][64 + x] = m->thumb[y][x];
+        g_half = 0;
+    }
     mr_gfx_pack(&cv, out);
 }
