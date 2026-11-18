@@ -372,6 +372,26 @@ int rfmv_seq_trk_held(const rfm_move_t *m) { return m->s.mode == RFM_MOVE_MODE_S
 #define track_held(m, t) rfmv_track_held(m, t)
 static int cc_mode(const rfm_move_t *m) { return m->s.mode == RFM_MOVE_MODE_CONTROL || m->s.mode == RFM_MOVE_MODE_SEQ; }
 
+/* FM-1 mode: a sequencer menu (opened with Track 1 held, the Shift layer) is open: it takes what it needs */
+static int fm1_seq_layer(const rfm_move_t *m)
+{
+    return m->s.mode == RFM_MOVE_MODE_FM1 && (m->seq.smenu || m->seq.projects);
+}
+/* FM-1 mode, Track 1 held: the Move's Shift layer (Shift itself is the FM-1's) */
+static void fm1_shift(rfm_move_t *m, int is_step, int i, int down, uint32_t now)
+{
+    rfm_move_seq_t *q = &m->seq;
+    const uint8_t had = q->mods & SEQ_M_SHIFT;
+    q->mods |= SEQ_M_SHIFT;
+    if (is_step)
+        rfmv_seq_step(m, i, down, now);
+    else
+        rfmv_seq_button(m, i, down, now);
+    if (!had)
+        q->mods &= (uint8_t)~SEQ_M_SHIFT;
+    rfmv_menu(m, MENU_SHIFT, 0);                        /* (Track 1 was used: its release is no tap) */
+}
+
 static void on_pad(rfm_move_t *m, int p, int vel, uint32_t now)
 {
     rfm_move_hold_t *h = &m->pad[p];
@@ -389,6 +409,11 @@ static void on_pad(rfm_move_t *m, int p, int vel, uint32_t now)
         return;
     m->pad_down[p] = 1;
     h->kind = H_NONE;
+    if (fm1_seq_layer(m) && (m->seq.projects || m->seq.smenu == RFM_MOVE_SM_LAYOUT || m->seq.smenu == RFM_MOVE_SM_KEYS)) {
+        h->kind = H_MENU;                               /* (FM-1 mode, a sequencer menu opened with Track 1: its pads) */
+        rfmv_seq_pad(m, p, vel, now);
+        return;
+    }
     if (track_held(m, 1) || rfmv_seq_trk_held(m) || (m->mmenu && m->s.mode == RFM_MOVE_MODE_MIDI)) {   /* Track 2 held,
                                                          * MIDI mode's Keys & Scales (the sequencer: Track 4): the
                                                          * layout, the scale */
@@ -457,6 +482,13 @@ static void on_step(rfm_move_t *m, int s, int down, uint32_t now)
             m->s.channel = (uint8_t)s;
             changed(m);
         }
+    } else if (m->s.mode == RFM_MOVE_MODE_FM1 && track_held(m, 0)) {   /* Track 1 held: Shift + step (the Move's
+                                                         * shortcuts: projects, tempo, metronome .. on the sequencer) */
+        h->kind = H_MENU;
+        fm1_shift(m, 1, s, 1, now);
+    } else if (fm1_seq_layer(m) && m->seq.smenu == RFM_MOVE_SM_ARP && m->seq.arp_page) {
+        h->kind = H_MENU;                               /* (the arp's lanes: a lane step) */
+        rfmv_seq_step(m, s, 1, now);
     } else if (!midi_mode(m)) {
         h->kind = H_KEY, h->a = (uint8_t)STEP_KEY[s];
         key_hold(m, h->a, 100);                         /* (steps have no velocity: the FM-1's own default, 100) */
@@ -506,6 +538,20 @@ static void on_button(rfm_move_t *m, int cc, int down, uint32_t now)
             return;
         }
     }
+    if (m->s.mode == RFM_MOVE_MODE_FM1) {
+        if (track_held(m, 0) && (cc == MR_CC_REC || cc == MR_CC_PLAY || cc == MR_CC_CAPTURE || cc == MR_CC_UNDO ||
+                                 cc == MR_CC_LOOP || cc == MR_CC_SAMPLE)) {
+            if (down)                                   /* Track 1 held: Shift + Record (the record settings), Shift +
+                                                         * Play, Capture, Undo (redo), Loop (double) on the sequencer */
+                fm1_shift(m, 0, cc, 1, now);
+            return;
+        }
+        if (cc == MR_CC_BACK && (m->seq.smenu || m->seq.projects || m->seq.loop_latch || m->seq.shift_lock)) {
+            if (down)                                   /* (a sequencer layer open: Back closes it, not the FM-1's SEQ) */
+                rfmv_seq_button(m, cc, 1, now);
+            return;
+        }
+    }
     if (cc == MR_CC_SHIFT)
         m->shift_down = (uint8_t)down;
     if (m->s.mode == RFM_MOVE_MODE_MIDI) {              /* MIDI mode: Shift is the Move's (Shift + step 9: Keys &
@@ -543,6 +589,10 @@ static void on_knob(rfm_move_t *m, int k, int d, uint32_t now)
 {
     if (!d)
         return;
+    if (k < RFM_MOVE_NKNOBS && fm1_seq_layer(m) && m->seq.smenu) {
+        rfmv_seq_knob(m, k, d, now);                    /* (FM-1 mode, a sequencer menu open: its knobs) */
+        return;
+    }
     if (k == 8 && m->s.mode == RFM_MOVE_MODE_SEQ && rfmv_seq_volume(m, d))
         return;                                         /* (Sequencer mode, a step held: its velocity) */
     if (k == 8) {                                       /* volume: MASTER */
@@ -591,6 +641,10 @@ static void on_jog(rfm_move_t *m, int d, uint32_t now)
 {
     if (!d)
         return;
+    if (fm1_seq_layer(m) && m->seq.smenu) {
+        rfmv_seq_jog(m, d, now);                        /* (FM-1 mode, a sequencer menu open: its jog) */
+        return;
+    }
     if (track_held(m, 1) || (m->mmenu && m->s.mode == RFM_MOVE_MODE_MIDI)) {   /* Track 2 held, Keys & Scales: the
                                                          * root */
         const int r = ((m->s.root + d) % 12 + 12) % 12;
@@ -813,7 +867,10 @@ static void wanted(const rfm_move_t *m, uint8_t w[RFM_MOVE_NLEDS][3])
     }
     for (i = 0; i < RFM_MOVE_NSTEPS; i++) {
         rgb_t s = OFF;
-        if (t2 && m->mmenu && !track_held(m, 1))
+        if (fm1 && track_held(m, 0)) {                  /* Track 1 held: the Shift layer's steps (the ones with a job) */
+            static const uint16_t JOBS = 0xE7F7;        /* steps 1 2 3 5 6 7 8 9 10 11 14 15 16 */
+            s = JOBS >> i & 1 ? sc(WHITE, 96) : OFF;
+        } else if (t2 && m->mmenu && !track_held(m, 1))
             s = i == 8 ? WHITE : OFF;                   /* (Keys & Scales: step 9) */
         else if (t2)
             s = m->s.channel == i ? mode : sc(WHITE, 16);

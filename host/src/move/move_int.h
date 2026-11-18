@@ -44,7 +44,7 @@ int rfmv_level(const rfm_move_t *m, int id);           /* the FM-1 LED level 0..
 enum { POP_NONE = 0, POP_ENC, POP_MASTER, POP_CC, POP_SELECT, POP_DRUM, POP_TEMPO, POP_LOOP, POP_BANK, POP_STEP,
        POP_PROJ, POP_TRIG, POP_BAR, POP_TRACK, POP_MODE };
 #define RFM_MOVE_TAP_MS 300                             /* a Track button released this soon: a tap (not its menu) */
-enum { MENU_NONE = 0, MENU_LAYOUT, MENU_SCALE, MENU_ROOT, MENU_CHANNEL, MENU_CC, MENU_TRACK, MENU_TCH, MENU_RATE };
+enum { MENU_NONE = 0, MENU_LAYOUT, MENU_SCALE, MENU_ROOT, MENU_CHANNEL, MENU_CC, MENU_TRACK, MENU_TCH, MENU_RATE, MENU_SHIFT };
 uint32_t rfmv_now_ms(const rfm_move_t *m);             /* the sequencer clock's ms (what popups time out on) */
 void rfmv_pop(rfm_move_t *m, int kind, int i);          /* a popup up (again) now */
 void rfmv_pop_let(rfm_move_t *m, int kind, int i);      /* its control let go: it drops RFM_MOVE_POPUP_MS from now */

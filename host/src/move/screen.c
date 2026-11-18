@@ -990,10 +990,23 @@ void rfm_move_screen(rfm_move_t *m, const uint16_t *rgb565, uint8_t out[MR_SCREE
         break;
     case RFM_MOVE_MODE_CONTROL: control_screen(m, &cv); break;
     default:
+        if (m->seq.smenu || m->seq.projects) {          /* a sequencer menu opened with Track 1 (the Shift layer):
+                                                         * full width until Back */
+            rfmv_seq_screen(m, &cv);
+            popups(m, &cv);
+            mr_gfx_pack(&cv, out);
+            return;
+        }
         rfmv_fm1_art(m, &cv);
         for (y = 0; y < 64; y++)
             for (x = 0; x < 64; x++)
                 cv.px[y][64 + x] = m->thumb[y][x];
+        if (rfmv_track_held(m, 0)) {                    /* Track 1 held: the Shift layer, a badge on the left */
+            mr_gfx_rect(&cv, 0, 0, 40, 11, 1, 1);
+            fill(&cv, 3, 6, 7, 1, 0), fill(&cv, 4, 5, 5, 1, 0), fill(&cv, 5, 4, 3, 1, 0), fill(&cv, 6, 3, 1, 1, 0);
+            fill(&cv, 5, 7, 3, 2, 0);                   /* (an up arrow) */
+            mr_gfx_text(&cv, 12, 2, "SHIFT", 0);
+        }
         break;
     }
     g_half = rfmv_half(m);

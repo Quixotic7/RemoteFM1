@@ -36,6 +36,14 @@ where it has several, naming each: Track 2 in MIDI mode, PADS / NOTES (below).
 ### 1. FM-1 mode
 
 In FM-1 mode every popup (a knob, MASTER, a message) keeps to the left half, over the drawing: the FM-1's screen on the right stays in view.
+**Track 1 held: the Move's Shift layer** (Shift itself stays the FM-1's GLO). With Track 1 held the steps are the
+Move's Shift + step shortcuts on the sequencer (projects, setup, Workflow, Tempo with its taps, Metronome, Groove,
+Layout, Keys & Scales, the arp, Full Velocity, New Clip, Double Loop, Quantize; the ones with a job lit), and Record,
+Play, Capture, Undo, Loop and Sample their Shift + button (Shift + Record: the record settings). A menu opened this way
+stays open after Track 1 is let go (full width; the jog, the knobs and, where it uses them, the pads and steps are
+the menu's) until Back, which closes it rather than pressing the FM-1's SEQ. While Track 1 is held a small SHIFT badge
+sits top left, the FM-1's screen stays on the right; the pads stay the FM-1's keys, at once. A quick tap on Track 1
+still just switches to FM-1 mode (named).
 A knob's popup comes only with turning (its detents, from 0 each gesture): a touch alone lights the knob on the
 drawing; the release drops the popup and its count. MASTER the same. The jog wheel (SELECT) has the same popup
 while it turns (the firmware's SELECT label, its detents), gone and counted from 0 again a second after it stops.

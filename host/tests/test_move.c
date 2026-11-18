@@ -963,6 +963,77 @@ static void test_midi_round(void)
     CHECK(m.s.midi_view == RFM_MOVE_MV_PADS && m.pop_i == 10);
 }
 
+/* FM-1 mode: Track 1 held is the Move's Shift layer (Shift itself is the FM-1's GLO): Shift + step and Shift +
+ * Record work on the sequencer, their menus stay open until Back; the pads stay the FM-1's keys at once */
+static void test_fm1_shift_layer(void)
+{
+    static rfm_move_t m;
+    uint8_t out[MR_SCREEN_BYTES];
+    rfm_move_led_t leds[RFM_MOVE_NLEDS];
+    int i, n, x, y, d;
+    rfm_move_init(&m, NULL, on_act, NULL);
+    ms(&m, RFM_MOVE_POPUP_MS);
+    clear();
+    button(&m, MR_CC_SHIFT, 1), button(&m, MR_CC_SHIFT, 0);   /* Shift: the FM-1's */
+    CHECK(has(RFM_MOVE_ACT_BTN, RFM_MOVE_B_GLO, 1, 0));
+    track(&m, 0, 1);
+    clear();
+    pad(&m, 16, 100);                                   /* (a key while Track 1 is held: at once) */
+    CHECK(nact == 1 && has(RFM_MOVE_ACT_KEY, 0, 1, 0));
+    pad(&m, 16, 0);
+    rfm_move_screen(&m, NULL, out);
+    CHECK(px_at(out, 0, 0) && px_at(out, 39, 10));      /* the Shift layer's badge */
+    for (d = 0, y = 0; y < 64; y++)
+        for (x = 0; x < 64; x++)
+            d += px_at(out, 64 + x, y) != m.thumb[y][x];
+    CHECK(d == 0);
+    write_pbm("move_fm1_shift.pbm", out);
+    rfm_move_leds_invalidate(&m);
+    n = rfm_move_leds(&m, leds, RFM_MOVE_NLEDS);
+    for (i = 0; i < n; i++)
+        if (!leds[i].cc && leds[i].number == MR_NOTE_STEP0 + 5)
+            CHECK(leds[i].r > 0);                       /* (step 6: Metronome, lit) */
+        else if (!leds[i].cc && leds[i].number == MR_NOTE_STEP0 + 3)
+            CHECK(leds[i].r == 0);                      /* (step 4: nothing) */
+    clear();
+    step(&m, 5, 1), step(&m, 5, 0);                     /* Shift + step 6: the metronome */
+    CHECK(m.seq.metro && count(RFM_MOVE_ACT_KEY) == 0);
+    step(&m, 6, 1), step(&m, 6, 0);                     /* Shift + step 7: Groove's menu */
+    track(&m, 0, 0);
+    CHECK(m.seq.smenu == RFM_MOVE_SM_GROOVE && m.s.mode == RFM_MOVE_MODE_FM1 && m.pop != POP_MODE);
+    clear();
+    jog(&m, 2);                                         /* (the menu's: the groove, not SELECT) */
+    CHECK(m.seq.groove == 10 && count(RFM_MOVE_ACT_TURN) == 0);
+    rfm_move_screen(&m, NULL, out);
+    write_pbm("move_fm1_groove.pbm", out);
+    clear();
+    button(&m, MR_CC_BACK, 1), button(&m, MR_CC_BACK, 0);   /* Back: the menu closes (not the FM-1's SEQ) */
+    CHECK(!m.seq.smenu && nact == 0);
+    button(&m, MR_CC_BACK, 1), button(&m, MR_CC_BACK, 0);   /* (nothing open: the FM-1's SEQ again) */
+    CHECK(has(RFM_MOVE_ACT_BTN, RFM_MOVE_B_SEQ, 1, 0));
+    track(&m, 0, 1), button(&m, MR_CC_REC, 1), button(&m, MR_CC_REC, 0), track(&m, 0, 0);   /* Shift + Record */
+    CHECK(m.seq.smenu == RFM_MOVE_SM_REC);
+    clear();
+    jog(&m, 1);
+    CHECK(m.seq.rec_mode == RFM_MOVE_RM_RECORD && count(RFM_MOVE_ACT_TURN) == 0);
+    button(&m, MR_CC_BACK, 1), button(&m, MR_CC_BACK, 0);
+    track(&m, 0, 1), step(&m, 4, 1), step(&m, 4, 0), now_ms += 400, step(&m, 4, 1), step(&m, 4, 0), track(&m, 0, 0);
+    CHECKF(m.seq.bpm10 >= 1450 && m.seq.bpm10 <= 1500 && m.seq.smenu == RFM_MOVE_SM_TEMPO, "tapped %d", m.seq.bpm10);   /* (Shift +
+                                                         * step 5 twice, ~410 ms apart: tap tempo) */
+    button(&m, MR_CC_BACK, 1), button(&m, MR_CC_BACK, 0);
+    track(&m, 0, 1), step(&m, 0, 1), step(&m, 0, 0), track(&m, 0, 0);   /* Shift + step 1: the projects */
+    CHECK(m.seq.projects);
+    button(&m, MR_CC_BACK, 1), button(&m, MR_CC_BACK, 0);
+    CHECK(!m.seq.projects);
+    /* a quick tap on Track 1 from another mode: FM-1 mode, named */
+    track(&m, 1, 1), track(&m, 1, 0);
+    track(&m, 0, 1), track(&m, 0, 0);
+    CHECK(m.s.mode == RFM_MOVE_MODE_FM1 && m.pop == POP_MODE && m.pop_i == 0);
+    clear();
+    step(&m, 4, 1), step(&m, 4, 0);                     /* (Track 1 let go: the steps are keys again) */
+    CHECK(count(RFM_MOVE_ACT_KEY) == 2);
+}
+
 int main(void)
 {
     test_fm1_pads();
@@ -976,5 +1047,6 @@ int main(void)
     test_screen();
     test_threshold();
     test_midi_round();
+    test_fm1_shift_layer();
     return check_done("move");
 }
