@@ -85,7 +85,7 @@ const char *const SCALE_NAMES[RFM_MOVE_NSCALES] = { "MAJ", "MIN", "DOR", "MIX", 
 static const char *const MODE_NAMES[4] = { "FM-1", "MIDI", "CONTROL", "SEQ" };
 static const char *const LAYOUT_NAMES[4] = { "SCALE", "CHROMA", "DRUM", "OCTAVE" };
 static const char *const ENC_NAMES[8] = { "SELECT", "ALGO", "K1", "K2", "K3", "K4", "PRESETS", "MASTER" };
-const char *const NOTE_NAMES[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+const char *const NOTE_NAMES[12] = { "C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B" };   /* (Ableton's: flats) */
 static const uint8_t DEFAULT_CC[RFM_MOVE_NBANKS] = { 16, 24, 102, 110 };
 
 int rfm_move_pad_key(int pad) { return pad >= 0 && pad < RFM_MOVE_NPADS ? PAD_KEY[pad] : -1; }

@@ -452,6 +452,9 @@ compares each with the mockup's own pixels (`tests/move_v2_ref.h`, made by `test
 `V2Screen.dc.html`), then sets each situation up on a live core and writes `core_<name>.pbm` beside `v2_<name>.pbm`
 for a contact sheet.
 
+**Note names** are Ableton's everywhere (popups, MIDI Notes, chords, drum notes, the step popup, the key / scale
+screen): MIDI 60 = C3, flats (Db Eb Gb Ab Bb).
+
 The grammar (the owner's rules): **symbols at rest, words only while something is touched or turned**; at most three
 rows of 2x text, 4x for the one number that matters, 3x for long mode names, 1x only inside pictures; **Title Case**
 ("Loop Doubled", "Click On"); **no boxes** around values, parameters or icons; a chosen icon **underlined**, never
@@ -485,7 +488,7 @@ midi.knob), so the FM-1's screen stays in view.
 |---|---|---|
 | mode name | a quick Track tap (mode.fm1, mode.seq, mode.notes) | "FM-1", "MIDI", "Control", "Seq" at 4x (else 3x), the strip the four modes (the two views for Pads / Notes) |
 | edit | a knob turned (ctl.knob, seq.lock), the volume knob, Shift + jog, the jog's bank, a drum pad + jog | the name on row 1, the value under it at 4x (2x when wider), no box; a bar (bipolar from the middle for an FM-1 encoder's detents); a held step's CC lock: a padlock; the knob pages on the strip |
-| step | a step held 300 ms in track view (seq.step) | its notes in words (sharps; "+n" past what fits), the velocity with its icon, the length with a bracket; the steps row, the held step marked |
+| step | a step held 300 ms in track view (seq.step) | its notes in words (Ableton's names; "+n" past what fits), the velocity with its icon, the length with a bracket; the steps row, the held step marked |
 | held-step edits | a step held + the arrows, the jog, the volume knob (seq.micro, seq.len, seq.vel) | "Nudge" (in % of a step), "Length" (steps), "Velocity" (with a bar) at 4x; the page strip with the step's tick |
 | trig | a knob on the TRIG page (trig.*) | a picture on the left (micro: the note between its step's ticks; ratchet: the hits; chance: a die; condition: A:B, the A-th tall; function: the playhead's path; length: a gate bar) and the name and value on the right; the strip the five knob pages, TRIG first |
 | loop length | the jog in page edit (loop.len) | "Loop", "4 Bars" at 4x, the looped pages thick on a strip of 16, a second |
@@ -513,8 +516,7 @@ the 16 tracks on one row as the 16 step keys: the selected one filled, muted cro
 notes outlined, empty a dot; the selected track (or what changed last: "Ch 5", "K3 CC 20", "Rate 1/16") on top
 (sess.hold4).
 
-**Where it differs from the mockups** (behaviour kept, looks as close as the data allows): note names are the core's
-(C4 = MIDI 60, sharps: "C4 D#4 G4" for the mockup's "C3 Eb3 G3"); the arp's page 1 keeps all 8 knobs (the legend shows
+**Where it differs from the mockups** (behaviour kept, looks as close as the data allows): the arp's page 1 keeps all 8 knobs (the legend shows
 8 rings, the mockup 4); the arp's lanes have 16 steps (the mockup draws 8); the audio loop has no waveform (the core
 does not see the audio), only the bar lines and the strip; there is no charging screen (no STATUS power bit is known
 to mean charging); Track 4 held keeps saying what changed last; the play triangle in FM-1 mode stays; the FM-1

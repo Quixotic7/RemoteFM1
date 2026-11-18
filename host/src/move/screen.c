@@ -30,7 +30,7 @@ void rfmv_tri(mr_canvas_t *cv, int x, int y, int w, int h, int on)
 
 const char *rfmv_note_name(int n, char *b, int cap)
 {
-    snprintf(b, (size_t)cap, "%s%d", rfmv_note_names[n % 12], n / 12 - 1);
+    snprintf(b, (size_t)cap, "%s%d", rfmv_note_names[n % 12], n / 12 - 2);   /* (Ableton's: MIDI 60 = C3) */
     return b;
 }
 

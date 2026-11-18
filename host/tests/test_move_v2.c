@@ -243,8 +243,7 @@ static void write_pbm(const char *name, const B *b)
 }
 
 /* ================================================================ the core, the same screens === */
-/* each mockup's situation set up on a live core (as close as the core's own data allows: our note names are C4 for
- * MIDI 60, sharps), its screen written as core_<name>.pbm for the contact sheet; the mockup's FM-1 screen stand-in
+/* each mockup's situation set up on a live core (as close as the core's own data allows), its screen written as core_<name>.pbm for the contact sheet; the mockup's FM-1 screen stand-in
  * given as the core's thumbnail */
 static rfm_move_t C;
 static uint32_t now_ms;

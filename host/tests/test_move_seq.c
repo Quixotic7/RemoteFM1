@@ -1307,7 +1307,7 @@ static void write_pbm(const char *path, const uint8_t *packed)
 }
 
 #define GOLD_TRACK 0x9af1e831u
-#define GOLD_STEP 0x2e90a9f0u
+#define GOLD_STEP 0x7923b304u
 #define GOLD_SESSION 0xa247c937u
 #define GOLD_PROJECTS 0x5204a535u
 #define GOLD_PROJECT 0xb8a42ba8u

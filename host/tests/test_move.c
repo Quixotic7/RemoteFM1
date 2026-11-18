@@ -901,12 +901,15 @@ static void test_midi_round(void)
     /* the chords */
     {
         static const struct { uint8_t n[5]; int k; const char *name; } T[] = {
-            { { 48, 52, 55, 59 }, 4, "Cmaj7" }, { { 57, 60, 64 }, 3, "Am" }, { { 50, 55, 57 }, 3, "Dsus4" },
+            { { 51, 55, 58 }, 3, "Eb" }, { { 58, 61, 65, 68 }, 4, "Bbm7" }, { { 48, 52, 55, 59 }, 4, "Cmaj7" }, { { 57, 60, 64 }, 3, "Am" }, { { 50, 55, 57 }, 3, "Dsus4" },
             { { 55, 59, 62, 65 }, 4, "G7" }, { { 52, 55, 60 }, 3, "C/E" }, { { 48, 51, 55 }, 3, "Cm" },
             { { 48, 55 }, 2, "C5" }, { { 48, 49 }, 2, "" }, { { 60 }, 1, "" }, { { 47, 50, 53, 57 }, 4, "Bm7b5" },
         };
         for (i = 0; i < (int)(sizeof T / sizeof T[0]); i++)
             CHECKF(!strcmp(rfmv_chord_name(T[i].n, T[i].k, c, sizeof c), T[i].name), "%s: %s", T[i].name, c);
+        CHECK(!strcmp(rfmv_note_name(60, c, sizeof c), "C3") && !strcmp(rfmv_note_name(63, c, sizeof c), "Eb3") &&
+              !strcmp(rfmv_note_name(70, c, sizeof c), "Bb3") && !strcmp(rfmv_note_name(36, c, sizeof c), "C1") &&
+              !strcmp(rfmv_note_name(66, c, sizeof c), "Gb3"));   /* (Ableton's names: MIDI 60 = C3, flats) */
     }
     /* a tap on Track 2: MIDI mode, named; a hold (its menu) names nothing */
     track(&m, 1, 1), track(&m, 1, 0);
