@@ -1955,8 +1955,8 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
     w.setLevels(lv);
     ok(w.link.stats.ledWrites - n === 2, `MoveLink: key 26's LED lit: its pad and its step written, nothing else (${w.link.stats.ledWrites - n})`);
 
-    // the screen: at most one DISPLAY per 33 ms, only when it changed
-    w.clock.advance(100);
+    // the screen: at most one DISPLAY per 33 ms, only when it changed (after the volume knob's popup has dropped)
+    w.clock.advance(100 + MC.POPUP_MS);
     w.T().out.length = 0;
     const white = new Uint16Array(240 * 240).fill(0xFFFF), grey = new Uint16Array(240 * 240).fill(0x2104);
     w.setPx(white);
@@ -2020,7 +2020,7 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
     // labels: the firmware's knob names reach the core (the screen changes)
     const w5 = world();
     await w5.link.connect(); await tick(); w5.dev(devHello());
-    w5.input(P(0x90, 4, 127));        // knob 5 (K1) touched
+    w5.input(P(0x90, 4, 127), cc(75, 1));   // knob 5 (K1) touched and turned: its popup, with the label
     w5.clock.advance(50);
     const before = w5.link.shown.slice();
     w5.link.setLabels([null, null, null, "CUTOFF", null, null, null, null]);

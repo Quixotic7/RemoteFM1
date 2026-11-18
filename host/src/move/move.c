@@ -25,9 +25,6 @@
 #define note_hold rfmv_note_hold
 #define note_let rfmv_note_let
 #define let_go rfmv_let_go
-#define text rfmv_text
-#define title rfmv_title
-#define note_name rfmv_note_name
 #define midi_pad rfmv_midi_pad
 typedef rfmv_rgb_t rgb_t;
 
@@ -179,7 +176,6 @@ int rfm_move_load(rfm_move_settings_t *s, const uint8_t *b, uint32_t n)
 }
 
 /* ================================================================ actions === */
-enum { LAST_NONE = 0, LAST_ENC, LAST_MASTER, LAST_CC, LAST_DRUM };
 
 void emit(rfm_move_t *m, uint8_t kind, int index, int down, int vel, int value)
 {
@@ -271,6 +267,7 @@ void rfm_move_release_all(rfm_move_t *m)
     rfmv_seq_stop(m);                                   /* the link is gone: nothing may keep sounding */
     m->track_held = 0;
     m->touched = -1;
+    m->pop = POP_NONE;
 }
 
 void rfm_move_set_mode(rfm_move_t *m, int mode)
@@ -279,7 +276,7 @@ void rfm_move_set_mode(rfm_move_t *m, int mode)
         return;
     release_holds(m);
     m->s.mode = (uint8_t)mode;
-    m->last_kind = LAST_NONE;
+    m->pop = POP_NONE;
     changed(m);
 }
 
@@ -337,11 +334,6 @@ int rfmv_track_held(const rfm_move_t *m, int t) { return (m->track_held >> t) & 
 #define track_held(m, t) rfmv_track_held(m, t)
 static int cc_mode(const rfm_move_t *m) { return m->s.mode == RFM_MOVE_MODE_CONTROL || m->s.mode == RFM_MOVE_MODE_SEQ; }
 
-static void note_last(rfm_move_t *m, int kind, int index, int value, uint32_t now)
-{
-    m->last_kind = (uint8_t)kind, m->last_index = (uint8_t)index, m->last_value = (int16_t)value, m->last_ms = now;
-}
-
 static void on_pad(rfm_move_t *m, int p, int vel, uint32_t now)
 {
     rfm_move_hold_t *h = &m->pad[p];
@@ -352,6 +344,7 @@ static void on_pad(rfm_move_t *m, int p, int vel, uint32_t now)
         m->pad_down[p] = 0, m->pad_press[p] = 0;
         if (m->edit_pad == p)
             m->edit_pad = -1;
+        rfmv_pop_let(m, POP_DRUM, p);
         return;
     }
     if (m->pad_down[p])
@@ -360,12 +353,18 @@ static void on_pad(rfm_move_t *m, int p, int vel, uint32_t now)
     h->kind = H_NONE;
     if (track_held(m, 1)) {                             /* Track 2 held: the top row's first four pick the layout, */
         h->kind = H_MENU;                               /* row 2's eight the scale */
-        if (p >= 24 && p < 28 && m->s.layout != p - 24) {
-            m->s.layout = (uint8_t)(p - 24);
-            changed(m);
-        } else if (p >= 16 && p < 16 + RFM_MOVE_NSCALES && m->s.scale != p - 16) {
-            m->s.scale = (uint8_t)(p - 16);
-            changed(m);
+        if (p >= 24 && p < 28) {
+            rfmv_menu(m, MENU_LAYOUT, p - 24);
+            if (m->s.layout != p - 24) {
+                m->s.layout = (uint8_t)(p - 24);
+                changed(m);
+            }
+        } else if (p >= 16 && p < 16 + RFM_MOVE_NSCALES) {
+            rfmv_menu(m, MENU_SCALE, p - 16);
+            if (m->s.scale != p - 16) {
+                m->s.scale = (uint8_t)(p - 16);
+                changed(m);
+            }
         }
         return;
     }
@@ -419,6 +418,7 @@ static void on_step(rfm_move_t *m, int s, int down, uint32_t now)
         return;
     if (track_held(m, 1)) {                             /* Track 2 held: steps 1..16 = the MIDI channel */
         h->kind = H_MENU;
+        rfmv_menu(m, MENU_CHANNEL, s);
         if (m->s.channel != s) {
             m->s.channel = (uint8_t)s;
             changed(m);
@@ -440,6 +440,7 @@ static void on_button(rfm_move_t *m, int cc, int down, uint32_t now)
         const int t = MR_CC_TRACK1 - cc;
         if (down) {
             rfm_move_set_mode(m, t);
+            rfmv_menu(m, MENU_NONE, 0);
             m->track_held = (uint8_t)(m->track_held | 1u << t);
         } else
             m->track_held = (uint8_t)(m->track_held & ~(1u << t));
@@ -486,7 +487,7 @@ static void on_knob(rfm_move_t *m, int k, int d, uint32_t now)
         return;                                         /* (Sequencer mode, a step held: its velocity) */
     if (k == 8) {                                       /* volume: MASTER */
         const int v = clampi(m->master + d * RFM_MOVE_MASTER_STEP, 0, 1023);
-        note_last(m, LAST_MASTER, 0, v, now);
+        rfmv_pop(m, POP_MASTER, 8);
         if (v != m->master) {
             m->master = (uint16_t)v;
             emit(m, RFM_MOVE_ACT_MASTER, 0, 0, 0, v);
@@ -503,6 +504,7 @@ static void on_knob(rfm_move_t *m, int k, int d, uint32_t now)
         const int b = m->s.bank;
         if (track_held(m, 2)) {                         /* Track 3 held: the knob's CC number */
             const int c = clampi(m->s.cc[b][k] + d, 0, 127);
+            rfmv_menu(m, MENU_CC, k);
             if (c != m->s.cc[b][k]) {
                 m->s.cc[b][k] = (uint8_t)c;
                 changed(m);
@@ -513,15 +515,15 @@ static void on_knob(rfm_move_t *m, int k, int d, uint32_t now)
                 m->cc_val[b][k] = (uint8_t)v;
                 emit_midi(m, 0xB0 | m->s.channel, m->s.cc[b][k], v);
             }
+            rfmv_pop(m, POP_CC, k);
         }
-        note_last(m, LAST_CC, k, m->cc_val[b][k], now);
         return;
     }
-    if (KNOB_ENC[k] >= 0) {
-        const int e = KNOB_ENC[k];
-        const int acc = m->last_kind == LAST_ENC && m->last_index == e ? m->last_value : 0;
-        emit(m, RFM_MOVE_ACT_TURN, e, 0, 0, d);
-        note_last(m, LAST_ENC, e, clampi(acc + d, -9999, 9999), now);
+    if (KNOB_ENC[k] >= 0) {                            /* (the popup counts this gesture's detents) */
+        const int acc = rfmv_pop_up(m, POP_ENC) && m->pop_i == k ? m->pop_val : 0;
+        emit(m, RFM_MOVE_ACT_TURN, KNOB_ENC[k], 0, 0, d);
+        rfmv_pop(m, POP_ENC, k);
+        m->pop_val = (int16_t)clampi(acc + d, -9999, 9999);
     }
 }
 
@@ -531,6 +533,7 @@ static void on_jog(rfm_move_t *m, int d, uint32_t now)
         return;
     if (track_held(m, 1)) {                             /* Track 2 held: the root */
         const int r = ((m->s.root + d) % 12 + 12) % 12;
+        rfmv_menu(m, MENU_ROOT, r);
         if (r != m->s.root) {
             m->s.root = (uint8_t)r;
             changed(m);
@@ -547,7 +550,7 @@ static void on_jog(rfm_move_t *m, int d, uint32_t now)
             m->s.drum[p] = (uint8_t)n;
             changed(m);
         }
-        note_last(m, LAST_DRUM, p, n, now);
+        rfmv_pop(m, POP_DRUM, p);
         return;
     }
     if (m->s.mode == RFM_MOVE_MODE_CONTROL) {
@@ -558,29 +561,32 @@ static void on_jog(rfm_move_t *m, int d, uint32_t now)
         }
         return;
     }
-    {
-        const int acc = m->last_kind == LAST_ENC && m->last_index == RFM_MOVE_E_SELECT ? m->last_value : 0;
-        emit(m, RFM_MOVE_ACT_TURN, RFM_MOVE_E_SELECT, 0, 0, d);
-        note_last(m, LAST_ENC, RFM_MOVE_E_SELECT, clampi(acc + d, -9999, 9999), now);
-    }
+    emit(m, RFM_MOVE_ACT_TURN, RFM_MOVE_E_SELECT, 0, 0, d);
+    rfmv_pop(m, POP_SELECT, 9);                         /* (no popup: the drawing's SELECT lights; the FM-1's screen
+                                                         * stays in view for its menus) */
 }
 
-static void on_touch(rfm_move_t *m, int k, int on, uint32_t now)
+/* a touch: the knob's popup (in FM-1 mode the drawing marks the knob instead, and a turn brings the popup) */
+static void on_touch(rfm_move_t *m, int k, int on)
 {
     if (!on) {
         if (m->touched == k)
             m->touched = -1;
+        if (m->pop == POP_ENC || m->pop == POP_MASTER || m->pop == POP_CC)
+            rfmv_pop_let(m, m->pop, k);
         return;
     }
     m->touched = (int8_t)k;
+    if (m->s.mode == RFM_MOVE_MODE_FM1 || rfmv_track_held(m, 2))
+        return;
     if (k == 8)
-        note_last(m, LAST_MASTER, 0, m->master, now);
+        rfmv_pop(m, POP_MASTER, 8);
     else if (k < RFM_MOVE_NKNOBS && cc_mode(m))
-        note_last(m, LAST_CC, k, m->cc_val[m->s.bank][k], now);
-    else if (k < RFM_MOVE_NKNOBS && KNOB_ENC[k] >= 0)
-        note_last(m, LAST_ENC, KNOB_ENC[k], 0, now);
-    else if (k == 9 && !cc_mode(m))
-        note_last(m, LAST_ENC, RFM_MOVE_E_SELECT, 0, now);
+        rfmv_pop(m, POP_CC, k);
+    else if (k < RFM_MOVE_NKNOBS && KNOB_ENC[k] >= 0) {
+        rfmv_pop(m, POP_ENC, k);
+        m->pop_val = 0;
+    }
 }
 
 void rfm_move_input(rfm_move_t *m, const mr_event_t *ev, uint32_t now_ms)
@@ -603,7 +609,7 @@ void rfm_move_input(rfm_move_t *m, const mr_event_t *ev, uint32_t now_ms)
     case MR_EV_JOG: on_jog(m, ev->value, now_ms); break;
     case MR_EV_TOUCH:
         if (ev->index >= 0 && ev->index <= 9)
-            on_touch(m, ev->index, ev->value != 0, now_ms);
+            on_touch(m, ev->index, ev->value != 0);
         break;
     default: break;                                     /* jog click (the FM-1 has no encoder push), jacks, MIDI .. */
     }
@@ -632,6 +638,7 @@ static int level_of(const rfm_move_t *m, int id)
     const int i = id >= 0 && id < 41 ? m->led_of[id] : -1;
     return i >= 0 ? m->levels[i] : 0;
 }
+int rfmv_level(const rfm_move_t *m, int id) { return level_of(m, id); }
 
 const rgb_t MODE_RGB[4] = { { 0xc4, 0x3a, 0xff }, { 0xc8, 0xff, 0x2a }, { 0x1a, 0xe4, 0xff }, { 0xff, 0x2a, 0x2a } };
 const rgb_t BANK_RGB[4] = { { 0x1a, 0xe4, 0xff }, { 0xff, 0xb0, 0x2a }, { 0xc4, 0x3a, 0xff }, { 0xc8, 0xff, 0x2a } };
@@ -784,165 +791,3 @@ int rfm_move_leds(rfm_move_t *m, rfm_move_led_t *out, int max)
 }
 
 void rfm_move_leds_invalidate(rfm_move_t *m) { memset(m->sent_ok, 0, sizeof m->sent_ok); }
-
-/* ================================================================ the screen === */
-/* The thumbnail is plain black and white, no dither (the owner's call: it reads more clearly). Each FM-1 pixel is
- * white when its luminance is above RFM_MOVE_THUMB_LUMA; a thumbnail pixel (a 3..4 px box of them) is white when at
- * least a quarter of its box is, so 1 px lines and text strokes survive the 3.75x reduction. */
-static void thumb_from(rfm_move_t *m, const uint16_t *px)
-{
-    int x, y, i, j;
-    for (y = 0; y < 64; y++) {
-        const int y0 = y * 240 / 64, y1 = (y + 1) * 240 / 64;
-        for (x = 0; x < 64; x++) {
-            const int x0 = x * 240 / 64, x1 = (x + 1) * 240 / 64;
-            uint32_t lit = 0, cnt = 0;
-            for (j = y0; j < y1; j++)
-                for (i = x0; i < x1; i++) {
-                    const uint16_t v = px[j * 240 + i];
-                    const uint32_t r = (v >> 11 & 31) * 255 / 31, g = (v >> 5 & 63) * 255 / 63, b = (v & 31) * 255 / 31;
-                    lit += ((77 * r + 150 * g + 29 * b) >> 8) > RFM_MOVE_THUMB_LUMA;
-                    cnt++;
-                }
-            m->thumb[y][x] = (uint8_t)(lit * 4 >= cnt);
-        }
-    }
-}
-
-void text(mr_canvas_t *cv, int x, int y, const char *s, int maxch)
-{
-    char b[24];
-    snprintf(b, sizeof b, "%.*s", maxch < 23 ? maxch : 23, s);
-    mr_gfx_text(cv, x, y, b, 1);
-}
-void title(mr_canvas_t *cv, int w, const char *s)
-{
-    char b[24];
-    mr_gfx_rect(cv, 0, 0, w, 9, 1, 1);
-    snprintf(b, sizeof b, "%.*s", (w - 2) / 6, s);
-    mr_gfx_text(cv, 1, 1, b, 0);
-}
-const char *note_name(int n, char *b, int cap)
-{
-    snprintf(b, (size_t)cap, "%s%d", NOTE_NAMES[n % 12], n / 12 - 1);
-    return b;
-}
-static const char *enc_label(const rfm_move_t *m, int e)
-{
-    return e >= 0 && e <= RFM_MOVE_NENC && m->label[e][0] ? m->label[e] : rfm_move_enc_name(e);
-}
-
-/* the last control touched or changed: a label and a value (10 characters each) */
-static void last_lines(const rfm_move_t *m, char *l1, char *l2, int cap)
-{
-    char nb[8];
-    l1[0] = l2[0] = 0;
-    switch (m->last_kind) {
-    case LAST_ENC:
-        snprintf(l1, (size_t)cap, "%s", enc_label(m, m->last_index));
-        if (m->last_value)
-            snprintf(l2, (size_t)cap, "%+d", m->last_value);
-        break;
-    case LAST_MASTER:
-        snprintf(l1, (size_t)cap, "%s", enc_label(m, RFM_MOVE_E_MASTER));
-        snprintf(l2, (size_t)cap, "%d%%", (m->last_value * 100 + 511) / 1023);
-        break;
-    case LAST_CC:
-        snprintf(l1, (size_t)cap, "K%d CC%d", m->last_index + 1, m->s.cc[m->s.bank][m->last_index]);
-        snprintf(l2, (size_t)cap, "%d", m->cc_val[m->s.bank][m->last_index]);
-        break;
-    case LAST_DRUM:
-        snprintf(l1, (size_t)cap, "PAD %d-%d", 4 - m->last_index / 8, m->last_index % 8 + 1);
-        snprintf(l2, (size_t)cap, "%s %d", note_name(m->last_value, nb, sizeof nb), m->last_value);
-        break;
-    default: break;
-    }
-}
-
-static void held_menu(const rfm_move_t *m, mr_canvas_t *cv, int t)
-{
-    char b[32];
-    int k;
-    snprintf(b, sizeof b, "TRACK %d  %s", t + 1, MODE_NAMES[t]);
-    title(cv, 128, b);
-    if (t == RFM_MOVE_MODE_FM1) {
-        text(cv, 0, 13, "PADS   FM-1 KEYS", 21);
-        text(cv, 0, 23, "STEPS  WHITE KEYS", 21);
-        text(cv, 0, 33, "KNOBS  PRESET ALGO K1-4", 21);
-        text(cv, 0, 43, "JOG    SELECT", 21);
-        text(cv, 0, 53, "VOLUME MASTER", 21);
-    } else if (t == RFM_MOVE_MODE_MIDI) {
-        snprintf(b, sizeof b, "LAYOUT %d %s", m->s.layout + 1, LAYOUT_NAMES[m->s.layout & 3]);
-        text(cv, 0, 13, b, 21);
-        snprintf(b, sizeof b, "CH %d  OCT %+d", m->s.channel + 1, m->s.octave);
-        text(cv, 0, 23, b, 21);
-        snprintf(b, sizeof b, "KEY %s %s", NOTE_NAMES[m->s.root % 12], SCALE_NAMES[m->s.scale % RFM_MOVE_NSCALES]);
-        text(cv, 0, 33, b, 21);
-        text(cv, 0, 45, "ROW 1 LAYOUT ROW 2 SCALE", 21);
-        text(cv, 0, 55, "JOG ROOT STEPS CHANNEL", 21);
-    } else if (t == RFM_MOVE_MODE_CONTROL) {
-        snprintf(b, sizeof b, "BANK %d  CH %d", m->s.bank + 1, m->s.channel + 1);
-        text(cv, 0, 13, b, 21);
-        for (k = 0; k < RFM_MOVE_NKNOBS; k++) {
-            snprintf(b, sizeof b, "%d:%d", k + 1, m->s.cc[m->s.bank][k]);
-            text(cv, (k % 4) * 32, 25 + (k / 4) * 10, b, 5);
-        }
-        text(cv, 0, 47, "TURN A KNOB: ITS CC", 21);
-        text(cv, 0, 56, "JOG: BANK", 21);
-    } else
-        rfmv_seq_track_menu(m, cv);
-}
-
-void rfm_move_screen(rfm_move_t *m, const uint16_t *rgb565, uint8_t out[MR_SCREEN_BYTES])
-{
-    mr_canvas_t cv;                                     /* (8 KB of stack) */
-    char b[32], l1[24], l2[24];
-    int t, x, y;
-    if (rgb565)
-        thumb_from(m, rgb565);
-    mr_gfx_clear(&cv, 0);
-    for (t = 0; t < 4 && !track_held(m, t); t++) {}
-    if (t < 4) {
-        held_menu(m, &cv, t);
-        mr_gfx_pack(&cv, out);
-        return;
-    }
-    if (m->s.mode == RFM_MOVE_MODE_SEQ) {
-        rfmv_seq_screen(m, &cv);
-        mr_gfx_pack(&cv, out);
-        return;
-    }
-    for (y = 0; y < 64; y++)
-        for (x = 0; x < 64; x++)
-            cv.px[y][64 + x] = m->thumb[y][x];
-    title(&cv, 62, MODE_NAMES[m->s.mode & 3]);
-    last_lines(m, l1, l2, sizeof l1);
-    if (m->s.mode == RFM_MOVE_MODE_FM1) {
-        if (!m->last_kind) {
-            snprintf(l1, sizeof l1, "%s", enc_label(m, RFM_MOVE_E_MASTER));
-            snprintf(l2, sizeof l2, "%d%%", (m->master * 100 + 511) / 1023);
-        }
-        text(&cv, 0, 20, l1, 10);
-        text(&cv, 0, 32, l2, 10);
-    } else {
-        if (m->s.mode == RFM_MOVE_MODE_CONTROL) {
-            snprintf(b, sizeof b, "BANK %d", m->s.bank + 1);
-            text(&cv, 0, 11, b, 10);
-        } else
-            text(&cv, 0, 11, LAYOUT_NAMES[m->s.layout & 3], 10);
-        snprintf(b, sizeof b, "CH %d", m->s.channel + 1);
-        text(&cv, 0, 20, b, 10);
-        snprintf(b, sizeof b, "OCT %+d", m->s.octave);
-        text(&cv, 0, 29, b, 10);
-        if (m->s.mode == RFM_MOVE_MODE_CONTROL)
-            text(&cv, 0, 38, LAYOUT_NAMES[m->s.layout & 3], 10);
-        else {
-            snprintf(b, sizeof b, "%s %s", NOTE_NAMES[m->s.root % 12], SCALE_NAMES[m->s.scale % RFM_MOVE_NSCALES]);
-            text(&cv, 0, 38, b, 10);
-        }
-        text(&cv, 0, 47, l1, 10);
-        text(&cv, 0, 56, l2, 10);
-    }
-    rfmv_seq_badge(m, &cv);
-    mr_gfx_pack(&cv, out);
-}

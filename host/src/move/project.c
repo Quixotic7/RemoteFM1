@@ -147,6 +147,59 @@ static int parse(const uint8_t *b, uint32_t n, rfm_move_seq_t *q)
 
 int rfm_move_project_check(const uint8_t *b, uint32_t n) { return parse(b, n, NULL); }
 
+/* ---- a project in brief, for the grid and its popup */
+static void info_count(rfm_move_proj_info_t *o, uint8_t seen[RFM_MOVE_SEQ_CLIPS], int clip, int note)
+{
+    if (!seen[clip])
+        seen[clip] = 1, o->clips++;
+    if (note && o->notes[clip / RFM_MOVE_SEQ_SCENES] < 0xFFFF)
+        o->notes[clip / RFM_MOVE_SEQ_SCENES]++;
+}
+static void info_live(const rfm_move_seq_t *q, rfm_move_proj_info_t *o)
+{
+    uint8_t seen[RFM_MOVE_SEQ_CLIPS];
+    int i;
+    memset(o, 0, sizeof *o);
+    memset(seen, 0, sizeof seen);
+    o->ok = 1, o->bpm10 = q->bpm10;
+    for (i = 0; i < q->nnotes; i++)
+        info_count(o, seen, q->notes[i].clip, 1);
+    for (i = 0; i < q->nlocks; i++)
+        info_count(o, seen, q->locks[i].clip, 0);
+}
+void rfmv_proj_info(const rfm_move_t *m, int slot, rfm_move_proj_info_t *o)
+{
+    const rfm_move_seq_t *q = &m->seq;
+    if (slot == q->proj_cur && q->proj_pending < 0)
+        info_live(q, o);
+    else if (slot >= 0 && slot < RFM_MOVE_PROJECTS)
+        *o = q->info[slot];
+    else
+        memset(o, 0, sizeof *o);
+}
+int rfm_move_project_info(rfm_move_t *m, int slot, const uint8_t *b, uint32_t n)
+{
+    rfm_move_proj_info_t *o;
+    uint8_t seen[RFM_MOVE_SEQ_CLIPS];
+    uint32_t nn, nl, i;
+    const uint8_t *p;
+    if (slot < 0 || slot >= RFM_MOVE_PROJECTS)
+        return -1;
+    o = &m->seq.info[slot];
+    memset(o, 0, sizeof *o);
+    if (parse(b, n, NULL) != 0)
+        return -1;
+    memset(seen, 0, sizeof seen);
+    o->ok = 1, o->bpm10 = (uint16_t)r16(b + 6);
+    nn = r16(b + OFF_NOTES);
+    for (i = 0, p = b + OFF_NOTES + 2; i < nn; i++, p += 7)
+        info_count(o, seen, p[0], 1);
+    nl = r16(b + OFF_NOTES + 2 + nn * 7);
+    for (i = 0, p = b + OFF_NOTES + 4 + nn * 7; i < nl; i++, p += 4)
+        info_count(o, seen, p[0], 0);
+    return 0;
+}
+
 int rfm_move_project_load(rfm_move_t *m, int slot, const uint8_t *b, uint32_t n)
 {
     rfm_move_seq_t *q = &m->seq;
@@ -169,6 +222,7 @@ int rfm_move_project_load(rfm_move_t *m, int slot, const uint8_t *b, uint32_t n)
         q->following = 0;
     q->proj_cur = (int8_t)slot, q->proj_pending = -1, q->projects = 0;
     q->dirty = 0;
+    info_live(q, &q->info[slot]);
     return 0;
 }
 
@@ -192,6 +246,7 @@ void rfmv_proj_save_now(rfm_move_t *m)
         return;
     q->dirty = 0;
     q->proj_used |= 1u << q->proj_cur;
+    info_live(q, &q->info[q->proj_cur]);
     emit_slot(m, RFM_MOVE_ACT_PROJECT_SAVE, q->proj_cur, q->blob, (uint32_t)n);
 }
 
@@ -235,6 +290,7 @@ void rfmv_proj_delete(rfm_move_t *m, int slot)
     if (slot < 0 || slot >= RFM_MOVE_PROJECTS || q->proj_pending >= 0)
         return;
     q->proj_used &= ~(1u << slot);
+    q->info[slot].ok = 0;
     if (slot == q->proj_cur) {                          /* the open one: it empties (and is not saved again) */
         rfmv_seq_stop(m);
         rfmv_seq_ui_release(m);

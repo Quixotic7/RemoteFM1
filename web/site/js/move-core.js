@@ -18,12 +18,13 @@
 //   core.seqPlay(on); core.setBpm(bpm10); core.setClock(mode); core.bpm10(); core.following(); core.playing()
 //   core.projectLoad(slot, bytes | null) -> actions, or null (an invalid blob); core.projectDir(bits);
 //   core.projectFlush() -> actions; core.projectSlot(); core.projectSave() -> the current blob; core.projectCheck(bytes)
+//   core.projectInfo(slot, bytes): a stored project's content for the screen's project grid (0 ok)
 export const ACT = { KEY: 1, PRESS: 2, BTN: 3, TURN: 4, MASTER: 5, MIDI: 6, SETTINGS: 7, PROJECT_SAVE: 8, PROJECT_LOAD: 9, PROJECT_DELETE: 10 };
 export const CLOCK = { AUTO: 0, INT: 1, EXT: 2 };
 export const PROJECTS = 32, PROJECT_MAX = 37472;
 export const MODE = { FM1: 0, MIDI: 1, CONTROL: 2, SEQ: 3 };
 export const MODE_NAMES = ["FM-1", "MIDI", "Control", "Sequencer"];
-export const SCREEN_BYTES = 1024, SETTINGS_BYTES = 77, NLEDS = 76;
+export const SCREEN_BYTES = 1024, SETTINGS_BYTES = 77, NLEDS = 76, POPUP_MS = 1000;   // (RFM_MOVE_POPUP_MS: a popup stays this long)
 const ACT_BYTES = 10, LED_BYTES = 6;
 // pressure 0..127 as key_lean 0..100 (move.h rfm_move_lean)
 export const lean = (p) => Math.floor((Math.max(0, Math.min(127, p | 0)) * 100 + 63) / 127);
@@ -97,6 +98,7 @@ export class MoveCore {
   setClock(mode) { this.M._mw_seq_set_clock(this.w, mode | 0); }
   following() { return !!this.M._mw_seq_following(this.w); }
   playing() { return !!this.M._mw_seq_playing(this.w); }
+  screenTimed() { return !!this.M._mw_screen_timed(this.w); }   // the screen moves with the clock (a popup, playing)
   // ---- projects
   projectCheck(bytes) { return bytes && bytes.length && bytes.length <= PROJECT_MAX ? this._withBytes(bytes, (p, n) => this.M._mw_project_check(p, n)) : -1; }
   projectLoad(slot, bytes) {
@@ -104,6 +106,8 @@ export class MoveCore {
     return r < 0 ? null : this._acts(r);
   }
   projectDir(bits) { this.M._mw_project_dir(this.w, bits >>> 0); }
+  // a stored project, for the grid's bars and the project popup: 0 ok, < 0 not a valid blob
+  projectInfo(slot, bytes) { return bytes && bytes.length && bytes.length <= PROJECT_MAX ? this._withBytes(bytes, (p, n) => this.M._mw_project_info(this.w, slot | 0, p, n)) : -1; }
   projectFlush() { return this._acts(this.M._mw_project_flush(this.w)); }
   projectSlot() { return this.M._mw_project_slot(this.w); }
   projectSave() { const n = this.M._mw_project_save(this.w); if (n <= 0) return null; const p = this.M._mw_blob(this.w, 0); return this.M.HEAPU8.slice(p, p + n); }

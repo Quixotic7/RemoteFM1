@@ -1159,9 +1159,24 @@ static void write_pbm(const char *path, const uint8_t *packed)
     fclose(f);
 }
 
-#define GOLD_TRACK 0xea422869u
-#define GOLD_SESSION 0x9c6e574au
-#define GOLD_PROJECTS 0x1304e3e5u
+#define GOLD_TRACK 0x6b5c04dau
+#define GOLD_STEP 0xcd369633u
+#define GOLD_SESSION 0xbe52fdfdu
+#define GOLD_PROJECTS 0xb59ff52du
+#define GOLD_PROJECT 0x717ef433u
+#define GOLD_TRACKS 0xc4b14d8fu
+#define GOLD_COUNT 0xb117a7b1u
+#define GOLD_MSG 0xffb67057u
+static int px_at(const uint8_t *packed, int x, int y) { return packed[(y >> 3) * 128 + x] >> (y & 7) & 1; }
+static void gold(const char *name, const uint8_t *out, uint32_t want)
+{
+    char path[64];
+    const uint32_t h = fnv(out, MR_SCREEN_BYTES);
+    snprintf(path, sizeof path, "move_seq_%s.pbm", name);
+    write_pbm(path, out);
+    printf("screen seq %s: %08x\n", name, h);
+    CHECKF(want == 0 || h == want, "%s %08x, golden %08x", name, h, want);
+}
 
 /* the pads as the Move shows them (8 x 4, top row first), for a look at the held step's colours */
 static void write_ppm_pads(const char *path, int pads[32][3])
@@ -1184,7 +1199,6 @@ static void test_screens_leds(void)
     rfm_move_t *m = &M;
     uint8_t out[MR_SCREEN_BYTES];
     rfm_move_led_t leds[RFM_MOVE_NLEDS];
-    uint32_t h;
     int n, i, steps_lit = 0;
     fresh(m);
     rfm_move_init(m, NULL, on_act, NULL);
@@ -1198,12 +1212,17 @@ static void test_screens_leds(void)
     rfmv_seq_lock_set(m, 0, 0, 16, 99);
     rfm_move_seq_play(m, 1);
     adv(m, 5 * FPS + 10);
+    m->pop = POP_NONE;                                  /* (the taps' popups dismissed: the view at rest) */
+    rfm_move_screen(m, NULL, out);
+    CHECK(px_at(out, 1, 0) && px_at(out, 30, 3) && px_at(out, 33, 0) && !px_at(out, 33, 1));   /* page 1, page 2 */
+    CHECK(px_at(out, 0, 54) && px_at(out, 3, 60) && !px_at(out, 11, 60) && px_at(out, 43, 60)); /* steps 1, 2, 6 */
+    CHECK(px_at(out, 40, 7) && px_at(out, 40, 50) && !px_at(out, 41, 7));    /* the playhead: step 6 (+ 10 frames) */
+    CHECK(px_at(out, 0, 46) && px_at(out, 0, 34) && px_at(out, 32, 46));     /* C3 E3 G3 on step 1, C3 on step 5 */
+    gold("track", out, GOLD_TRACK);
     step(m, 0, 1);
     rfm_move_screen(m, NULL, out);
-    h = fnv(out, MR_SCREEN_BYTES);
-    write_pbm("move_seq_track.pbm", out);
-    printf("screen seq track: %08x\n", h);
-    CHECKF(GOLD_TRACK == 0 || h == GOLD_TRACK, "track view %08x, golden %08x", h, GOLD_TRACK);
+    CHECK(m->pop == POP_STEP && m->pop_i == 0 && px_at(out, 6, 6) && px_at(out, 2, 2) && px_at(out, 0, 52));
+    gold("step", out, GOLD_STEP);
     /* the step LEDs (Move's): the held step in the track's colour, the playhead green, notes white, empty steps
      * the track's colour dim */
     rfm_move_leds_invalidate(m);
@@ -1247,10 +1266,12 @@ static void test_screens_leds(void)
     m->seq.tr[5].grow = 2, rfmv_seq_launch(m, 5, 1);    /* track 6: to record into scene 2 at the bar */
     press(m, MR_CC_MENU);
     rfm_move_screen(m, NULL, out);
-    h = fnv(out, MR_SCREEN_BYTES);
-    write_pbm("move_seq_session.pbm", out);
-    printf("screen seq session: %08x\n", h);
-    CHECKF(GOLD_SESSION == 0 || h == GOLD_SESSION, "session view %08x, golden %08x", h, GOLD_SESSION);
+    CHECK(px_at(out, 1, 0) && px_at(out, 14, 1) && !px_at(out, 17, 0));      /* track 1 selected */
+    CHECK(px_at(out, 65, 1) && !px_at(out, 66, 1) && !px_at(out, 65, 0));    /* track 5 muted: dotted */
+    CHECK(px_at(out, 1, 4) && !px_at(out, 5, 7) && px_at(out, 4, 7));        /* track 1 scene 1: playing, a black triangle */
+    CHECK(px_at(out, 17, 19) && !px_at(out, 20, 23));                        /* track 2 scene 2: content, outlined */
+    CHECK(px_at(out, 55, 9) && !px_at(out, 54, 9));                          /* track 4 scene 1: empty, a dot */
+    gold("session", out, GOLD_SESSION);
     rfm_move_leds_invalidate(m);
     n = rfm_move_leds(m, leds, RFM_MOVE_NLEDS);
     for (i = 0; i < n; i++) {
@@ -1269,26 +1290,160 @@ static void test_screens_leds(void)
     }
     /* the project grid */
     rfm_move_seq_play(m, 0);
-    rfm_move_project_dir(m, 0x0000f00du);
-    button(m, MR_CC_SHIFT, 1), tap_step(m, 0), button(m, MR_CC_SHIFT, 0);
-    rfm_move_screen(m, NULL, out);
-    h = fnv(out, MR_SCREEN_BYTES);
-    write_pbm("move_seq_projects.pbm", out);
-    printf("screen seq projects: %08x\n", h);
-    CHECKF(GOLD_PROJECTS == 0 || h == GOLD_PROJECTS, "project grid %08x, golden %08x", h, GOLD_PROJECTS);
-    press(m, MR_CC_BACK);
-    /* Track 4 held: the track menu; other modes while playing: the badge */
+    {   /* projects 3 and 14 stored: this one (step 1's chord cleared by its tap: 2 notes on track 1, 2 on track 2,
+         * 5 clips) and a smaller one; their bars come from the blobs (rfm_move_project_info), the current one's live */
+        static uint8_t blob[RFM_MOVE_PROJECT_MAX];
+        int nb = rfm_move_project_save(m, blob, sizeof blob);
+        CHECK(nb > 0 && rfm_move_project_info(m, 2, blob, (uint32_t)nb) == 0);
+        CHECK(m->seq.info[2].ok && m->seq.info[2].notes[0] == 2 && m->seq.info[2].notes[1] == 2 && m->seq.info[2].clips == 5);
+        CHECK(m->seq.info[2].bpm10 == 1200);
+        rfmv_seq_clip_clear(m, SEQ_CLIP(4, 5));
+        nb = rfm_move_project_save(m, blob, sizeof blob);
+        blob[nb - 1] ^= 1;
+        CHECK(rfm_move_project_info(m, 13, blob, (uint32_t)nb) < 0 && !m->seq.info[13].ok);   /* (a broken blob) */
+        blob[nb - 1] ^= 1;
+        CHECK(rfm_move_project_info(m, 13, blob, (uint32_t)nb) == 0);
+        rfm_move_project_dir(m, 0x0000f00du);
+        button(m, MR_CC_SHIFT, 1), tap_step(m, 0), button(m, MR_CC_SHIFT, 0);
+        rfm_move_screen(m, NULL, out);
+        CHECK(px_at(out, 1, 1) && px_at(out, 7, 7) && !px_at(out, 4, 10));      /* 1: current, filled, black bars */
+        CHECK(px_at(out, 23, 7) && px_at(out, 24, 8) && !px_at(out, 25, 7));    /* 2: empty, a dot */
+        CHECK(px_at(out, 33, 1) && !px_at(out, 34, 2) && px_at(out, 36, 11));    /* 3: saved, outlined, bars */
+        CHECK(px_at(out, 49, 1) && !px_at(out, 52, 11));                        /* 4: saved, not known: no bars */
+        gold("projects", out, GOLD_PROJECTS);
+        /* project 3's pad held (pad 26: top row, third): its popup while it loads (the host has not answered) */
+        pad(m, 26, 100);
+        rfm_move_screen(m, NULL, out);
+        CHECK(m->pop == POP_PROJ && m->pop_i == 2 && m->seq.proj_pending == 2 && px_at(out, 2, 2));
+        gold("project", out, GOLD_PROJECT);
+        CHECK(rfm_move_project_load(m, 2, blob, (uint32_t)nb) == 0);
+        adv(m, RATE * 2);
+        rfm_move_screen(m, NULL, out);
+        CHECK(px_at(out, 2, 2));                        /* held: up */
+        pad(m, 26, 0);
+        adv(m, RATE * RFM_MOVE_POPUP_MS / 1000);
+        rfm_move_screen(m, NULL, out);
+        CHECK(!px_at(out, 2, 2) && !m->seq.projects);   /* gone a second after; the grid closed on the load */
+    }
+    /* Track 4 held: the track menu */
     track(m, 3, 1);
+    tap_step(m, 2);
     rfm_move_screen(m, NULL, out);
-    write_pbm("move_seq_tracks.pbm", out);
+    CHECK(m->menu_what == MENU_TRACK && m->seq.sel_track == 2 && px_at(out, 19, 59) && px_at(out, 19, 37));
+    gold("tracks", out, GOLD_TRACKS);
+    tap_step(m, 0);
     track(m, 3, 0);
+    /* the count-in (Rec from stopped): its beats at 4x */
+    press(m, MR_CC_REC);
+    rfm_move_screen(m, NULL, out);
+    CHECK(m->seq.start_pending == 3 && px_at(out, 2, 2));
+    gold("count", out, GOLD_COUNT);
+    press(m, MR_CC_REC);
+    /* a message (Shift + step 10: full velocity) at 2x, a second */
+    button(m, MR_CC_SHIFT, 1), tap_step(m, 9), button(m, MR_CC_SHIFT, 0);
+    rfm_move_screen(m, NULL, out);
+    CHECK(m->seq.msg == SEQ_MSG_FULLVEL_ON && m->seq.fixed_vel && px_at(out, 2, 2));
+    gold("msg", out, GOLD_MSG);
+    adv(m, RATE * RFM_MOVE_POPUP_MS / 1000);
+    rfm_move_screen(m, NULL, out);
+    CHECK(!px_at(out, 2, 2));
+    /* other modes while it plays: a small triangle over the FM-1 drawing */
     rfm_move_seq_play(m, 1);
     adv(m, FPS);
-    track(m, 1, 1), track(m, 1, 0);
+    track(m, 0, 1), track(m, 0, 0);
     rfm_move_screen(m, NULL, out);
-    write_pbm("move_seq_badge.pbm", out);
-    CHECK(((out[0 * 128 + 56] >> 3) & 1) == 0 && ((out[0 * 128 + 60] >> 3) & 1) == 1);   /* a dark triangle */
-    CHECK(GOLD_TRACK && GOLD_SESSION && GOLD_PROJECTS);
+    CHECK(px_at(out, 3, 3) && px_at(out, 7, 7) && !px_at(out, 8, 7) && !px_at(out, 7, 3));
+    CHECK(GOLD_TRACK && GOLD_STEP && GOLD_SESSION && GOLD_PROJECTS && GOLD_PROJECT && GOLD_TRACKS && GOLD_COUNT &&
+          GOLD_MSG);
+    rfm_move_release_all(m);
+}
+
+/* the popups' life: up while their control is held, RFM_MOVE_POPUP_MS after (on the sequencer's clock) */
+static void test_popups(void)
+{
+    rfm_move_t *m = &M;
+    uint8_t out[MR_SCREEN_BYTES];
+    const uint32_t pop_frames = RATE * RFM_MOVE_POPUP_MS / 1000;
+    fresh(m);
+    rfm_move_seq_set_clock(m, RFM_MOVE_CLOCK_INTERNAL);
+    /* a held step: its popup while held, a second after; a tap that clears a step: gone at once */
+    step(m, 2, 1);                                      /* (empty: the root goes in, the transport starts) */
+    rfm_move_screen(m, NULL, out);
+    CHECK(rfmv_pop_up(m, POP_STEP) && m->pop_i == 2 && px_at(out, 6, 6));
+    adv(m, 3 * RATE);
+    CHECK(rfmv_pop_up(m, POP_STEP));
+    step(m, 2, 0);
+    adv(m, pop_frames - 128);
+    CHECK(rfmv_pop_up(m, POP_STEP));
+    adv(m, 256);
+    CHECK(!rfmv_pop_up(m, POP_STEP));
+    rfm_move_screen(m, NULL, out);
+    CHECK(!px_at(out, 6, 6));
+    tap_step(m, 2);                                     /* a tap on a step with notes: cleared, the popup gone */
+    {
+        int lo;
+        CHECK(rfmv_seq_range(m, 0, 2, &lo) == lo && m->pop == POP_NONE);
+    }
+    /* a held step and a later one (the notes reach to it): the popup stays the held one's (its length 3) */
+    step(m, 4, 1), step(m, 6, 1);
+    CHECK(m->pop == POP_STEP && m->pop_i == 4 && m->seq.notes[0].len == 3 * RFM_MOVE_SEQ_TPS);
+    step(m, 6, 0);
+    CHECK(rfmv_pop_up(m, POP_STEP) && m->pop_i == 4);
+    step(m, 4, 0);
+    adv(m, pop_frames);
+    /* Loop held: the clip's length (the jog: a page a detent) */
+    button(m, MR_CC_LOOP, 1);
+    jog(m, 1);
+    CHECK(rfmv_pop_up(m, POP_LOOP) && m->seq.len[0] == 32);
+    rfm_move_screen(m, NULL, out);
+    write_pbm("move_seq_pop_loop.pbm", out);
+    adv(m, 2 * pop_frames);
+    CHECK(rfmv_pop_up(m, POP_LOOP));
+    button(m, MR_CC_LOOP, 0);
+    adv(m, pop_frames);
+    CHECK(!rfmv_pop_up(m, POP_LOOP));
+    /* Shift + jog: the tempo; a knob: its CC; the bank (jog); each a second */
+    button(m, MR_CC_SHIFT, 1), jog(m, 2), button(m, MR_CC_SHIFT, 0);
+    CHECK(rfmv_pop_up(m, POP_TEMPO) && m->seq.bpm10 == 1220);
+    rfm_move_screen(m, NULL, out);
+    write_pbm("move_seq_pop_tempo.pbm", out);
+    knob(m, 3, 5);
+    CHECK(rfmv_pop_up(m, POP_CC) && !rfmv_pop_up(m, POP_TEMPO) && m->pop_i == 3);
+    jog(m, 1);
+    CHECK(rfmv_pop_up(m, POP_BANK) && m->s.bank == 1);
+    rfm_move_screen(m, NULL, out);
+    write_pbm("move_seq_pop_bank.pbm", out);
+    adv(m, pop_frames);
+    CHECK(!m->pop || !rfmv_pop_up(m, m->pop));
+    /* a message over a popup that came first; a popup over an older message */
+    knob(m, 3, 1);
+    adv(m, 128);
+    button(m, MR_CC_SHIFT, 1), tap_step(m, 9), button(m, MR_CC_SHIFT, 0);
+    rfm_move_screen(m, NULL, out);
+    CHECK(rfmv_seq_msg_text(m) && !px_at(out, 66, 0));  /* the message (no hatching) */
+    adv(m, 128);
+    knob(m, 3, 1);
+    rfm_move_screen(m, NULL, out);
+    CHECK(px_at(out, 66, 0));                           /* the knob's popup (hatched behind) */
+    /* a held step and a knob: the step's CC lock */
+    adv(m, pop_frames);
+    step(m, 4, 1);
+    knob(m, 3, 3);
+    rfm_move_screen(m, NULL, out);
+    CHECK(rfmv_pop_up(m, POP_CC) && rfmv_seq_lock_get(m, 0, 4, m->s.cc[1][3]) >= 0);
+    write_pbm("move_seq_pop_lock.pbm", out);
+    /* five notes on a step: two chips and "+3" */
+    {
+        int n;
+        for (n = 0; n < 5; n++)
+            rfmv_seq_note_put(m, 0, 4, 50 + 2 * n, 90, 36, 0);
+    }
+    knob(m, 3, 0);
+    m->pop = POP_NONE;
+    step(m, 4, 0), step(m, 4, 1);
+    rfm_move_screen(m, NULL, out);
+    write_pbm("move_seq_pop_step5.pbm", out);
+    step(m, 4, 0);
     rfm_move_release_all(m);
 }
 
@@ -1305,5 +1460,6 @@ int main(void)
     test_blob();
     test_project_grid();
     test_screens_leds();
+    test_popups();
     return check_done("move_seq");
 }

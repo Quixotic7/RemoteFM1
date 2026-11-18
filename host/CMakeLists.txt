@@ -44,7 +44,7 @@ add_library(moveremote_gfx STATIC ${MR_DIR}/host/mr_gfx.c ${MR_DIR}/common/font5
 target_include_directories(moveremote_gfx PUBLIC ${MR_DIR}/include)
 add_library(moveremote STATIC ${MR_DIR}/host/mr_client.c)     # the POSIX socket client (hosts, the e2e test)
 target_link_libraries(moveremote PUBLIC moveremote_gfx)
-add_library(rfm_move STATIC src/move/move.c src/move/seq.c src/move/seq_ui.c src/move/project.c)
+add_library(rfm_move STATIC src/move/move.c src/move/screen.c src/move/seq.c src/move/seq_ui.c src/move/project.c)
 target_include_directories(rfm_move PUBLIC include ${MR_DIR}/include)
 target_link_libraries(rfm_move PUBLIC moveremote_gfx)
 target_compile_options(rfm_move PRIVATE -Wall -Wextra -Wshadow -Wstrict-prototypes)
@@ -107,6 +107,7 @@ target_compile_options(test_ble_audio PRIVATE -Wall -Wextra -Wno-unused-function
 add_test(NAME ble_audio COMMAND test_ble_audio)
 # rfm_move: the mapping, the MIDI layouts, settings, LED diffing, the screen's golden frame
 add_executable(test_move tests/test_move.c)
+target_include_directories(test_move PRIVATE src/move)
 target_link_libraries(test_move PRIVATE rfm_move moveremote)
 target_compile_options(test_move PRIVATE -Wall -Wextra)
 add_test(NAME move COMMAND test_move)

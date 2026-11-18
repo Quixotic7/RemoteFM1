@@ -250,6 +250,7 @@ export class MoveLink {
   async initProjects() {
     const core = this.core, recs = await this.store.list();
     core.projectDir(dirBits(recs));
+    for (const r of recs) core.projectInfo(r.slot, r.bytes);   // (what the project grid draws of each)
     const last = validSlot(this.o.prefs.moveProject) ? this.o.prefs.moveProject : 0, rec = recs.find((r) => r.slot === last);
     let acts = core.projectLoad(last, rec ? rec.bytes : null);
     if (acts === null) { acts = core.projectLoad(last, null); this.o.toast(`${projectName(last)} could not be read: it starts empty (the stored copy is kept until it is saved over).`, "bad"); }
@@ -352,7 +353,8 @@ export class MoveLink {
     this.seq.pump(this.audioNow());
     this.afterSeq();
     this.flushLeds();
-    if (this.wasPlaying || this.core.state().mode === 3) this.screenSoon();   // (the playhead, blinks, messages)
+    if (this.wasPlaying || this.core.state().mode === 3 || this.timedScreen) this.screenSoon();   // (the playhead, blinks, popups)
+    this.timedScreen = this.core.screenTimed();         // (one more draw after a popup drops)
   }
   // after the core moved: a stop cuts the timed notes; the status follows the clock source and tempo; the open project
   afterSeq() {
@@ -447,7 +449,10 @@ export class MoveLink {
   projChanged() { for (const cb of this.projSubs) { try { cb(this.projects()); } catch (e) { console.error(e); } } }
   async refreshProjects() {
     this.projList = await this.store.list();
-    if (this.core) this.core.projectDir(dirBits(this.projList));
+    if (this.core) {
+      this.core.projectDir(dirBits(this.projList));
+      for (const r of this.projList) this.core.projectInfo(r.slot, r.bytes);
+    }
     this.projChanged();
     return this.projList;
   }

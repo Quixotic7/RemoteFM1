@@ -58,6 +58,8 @@ enum {
 #define RFM_MOVE_OCT_MAX 4                              /* 48 + root + 12 * octave (C3 = 48 at octave 0) */
 #define RFM_MOVE_DRUM_BASE 36                           /* the drum layout's bottom-right pad (C2) */
 #define RFM_MOVE_THUMB_LUMA 80                          /* screen thumbnail: an FM-1 pixel above this luma (0..255) is white */
+#define RFM_MOVE_POPUP_MS 1000                          /* a popup stays this long after its control's release / last turn */
+#define RFM_MOVE_SCREEN_LIT 64                          /* FM-1 mode's drawing: a button is drawn lit from this LED level */
 #define RFM_MOVE_MASTER_STEP 16                        /* MASTER per volume knob detent */
 
 /* ---- actions (the OMX-27 link's vocabulary: web/site/js/omx27-views.js) */
@@ -170,6 +172,12 @@ typedef struct {
 typedef struct { uint8_t ch, note, track, rsv; int32_t off; } rfm_move_sounding_t;
 typedef struct { int32_t t; uint8_t note, vel, rsv[2]; } rfm_move_cap_t;   /* t: timeline tick, vel 0 = off */
 typedef struct { int32_t t; uint8_t clip, note, vel, on; } rfm_move_recnote_t;
+typedef struct {                                        /* a stored project in brief (rfm_move_project_info) */
+    uint8_t ok;                                         /* 1: known */
+    uint8_t clips;                                      /* clips with notes or locks */
+    uint16_t bpm10;
+    uint16_t notes[RFM_MOVE_SEQ_TRACKS];                /* notes on each track */
+} rfm_move_proj_info_t;
 
 typedef struct {
     /* ---- the project (what a blob holds) */
@@ -237,6 +245,7 @@ typedef struct {
     uint8_t ntap;
     uint8_t msg;                                        /* a short message on the screen (SEQ_MSG_*) */
     uint32_t msg_ms, ui_ms;
+    rfm_move_proj_info_t info[RFM_MOVE_PROJECTS];       /* what the project grid draws of each slot */
 } rfm_move_seq_t;
 
 /* ---- the state */
@@ -258,11 +267,12 @@ typedef struct {
     uint8_t cc_val[RFM_MOVE_NBANKS][RFM_MOVE_NKNOBS];   /* Control mode's values (not saved), 64 at first */
     uint16_t master;                                    /* MASTER as the host last said or the volume knob set */
     int8_t edit_pad;                                    /* the drum pad the jog wheel is editing, -1 none */
-    /* what the screen says about the last control touched or changed */
-    uint8_t last_kind;                                  /* 0 none, 1 FM-1 encoder, 2 MASTER, 3 CC knob, 4 drum note */
-    uint8_t last_index;
-    int16_t last_value;
-    uint32_t last_ms;
+    /* the screen's popup (host/src/move/README.md, "The screen"): what it shows, for which control, and since when */
+    uint8_t pop;                                        /* what (move_int.h POP_*), 0 none */
+    uint8_t pop_i;                                      /* its knob (0..7, 8 volume), step, pad or project slot */
+    int16_t pop_val;                                    /* an FM-1 encoder's detents in this gesture */
+    uint32_t pop_ms;                                    /* the sequencer clock (ms) at its last touch, turn or release */
+    uint8_t menu_what, menu_i;                          /* a held Track button's menu: the setting changed last */
     int8_t touched;                                     /* the knob (0..7, 8 volume, 9 jog) touched now, -1 none */
     char label[RFM_MOVE_NENC + 1][RFM_MOVE_LABEL_MAX + 1];   /* the firmware's knob labels ("" = the default) */
     /* the FM-1's LEDs */
@@ -295,8 +305,11 @@ void rfm_move_panel(rfm_move_t *m, const uint8_t levels[RFM_MOVE_NLEVELS], uint8
 int rfm_move_leds(rfm_move_t *m, rfm_move_led_t *out, int max);
 void rfm_move_leds_invalidate(rfm_move_t *m);          /* a new connection: every LED is written again */
 /* the Move's 128 x 64 screen, packed (MR_SCREEN_BYTES). rgb565: the FM-1's 240 x 240 screen, or NULL to keep the
- * last one */
+ * last one. Popups time out on the sequencer's clock: call rfm_move_seq_advance in every mode */
 void rfm_move_screen(rfm_move_t *m, const uint16_t *rgb565, uint8_t out[MR_SCREEN_BYTES]);
+/* 1: the screen changes with the clock now (a popup or a message up, the sequencer playing or counting in): draw it
+ * again as rfm_move_seq_advance runs, not only after input or a new FM-1 frame */
+int rfm_move_screen_timed(const rfm_move_t *m);
 
 /* ---- the sequencer's clock and transport
  * The clock: call rfm_move_seq_advance for every block of time, at the start of the block (playing or not; it
@@ -323,6 +336,10 @@ int rfm_move_project_check(const uint8_t *b, uint32_t n);                /* 0 a 
  * May be called from inside the action callback. */
 int rfm_move_project_load(rfm_move_t *m, int slot, const uint8_t *b, uint32_t n);
 void rfm_move_project_dir(rfm_move_t *m, uint32_t used);   /* bit n: slot n holds a project */
+/* what the project grid and its popup draw of a stored project (its tempo, clips, notes a track): the host passes
+ * each stored blob once (at start, after an import); saves, loads and deletes keep it up to date. 0 ok; < 0 an
+ * invalid blob (the slot is drawn without its content) */
+int rfm_move_project_info(rfm_move_t *m, int slot, const uint8_t *b, uint32_t n);
 void rfm_move_project_flush(rfm_move_t *m);            /* the autosave now, if the project changed */
 int rfm_move_project_slot(const rfm_move_t *m);        /* the current slot */
 

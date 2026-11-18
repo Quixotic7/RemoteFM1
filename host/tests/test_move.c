@@ -9,6 +9,7 @@
 
 #include "check.h"
 #include "moveremote/client.h"
+#include "move_int.h"
 #include "rfm/move.h"
 
 static rfm_move_act_t acts[512];
@@ -237,8 +238,11 @@ static void test_buttons_knobs(void)
     knob(&m, 8, -1);
     CHECK(nact == 0);
     /* knob touch: remembered for the screen */
-    touch(&m, 4, 1);
-    CHECK(m.touched == 4 && m.last_kind == 1 && m.last_index == RFM_MOVE_E_K1);
+    {
+        const int was = m.pop;
+        touch(&m, 4, 1);
+        CHECK(m.touched == 4 && m.pop == was);          /* (FM-1 mode: the drawing marks it; a turn brings a popup) */
+    }
     touch(&m, 4, 0);
     CHECK(m.touched == -1);
 }
@@ -548,18 +552,89 @@ static void write_pbm(const char *path, const uint8_t *packed)
 }
 
 /* golden frames (FNV-1a of the 1024 packed bytes); a change in the drawing is a change here, made on purpose:
- * look at the PBMs this test writes into the build directory first */
-#define GOLD_DEFAULT 0x8931f095u
-#define GOLD_MIDI 0x04969954u
-#define GOLD_HELD 0xeb71336du
+ * look at the PBMs this test writes into the build directory first (move_*.pbm) */
+#define GOLD_FM1 0xca84fa11u
+#define GOLD_FM1_LIVE 0x714e834du
+#define GOLD_KNOB 0xb0ac5da6u
+#define GOLD_MASTER 0x0a5b87ccu
+#define GOLD_MIDI 0x3de84831u
+#define GOLD_MIDI_HIT 0x570d8447u
+#define GOLD_CONTROL 0xdaa9dc11u
+#define GOLD_CC 0xcd509862u
+#define GOLD_MENU_MIDI 0x34cc8006u
+#define GOLD_MENU_CC 0x35fff5ddu
+
+static int px_at(const uint8_t *packed, int x, int y) { return packed[(y >> 3) * 128 + x] >> (y & 7) & 1; }
+static uint32_t gold(const char *name, const uint8_t *out, uint32_t want)
+{
+    char path[64];
+    const uint32_t h = fnv(out, MR_SCREEN_BYTES);
+    snprintf(path, sizeof path, "move_%s.pbm", name);
+    write_pbm(path, out);
+    printf("screen %s: %08x\n", name, h);
+    CHECKF(want == 0 || h == want, "%s %08x, golden %08x", name, h, want);
+    return h;
+}
+static void ms(rfm_move_t *m, uint32_t n) { rfm_move_seq_advance(m, n * 1000u, 1000000u); }   /* the popups' clock */
+
+/* the owner's FM-1 drawing, read from the PNG the owner drew (64 x 64, white = on) independently of screen.c's table:
+ * rows 15..51; the rest is black */
+static const char *const ART[37] = {
+    "....########################################################....",   /* 15 */
+    "...#........................................................#...",   /* 16 */
+    "..#..........................................................#..",   /* 17 */
+    "..#...............##############.............................#..",   /* 18 */
+    "..#...............##############.............................#..",   /* 19 */
+    "..#...##....##....##..........##...##.....##....##.....##....#..",   /* 20 */
+    "..#...##....##....##..........##...##.....##....##.....##....#..",   /* 21 */
+    "..#...............##...###....##.............................#..",   /* 22 */
+    "..#...............##..#####...##.............................#..",   /* 23 */
+    "..#...............##.##..##...##.............................#..",   /* 24 */
+    "..#...............##.##...##..##..#######################....#..",   /* 25 */
+    "..#...##....##....####....##..##.#...#...#...#...#...#...#...#..",   /* 26 */
+    "..#...##....##....###......#####.#...#...#...#...#...#...#...#..",   /* 27 */
+    "..#...............##........####.#...#...#...#...#...#...#...#..",   /* 28 */
+    "..#...............##..........##.#########################...#..",   /* 29 */
+    "..#...............##############.#...#...#...#...#...#...#...#..",   /* 30 */
+    "..#...#########...##############.#...#...#...#...#...#...#...#..",   /* 31 */
+    "..#...#...#...#..................#...#...#...#...#...#...#...#..",   /* 32 */
+    "..#...#########...................#######################....#..",   /* 33 */
+    "..#..........................................................#..",   /* 34 */
+    "..#..........................................................#..",   /* 35 */
+    "..#....#################################################.....#..",   /* 36 */
+    "..#...#.................................................#....#..",   /* 37 */
+    "..#...#...##.##.##.##.##.##.##.##.##.##.##.##.##.##.##..#....#..",   /* 38 */
+    "..#...#...##.##.##.##.##.##.##.##.##.##.##.##.##.##.##..#....#..",   /* 39 */
+    "..#...#...##.##.##.##.##.##.##.##.##.##.##.##.##.##.##..#....#..",   /* 40 */
+    "..#...#...##.##.##.##.##.##.##.##.##.##.##.##.##.##.##..#....#..",   /* 41 */
+    "..#...#.................................................#....#..",   /* 42 */
+    "..#...#.##.##.##.##.##.##.##.##.##.##.##.##.##.##.##.##.#....#..",   /* 43 */
+    "..#...#.##.##.##.##.##.##.##.##.##.##.##.##.##.##.##.##.#....#..",   /* 44 */
+    "..#...#.##.##.##.##.##.##.##.##.##.##.##.##.##.##.##.##.#....#..",   /* 45 */
+    "..#...#.##.##.##.##.##.##.##.##.##.##.##.##.##.##.##.##.#....#..",   /* 46 */
+    "..#...#.................................................#....#..",   /* 47 */
+    "..#....#################################################.....#..",   /* 48 */
+    "..#..........................................................#..",   /* 49 */
+    "...#........................................................#...",   /* 50 */
+    "....########################################################....",   /* 51 */
+};
+static int art_px(int x, int y) { return y >= 15 && y < 52 && ART[y - 15][x] == '#'; }
+/* the left half against the drawing: the number of pixels that differ */
+static int art_diff(const uint8_t *out)
+{
+    int x, y, d = 0;
+    for (y = 0; y < 64; y++)
+        for (x = 0; x < 64; x++)
+            d += px_at(out, x, y) != art_px(x, y);
+    return d;
+}
 
 static void test_screen(void)
 {
     static uint16_t lcd[240 * 240];
-    rfm_move_t m;
-    uint8_t out[MR_SCREEN_BYTES], out2[MR_SCREEN_BYTES];
-    int x, y, set = 0, i;
-    uint32_t h;
+    static rfm_move_t m;
+    uint8_t out[MR_SCREEN_BYTES], out2[MR_SCREEN_BYTES], lv[RFM_MOVE_NLEVELS];
+    int x, y, d;
     /* a test card: a horizontal grey ramp, a white box, a black disc */
     for (y = 0; y < 240; y++)
         for (x = 0; x < 240; x++) {
@@ -573,36 +648,159 @@ static void test_screen(void)
         }
     rfm_move_init(&m, NULL, on_act, NULL);
     rfm_move_set_label(&m, RFM_MOVE_E_K1, "CUTOFF");
-    touch(&m, 4, 1);
-    knob(&m, 4, 3);
-    touch(&m, 4, 0);
+    /* at rest: the left half is the owner's drawing, pixel for pixel; the right half the FM-1's screen */
     rfm_move_screen(&m, lcd, out);
-    for (i = 0; i < MR_SCREEN_BYTES; i++)
-        set += out[i] != 0;
-    CHECK(set > 100);
-    /* the thumbnail: the white box top left of the right half, the disc dark, the ramp dark at its left */
+    CHECKF(art_diff(out) == 0, "FM-1 mode at rest: the drawing exactly (%d pixels differ)", art_diff(out));
     CHECK(out[(1 * 128) + 64 + 15] == 0xFF);            /* x 79, y 8..15: inside the box */
     CHECK(out[(5 * 128) + 64 + 43] == 0x00);            /* x 107, y 40..47: inside the disc */
-    h = fnv(out, MR_SCREEN_BYTES);
-    write_pbm("move_default.pbm", out);
-    printf("screen default: %08x\n", h);
-    CHECKF(GOLD_DEFAULT == 0 || h == GOLD_DEFAULT, "default view %08x, golden %08x", h, GOLD_DEFAULT);
+    for (d = 0, y = 0; y < 64; y++)
+        for (x = 0; x < 64; x++)
+            d += px_at(out, 64 + x, y) != m.thumb[y][x];
+    CHECK(d == 0);
+    gold("fm1", out, GOLD_FM1);
     rfm_move_screen(&m, NULL, out2);                    /* NULL: the last screen kept */
     CHECK(!memcmp(out, out2, sizeof out));
+    /* LEDs dim (under RFM_MOVE_SCREEN_LIT) change nothing */
+    memset(lv, RFM_MOVE_SCREEN_LIT - 1, sizeof lv);
+    rfm_move_panel(&m, lv, 0);
+    rfm_move_screen(&m, NULL, out);
+    CHECK(art_diff(out) == 0);
+
+    /* live: a touched encoder's dot inverted in a 6 x 6 block (K1: knob 5, its dot at 35, 20) */
+    touch(&m, 4, 1);
+    rfm_move_screen(&m, NULL, out);
+    CHECK(px_at(out, 33, 18) && px_at(out, 38, 23) && !px_at(out, 35, 20) && !px_at(out, 36, 21));
+    CHECK(art_diff(out) == 6 * 6);                      /* (32 lit around it, the 4 of the dot dark) */
+    CHECK(m.pop == POP_NONE);                           /* a touch alone: no popup in FM-1 mode */
+    touch(&m, 4, 0);
+    touch(&m, 8, 1);                                    /* the volume knob: MASTER, top left */
+    rfm_move_screen(&m, NULL, out);
+    CHECK(px_at(out, 4, 18) && !px_at(out, 6, 20) && px_at(out, 9, 23));
+    touch(&m, 8, 0);
+    touch(&m, 0, 1);                                    /* knob 1: PRESETS, bottom left */
+    rfm_move_screen(&m, NULL, out);
+    CHECK(px_at(out, 4, 24) && !px_at(out, 6, 26));
+    touch(&m, 0, 0);
+    jog(&m, 1);                                         /* the jog wheel: SELECT lights a moment, no popup */
+    rfm_move_screen(&m, NULL, out);
+    CHECK(px_at(out, 10, 18) && !px_at(out, 12, 20) && px_at(out, 64 + 15, 8));   /* (the mirror stays) */
+    ms(&m, RFM_MOVE_POPUP_MS);
+    rfm_move_screen(&m, NULL, out);
+    CHECK(art_diff(out) == 0);
+    /* buttons: lit (the FM-1's LED from RFM_MOVE_SCREEN_LIT) or held, their cells filled; FX lit, REC held (Rec),
+     * OCT+ held (Right) */
+    memset(lv, 0, sizeof lv);
+    lv[m.led_of[RFM_MOVE_B_FX]] = RFM_MOVE_SCREEN_LIT;
+    rfm_move_panel(&m, lv, 0);
+    button(&m, MR_CC_REC, 1);
+    button(&m, MR_CC_RIGHT, 1);
+    /* keys: F3 (key 0, the first natural) and F#3 (key 1, the first gap's block) and G5 (key 26, the last) held */
+    pad(&m, 16, 100), pad(&m, 25, 100), pad(&m, 7, 100);
+    rfm_move_screen(&m, NULL, out);
+    for (y = 26; y < 29; y++)
+        for (x = 34; x < 37; x++)
+            CHECK(px_at(out, x, y));                    /* FX: the grid's first cell */
+    CHECK(px_at(out, 55, 31) && px_at(out, 54, 30) && px_at(out, 56, 32));   /* REC: the last */
+    CHECK(px_at(out, 11, 32) && px_at(out, 13, 32) && !px_at(out, 8, 32));   /* OCT+ yes, OCT- no */
+    CHECK(!px_at(out, 8, 43) && !px_at(out, 9, 46) && !px_at(out, 10, 38) && !px_at(out, 11, 41));
+    CHECK(!px_at(out, 53, 43) && !px_at(out, 54, 46) && px_at(out, 50, 43));
+    CHECK(art_diff(out) == 9 + 9 + 3 + 3 * 8);
+    gold("fm1_live", out, GOLD_FM1_LIVE);
+    pad(&m, 16, 0), pad(&m, 25, 0), pad(&m, 7, 0);
+    button(&m, MR_CC_REC, 0), button(&m, MR_CC_RIGHT, 0);
+    memset(lv, 0, sizeof lv);
+    rfm_move_panel(&m, lv, 0);
+    rfm_move_screen(&m, NULL, out);
+    CHECK(art_diff(out) == 0);
+
+    /* the knob popup: a turn (the firmware's label, this gesture's detents) */
+    touch(&m, 4, 1);
+    knob(&m, 4, 2), knob(&m, 4, 1);
+    rfm_move_screen(&m, NULL, out);
+    CHECK(m.pop == POP_ENC && m.pop_val == 3);
+    CHECK(px_at(out, 2, 2) && px_at(out, 125, 61) && !px_at(out, 3, 3));     /* the frame */
+    gold("knob", out, GOLD_KNOB);
+    ms(&m, 3 * RFM_MOVE_POPUP_MS);                      /* held: it stays */
+    rfm_move_screen(&m, NULL, out2);
+    CHECK(!memcmp(out, out2, sizeof out));
+    touch(&m, 4, 0);
+    ms(&m, RFM_MOVE_POPUP_MS - 10);
+    rfm_move_screen(&m, NULL, out2);
+    CHECK(!memcmp(out, out2, sizeof out));              /* .. and a moment after the release */
+    CHECK(rfm_move_screen_timed(&m));                   /* (the host draws again as the clock runs) */
+    ms(&m, 10);
+    rfm_move_screen(&m, NULL, out);
+    CHECK(art_diff(out) == 0 && !rfm_move_screen_timed(&m));   /* then it drops */
+    knob(&m, 4, -1);                                    /* a new gesture: the count starts again */
+    CHECK(m.pop_val == -1);
+    ms(&m, RFM_MOVE_POPUP_MS);
+    knob(&m, 8, -16);                                   /* the volume knob: MASTER (768 - 256 = 512: 50 %) */
+    rfm_move_screen(&m, NULL, out);
+    CHECK(m.pop == POP_MASTER);
+    gold("master", out, GOLD_MASTER);
+    ms(&m, RFM_MOVE_POPUP_MS);
+
+    /* MIDI mode: the pad map (C major from C3: the bottom-left pad the root) */
+    track(&m, 1, 1), track(&m, 1, 0);
+    rfm_move_screen(&m, NULL, out);
+    CHECK(px_at(out, 1, 49) && px_at(out, 7, 55) && px_at(out, 14, 62));      /* pad 0: the root, filled */
+    CHECK(px_at(out, 17, 49) && !px_at(out, 23, 55));                         /* pad 1: D, outlined */
+    gold("midi", out, GOLD_MIDI);
+    pad(&m, 1, 90);
+    rfm_move_screen(&m, NULL, out);
+    CHECK(px_at(out, 18, 50) && !px_at(out, 21, 53) && px_at(out, 27, 62));   /* pressed: filled, a black square */
+    gold("midi_hit", out, GOLD_MIDI_HIT);
+    pad(&m, 1, 0);
+    touch(&m, 4, 1);                                    /* MIDI mode: a touch alone brings the popup */
+    rfm_move_screen(&m, NULL, out);
+    CHECK(m.pop == POP_ENC && px_at(out, 2, 2));
+    touch(&m, 4, 0);
+    ms(&m, RFM_MOVE_POPUP_MS);
+    /* Track 2 held: the menu (layout, scale, root, channel); then the scale changed: its name at 2x */
     track(&m, 1, 1);
+    pad(&m, 17, 100), pad(&m, 17, 0);                   /* row 2, pad 2: minor */
+    rfm_move_screen(&m, NULL, out);
+    CHECK(m.menu_what == MENU_SCALE && m.s.scale == RFM_MOVE_SCALE_MINOR);
+    CHECK(px_at(out, 17, 7) && !px_at(out, 3, 7) && px_at(out, 1, 6));        /* scale 2 filled, 1 outlined */
+    gold("menu_midi", out, GOLD_MENU_MIDI);
+    pad(&m, 16, 100), pad(&m, 16, 0);
+    pad(&m, 26, 100), pad(&m, 26, 0);                   /* the drum layout: a pad held + the jog wheel, its note */
     track(&m, 1, 0);
+    pad(&m, 7, 100);
+    jog(&m, -2);
     rfm_move_screen(&m, NULL, out);
-    h = fnv(out, MR_SCREEN_BYTES);
-    write_pbm("move_midi.pbm", out);
-    printf("screen midi: %08x\n", h);
-    CHECKF(GOLD_MIDI == 0 || h == GOLD_MIDI, "MIDI view %08x, golden %08x", h, GOLD_MIDI);
-    track(&m, 2, 1);
+    CHECK(m.pop == POP_DRUM && m.pop_i == 7 && m.s.drum[7] == 34 && px_at(out, 2, 2));
+    write_pbm("move_pop_drum.pbm", out);
+    pad(&m, 7, 0);
+    ms(&m, RFM_MOVE_POPUP_MS - 1);
+    CHECK(rfmv_pop_up(&m, POP_DRUM));
+    ms(&m, 1);
+    CHECK(!rfmv_pop_up(&m, POP_DRUM));
+    track(&m, 1, 1), pad(&m, 24, 100), pad(&m, 24, 0), track(&m, 1, 0);
+
+    /* Control mode: the banks, the 8 values (64 at first: half full) */
+    track(&m, 2, 1), track(&m, 2, 0);
+    knob(&m, 1, 36);                                    /* knob 2: 100 */
+    ms(&m, RFM_MOVE_POPUP_MS);
     rfm_move_screen(&m, NULL, out);
-    h = fnv(out, MR_SCREEN_BYTES);
-    write_pbm("move_held.pbm", out);
-    printf("screen held: %08x\n", h);
-    CHECKF(GOLD_HELD == 0 || h == GOLD_HELD, "held menu %08x, golden %08x", h, GOLD_HELD);
-    CHECK(GOLD_DEFAULT && GOLD_MIDI && GOLD_HELD);
+    CHECK(px_at(out, 1, 1) && px_at(out, 30, 4) && px_at(out, 33, 1) && !px_at(out, 40, 3));
+    CHECK(px_at(out, 7, 63) && px_at(out, 7, 37) && !px_at(out, 7, 34) && px_at(out, 23, 21));
+    gold("control", out, GOLD_CONTROL);
+    knob(&m, 0, 1);
+    rfm_move_screen(&m, NULL, out);
+    CHECK(m.pop == POP_CC && m.pop_i == 0);
+    gold("cc", out, GOLD_CC);
+    ms(&m, RFM_MOVE_POPUP_MS);
+    rfm_move_screen(&m, NULL, out2);
+    CHECK(px_at(out, 66, 0) && !px_at(out2, 66, 0));    /* dropped (the hatching gone) */
+    track(&m, 2, 1);                                    /* Track 3 held + knob 3: its CC number */
+    knob(&m, 2, 2);
+    rfm_move_screen(&m, NULL, out);
+    CHECK(m.menu_what == MENU_CC && m.menu_i == 2 && m.s.cc[0][2] == 20 && px_at(out, 40, 50));
+    gold("menu_cc", out, GOLD_MENU_CC);
+    track(&m, 2, 0);
+    CHECK(GOLD_FM1 && GOLD_FM1_LIVE && GOLD_KNOB && GOLD_MASTER && GOLD_MIDI && GOLD_MIDI_HIT && GOLD_CONTROL &&
+          GOLD_CC && GOLD_MENU_MIDI && GOLD_MENU_CC);
 }
 
 /* the thumbnail is a luminance threshold, no dither: flat colours come out solid, 1 px strokes survive */

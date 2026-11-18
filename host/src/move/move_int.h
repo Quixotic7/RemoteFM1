@@ -36,10 +36,25 @@ void rfmv_note_hold(rfm_move_t *m, int ch, int n, int vel);
 void rfmv_note_let(rfm_move_t *m, int ch, int n);
 void rfmv_let_go(rfm_move_t *m, rfm_move_hold_t *h);
 
-/* the screen */
-void rfmv_text(mr_canvas_t *cv, int x, int y, const char *s, int maxch);
-void rfmv_title(mr_canvas_t *cv, int w, const char *s);
+int rfmv_level(const rfm_move_t *m, int id);           /* the FM-1 LED level 0..255 of a panel id (0..13, 14 + key) */
+
+/* ---- screen.c: the screen (every mode's picture, the popups, the held Track buttons' menus) */
+enum { POP_NONE = 0, POP_ENC, POP_MASTER, POP_CC, POP_SELECT, POP_DRUM, POP_TEMPO, POP_LOOP, POP_BANK, POP_STEP,
+       POP_PROJ };
+enum { MENU_NONE = 0, MENU_LAYOUT, MENU_SCALE, MENU_ROOT, MENU_CHANNEL, MENU_CC, MENU_TRACK, MENU_TCH };
+uint32_t rfmv_now_ms(const rfm_move_t *m);             /* the sequencer clock's ms (what popups time out on) */
+void rfmv_pop(rfm_move_t *m, int kind, int i);          /* a popup up (again) now */
+void rfmv_pop_let(rfm_move_t *m, int kind, int i);      /* its control let go: it drops RFM_MOVE_POPUP_MS from now */
+int rfmv_pop_up(const rfm_move_t *m, int kind);         /* that popup is up now */
+void rfmv_menu(rfm_move_t *m, int what, int i);         /* a held Track button's menu: what changed */
+int rfmv_big(mr_canvas_t *cv, int x, int y, const char *s, int k, int on);   /* font5x7 at k x; returns the end x */
+int rfmv_big_w(const char *s, int k);                   /* .. its width */
+void rfmv_dotted(mr_canvas_t *cv, int x, int y, int w, int h);   /* a dotted outline */
+void rfmv_tri(mr_canvas_t *cv, int x, int y, int w, int h, int on);   /* a play triangle, pointing right */
+void rfmv_disc(mr_canvas_t *cv, int x, int y, int d, int on);         /* a filled circle in a d x d box */
+void rfmv_frame(mr_canvas_t *cv, int x, int y, int w, int h);         /* a popup's box: black, a 1 px white frame */
 const char *rfmv_note_name(int n, char *b, int cap);
+void rfmv_fm1_art(const rfm_move_t *m, mr_canvas_t *cv);   /* FM-1 mode's left half: the owner's drawing, live */
 
 /* ---- seq.c: the data model (sorted arrays), the journal, the clock, the engine */
 #define SEQ_CLIP(track, scene) ((track) * RFM_MOVE_SEQ_SCENES + (scene))
@@ -89,6 +104,7 @@ void rfmv_seq_launch_scene(rfm_move_t *m, int scene);
 void rfmv_seq_mute(rfm_move_t *m, int track, int on);
 int rfmv_seq_now_tick(const rfm_move_t *m);            /* the song tick now (rounded to the nearest) */
 int rfmv_seq_clip_pos(const rfm_move_t *m, int track); /* the active clip's step now, -1 not playing */
+int rfmv_seq_clip_tick(const rfm_move_t *m, int track);   /* .. its tick in the clip now, -1 */
 /* live pad notes in Sequencer mode: recording and capture */
 void rfmv_seq_pad_on(rfm_move_t *m, int pad, int note, int vel);
 void rfmv_seq_pad_off(rfm_move_t *m, int pad, int note);
@@ -101,12 +117,14 @@ void rfmv_proj_open(rfm_move_t *m, int slot);          /* grid: load (current sa
 void rfmv_proj_delete(rfm_move_t *m, int slot);
 void rfmv_proj_save_now(rfm_move_t *m);                /* PROJECT_SAVE for the current slot */
 void rfmv_proj_poll(rfm_move_t *m);                    /* the autosave's debounce (from advance) */
+void rfmv_proj_info(const rfm_move_t *m, int slot, rfm_move_proj_info_t *o);   /* the current one: live */
 
 /* ---- seq_ui.c: Sequencer mode */
 enum { SEQ_M_SHIFT = 1, SEQ_M_COPY = 2, SEQ_M_DELETE = 4, SEQ_M_MUTE = 8, SEQ_M_LOOP = 16 };
 enum { SEQ_MSG_NONE = 0, SEQ_MSG_NOCLIP, SEQ_MSG_FULL, SEQ_MSG_LOADFAIL, SEQ_MSG_CAPTURED, SEQ_MSG_UNDO,
        SEQ_MSG_REDO, SEQ_MSG_COPIED, SEQ_MSG_PASTED, SEQ_MSG_CUT, SEQ_MSG_QUANT, SEQ_MSG_DOUBLE, SEQ_MSG_EXTTAP,
-       SEQ_MSG_DUP, SEQ_MSG_CLEARED, SEQ_MSG_CAPCLEAR };
+       SEQ_MSG_DUP, SEQ_MSG_CLEARED, SEQ_MSG_CAPCLEAR, SEQ_MSG_CLK_AUTO, SEQ_MSG_CLK_INT, SEQ_MSG_CLK_EXT,
+       SEQ_MSG_FULLVEL_ON, SEQ_MSG_FULLVEL_OFF };
 void rfmv_seq_ui_release(rfm_move_t *m);               /* leaving the mode / release-all: held things let go */
 void rfmv_seq_pad(rfm_move_t *m, int p, int vel, uint32_t now);
 void rfmv_seq_step(rfm_move_t *m, int s, int down, uint32_t now);
@@ -117,7 +135,8 @@ void rfmv_seq_jog(rfm_move_t *m, int d, uint32_t now);
 void rfmv_seq_leds(const rfm_move_t *m, rfmv_rgb_t c[L_WHITE0], uint8_t white[13]);
 void rfmv_seq_screen(const rfm_move_t *m, mr_canvas_t *cv);
 void rfmv_seq_track_menu(const rfm_move_t *m, mr_canvas_t *cv);   /* Track 4 held */
-void rfmv_seq_badge(const rfm_move_t *m, mr_canvas_t *cv);       /* other modes: the sequencer is playing */
 void rfmv_seq_msg(rfm_move_t *m, int msg);
+const char *rfmv_seq_msg_text(const rfm_move_t *m);    /* the message up now, NULL none */
+int rfmv_seq_steps_row(const rfm_move_t *m, mr_canvas_t *cv);   /* track view's 16 steps at the bottom; the page's first step */
 
 #endif

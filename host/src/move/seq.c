@@ -765,6 +765,11 @@ int rfmv_seq_clip_pos(const rfm_move_t *m, int track)
     const int lt = q->playing ? clip_lt(q, track, q->T < 0 ? 0 : q->T) : -1;
     return lt < 0 ? -1 : lt / TPS;
 }
+int rfmv_seq_clip_tick(const rfm_move_t *m, int track)
+{
+    const rfm_move_seq_t *q = &m->seq;
+    return q->playing ? clip_lt(q, track, q->T < 0 ? 0 : q->T) : -1;
+}
 
 /* ================================================================ the clock === */
 static int ext_bpm10(const rfm_move_seq_t *q)

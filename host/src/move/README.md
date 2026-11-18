@@ -10,11 +10,12 @@ the top). Licence: MPL-2.0, like the OMX-27 modules and the rest of the host lib
 | File | What |
 |---|---|
 | `host/include/rfm/move.h` | the API |
-| `host/src/move/move.c` | the mapping, the MIDI modes, the LEDs, the screen |
+| `host/src/move/move.c` | the mapping, the MIDI modes, the LEDs |
+| `host/src/move/screen.c` | the screen: FM-1, MIDI and Control mode, the popups, the held Track buttons' menus |
 | `host/src/move/seq.c` | the sequencer: its data, undo journal, clipboard, clock and engine |
-| `host/src/move/seq_ui.c` | Sequencer mode: the Move's controls on the sequencer, its LEDs and screen |
+| `host/src/move/seq_ui.c` | Sequencer mode: the Move's controls on the sequencer, its LEDs and screens |
 | `host/src/move/project.c` | the project blob, the 32 project slots, the autosave |
-| `host/src/move/move_int.h` | what those four files share (not an API; the tests read the data model through it) |
+| `host/src/move/move_int.h` | what those five files share (not an API; the tests read the data model through it) |
 | `host/third_party/moveremote/` | libmoveremote's host side, vendored (upstream `bf01bb9`, MPL-2.0) |
 | `host/tests/test_move.c` | ctest `move` |
 | `host/tests/test_move_seq.c` | ctest `move_seq`: the sequencer |
@@ -65,7 +66,7 @@ layout (the current one bright), steps 1..16 pick the channel (the current one l
 Pads: the root in the mode colour, in-scale notes white-ish, the rest dim, pressed ones white, notes past 0..127 off.
 The scale and root are settings (`rfm_move_set_scale`: major, minor, dorian, mixolydian, the two pentatonics,
 harmonic minor, blues). **Hold Track 2**: row 2's eight pads pick the scale in that order, the jog wheel the root
-(C..B, wrapping); the held screen shows them. MIDI, Control and Sequencer mode share these settings.
+(C..B, wrapping); the held screen shows them (below, "The screen"). MIDI, Control and Sequencer mode share these settings.
 
 ### 3. Control mode
 
@@ -78,7 +79,7 @@ bank 2 CC 24..31, bank 3 CC 102..109, bank 4 CC 110..117. The volume knob is sti
 
 A Move-style sequencer that takes over the whole surface except the Track buttons and the volume knob (MASTER).
 16 tracks, track n on MIDI channel n (per track, changeable); 16 scenes; a clip per track and scene; projects. It
-keeps playing in every mode (a small play triangle at the end of the title bar says so); Back returns to FM-1 mode.
+keeps playing in every mode (in FM-1 mode a small play triangle over the drawing says so); Back returns to FM-1 mode.
 
 **Two views** (Menu toggles; Track view first):
 
@@ -128,7 +129,7 @@ no clip in that scene.
 | Move | Sequencer |
 |---|---|
 | Play | start / stop (when following an external clock: start at its next bar). Shift + Play: every clip again from its start, at once (Move's retrigger) |
-| Rec | arm / disarm recording. Armed while stopped: a bar's count-in (Rec blinks, the screen counts the beats; Rec again cancels), then the transport starts (following an external clock: at its next bar). Pads record into the selected track's playing clip |
+| Rec | arm / disarm recording. Armed while stopped: a bar's count-in (Rec blinks, the screen counts the beats at 4x; Rec again cancels), then the transport starts (following an external clock: at its next bar). Pads record into the selected track's playing clip |
 | Capture | Move's capture: the pad notes of the last 8 bars become a clip on the selected track (stopped: the transport starts with it). Shift + Capture: the capture forgotten. Play also forgets it |
 | Sample | tap tempo (the average of up to 4 taps; ignored, and "EXT TEMPO" shown, when following) |
 | Loop | held: the steps show the clip's pages (the shown page white, pages in the clip the track's colour, the rest dim); + step n: n pages long; + jog: a page a detent (Shift: a step). Shift + Loop: double the loop |
@@ -148,18 +149,7 @@ white, empty: faint). A pad: the current project is saved, then that one is load
 Delete + pad deletes a project (the current one empties). The current pad, Shift + step 1 or Back leaves. Changes
 are autosaved 2 s after the last edit (`RFM_MOVE_AUTOSAVE_MS`), and on every switch.
 
-**Screen (track view).** The view and the project in the title (with play / armed / rec marks), the track and
-channel, the tempo and its source (INT / EXT), the clip, page and the last notes (the first, "+n" more), the
-transport with bar.beat.16th (or the count-in's beats), the held step's notes, length, velocity, offset and locks
-(else Shift's states, a message, or the last knob), and a 16-cell bar: the page's steps (filled = notes), the
-playhead above.
-
-**Screen (session view)**: a picture of the clips, little text. The title: the project, the play / rec marks, the
-tempo (a message instead for 1.5 s). Below, the page's 8 tracks as columns with their numbers (the selected track
-inverted, a muted one struck through) and 8 scenes as rows, the 4 on the pads bracketed at the sides (the 8 shown
-follow the pads' scroll). Each clip: empty a dot, content an outline, playing filled with its playhead a gap moving
-through it, queued to launch blinking, about to stop blinking, recording a checker (blinking while it waits for the
-bar); the selected clip has a bar at its left. At the bottom the bar's 16ths, the current one a block.
+**Screens**: track view, session view and the project grid are pictures (below, "The screen").
 
 **Move's sequencer and this one.** Checked against the Move manual (ableton.com/en/move/manual: step sequencing,
 Session, Loop, Copy / Delete, Record, Capture, the Shift shortcuts). Changed to match: chord entry with held pads,
@@ -247,6 +237,7 @@ rfm_move_input(&m, &mr_event, now_ms);            /* from mr_client's on_input *
 rfm_move_panel(&m, levels44, play_green);         /* levels[col * 4 + line] 0..255: fm1panel_t led[11][4] */
 n = rfm_move_leds(&m, out, max);                  /* only the changed LEDs: mr_led_rgb / mr_led each */
 rfm_move_screen(&m, rgb565_240x240_or_NULL, packed1024);   /* then mr_display */
+rfm_move_screen_timed(&m);                        /* 1: draw again as the clock runs (a popup up, playing) */
 rfm_move_release_all(&m);                         /* the link dropped, or the host leaves Move control */
 rfm_move_leds_invalidate(&m);                     /* a new connection: repaint */
 rfm_move_set_master(&m, v); rfm_move_set_label(&m, enc, "CUTOFF"); rfm_move_set_keymap(&m, km);
@@ -264,6 +255,7 @@ n = rfm_move_project_save(&m, out, cap);          /* export: <= RFM_MOVE_PROJECT
 rfm_move_project_check(blob, n);                  /* import: 0 valid */
 rfm_move_project_load(&m, slot, blob, n);         /* PROJECT_LOAD's answer (also at start); NULL/0 = empty; < 0 invalid */
 rfm_move_project_dir(&m, used_bits); rfm_move_project_flush(&m); rfm_move_project_slot(&m);
+rfm_move_project_info(&m, slot, blob, n);         /* a stored project's content, for the grid's bars and its popup */
 ```
 
 Every action has `frame`: for actions from `rfm_move_seq_advance`, the offset (in that call's units, from the
@@ -282,16 +274,73 @@ the firmware's MIDI in), `SETTINGS` (save them). Buttons and encoders are in pro
 libremotefm1's `rfm_event_t`: buttons 0 OCT- 1 OCT+ 2 FX 3 SEL 4 ENV 5 LFO 6 EDIT 7 GLO 8 HOME 9 SAVE 10 ARP 11 SEQ
 12 PLAY 13 REC; encoders 0 SELECT 1 ALGO 2..5 K1..K4 6 PRESETS (panel.js `labelToMatrix` / `roleToMatrix`).
 
-The screen (128 × 64; Sequencer mode has its own, above): the FM-1's screen as a 64 × 64 black-and-white thumbnail (a luminance threshold, RFM_MOVE_THUMB_LUMA; no dither) on the right; on the left the mode, and in
-FM-1 mode the last knob touched or turned (the firmware's label when the host gave one, else SELECT .. PRESETS,
-MASTER) with its turn or value; in the MIDI modes the layout or bank, channel, octave, key and the last control.
-While a Track button is held, that mode's menu fills the screen.
+## The screen
+
+The owner's design (`Move Screen UI for RemoteFM1`: one HTML mockup a screen at 4x, the geometry in native pixels,
+followed exactly). The Move's screen is small, so **at rest every screen is symbols and pictures only**; words come
+in large popups (font5x7 at 2x, numbers at 4x) while a knob is touched or turned, a step or a project pad is held, and
+for `RFM_MOVE_POPUP_MS` (1 s) after the release or the last turn. The popups time out on the sequencer's clock
+(`rfm_move_seq_advance`, which hosts call in every mode); `rfm_move_screen_timed` says when the screen changes with
+the clock alone (a popup up, playing), so the host draws it again then.
+
+| Screen | What it draws |
+|---|---|
+| FM-1 mode | left: the owner's 64 × 64 drawing of the FM-1, pixel for pixel, live (below); right: the FM-1's screen, 64 × 64 black and white (a luminance threshold, `RFM_MOVE_THUMB_LUMA`; no dither) |
+| MIDI mode | the 8 × 4 pad map (14 × 14 cells, 16 px apart): the root filled, in the scale outlined, out of it a 2 × 2 dot, a pressed pad filled with a 6 × 6 black square |
+| Control mode | the 4 banks as tabs (the current one filled), the 8 values as full-height bars |
+| Track view | the clip's pages on top (the shown one filled, in the loop outlined, past it dotted; 4 segments, 8 or 16 thinner ones past 4 or 8 pages), the page's notes as a piano roll (8 px a step, 3 px a semitone up from the page's lowest note, squeezed past 13 semitones; the beats dotted; the playhead a 1 px line), the 16 steps at the bottom (notes or the playhead filled, empty outlined, past the clip's end dotted) |
+| Session view | the page's 8 tracks across, the 4 scenes on the pads down (14 × 13 cells): a 2 px bar over the selected track (muted: a dotted line there); a clip empty (a dot), with content (an outline), playing (filled, a black ▶), queued (a blinking outline), stopping (blinking between playing and an outline), recording (filled, a black ●; blinking while it waits for the bar) |
+| Project grid | the 32 slots as the pads are: the current one filled, a saved one outlined, each with three bars (its tracks with notes in three groups, a bar's height the bits of their note count, at most 8), an empty slot a dot; a project loading blinks |
+
+**FM-1 mode's drawing, live.** The drawing stays as drawn (its mini screen too) but for:
+
+- **encoders**: the touched knob's 2 × 2 dot inverted in a 6 × 6 block. The left 2 × 2 are MASTER, SELECT (top) and
+  PRESETS, ALGO (bottom), as on the FM-1 (and the web player's panel); the row of 4 over the buttons K1..K4. So:
+  the volume knob MASTER, knob 1 PRESETS, knob 2 ALGO, knobs 5..8 K1..K4, the jog wheel SELECT (lit while touched,
+  or a second after a turn). In FM-1 mode a touch alone marks the drawing; a turn brings the knob popup.
+- **buttons**: a cell filled while the FM-1's LED for it is at `RFM_MOVE_SCREEN_LIT` (64) or more, or the button is
+  held. The 6 × 2 grid in the panel's order, FX SEL ENV LFO EDIT GLO over HOME SAVE ARP SEQ PLAY REC; OCT- and OCT+
+  are the box of two at the left (its 3 × 1 slots).
+- **keys**: a held key's 2 × 4 block goes dark. The bottom row's 16 blocks are the 16 white keys (key 0 F3 .. key
+  26 G5); the top row's 15 blocks sit in the gaps between them, and each black key is the block in the gap after its
+  white key (F# after F ...); the gaps B-C and E-F have no key, their blocks stay as drawn.
+
+**Popups** (a 1 px white frame over the screen):
+
+| Popup | When | What |
+|---|---|---|
+| knob | a knob touched or turned: FM-1 encoders (in MIDI mode on a touch, in FM-1 mode on a turn), Control / Sequencer CCs, the volume knob; Sequencer mode: Shift + jog or tap tempo, Loop held, the jog's bank; a drum pad + jog | the label at 2x (the firmware's label, else SELECT .. PRESETS; `CC 16`; MASTER; TEMPO, LOOP, BANK, DRUM), the value at 2x with its unit small (% BPM BARS LOCK ..), a thick bar, a dial with its pointer; the right half hatched behind. An FM-1 encoder is relative: its value is this gesture's detents (+3), the bar from the middle, the dial turning 15° a detent |
+| step | a step held in track view | its notes as inverted chips (the first two and "+n" past three), the velocity (a level) and the length in steps (a bracket) at 2x; the steps row stays below, the held step marked over it. A tap that leaves the step empty (cleared) drops it at once |
+| project | a project pad held in the grid (also once that project is open: the grid closes on the load) | its number at 4x, a bar a track (its notes; 16 thinner bars when tracks 9..16 have notes), ▶ the tempo, the clip symbol and the clips |
+| message | an action's result (UNDO, COPIED, CLOCK AUTO, FULL VEL ..), 1 s | the words at 2x, a line or two |
+| count-in | Rec from stopped | the beats to go at 4x, a recording dot |
+
+The newer of a control's popup and a message shows; the count-in shows under both. The core knows the current
+project's content; for the others the host passes each stored blob once (`rfm_move_project_info`: at start and after
+an import; saves, loads and deletes keep it up to date). A project it was not given is drawn outlined, without bars.
+
+**Held Track buttons** fill the screen with their menu, in the same language (Track 1 has none: FM-1 mode stays):
+
+- **Track 2**: the 4 layouts as tabs (the top row's pads 1..4), the 8 scales (row 2's pads), the root as a keyboard
+  octave (the jog wheel), the 16 channels as the steps; the setting changed last at 2x (`C MIN`, `DRUM`, `CH 5`).
+- **Track 3**: the bank's tabs, the 8 knobs (the one turned filled), its CC number at 2x (`CC 20`).
+- **Track 4** (Sequencer): the 16 tracks as the steps (selected filled, with content outlined, empty dotted, muted
+  flagged above), the selected track's channel as a strip of 16 (the jog wheel), `TR 3` or `CH 5` at 2x.
+
+**Where it departs from the mockups**: the mockups' Silkscreen text is font5x7 at 2x (labels of 8 characters at
+11 px a character, more cut to 8); in FM-1 mode a touch alone marks the encoder on the drawing and the popup comes
+with the turn (it would otherwise cover the mark), and the jog wheel (SELECT) gets no popup, so the FM-1's screen
+stays in view while its menus are scrolled; the step popup shows the first note's velocity and length (offsets and
+CC locks are not on the screen any more; a held step's lock shows in the knob popup as `LOCK`); muted tracks, the
+stopping and waiting states and the 16-page clips are drawn in the design's symbols, where the mockups had none.
 
 ## Tests
 
 `host/run_tests.sh` runs `move` (the mapping against the design's labels, every button and knob, MASTER's
 clamping, mode changes and release-all, the four layouts' notes, drum editing and the settings round trip, the CC
-banks and reassignment, LED diffing, three golden screens: their PBMs land in `host/build-asan/move_*.pbm`) and
+banks and reassignment, LED diffing; the screen: FM-1 mode at rest exactly the owner's drawing (the PNG's rows), the
+live encoders, buttons and keys, the popups' life (held, then a second), ten golden screens: their PBMs land in
+`host/build-asan/move_*.pbm`) and
 `move_e2e`: Move Remote's simulator (`make sim` in an abletonmoveremote checkout; found beside this repo, or
 `-DRFM_MOVEREMOTE_SIM=`, or `$MOVEREMOTE_SIM`) gets presses through its test FIFO, and the test checks the actions,
 the LED writes, and the simulator's screen shot against the frame sent, then a short sequencer run (Track 4, two
@@ -307,7 +356,9 @@ next bar, the timeout), quantized launches and scenes, mutes and every path that
 quantize, micro offsets, growing clips), Capture (Shift + Capture, Shift + Play's retrigger), copy / cut / paste / undo / redo and the journal's overflow, CC locks, scale
 and root, the project grid's actions (sync and async answers, a failed load, delete), the autosave's debounce, the
 blob round trip and a fuzzed loader (every truncation, 3000 random blobs, 20000 mutations with the check fixed up),
-and three golden screens (track, session, project grid: `move_seq_*.pbm` in the build directory).
+the project info for the grid (from blobs, a broken one refused), the popups' life (a held step, Loop, tempo, CCs,
+a lock, messages over popups), and eight golden screens (track view, the step popup, session, project grid, the
+project popup, the Track 4 menu, the count-in, a message: `move_seq_*.pbm` in the build directory).
 
 ## Later phases
 

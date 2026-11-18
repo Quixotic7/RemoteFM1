@@ -167,6 +167,7 @@ EMSCRIPTEN_KEEPALIVE int mw_seq_bpm10(const mw_t *w) { return rfm_move_seq_bpm10
 EMSCRIPTEN_KEEPALIVE void mw_seq_set_clock(mw_t *w, int mode) { rfm_move_seq_set_clock(&w->m, mode); }
 EMSCRIPTEN_KEEPALIVE int mw_seq_following(const mw_t *w) { return rfm_move_seq_following(&w->m); }
 EMSCRIPTEN_KEEPALIVE int mw_seq_playing(const mw_t *w) { return w->m.seq.playing; }
+EMSCRIPTEN_KEEPALIVE int mw_screen_timed(const mw_t *w) { return rfm_move_screen_timed(&w->m); }
 
 /* projects: the host's store answers PROJECT_LOAD with mw_project_load; slot used bits; a blob for export */
 EMSCRIPTEN_KEEPALIVE int mw_project_load(mw_t *w, int slot, const uint8_t *b, uint32_t n)
@@ -178,6 +179,8 @@ EMSCRIPTEN_KEEPALIVE int mw_project_load(mw_t *w, int slot, const uint8_t *b, ui
 }
 EMSCRIPTEN_KEEPALIVE int mw_project_check(const uint8_t *b, uint32_t n) { return rfm_move_project_check(b, n); }
 EMSCRIPTEN_KEEPALIVE void mw_project_dir(mw_t *w, uint32_t used) { rfm_move_project_dir(&w->m, used); }
+/* a stored project's content for the grid's bars and its popup (rfm_move_project_info) */
+EMSCRIPTEN_KEEPALIVE int mw_project_info(mw_t *w, int slot, const uint8_t *b, uint32_t n) { return rfm_move_project_info(&w->m, slot, b, n); }
 EMSCRIPTEN_KEEPALIVE int mw_project_flush(mw_t *w)
 {
     BEGIN(w);
