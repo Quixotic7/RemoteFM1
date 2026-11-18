@@ -96,6 +96,14 @@ static void button(rfm_move_t *m, int cc, int down) { raw(m, 0xB0, (uint8_t)cc, 
 static void write_pbm(const char *path, const uint8_t *packed);
 static void rest(rfm_move_t *m);
 static int px_at(const uint8_t *packed, int x, int y);
+static int lit_in(const uint8_t *out, int x0, int y0, int x1, int y1)
+{
+    int x, y, n = 0;
+    for (y = y0; y < y1; y++)
+        for (x = x0; x < x1; x++)
+            n += out[(y >> 3) * 128 + x] >> (y & 7) & 1;
+    return n;
+}
 static int lit(const uint8_t *packed)                   /* the pixels on */
 {
     int i, n = 0;
@@ -1317,7 +1325,7 @@ static void write_pbm(const char *path, const uint8_t *packed)
     fclose(f);
 }
 
-#define GOLD_TRACK 0x9af1e831u
+#define GOLD_TRACK 0xa1088f61u
 #define GOLD_STEP 0x7923b304u
 #define GOLD_SESSION 0xa247c937u
 #define GOLD_PROJECTS 0x5204a535u
@@ -1374,7 +1382,7 @@ static void test_screens_leds(void)
     rfm_move_screen(m, NULL, out);
     CHECK(px_at(out, 64, 61) && px_at(out, 64, 63) && !px_at(out, 64, 58));  /* the strip: one page, thick */
     CHECK(px_at(out, 40, 7) && px_at(out, 40, 50) && !px_at(out, 41, 7));    /* the playhead: step 6 (+ 10 frames) */
-    CHECK(px_at(out, 1, 10) && px_at(out, 1, 22) && px_at(out, 1, 38) && px_at(out, 33, 38));   /* C3 E3 G3 on step 1, C3
+    CHECK(px_at(out, 1, 8) && px_at(out, 1, 17) && px_at(out, 1, 29) && px_at(out, 33, 29));   /* C3 E3 G3 on step 1, C3
                                                          * on step 5 (rows of 4 px, centred) */
     gold("track", out, GOLD_TRACK);
     step(m, 0, 1);
@@ -1543,10 +1551,31 @@ static void test_popups(void)
     const uint32_t pop_frames = RATE * RFM_MOVE_POPUP_MS / 1000;
     fresh(m);
     rfm_move_seq_set_clock(m, RFM_MOVE_CLOCK_INTERNAL);
-    /* a held step: no popup for a tap, its popup after RFM_MOVE_SEQ_HOLD_MS held, a second after; a held empty
-     * step stays empty (the owner: no last notes), a held step with notes is kept (never deleted) */
+    /* a held step: no popup for a tap (not a frame of it, none after), its popup after RFM_MOVE_SEQ_HOLD_MS held and
+     * only while held (the owner's); a held empty step stays empty (the owner: no last notes), a held step with
+     * notes is kept (never deleted); the steps row always there (no flicker) */
     {
-        int lo;
+        int lo, t;
+        uint8_t rest_scr[MR_SCREEN_BYTES];
+        m->pop = POP_NONE, m->seq.msg = 0;
+        rfm_move_screen(m, NULL, rest_scr);
+        CHECK(px_at(rest_scr, 0, 47) || px_at(rest_scr, 0, 57));   /* (the steps row at rest) */
+        for (t = 0; t < 3; t++) {                       /* quick taps, the screen sampled throughout */
+            int k, popped = 0;
+            step(m, 5, 1);
+            for (k = 0; k < 7; k++) {                   /* (280 ms down) */
+                adv(m, RATE * 40 / 1000);
+                rfm_move_screen(m, NULL, out);
+                popped |= rfmv_pop_up(m, POP_STEP) || !(px_at(out, 40, 47) || px_at(out, 40, 57));
+            }
+            step(m, 5, 0);
+            for (k = 0; k < 30; k++) {                  /* (and 1.2 s after) */
+                adv(m, RATE * 40 / 1000);
+                rfm_move_screen(m, NULL, out);
+                popped |= rfmv_pop_up(m, POP_STEP) || lit_in(out, 0, 0, 128, 20) > 40;
+            }
+            CHECKF(!popped, "a quick tap: no step popup (%d)", t);
+        }
         step(m, 2, 1);
         rfm_move_screen(m, NULL, out);
         CHECK(!rfmv_pop_up(m, POP_STEP) && !px_at(out, 6, 6));
@@ -1557,10 +1586,7 @@ static void test_popups(void)
         CHECK(rfmv_pop_up(m, POP_STEP));
         step(m, 2, 0);
         CHECK(rfmv_seq_range(m, 0, 2, &lo) == lo);      /* (held, nothing pressed: still empty) */
-        adv(m, pop_frames - 128);
-        CHECK(rfmv_pop_up(m, POP_STEP));
-        adv(m, 256);
-        CHECK(!rfmv_pop_up(m, POP_STEP));
+        CHECK(!rfmv_pop_up(m, POP_STEP));               /* (released: gone at once) */
         rfm_move_screen(m, NULL, out);
         CHECK(!px_at(out, 2, 30));
         tap_step(m, 2);                                 /* a tap on an empty step: the last notes, no popup */

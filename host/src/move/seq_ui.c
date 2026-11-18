@@ -646,12 +646,12 @@ void rfmv_seq_step(rfm_move_t *m, int s, int down, uint32_t now)
                     if (q->step_held >> i & 1)
                         q->step_first = (int8_t)i;
             }
-            if (m->pop == POP_STEP && m->pop_i == s && q->step_popped) {   /* its popup (a hold's): the next
-                                                         * held step's, or it drops */
-                if (q->step_first >= 0)
+            if (m->pop == POP_STEP && m->pop_i == s) {  /* its popup (a hold's): the next held step's, or it
+                                                         * goes at the release (the owner's: only while held) */
+                if (q->step_first >= 0 && q->step_popped)
                     rfmv_pop(m, POP_STEP, q->step_first);
                 else
-                    rfmv_pop_let(m, POP_STEP, s);
+                    m->pop = POP_NONE;
             }
             if (!q->step_held)
                 q->step_popped = 0;
@@ -1973,15 +1973,21 @@ void rfmv_seq_page_strip(const rfm_move_t *m, mr_canvas_t *cv, int at)
  * filled, empty outlined, copied dashed, cut crossed; the held ones (marks) underlined above */
 void rfmv_seq_steps_cells(const rfm_move_t *m, mr_canvas_t *cv, uint32_t marks)
 {
+    rfmv_seq_steps_at(m, cv, marks, 52);
+}
+void rfmv_seq_steps_at(const rfm_move_t *m, mr_canvas_t *cv, uint32_t marks, int y)
+{
     const rfm_move_seq_t *q = &m->seq;
-    const int clip = edit_clip(m);
+    const int clip = edit_clip(m), hi = rfmv_seq_loop_hi(m, clip), lo0 = rfmv_seq_loop_lo(m, clip);
     int i;
     for (i = 0; i < RFM_MOVE_NSTEPS; i++) {
-        const int abs = q->page * RFM_MOVE_SEQ_PAGE + i, src = rfmv_seq_src_step(m, clip, abs), x = i * 8, y = 52;
+        const int abs = q->page * RFM_MOVE_SEQ_PAGE + i, src = rfmv_seq_src_step(m, clip, abs), x = i * 8;
         int lo;
         const int notes = rfmv_seq_range(m, clip, abs, &lo) > lo;
         if (src == 2)
             v2_O(cv, x, y, 7, 11, 1), v2_X(cv, x + 1, y + 2, 5, 7);
+        else if ((abs < lo0 || abs >= hi) && !notes && !src)
+            v2_dotH(cv, x, y + 10, 7);                  /* (outside the loop: a dashed line) */
         else if (src == 1) {
             if (notes)
                 v2_R(cv, x + 2, y + 3, 3, 5, 1);
@@ -2118,9 +2124,9 @@ static void roll(const rfm_move_t *m, mr_canvas_t *cv, int y0, int h)
 static void track_screen(const rfm_move_t *m, mr_canvas_t *cv)
 {
     const rfm_move_seq_t *q = &m->seq;
-    const int cells = q->step_held || (q->mods & (SEQ_M_COPY | SEQ_M_DELETE)) || q->steprec;
-    int y0 = 0, h = cells ? 46 : 56;
-    if (q->arec && !cells) {                            /* the audio loop (V2Record rec.sample): the wave icon and
+    uint32_t marks = q->step_held;
+    int y0 = 0;
+    if (q->arec) {                                      /* the audio loop (V2Record rec.sample): the wave icon and
                                                          * "Sampling" (armed: "Sample", blinking), the take's levels
                                                          * scrolling from the right as bars about the centre line (flat
                                                          * before), the bar lines dashed; the strip its bars, the tick
@@ -2144,19 +2150,19 @@ static void track_screen(const rfm_move_t *m, mr_canvas_t *cv)
         } else
             v2_strip(cv, 4, 0, -1, 0, 128);
         return;
-    } else if (q->rec && running(q) && q->rec_mode != RFM_MOVE_RM_STEP) {
+    }
+    if (q->rec && running(q) && q->rec_mode != RFM_MOVE_RM_STEP) {
         v2_ic(cv, V2I_REC, 0, 2, 1);
         v2_T(cv, 16, 1, "Recording", 2, 1);
-        y0 = 20, h = cells ? 26 : 36;
+        y0 = 18;
     }
-    roll(m, cv, y0, h);
-    if (cells) {
-        uint32_t marks = q->step_held;
-        if (q->steprec && q->step_cur / RFM_MOVE_SEQ_PAGE == q->page)
-            marks |= 1u << (q->step_cur % RFM_MOVE_SEQ_PAGE);   /* (Step record's cursor) */
-        rfmv_seq_steps_cells(m, cv, marks);
-    } else
-        rfmv_seq_page_strip(m, cv, -1);
+    /* the owner's: the steps always at the bottom (the roll above them), the held ones marked over them; Move's strip
+     * under them (the pages, the playhead's tick) */
+    roll(m, cv, y0, 44 - y0);
+    if (q->steprec && q->step_cur / RFM_MOVE_SEQ_PAGE == q->page)
+        marks |= 1u << (q->step_cur % RFM_MOVE_SEQ_PAGE);   /* (Step record's cursor) */
+    rfmv_seq_steps_at(m, cv, marks, 47);
+    rfmv_seq_page_strip(m, cv, -1);
 }
 
 /* the 16 tracks on one row, as the 16 step keys: the selected one filled, muted crossed, soloed a square inside,

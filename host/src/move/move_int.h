@@ -66,6 +66,7 @@ int rfmv_seq_msg_info(const rfm_move_t *m, const char **a, const char **b, int *
 int rfmv_seq_end_page(const rfm_move_t *m, int clip);   /* the clip's last page (the loop's, or one with notes) */
 void rfmv_seq_loop_edit(const rfm_move_t *m, mr_canvas_t *cv);   /* Loop's page edit: the pages as cells */
 void rfmv_seq_page_strip(const rfm_move_t *m, mr_canvas_t *cv, int at);   /* Move's strip: pages, the playhead */
+void rfmv_seq_steps_at(const rfm_move_t *m, mr_canvas_t *cv, uint32_t marks, int y);   /* .. at y */
 void rfmv_seq_steps_cells(const rfm_move_t *m, mr_canvas_t *cv, uint32_t marks);   /* the 16 steps as cells */           /* the knobs the open Shift menu uses (a bit each) */
 int rfmv_menu_knobs(const rfm_move_t *m);               /* a menu's or a held Track's knobs (a bit each); -1 none */         /* that popup is up now */
 void rfmv_menu(rfm_move_t *m, int what, int i);         /* a held Track button's menu: what changed */
