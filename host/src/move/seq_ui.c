@@ -2172,6 +2172,17 @@ static void mute_screen(const rfm_move_t *m, mr_canvas_t *cv) { tracks_row(m, cv
 static const char *const AP_NAMES[RFM_MOVE_AP_N] = { "Up", "Down", "Up Dn", "Dn Up", "U+D", "D+U", "Conv", "Div",
                                                      "Con Div", "Hi Up", "Hi UpDn", "Lo Up", "Lo UpDn", "Rand",
                                                      "Rand Oth", "Shuffle", "Played" };
+/* an arp rate (notes a bar) as a musician says it: 1/16, a triplet 1/16T (3, 6, 12 .. a bar), a quintuplet 1/16Q
+ * (5, 10, 20, 40: five in the time of four) */
+static void arp_rate_name(int n, char *b, int cap)
+{
+    if (n % 5 == 0)
+        snprintf(b, (size_t)cap, "1/%dQ", n * 4 / 5);
+    else if (n % 3 == 0)
+        snprintf(b, (size_t)cap, "1/%dT", n * 2 / 3);
+    else
+        snprintf(b, (size_t)cap, "1/%d", n);
+}
 static int touched_knob(const rfm_move_t *m) { return m->touched >= 0 && m->touched < RFM_MOVE_NKNOBS ? m->touched : -1; }
 static void fit2(mr_canvas_t *cv, int x, int y, const char *s, int w)   /* 2x where it fits in w, else 1x */
 {
@@ -2286,7 +2297,7 @@ static void smenu_screen(const rfm_move_t *m, mr_canvas_t *cv)
                     v2_R(cv, 2 + i * 10, 46 - walk[i] * 15, 8, 4, 1);
             }
             fit2(cv, 66, 10, AP_NAMES[a->pat % RFM_MOVE_AP_N], 62);
-            snprintf(b, sizeof b, "1/%d", rfmv_seq_arp_rate_of(a->rate)), fit2(cv, 66, 27, b, 62);
+            arp_rate_name(rfmv_seq_arp_rate_of(a->rate), b, sizeof b), fit2(cv, 66, 27, b, 62);
             snprintf(b, sizeof b, "Oct %d", a->range), fit2(cv, 66, 44, b, 62);
             v2_strip(cv, 3, 1, -1, 0, 128);
         }
