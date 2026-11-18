@@ -1695,7 +1695,7 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
     ok(L.mixedContentBlocked("ws://move.local:7720/ws", "https:") && L.mixedContentBlocked("ws://172.16.254.1:7720/ws", "https:")
        && !L.mixedContentBlocked("ws://127.0.0.1:7720/ws", "https:") && !L.mixedContentBlocked("ws://localhost:7720/ws", "https:")
        && !L.mixedContentBlocked("ws://move.local:7720/ws", "http:") && !L.mixedContentBlocked("wss://move.local/ws", "https:"),
-       "move: the mixed-content guard: ws:// from https blocked, except to this computer");
+       "move: ws:// from https may be blocked (tried, then the bridge), except to this computer");
   }
 
   const wasm = fileURLToPath(new URL("../build/move/rfm_move.mjs", import.meta.url));
@@ -1983,10 +1983,13 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
       let saves = 0;
       const link = new L.MoveLink({ controls, site, prefs, save: () => { saves++; }, toast: (t) => toasts.push(t),
         mapAct: (x) => { masters.push(x); if (x.kind === "master") controls.setMaster(x.value); },
-        core: (s) => load(s), now: () => clock.t, timers: clock, location, projects: extra.projects,
-        transport: (url) => {
-          const t = { name: "fake", url, out: [], closed: false, onmessage: null, onclose: null,
-            connect: async () => {}, send(b) { if (t.closed) return false; t.out.push(...(new L.Deframer().push(b) || [])); return true; }, close() { t.closed = true; } };
+        core: (s) => load(s), now: () => clock.t, timers: clock, location, projects: extra.projects, window: extra.window || null, WebSocket: extra.WS,
+        transport: extra.WS ? undefined : (url) => {
+          // extra.start(t): what start() does (https: throw a SecurityError), extra.connect(t): connect()'s promise
+          const t = { name: "fake", url, out: [], closed: false, starts: 0, onmessage: null, onclose: null,
+            start() { t.starts++; if (extra.start) extra.start(t); },
+            connect: async () => { if (extra.connect) await extra.connect(t); },
+            send(b) { if (t.closed) return false; t.out.push(...(new L.Deframer().push(b) || [])); return true; }, close() { t.closed = true; } };
           transports.push(t);
           return t;
         } });
@@ -1994,7 +1997,7 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
       const dev = (bytes) => T().onmessage(bytes);
       const input = (...pkts) => { const p = new Uint8Array(pkts.length * 8), dv = new DataView(p.buffer); pkts.forEach((k, i) => { dv.setUint32(i * 8, 1000 + i, true); dv.setUint32(i * 8 + 4, k, true); }); dev(L.frame(L.MR.D_INPUT, p)); };
       const types = () => T().out.map((m) => m.type);
-      return { timed, cuts, clock, controls, site, link, midi, masters, toasts, transports, T, dev, input, types, encs, prefs, get saves() { return saves; },
+      return { timed, cuts, clock, controls, site, link, midi, masters, toasts, transports, T, dev, input, types, encs, prefs, win: extra.window, get saves() { return saves; },
         setLevels: (l) => { levels = l; site.emit("leds", l, 0); }, setPx: (p) => { px = p; site.emit("frame", p, 2); } };
     };
 
@@ -2093,13 +2096,137 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
     await w3.link.connect("192.0.2.1"); await tick();
     for (let i = 0; i < 3; i++) { w3.clock.advance(L.HELLO_MS); w3.clock.advance(4000); await tick(); }
     ok(w3.transports.length === 3 && w3.link.view().tone === "bad" && /Move Remote running/.test(w3.link.view().detail), `MoveLink: no answer three times: "${w3.link.view().detail.slice(0, 60)}..."`);
-    // https: a clear message, no socket
-    const w4 = world({}, { protocol: "https:" });
-    await w4.link.connect("move.local"); await tick();
-    ok(w4.transports.length === 0 && w4.link.view().tone === "bad" && w4.link.view().detail === L.MIXED_TEXT, "MoveLink: from an https page to ws://move.local: the mixed-content message, no socket");
-    await w4.link.connect("127.0.0.1:7720"); await tick();
-    ok(w4.transports.length === 1, "MoveLink: ...but ws://127.0.0.1 is allowed");
-    w4.link.disconnect();
+    // https (remotefm1.com): ws:// tried first, in the click (Chrome lets it through to the local network); a browser
+    // that throws SecurityError gets Move Remote's bridge window (a popup, bridge protocol v1 over postMessage)
+    const SEC = () => { const e = new Error("insecure"); e.name = "SecurityError"; return e; };
+    const HTTPS = { protocol: "https:", origin: "https://remotefm1.com" }, ORIGIN = "http://move.local:7720";
+    const fakeWin = (blocked = false) => {
+      const subs = new Set(), opened = [];
+      return { opened, subs,
+        open(url, name, feat) {
+          if (blocked) return null;
+          const w = { url, name, feat, closed: false, posted: [], postMessage(m, o, tr) { w.posted.push({ m, o, tr }); }, close() { w.closed = true; } };
+          opened.push(w); return w;
+        },
+        addEventListener: (ev, f) => { if (ev === "message") subs.add(f); }, removeEventListener: (ev, f) => { if (ev === "message") subs.delete(f); },
+        from: (w, data, origin = ORIGIN) => { for (const f of [...subs]) f({ source: w, origin, data }); } };
+    };
+    const sent = (bw) => bw.posted.filter((p) => p.m.mr === "send").flatMap((p) => new L.Deframer().push(new Uint8Array(p.m.data)) || []).map((m) => m.type);
+    // the bridge says hello, opens, and relays the Move's HELLO: the link live through it
+    const bridgeUp = async (wb, bw) => {
+      wb.win.from(bw, { mr: "hello", v: 1 }); await tick();
+      wb.win.from(bw, { mr: "open" }); await tick(); await tick();
+      wb.win.from(bw, { mr: "data", data: devHello().slice().buffer });
+    };
+    {
+      ok(L.bridgeOrigin("ws://move.local:7720/ws") === ORIGIN && L.bridgeUrl("ws://172.16.254.1:7720/ws", "https://remotefm1.com") === "http://172.16.254.1:7720/bridge?origin=https%3A%2F%2Fremotefm1.com"
+         && L.isSecurityError(SEC()) && L.isSecurityError({ code: 18 }) && !L.isSecurityError(new Error("x")) && L.normalizeUrl("wss://move.local/ws") === "wss://move.local:7720/ws",
+         "move: the bridge's address and origin from the Move's; a SecurityError told apart; a wss:// address kept");
+      ok(w.transports[0].starts === 0, "MoveLink: on an http page ws:// is opened as before (no probe)");
+      // SecurityError in the click: the bridge window opens synchronously, exactly once
+      const w4 = world({}, HTTPS, { window: fakeWin(), start: () => { throw SEC(); } });
+      const p4 = w4.link.connect("move.local", { click: true });
+      const bw = w4.win.opened[0];
+      ok(w4.win.opened.length === 1 && bw.url === `${ORIGIN}/bridge?origin=https%3A%2F%2Fremotefm1.com` && bw.name === "moveremote-bridge" && bw.feat === "popup,width=360,height=240"
+         && w4.transports.length === 1 && w4.transports[0].starts === 1 && /bridge window/.test(w4.link.view().detail),
+         "MoveLink https: ws:// throws SecurityError in the click: the bridge window opened at once, synchronously");
+      await p4; await tick();
+      ok(w4.win.subs.size === 1 && bw.posted.length === 0, "MoveLink bridge: listening, nothing posted before the bridge's hello");
+      w4.win.from(bw, { mr: "hello", v: 1 }); await tick();
+      ok(bw.posted.length === 1 && bw.posted[0].m.mr === "open" && bw.posted[0].o === ORIGIN, "MoveLink bridge: its hello -> {mr:\"open\"} to its exact origin");
+      w4.win.from(bw, { mr: "open" }); await tick(); await tick();
+      const hs = bw.posted.find((p) => p.m.mr === "send");
+      ok(hs && hs.o === ORIGIN && hs.m.data instanceof ArrayBuffer && hs.tr.length === 1 && hs.tr[0] === hs.m.data && sent(bw).join() === "129",
+         "MoveLink bridge: open -> HELLO as {mr:\"send\", data: ArrayBuffer}, the buffer transferred");
+      w4.win.from(bw, { mr: "data", data: devHello().slice().buffer });
+      const v4 = w4.link.view();
+      ok(v4.active && v4.tone === "on" && v4.link === "bridge window" && /\(bridge window\)/.test(v4.detail) && sent(bw).includes(0x84),
+         `MoveLink bridge: the Move's HELLO through it: live ("${v4.detail.slice(0, 50)}..."), the screen sent`);
+      const bye = L.frame(L.MR.D_BYE, new Uint8Array([L.BYE.REPLACED])).slice().buffer;
+      w4.win.from(bw, { mr: "data", data: bye }, "http://evil.example");
+      w4.win.from({}, { mr: "data", data: L.frame(L.MR.D_BYE, new Uint8Array([L.BYE.REPLACED])).slice().buffer });
+      w4.win.from(bw, { mr: "close" }, "https://remotefm1.com");
+      ok(w4.link.view().active, "MoveLink bridge: messages from another origin or another window are ignored");
+      // the user closes the bridge window: a link close, said plainly, the button offered again
+      bw.closed = true;
+      w4.clock.advance(L.BRIDGE_POLL_MS);
+      const c4 = w4.link.view();
+      ok(!c4.active && !c4.want && c4.tone === "bad" && c4.bridge && /bridge window was closed/.test(c4.detail) && w4.toasts.some((t) => /link lost \(the bridge window was closed\)/.test(t)) && w4.win.subs.size === 0,
+         `MoveLink bridge: its window closed by the user: "${c4.detail}"`);
+      w4.link.openBridge();
+      ok(w4.win.opened.length === 2 && w4.link.view().tone === "busy", "MoveLink bridge: Open the bridge window (a click) opens a new one");
+      w4.link.disconnect();
+
+      // a reconnect reuses the open bridge window; Disconnect closes it
+      const w6 = world({}, HTTPS, { window: fakeWin(), start: () => { throw SEC(); } });
+      await w6.link.connect("move.local", { click: true }); await tick();
+      const b6 = w6.win.opened[0];
+      await bridgeUp(w6, b6);
+      ok(w6.link.view().active, "MoveLink bridge: up again in a new page");
+      b6.posted.length = 0;
+      w6.win.from(b6, { mr: "close", code: 1006, reason: "" });
+      ok(!w6.link.view().active && w6.link.view().tone === "busy" && w6.win.subs.size === 0, "MoveLink bridge: its socket closed: link lost, trying again");
+      w6.clock.advance(1000); await tick();
+      ok(w6.win.opened.length === 1 && b6.posted.length === 1 && b6.posted[0].m.mr === "open", "MoveLink bridge: the retry reuses the open window ({mr:\"open\"} at once, no new popup)");
+      w6.win.from(b6, { mr: "open" }); await tick(); await tick();
+      w6.win.from(b6, { mr: "data", data: devHello().slice().buffer });
+      ok(w6.link.view().active, "MoveLink bridge: ...and is live again");
+      w6.link.disconnect();
+      ok(b6.posted.at(-1).m.mr === "close" && b6.posted.at(-1).o === ORIGIN && w6.win.subs.size === 0, "MoveLink bridge: Disconnect posts {mr:\"close\"} (its socket and its window)");
+
+      // no hello from the bridge (Move Remote before 0.1.1: no /bridge)
+      const w7 = world({}, HTTPS, { window: fakeWin(), start: () => { throw SEC(); } });
+      await w7.link.connect("move.local", { click: true }); await tick();
+      w7.clock.advance(L.BRIDGE_HELLO_MS); await tick();
+      ok(w7.link.view().tone === "bad" && /older than 0\.1\.1/.test(w7.link.view().detail) && !w7.link.view().want && w7.win.opened[0].posted.at(-1).m.mr === "close",
+         `MoveLink bridge: no hello in ${L.BRIDGE_HELLO_MS / 1000} s: "${w7.link.view().detail.slice(0, 70)}..."`);
+      // a popup blocker; and no click (the automatic connect at load): no window, the button offered
+      const w8 = world({}, HTTPS, { window: fakeWin(true), start: () => { throw SEC(); } });
+      await w8.link.connect("move.local", { click: true });
+      ok(w8.link.view().tone === "bad" && w8.link.view().detail === L.BLOCKED_TEXT && w8.link.view().bridge, "MoveLink bridge: window.open returned null: the popup was blocked, said so");
+      const w9 = world({ moveAuto: true, moveUrl: L.DEFAULT_URL }, HTTPS, { window: fakeWin(), start: () => { throw SEC(); } });
+      await w9.link.auto();
+      ok(w9.win.opened.length === 0 && w9.link.view().bridge && w9.link.view().tone === "bad", "MoveLink bridge: never a popup without a click (auto at load offers the button)");
+
+      // Chrome: the ws:// opens from https; while it waits (the local network devices prompt) the bridge is offered
+      let letOpen = null;
+      const w10 = world({}, HTTPS, { window: fakeWin(), connect: () => new Promise((r) => { letOpen = r; }) });
+      await w10.link.connect("move.local", { click: true }); await tick();
+      ok(w10.win.opened.length === 0 && w10.transports.length === 1 && w10.T().starts === 1 && w10.link.view().detail.includes(L.LNA_TEXT),
+         "MoveLink https: Chrome: ws:// made in the click, the local-network hint shown");
+      w10.clock.advance(L.HELLO_MS);
+      ok(w10.link.view().tone === "busy" && w10.link.view().bridge && w10.link.view().want && !w10.T().closed && w10.transports.length === 1,
+         "MoveLink https: no answer in 4 s: the socket left waiting, the bridge offered");
+      letOpen(); await tick(); await tick();
+      ok(w10.types().join() === "129" && !w10.link.view().bridge, "MoveLink https: the prompt answered: the socket opens, HELLO");
+      w10.dev(devHello());
+      ok(w10.link.view().active, "MoveLink https: live directly");
+      w10.link.disconnect();
+      const w11 = world({}, HTTPS, { window: fakeWin(), connect: () => Promise.reject(new Error("no answer at move.local:7720")) });
+      await w11.link.connect("move.local", { click: true }); await tick(); await tick();
+      w11.clock.advance(5000);
+      ok(w11.transports.length === 1 && w11.link.view().tone === "bad" && w11.link.view().bridge && /bridge window/.test(w11.link.view().detail),
+         `MoveLink https: the direct socket failed: the bridge offered ("${w11.link.view().detail}")`);
+      await w11.link.connect("127.0.0.1:7720", { click: true }); await tick();
+      ok(w11.transports.length === 2 && w11.T().starts === 0, "MoveLink https: ws://127.0.0.1 is opened as before");
+      w11.link.disconnect();
+
+      // the WebSocket transport itself: start() throws SecurityError synchronously; connect() reuses the socket
+      class FWS { constructor(u) { FWS.n++; if (FWS.deny) throw SEC(); this.url = u; this.readyState = 0; FWS.last = this; } send() {} close() { this.closed = true; } }
+      FWS.n = 0; FWS.deny = true;
+      let threw = null;
+      try { new L.MoveWebSocket("ws://move.local:7720/ws", FWS).start(); } catch (e) { threw = e; }
+      FWS.deny = false;
+      const mws = new L.MoveWebSocket("ws://move.local:7720/ws", FWS);
+      mws.start(); const pc = mws.connect(); FWS.last.readyState = 1; FWS.last.onopen();
+      await pc;
+      ok(L.isSecurityError(threw) && FWS.n === 2 && mws.send(new Uint8Array([1])), "MoveWebSocket: start() throws SecurityError in the call; connect() after start() opens the same socket");
+      FWS.n = 0; FWS.deny = true;
+      const w12 = world({}, HTTPS, { window: fakeWin(), WS: FWS });
+      w12.link.connect("move.local", { click: true });
+      ok(FWS.n === 1 && w12.win.opened.length === 1, "MoveLink https: with the browser's WebSocket refusing, Connect opens the bridge window");
+      w12.link.disconnect();
+    }
     // labels: the firmware's knob names reach the core (the screen changes)
     const w5 = world();
     await w5.link.connect(); await tick(); w5.dev(devHello());

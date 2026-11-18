@@ -563,7 +563,8 @@ project popup, the Track 4 menu, the count-in, a message: `move_seq_*.pbm` in th
 - **iOS (RFMKit)** and **Android (NDK)**: compile `move.c` and the vendored client as they compile libremotefm1.
 - **The web player**: done over WebSocket (WEB-PLAN.md, "An Ableton Move as the controller": `web/move/build.sh`,
   `web/site/js/move-core.js`, `move-link.js`; `mr_client.c` compiles under Emscripten and the linker drops its
-  sockets). Still to come: a way past https → `ws://` (docs/REMOTEFM1.md upstream lists the options).
+  sockets). From https: the `ws://` tried first (Chrome's Local Network Access), else Move Remote 0.1.1's bridge
+  window (`MoveBridge`, WEB-PLAN.md).
 - **The sequencer in the web player**: done (below, "The web player").
 
 ## The web player
