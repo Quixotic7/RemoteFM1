@@ -574,12 +574,12 @@ static void write_pbm(const char *path, const uint8_t *packed)
  * look at the PBMs this test writes into the build directory first (move_*.pbm) */
 #define GOLD_FM1 0xca84fa11u
 #define GOLD_FM1_LIVE 0x714e834du
-#define GOLD_KNOB 0x5eab3fb5u
-#define GOLD_MASTER 0x08fb6a96u
+#define GOLD_KNOB 0xdfe7f427u
+#define GOLD_MASTER 0x3bbe6504u
 #define GOLD_MIDI 0x3de84831u
 #define GOLD_MIDI_HIT 0x570d8447u
 #define GOLD_CONTROL 0xdaa9dc11u
-#define GOLD_CC 0xcd509862u
+#define GOLD_CC 0x9b8f64b3u
 #define GOLD_MENU_MIDI 0x27622f6eu
 #define GOLD_MENU_CC 0x35fff5ddu
 
@@ -703,7 +703,7 @@ static void test_screen(void)
     jog(&m, 1), jog(&m, 2);                             /* the jog wheel: SELECT's popup on the left half while turning
                                                          * (its detents), the mirror stays */
     rfm_move_screen(&m, NULL, out);
-    CHECK(m.pop == POP_SELECT && m.pop_val == 3 && px_at(out, 0, 0) && px_at(out, 63, 63) && px_at(out, 64 + 15, 8));
+    CHECK(m.pop == POP_SELECT && m.pop_val == 3 && !px_at(out, 0, 0) && !px_at(out, 63, 63) && px_at(out, 4, 46) && px_at(out, 64 + 15, 8));
     ms(&m, RFM_MOVE_POPUP_MS);
     rfm_move_screen(&m, NULL, out);
     CHECK(art_diff(out) == 0);                          /* timed out: the drawing at rest */
@@ -741,7 +741,7 @@ static void test_screen(void)
     knob(&m, 4, 4), knob(&m, 4, 2);                     /* (6 ticks: 3 detents) */
     rfm_move_screen(&m, NULL, out);
     CHECK(m.pop == POP_ENC && m.pop_val == 3);
-    CHECK(px_at(out, 0, 0) && px_at(out, 63, 63) && !px_at(out, 1, 1));       /* the frame: the left half only */
+    CHECK(!px_at(out, 0, 0) && !px_at(out, 63, 63) && px_at(out, 4, 46));   /* the left half, no frame (its bar) */
     for (d = 0, y = 0; y < 64; y++)
         for (x = 0; x < 64; x++)
             d += px_at(out, 64 + x, y) != m.thumb[y][x];
@@ -795,7 +795,7 @@ static void test_screen(void)
     pad(&m, 1, 0);
     touch(&m, 4, 1);                                    /* MIDI mode: a touch alone brings the popup */
     rfm_move_screen(&m, NULL, out);
-    CHECK(m.pop == POP_ENC && px_at(out, 2, 2));
+    CHECK(m.pop == POP_ENC && px_at(out, 0, 50) && px_at(out, 127, 63));
     touch(&m, 4, 0);
     ms(&m, RFM_MOVE_POPUP_MS);
     /* Track 2 held: the menu (layout, scale, root, channel); then the scale changed: its name at 2x */
@@ -834,7 +834,7 @@ static void test_screen(void)
     gold("cc", out, GOLD_CC);
     ms(&m, RFM_MOVE_POPUP_MS);
     rfm_move_screen(&m, NULL, out2);
-    CHECK(px_at(out, 66, 0) && !px_at(out2, 66, 0));    /* dropped (the hatching gone) */
+    CHECK(px_at(out, 127, 50) && !rfmv_pop_up(&m, POP_CC));   /* dropped (the full-width bar gone) */
     track(&m, 2, 1);                                    /* Track 3 held + knob 3: its CC number */
     knob(&m, 2, 2);
     rfm_move_screen(&m, NULL, out);
@@ -1015,7 +1015,7 @@ static void test_midi_round(void)
     CHECK(!rfmv_pop_up(&m, POP_ENC));                   /* (a touch: nothing) */
     knob(&m, 4, 4);
     rfm_move_screen(&m, NULL, out);
-    CHECK(rfmv_pop_up(&m, POP_ENC) && m.pop_val == 2 && px_at(out, 0, 0) && px_at(out, 63, 63));
+    CHECK(rfmv_pop_up(&m, POP_ENC) && m.pop_val == 2 && !px_at(out, 0, 0) && px_at(out, 4, 46));
     touch(&m, 4, 0);
     CHECK(!rfmv_pop_up(&m, POP_ENC) && m.pop_val == 0);
     /* the settings keep the screen; a version 1 image (77 bytes) still loads */

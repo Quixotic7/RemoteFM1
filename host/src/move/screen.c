@@ -102,19 +102,12 @@ void rfmv_disc(mr_canvas_t *cv, int x, int y, int d, int on)
         }
 }
 
+/* a popup's ground (the owner's: no box, no border): black, the whole screen across (the left half's popups: the left
+ * 64 x 64, the FM-1's screen stays in view), down to just under the area asked for (a step popup keeps the steps row) */
 void rfmv_frame(mr_canvas_t *cv, int x, int y, int w, int h)
 {
-    fill(cv, x, y, w, h, 0);
-    box(cv, x, y, w, h);
-}
-
-/* the 45-degree hatching the knob popup has behind it (1 px lines about 4 px apart) */
-static void hatch(mr_canvas_t *cv, int x, int y, int w, int h)
-{
-    int i, j;
-    for (j = y; j < y + h; j++)
-        for (i = x; i < x + w; i++)
-            mr_gfx_pixel(cv, i, j, ((i - j) % 6 + 6) % 6 == 0);
+    const int half = x == 0 && w <= 64, bottom = y + h + 2 > 64 ? 64 : y + h + 2;
+    fill(cv, 0, 0, half ? 64 : 128, bottom, 0);
 }
 
 /* sin of a multiple of 5 degrees, x 1024 */
@@ -225,30 +218,31 @@ static void knob_popup(mr_canvas_t *cv, const char *label, const char *value, co
         knob_popup_half(cv, label, value, unit, frac, centred);
         return;
     }
-    mr_gfx_clear(cv, 0);
-    hatch(cv, 64, 0, 64, 64);
-    rfmv_frame(cv, 2, 2, 124, 60);
-    if (rfmv_big_w(label, 2) <= 88)
-        rfmv_big(cv, 7, 6, label, 2, 1);
+    mr_gfx_clear(cv, 0);                                /* (the whole screen, no frame: the owner's) */
+    if (rfmv_big_w(label, 2) <= 90)
+        rfmv_big(cv, 2, 2, label, 2, 1);
     else {                                              /* 8 characters: 11 px each; more: the first 8 */
         char b[9];
         int i;
         snprintf(b, sizeof b, "%s", label);
         for (i = 0; b[i]; i++) {
             const char c[2] = { b[i], 0 };
-            rfmv_big(cv, 7 + 11 * i, 6, c, 2, 1);
+            rfmv_big(cv, 2 + 11 * i, 2, c, 2, 1);
         }
     }
-    w = big_fit(cv, 7, 24, value, 2, 110, 1) - 7;
+    if (rfmv_big_w(value, 3) <= 88)                     /* the value: 3x where it fits (the room the frame had) */
+        w = rfmv_big(cv, 2, 20, value, 3, 1) - 2;
+    else
+        w = big_fit(cv, 2, 24, value, 2, 92, 1) - 2;
     if (unit && *unit)
-        mr_gfx_text(cv, w <= 50 ? 60 : 7 + w + 4, 31, unit, 1);
-    box(cv, 7, 45, 114, 10);
+        mr_gfx_text(cv, w + 6 + 6 * (int)strlen(unit) <= 96 ? 2 + w + 4 : 60, 34, unit, 1);
+    box(cv, 0, 50, 128, 14);
     if (!centred)
-        fill(cv, 9, 47, clampi(frac, 0, 1000) * 110 / 1000, 6, 1);
+        fill(cv, 2, 52, clampi(frac, 0, 1000) * 124 / 1000, 10, 1);
     else {
-        const int d = clampi(frac, -1000, 1000) * 55 / 1000;
-        fill(cv, d >= 0 ? 64 : 64 + d, 47, d >= 0 ? d : -d, 6, 1);
-        fill(cv, 64, 46, 1, 8, 1);                      /* (the middle) */
+        const int d = clampi(frac, -1000, 1000) * 62 / 1000;
+        fill(cv, d >= 0 ? 64 : 64 + d, 52, d >= 0 ? d : -d, 10, 1);
+        fill(cv, 64, 51, 1, 12, 1);                     /* (the middle) */
     }
     dial(cv, deg);
 }
@@ -615,7 +609,11 @@ static void message_popup(mr_canvas_t *cv, const char *msg)
         return;
     }
     rfmv_frame(cv, 2, 2, 124, 60);
-    if (rfmv_big_w(msg, 2) <= 118 || !sp) {
+    if (rfmv_big_w(msg, 3) <= 124) {                    /* (the whole screen: 3x where it fits) */
+        big_mid(cv, 64, 22, msg, 3, 1);
+        return;
+    }
+    if (rfmv_big_w(msg, 2) <= 124 || !sp) {
         big_mid(cv, 64, 25, msg, 2, 1);
         return;
     }
@@ -630,9 +628,9 @@ static void count_popup(const rfm_move_t *m, mr_canvas_t *cv)
 {
     char b[4];
     snprintf(b, sizeof b, "%d", clampi((m->seq.count_in - 2) / 96 + 1, 1, 4));   /* (a bar: 4 .. 1) */
-    rfmv_frame(cv, 2, 2, 124, 60);
-    rfmv_disc(cv, 20, 26, 12, 1);
-    rfmv_big(cv, 54, 18, b, 4, 1);
+    rfmv_frame(cv, 2, 2, 124, 60);                      /* (the whole screen: a big dot, the beat at 6x) */
+    rfmv_disc(cv, 10, 16, 32, 1);
+    rfmv_big(cv, 70, 11, b, 6, 1);
 }
 
 /* whichever popup is up now (the newer of a control's popup and a message; the count-in under both) */

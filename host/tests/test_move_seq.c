@@ -95,6 +95,13 @@ static void tap_step(rfm_move_t *m, int s) { step(m, s, 1), step(m, s, 0); }
 static void button(rfm_move_t *m, int cc, int down) { raw(m, 0xB0, (uint8_t)cc, down ? 127 : 0); }
 static void write_pbm(const char *path, const uint8_t *packed);
 static int px_at(const uint8_t *packed, int x, int y);
+static int lit(const uint8_t *packed)                   /* the pixels on */
+{
+    int i, n = 0;
+    for (i = 0; i < 1024; i++)
+        n += __builtin_popcount(packed[i]);
+    return n;
+}
 static void press(rfm_move_t *m, int cc) { button(m, cc, 1), button(m, cc, 0); }
 static void knob(rfm_move_t *m, int k, int d) { raw(m, 0xB0, (uint8_t)(MR_CC_KNOB1 + k), (uint8_t)(d & 127)); }
 static void jog(rfm_move_t *m, int d) { raw(m, 0xB0, MR_CC_JOG, (uint8_t)(d & 127)); }
@@ -1300,13 +1307,13 @@ static void write_pbm(const char *path, const uint8_t *packed)
 }
 
 #define GOLD_TRACK 0x8085c9edu
-#define GOLD_STEP 0xcbab8d53u
+#define GOLD_STEP 0xf7e36d4fu
 #define GOLD_SESSION 0xef220383u
 #define GOLD_PROJECTS 0x5204a535u
-#define GOLD_PROJECT 0x2b200224u
+#define GOLD_PROJECT 0x4d90229eu
 #define GOLD_TRACKS 0xc171edf0u
-#define GOLD_COUNT 0xb117a7b1u
-#define GOLD_MSG 0x443f4127u
+#define GOLD_COUNT 0x33395f33u
+#define GOLD_MSG 0xadad5123u
 static int px_at(const uint8_t *packed, int x, int y) { return packed[(y >> 3) * 128 + x] >> (y & 7) & 1; }
 static void gold(const char *name, const uint8_t *out, uint32_t want)
 {
@@ -1364,7 +1371,7 @@ static void test_screens_leds(void)
     CHECK(!rfmv_pop_up(m, POP_STEP) && !px_at(out, 6, 6));   /* (a press alone: no popup) */
     adv(m, RATE * RFM_MOVE_SEQ_HOLD_MS / 1000 + 128);  /* held: its popup */
     rfm_move_screen(m, NULL, out);
-    CHECK(m->pop == POP_STEP && m->pop_i == 0 && px_at(out, 6, 6) && px_at(out, 2, 2) && px_at(out, 0, 52));
+    CHECK(m->pop == POP_STEP && m->pop_i == 0 && px_at(out, 6, 6) && !px_at(out, 2, 2) && px_at(out, 0, 52));
     gold("step", out, GOLD_STEP);
     /* the step LEDs (Move's): the held step in the track's colour, the playhead green, notes white, empty steps
      * the track's colour dim */
@@ -1457,12 +1464,12 @@ static void test_screens_leds(void)
         /* project 3's pad held (pad 26: top row, third): its popup while it loads (the host has not answered) */
         pad(m, 26, 100);
         rfm_move_screen(m, NULL, out);
-        CHECK(m->pop == POP_PROJ && m->pop_i == 2 && m->seq.proj_pending == 2 && px_at(out, 2, 2));
+        CHECK(m->pop == POP_PROJ && m->pop_i == 2 && m->seq.proj_pending == 2 && lit(out) > 60);
         gold("project", out, GOLD_PROJECT);
         CHECK(rfm_move_project_load(m, 2, blob, (uint32_t)nb) == 0);
         adv(m, RATE * 2);
         rfm_move_screen(m, NULL, out);
-        CHECK(px_at(out, 2, 2));                        /* held: up */
+        CHECK(lit(out) > 60);                        /* held: up */
         pad(m, 26, 0);
         adv(m, RATE * RFM_MOVE_POPUP_MS / 1000);
         rfm_move_screen(m, NULL, out);
@@ -1481,13 +1488,13 @@ static void test_screens_leds(void)
     m->seq.rec_mode = RFM_MOVE_RM_RECORD;
     press(m, MR_CC_REC), press(m, MR_CC_PLAY);
     rfm_move_screen(m, NULL, out);
-    CHECK(m->seq.start_pending == 3 && px_at(out, 2, 2));
+    CHECK(m->seq.start_pending == 3 && lit(out) > 60);
     gold("count", out, GOLD_COUNT);
     press(m, MR_CC_REC);
     /* a message (Shift + step 6: the metronome) at 2x, a second */
     button(m, MR_CC_SHIFT, 1), tap_step(m, 5), button(m, MR_CC_SHIFT, 0);
     rfm_move_screen(m, NULL, out);
-    CHECK((m->seq.msg == SEQ_MSG_METRO_ON || m->seq.msg == SEQ_MSG_METRO_OFF) && px_at(out, 2, 2));
+    CHECK((m->seq.msg == SEQ_MSG_METRO_ON || m->seq.msg == SEQ_MSG_METRO_OFF) && lit(out) > 60);
     gold("msg", out, GOLD_MSG);
     adv(m, RATE * RFM_MOVE_POPUP_MS / 1000);
     rfm_move_screen(m, NULL, out);
@@ -1520,7 +1527,7 @@ static void test_popups(void)
         CHECK(!rfmv_pop_up(m, POP_STEP) && !px_at(out, 6, 6));
         adv(m, RATE * RFM_MOVE_SEQ_HOLD_MS / 1000 + 128);
         rfm_move_screen(m, NULL, out);
-        CHECK(rfmv_pop_up(m, POP_STEP) && m->pop_i == 2 && px_at(out, 2, 30) && !px_at(out, 6, 6));   /* (no notes) */
+        CHECK(rfmv_pop_up(m, POP_STEP) && m->pop_i == 2 && lit(out) > 60 && !px_at(out, 6, 6));   /* (no notes) */
         adv(m, 3 * RATE);
         CHECK(rfmv_pop_up(m, POP_STEP));
         step(m, 2, 0);
@@ -1586,7 +1593,7 @@ static void test_popups(void)
     adv(m, 128);
     knob(m, 3, 1);
     rfm_move_screen(m, NULL, out);
-    CHECK(px_at(out, 66, 0));                           /* the knob's popup (hatched behind) */
+    CHECK(px_at(out, 127, 50));                         /* the knob's popup (its full-width bar) */
     /* a held step and a knob: the step's CC lock */
     adv(m, pop_frames);
     step(m, 4, 1);
@@ -1791,7 +1798,7 @@ static void test_trig(void)
         m->touched = 1;
         rfmv_pop(m, POP_TRIG, 1);
         rfm_move_screen(m, NULL, out);
-        CHECK(px_at(out, 2, 2) && px_at(out, 8, 30));
+        CHECK(lit(out) > 60 && px_at(out, 8, 30));
         write_pbm("move_seq_pop_trig.pbm", out);
         m->touched = -1;
     }

@@ -473,7 +473,10 @@ the clock alone (a popup up, playing), so the host draws it again then.
   26 G5); the top row's 15 blocks sit in the gaps between them, and each black key is the block in the gap after its
   white key (F# after F ...); the gaps B-C and E-F have no key, their blocks stay as drawn.
 
-**Popups** (a 1 px white frame over the screen):
+**Popups** (the owner's: no box, no border, no hatching): each clears the whole screen to black and lays its content
+across the 128 x 64 (the step popup keeps the steps row below). In FM-1 mode and MIDI's NOTES they keep to the left
+64 x 64, cleared to black, so the FM-1's screen stays in view on the right. The knob popup: the label at 2x, the
+value at 3x where it fits, the dial top right, a full-width bar along the bottom.
 
 | Popup | When | What |
 |---|---|---|
@@ -485,8 +488,8 @@ the clock alone (a popup up, playing), so the host draws it again then.
 | Shift menus | Shift + step 3, 5, 7, 8, 9, 11; Shift + Record (stay open: the same again or Back) | Workflow: CH, RATE, QUANT; Tempo: the BPM at 4x (EXT and a padlock when locked); Groove: two 16ths, the second late; Layout, Keys & Scales: tabs and a keyboard; Arp: the pattern's walk, its name, rate, mode and range; Record: the mode's picture and name, the style |
 | mute | Mute held | the 16 tracks, muted crossed out |
 | project | a project pad held in the grid (also once that project is open: the grid closes on the load) | its number at 4x, a bar a track (its notes; 16 thinner bars when tracks 9..16 have notes), ▶ the tempo, the clip symbol and the clips |
-| message | an action's result (UNDO, CLOCK AUTO, FULL VEL, CLICK ON ..; not copy / cut / paste), 1 s | the words at 2x, a line or two |
-| count-in | Play with Rec armed (Record mode), from stopped | the beats to go at 4x, a recording dot |
+| message | an action's result (UNDO, CLICK ON ..; not copy / cut / paste), 1 s | the words at 3x where they fit, else 2x, a line or two |
+| count-in | Play with Rec armed (Record mode), from stopped | the beats to go at 6x, a big recording dot |
 
 The newer of a control's popup and a message shows; the count-in shows under both. The core knows the current
 project's content; for the others the host passes each stored blob once (`rfm_move_project_info`: at start and after
