@@ -781,6 +781,12 @@ void rfmv_seq_step(rfm_move_t *m, int s, int down, uint32_t now)
             if (q->page < a || q->page > b)
                 q->page = (uint8_t)a;                   /* (the page shown: in the new loop) */
             q->loop_tap = -1;
+        } else if (s > clip_end_page(m, clip) && s <= q->page) {   /* a ghost page's key: the new bars confirmed
+                                                         * (the clip to that page) */
+            const int lo = rfmv_seq_loop_lo(m, clip);
+            rfmv_seq_group(m);
+            rfmv_seq_loop_set(m, clip, lo, (s + 1) * RFM_MOVE_SEQ_PAGE - lo);
+            q->page = (uint8_t)s, q->loop_tap = -1, q->loop_first = (int8_t)s;
         } else {
             if (q->loop_tap == s && now - q->loop_tap_ms < 400) {
                 rfmv_seq_group(m);
@@ -1158,21 +1164,14 @@ int rfmv_seq_button(rfm_move_t *m, int cc, int down, uint32_t now)
         if (q->view)                                    /* the tracks, one a press (8 of 16 in view) */
             q->track_page = (uint8_t)clampi(q->track_page + d, 0, RFM_MOVE_SEQ_TRACKS - 8);
         else {
-            const int clip = edit_clip(m), a = rfmv_seq_loop_lo(m, clip) / RFM_MOVE_SEQ_PAGE;
-            const int pages = (rfmv_seq_loop_hi(m, clip) + RFM_MOVE_SEQ_PAGE - 1) / RFM_MOVE_SEQ_PAGE, was = q->page;
-            if (q->mods & SEQ_M_LOOP) {                 /* Loop's page edit (held or latched): the pages; Right
-                                                         * past the last a pending (ghost) page (+1, +2 ..: the clip
-                                                         * grows to it when a step goes in there; Left steps back) */
+            const int clip = edit_clip(m), was = q->page, end = clip_end_page(m, clip);
+            if (q->mods & SEQ_M_LOOP)                   /* (page edit: the same) */
                 q->mods_used |= SEQ_M_LOOP;
-                q->page = (uint8_t)clampi(q->page + d, q->page < a ? 0 : a, RFM_MOVE_SEQ_PAGES - 1);
-                if (q->page != was && (q->page >= pages || was >= pages))
-                    rfmv_pop(m, POP_BAR, q->page);      /* (a ghost page added or taken away: "BAR n", a second) */
-            } else {                                    /* otherwise (the owner's): the loop's pages, round, never
-                                                         * a ghost */
-                const int n = pages - a;
-                q->page = (uint8_t)(n > 0 ? a + ((q->page < a || q->page >= pages ? (d > 0 ? n - 1 : 0) : q->page - a) + d + n) % n
-                                          : a);
-            }
+            q->page = (uint8_t)clampi(q->page + d, 0, RFM_MOVE_SEQ_PAGES - 1);   /* the bars there are; Right past
+                                                         * the last: a ghost bar (+1, +2 ..: real once a step goes in
+                                                         * there, or, in page edit, once its step key confirms it) */
+            if (q->page != was && (q->page > end || was > end))
+                rfmv_pop(m, POP_BAR, q->page);          /* ("Bar n", a second) */
         }
         return 1;
     }
@@ -2364,7 +2363,7 @@ void rfmv_seq_loop_edit(const rfm_move_t *m, mr_canvas_t *cv)
     v2_TC(cv, 76, 4, b, 2, 1);
     for (i = 0; i < 16; i++) {
         const int src = rfmv_seq_src_page(m, clip, i);
-        mk[i] = (char)(src == 2 ? 'X' : src == 1 ? 'D' : 0);
+        mk[i] = (char)(src == 2 ? 'X' : src == 1 ? 'D' : i > clip_end_page(m, clip) && i <= q->page ? 'G' : 0);
     }
     v2_pages(cv, clip_end_page(m, clip) + 1, pa, pb, q->page, mk);
 }

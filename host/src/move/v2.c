@@ -295,6 +295,8 @@ void v2_pages(mr_canvas_t *b, int n, int lo, int hi, int shown, const char *mark
             v2_O(b, x, y, 7, 16, 1), v2_X(b, x + 1, y + 4, 5, 8);
         else if (mk == 'D')
             v2_dashO(b, x, y, 7, 16);
+        else if (mk == 'G')                             /* (a ghost page, not in the clip yet: a +) */
+            v2_R(b, x + 1, y + 7, 5, 1, 1), v2_R(b, x + 3, y + 5, 1, 5, 1);
         else if (i >= n)
             v2_R(b, x + 3, y + 7, 1, 2, 1);
         else if (i >= lo && i <= hi)

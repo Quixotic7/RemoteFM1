@@ -137,7 +137,7 @@ its 8 columns through the 16 tracks.
 |---|---|---|
 | pads | the track's layout, the scale and octave (shared with MIDI mode), on the track's channel; what they play is what an empty step gets | clips (the owner's mockup): a column a track (8 in view), a row a clip slot (4 in view, the top row first) |
 | steps | the 16 steps of the page | the 2 under each column: the first stops that track's clips (at the bar; lit while it plays something, blinking while it stops), the second mutes it (the track's colour; muted: red, dim) |
-| Left / Right | page, round the loop's pages; in Loop's page edit, Right past the last page: a ghost page (below); a step held: micro timing (the MICRO popup) | the tracks, one at a time (1..16) |
+| Left / Right | the bar shown; Right past the last bar: a ghost bar (below); a step held: micro timing (the MICRO popup) | the tracks, one at a time (1..16) |
 | Up / Down | octave (MIDI mode's); a step held: transpose | the clip slots, one at a time |
 | knobs | the knob page: TRIG (below), then Control mode's CC banks 1..4, live on the track's channel; a step held: its CC locks | nothing; a touch selects the track in that knob's column |
 | volume knob | MASTER; a step held: its notes' velocity (a VELO popup) | MASTER |
@@ -173,13 +173,13 @@ its 8 columns through the 16 tracks.
   the ones between (the page shown moves into it). A double tap (400 ms): the loop is that page alone. The jog:
   the length, a step a detent (Shift: a page), growing into new pages up to 16 (the owner's; the Move's wheel moves
   bars). The popup: the length in bars (+ steps), a bar over the 16 pages.
-- **Left / Right** outside page edit (the owner's): the page shown, round the loop's pages only (loop 3..6: Right
-  from 6 is 3, Left from 3 is 6); never a ghost page. A step held: micro timing, as before.
-- **Ghost pages** (Move's "+" bar), in page edit only: Right past the loop's last page goes to a page that is not in
-  the clip yet (it stays shown when page edit ends, for a step to go in; Left / Right then leave it); each
-  Right or Left that adds or takes one away shows "BAR n" for a second. The page strip is then a 1 px line under the
-  real pages, blank for the ghosts, a "+" at the far end, and the clip's steps / pages in a small box. The clip grows
-  to that page only when a note goes in there (a step, a paste); leaving it adds nothing.
+- **Left / Right** (the owner's, in and out of page edit): the bar shown, through the bars the clip has (no wrap;
+  Left stops at bar 1). A step held: micro timing, as before.
+- **Ghost bars** (Move's "+" bar): Right past the clip's last bar goes to bars it does not have yet ("Bar n" for a
+  second on each press; the strip the real bars as a line, blank for the ghosts, a + at the far end). Outside page
+  edit a ghost bar becomes real once a step goes in there (the clip grows to it); in page edit the step keys are
+  the pages (a ghost one drawn as a +), and pressing a ghost page's key confirms the new bars (the clip to that
+  page). Leaving them adds nothing.
 - **Pages cut, copied, pasted** (Loop held or latched): Delete + a page with notes cuts it (gone, an X on its step and
   in the popup's page strip), Copy + one copies it (dashed); Delete or Copy + an empty page pastes there (a pasted cut
   empties the clipboard). A page clipboard of its own, apart from the steps'. Back clears its mark.

@@ -285,10 +285,11 @@ static void test_model(void)
     pad(m, 0, 100), pad(m, 0, 0);
     tap_step(m, 1);                                     /* page 3, step 2 = step 34 */
     CHECK(rfmv_seq_find(m, 0, 33, 48) >= 0);
-    press(m, MR_CC_RIGHT), press(m, MR_CC_RIGHT);
-    CHECK(m->seq.page == 0 && m->seq.len[0] == 64);     /* (no page edit: round the loop's pages, no ghost) */
-    press(m, MR_CC_LEFT);
-    CHECK(m->seq.page == 3);
+    press(m, MR_CC_RIGHT);
+    CHECK(m->seq.page == 3 && m->seq.len[0] == 64);     /* (the bars there are) */
+    press(m, MR_CC_LEFT), press(m, MR_CC_LEFT), press(m, MR_CC_LEFT), press(m, MR_CC_LEFT);
+    CHECK(m->seq.page == 0);                            /* (no wrap: Left stops at bar 1) */
+    m->seq.page = 3;
     press(m, MR_CC_LOOP);                               /* Loop latched (page edit): its LED glowing */
     {
         uint8_t w[13], w2[13];
@@ -2035,38 +2036,40 @@ static void test_controls(void)
     {
         const int c = clip_of(m);
         rfmv_seq_loop_set(m, c, 0, 16);
-        m->seq.page = 0;
-        press(m, MR_CC_RIGHT);
-        CHECK(m->seq.page == 0);                        /* (no page edit: round the one page) */
-        press(m, MR_CC_LOOP);                           /* (page edit on, latched) */
+        m->seq.page = 0, m->seq.msg = 0;
+        /* outside page edit (the owner's): Right past the last bar adds ghost bars ("Bar n"), real once a step
+         * goes in */
         press(m, MR_CC_RIGHT), press(m, MR_CC_RIGHT), press(m, MR_CC_RIGHT);
-        CHECK(m->seq.page == 3 && m->seq.len[c] == 16);
-        rest(m);
+        CHECK(m->seq.page == 3 && m->seq.len[c] == 16 && m->pop == POP_BAR && m->pop_i == 3);
         rfm_move_screen(m, NULL, out);
         write_pbm("move_seq_pending.pbm", out);
-        CHECK(m->pop == POP_BAR && m->pop_i == 3);      /* ("BAR 4", a second) */
-        CHECK(px_at(out, 24, 49) && px_at(out, 27, 37) && px_at(out, 0, 30));   /* (page edit: the ghost page shown, a dot) */
+        CHECK(px_at(out, 0, 63) && px_at(out, 124, 59) && px_at(out, 122, 61));   /* ("Bar 4" over the ghost strip: the
+                                                         * real page a line, a + at the far end) */
         rest(m);
         rfm_move_screen(m, NULL, out);
         write_pbm("move_seq_pending_rest.pbm", out);
-        CHECK(!rfmv_pop_up(m, POP_BAR) && px_at(out, 0, 30) && px_at(out, 24, 49) && px_at(out, 27, 37));   /* (page edit:
-                                                         * page 1 looped, page 4 shown, past the clip a dot) */
+        CHECK(!rfmv_pop_up(m, POP_BAR) && px_at(out, 124, 59));   /* (at rest: the ghost strip stays) */
         press(m, MR_CC_LEFT);
         CHECK(m->seq.page == 2 && m->seq.len[c] == 16);
-        press(m, MR_CC_LOOP);                           /* (page edit off: the ghost page shown stays, for a step) */
         tap_step(m, 4);                                 /* page 3, step 5: the clip is 3 pages now */
         {
             int lo2;
             CHECK(m->seq.len[c] == 48 && rfmv_seq_range(m, c, 36, &lo2) > lo2);   /* (the last notes played) */
         }
         press(m, MR_CC_RIGHT);
-        CHECK(m->seq.page == 0 && m->seq.len[c] == 48);   /* (round the 3 pages) */
-        press(m, MR_CC_LOOP), press(m, MR_CC_RIGHT), press(m, MR_CC_RIGHT), press(m, MR_CC_RIGHT), press(m, MR_CC_LOOP);
-        CHECK(m->seq.page == 3 && m->seq.len[c] == 48);   /* (page edit: a ghost again) */
-        press(m, MR_CC_LEFT), press(m, MR_CC_LEFT), press(m, MR_CC_LEFT);
-        CHECK(m->seq.page == 0);                        /* (from the ghost: the loop's last page, then round) */
-        press(m, MR_CC_LEFT);
-        CHECK(m->seq.page == 2);
+        CHECK(m->seq.page == 3 && m->seq.len[c] == 48);   /* (a ghost again, past the 3) */
+        /* in page edit: the same arrows; a ghost page's step key confirms the new bars */
+        press(m, MR_CC_LOOP), press(m, MR_CC_RIGHT);
+        CHECK(m->seq.page == 4 && m->seq.len[c] == 48);
+        rfm_move_screen(m, NULL, out);
+        rest(m), rfm_move_screen(m, NULL, out);
+        CHECK(px_at(out, 24 + 3, 35) && px_at(out, 32 + 1, 37) && px_at(out, 32, 49));   /* (ghost pages: a +; the shown
+                                                         * one underlined) */
+        tap_step(m, 4);                                 /* page 5's key: the clip to page 5 */
+        CHECK(m->seq.len[c] == 80 && m->seq.page == 4);
+        press(m, MR_CC_LOOP);
+        press(m, MR_CC_LEFT), press(m, MR_CC_LEFT), press(m, MR_CC_LEFT), press(m, MR_CC_LEFT), press(m, MR_CC_LEFT);
+        CHECK(m->seq.page == 0);
         adv(m, 2 * FPS);
     }
     /* Shift's lock: a double tap latches it (step 2 = the clock without holding); a press unlatches it */
