@@ -86,6 +86,8 @@ ok(modelOf("SMK-37 Pro").key === "pro" && !modelOf("SMK-37 Pro").any && modelOf(
    modelOf("MKE-P37").key === "mke" && modelOf("STARRYKEY-37 PLAY").key === "pro" && modelOf("STARRYKEY-37 PLAY").any &&
    modelOf("FM-1") === null && modelOf("ota-FM-1") === null && modelOf("MicroFreak") === null, "modelOf: the three models, the Starrykey the Pro's, never an FM-1");
 ok(smkRemoteVersion("SMK-37 Elite_52000301") === "0.3.1" && smkRemoteVersion("MKE-P37_5200") === "development build" &&
+   smkRemoteVersion("SMK-37 Pro_72000307") === "0.3.7" && smkRemoteVersion("SMK-37 Elite_7200") === "development build" &&
+   smkRemoteVersion("FM-1_72000307") === null &&
    smkRemoteVersion("FM-1_52000301") === null && smkRemoteVersion("SMK-37 Pro_016") === null, "RemoteFM1's SMK identities told apart");
 
 // a keyboard: the handshake, INFO (version: the backup protocol's answer, or none), step 1 (four reads and

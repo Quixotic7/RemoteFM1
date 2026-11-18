@@ -91,12 +91,14 @@ export const RECOVERY_URL = "https://github.com/Quixotic7/MvaveFM1Unbricker";
 // old official firmware would; its USB product name "FM-1 Bubba Machine" tells it apart. Its updater takes only a
 // package with M-VAVE's own update loader, so it refuses ChoralRoot's (docs/INSTALL-COMPAT.md "Bubba Machine").
 export const BUBBA_PORT = /bubba/i;
-// RemoteFM1's own identity since 0.2 (fm1-base's scheme, firmware/fm1.toml id_prefix "FM-1_52"): FM-1_5200 a
-// development build, FM-1_52XXYYZZ release X.Y.Z (two digits each). 0.1 answered as the official V15 (FM-1_015).
+// RemoteFM1's own identity (fm1-base's scheme, firmware/fm1.toml id_prefix "FM-1_72"): FM-1_7200 a development
+// build, FM-1_72XXYYZZ release X.Y.Z (two digits each), since 0.3.7. 0.2 to 0.3.6 were FM-1_52XXYYZZ (dev FM-1_5200),
+// still read as RemoteFM1 (52 moved to 72: QUADRO numbers its releases FM-1_52XXYYZZ too). 0.1 answered as the
+// official V15 (FM-1_015).
 // -> "0.2.0", "development build", or null (not RemoteFM1 0.2 or later)
 export function remoteFm1Version(identity) {
-  if (identity === "FM-1_5200") return "development build";
-  const m = /^FM-1_52(\d\d)(\d\d)(\d\d)$/.exec(identity || "");
+  if (identity === "FM-1_5200" || identity === "FM-1_7200") return "development build";
+  const m = /^FM-1_[57]2(\d\d)(\d\d)(\d\d)$/.exec(identity || "");
   return m ? `${+m[1]}.${+m[2]}.${+m[3]}` : null;
 }
 export function classifyFirmware(identity, info, port) {

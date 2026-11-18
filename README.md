@@ -98,8 +98,9 @@ the site's FM-1 emulator. The stock M-VAVE firmware can't run on a host.
 1. **Install RemoteFM1** on the FM-1 with [its web installer](https://remotefm1.com/installer/)
    (USB + Bluetooth MIDI, or USB only) or any Felucca-family installer, for example
    `python3 tools/fm1_install.py web/installer/firmware/remote-0.3.1.fwsc` (USB only: `remote-usb-0.3.1.fwsc`).
-   0.2 answers installers as itself, `FM-1_52XXYYZZ` (release X.Y.Z; fm1-base's scheme), on the USB device "FM-1";
-   0.1 answered as the official V15 (`FM-1_015`).
+   It answers installers as itself, `FM-1_72XXYYZZ` (release X.Y.Z; fm1-base's scheme), on the USB device "FM-1";
+   0.2 to 0.3.6 answered `FM-1_52XXYYZZ` (52 moved to 72 because QUADRO numbers its releases `FM-1_52XXYYZZ` too;
+   the installers still read both), 0.1 as the official V15 (`FM-1_015`).
 2. **Without a host**, the screen reads REMOTE FM1 / WAITING FOR HOST, with USB's state, the Bluetooth name it
    advertises ("FM-1 1F2D") and whether a computer is connected, and the battery; the key lights glow dim.
 3. **Run a firmware.** The easiest host is the site: open [remotefm1.com](https://remotefm1.com/), pick a firmware,
@@ -322,9 +323,9 @@ and the JieLi AC79 SDK (its Bluetooth libraries; never in this tree):
 ```sh
 git submodule update --init --recursive
 git clone --depth 1 --branch AC79NN_SDK_V1.2.1_2023-12-13 https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK.git ~/fw-AC79_AIoT_SDK
-./build.sh --release 0.3.1           # -> firmware/build/remotefm1-0.3.1.fwsc (USB + Bluetooth MIDI), FM-1_52000301
-./build.sh --release 0.3.1 --no-ble  # -> firmware/build/remotefm1-usb-0.3.1.fwsc (USB only: no Bluetooth library)
-./build.sh                           # a development build, FM-1_5200 (the standalone's DX7 voices: Yamaha's ROM
+./build.sh --release 0.3.7           # -> firmware/build/remotefm1-0.3.7.fwsc (USB + Bluetooth MIDI), FM-1_72000307
+./build.sh --release 0.3.7 --no-ble  # -> firmware/build/remotefm1-usb-0.3.7.fwsc (USB only: no Bluetooth library)
+./build.sh                           # a development build, FM-1_7200 (the standalone's DX7 voices: Yamaha's ROM
                                      # cartridges from DX7_ROM_DIR, default Presets/DX7-ROM beside the checkout;
                                      # without them the INIT VOICE only)
 ./build.sh --bench [--no-ble]        # the standalone DX7's bench at boot (firmware/build/remotefm1[-usb]-bench.fwsc);

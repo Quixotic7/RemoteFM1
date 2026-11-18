@@ -345,22 +345,22 @@
 -        *got = !memcmp(hs_hello + 43, FELUCCA_ID, 8) && !memcmp(hs_hello, RFM_NAME, sizeof RFM_NAME - 1u) &&
 +        *got = !memcmp(hs_hello + 43, RFA_IDENTITY, 8) && !memcmp(hs_hello, RFM_NAME, sizeof RFM_NAME - 1u) &&
                 hs_hello[16] == RFM_PROTO;
-+    else if (!strcmp(what, "rf_hello_fm1"))         /* the identity hosts see is the FM-1's, "FM-1_520" (an SMK-37 too) */
-+        *got = !memcmp(hs_hello + 43, "FM-1_520", 8);
++    else if (!strcmp(what, "rf_hello_fm1"))         /* the identity hosts see is the FM-1's, "FM-1_720" (an SMK-37 too) */
++        *got = !memcmp(hs_hello + 43, "FM-1_720", 8);
      else if (!strcmp(what, "rf_panel_flags"))
          *got = hs_panel[RFM_PANEL_FLAGS];
      else if (!strcmp(what, "rf_panel_keys"))
 --- a/src/rfm_main.c
 +++ b/src/rfm_main.c
 @@ -62,7 +62,16 @@
- #define FELUCCA_ID "FM-1_5200"              /* (the host simulator; tools/build.py gives the FM-1's build its own) */
+ #define FELUCCA_ID "FM-1_7200"              /* (the host simulator; tools/build.py gives the FM-1's build its own) */
  #endif
  #define RFA_FW_VER APP_VERSION
 +#if BOARD_SMK37
 +/* the M-Vave SMK-37 (docs/SMK37.md): to every host exactly an FM-1, so HELLO_R's identity is the FM-1 build's of the
-+ * same version (tools/build.py FM1B_FM1_ID: "FM-1_520..."); the update identity (FELUCCA_ID) names the model */
++ * same version (tools/build.py FM1B_FM1_ID: "FM-1_720..."); the update identity (FELUCCA_ID) names the model */
 +#ifndef FM1B_FM1_ID
-+#define FM1B_FM1_ID "FM-1_5200"
++#define FM1B_FM1_ID "FM-1_7200"
 +#endif
 +#define RFA_IDENTITY FM1B_FM1_ID
 +#else

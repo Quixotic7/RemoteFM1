@@ -1,7 +1,7 @@
-From 0dde02d8ac4de59dd52005ed8e3eb8120a010a93 Mon Sep 17 00:00:00 2001
+From db5561797b17c54cad8e236faf12c9675173e3bf Mon Sep 17 00:00:00 2001
 From: Michael P Jones <QuixoticSeven@gmail.com>
-Date: Mon, 2 Nov 2026 15:42:45 -0800
-Subject: [PATCH] fm1-core: the wasm JIT computes the FPU's
+Date: Sun, 15 Nov 2026 00:48:29 -0800
+Subject: [PATCH 1/2] fm1-core: the wasm JIT computes the FPU's
  multiply-accumulates inline
 
 0.4.0's wasm JIT computes the FPU's ops inline, but the multiply-
@@ -28,10 +28,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 20 insertions(+), 7 deletions(-)
 
 diff --git a/crates/fm1-core/src/jit_wasm.rs b/crates/fm1-core/src/jit_wasm.rs
-index d8ab34d..83778e8 100644
+index 315c007..de3f261 100644
 --- a/crates/fm1-core/src/jit_wasm.rs
 +++ b/crates/fm1-core/src/jit_wasm.rs
-@@ -1178,8 +1178,8 @@ fn block<B: Bus>(g: &mut Gen<'_>, pc0: u32, ops: &[crate::BOp]) {
+@@ -1355,8 +1355,8 @@ fn block_ops<B: Bus>(g: &mut Gen<'_>, pc0: u32, ops: &[crate::BOp], probe: bool)
              // operand yields the other one, equal operands yield b; wasm's f32.min would
              // propagate the NaN); the conversions as the `as` casts: trunc_sat saturates and
              // sends a NaN to 0, the rounding done first by nearest / ceil / floor (trunc_sat
@@ -42,7 +42,7 @@ index d8ab34d..83778e8 100644
              Fast::FOp { d, a, b, op } if fop_inline(op) => {
                  let k = op >> 4;
                  let to_int = op & 0xf == 0xf && k < 8;
-@@ -1196,6 +1196,19 @@ fn block<B: Bus>(g: &mut Gen<'_>, pc0: u32, ops: &[crate::BOp]) {
+@@ -1373,6 +1373,19 @@ fn block_ops<B: Bus>(g: &mut Gen<'_>, pc0: u32, ops: &[crate::BOp], probe: bool)
                          g.op(F32_REINTERPRET_I32);
                          g.op(match op { 0 => F32_ADD, 1 => F32_SUB, 2 => F32_MUL, _ => F32_DIV });
                      }
@@ -62,7 +62,7 @@ index d8ab34d..83778e8 100644
                      5 | 6 => {
                          // a' = a != a ? b : a; b' = b != b ? a' : b; a' < b' ? a' : b' (max: >)
                          g.ld_reg(a);
-@@ -1837,10 +1850,10 @@ fn block<B: Bus>(g: &mut Gen<'_>, pc0: u32, ops: &[crate::BOp]) {
+@@ -2014,10 +2027,10 @@ fn block_ops<B: Bus>(g: &mut Gen<'_>, pc0: u32, ops: &[crate::BOp], probe: bool)
  }
  
  /// The FPU ops `block` computes inline: the binary + - * / fmin fmax, the conversions ftoi /
@@ -76,7 +76,7 @@ index d8ab34d..83778e8 100644
  }
  
  static mut SELFTEST_DETAIL: String = String::new();
-@@ -1966,7 +1979,7 @@ pub fn fop_selftest() -> u32 {
+@@ -2143,7 +2156,7 @@ pub fn fop_selftest() -> u32 {
              let bop = crate::BOp { fast, len: 4, careful: false, pair_head: false, glue: false };
              // the instruction word (fm1-isa's fpu.rs): `3f e5 b2 b3`, binary b2 = a << 4 | op,
              // b3 = d << 4 | b; unary b2 = op, b3 = d << 4 | a
@@ -84,8 +84,8 @@ index d8ab34d..83778e8 100644
 +            let (b2, b3) = if op & 0xf != 0xf { (a << 4 | op, d << 4 | b) } else { (op, d << 4 | a) };
              bus.0 = [0; 16];
              bus.0[..4].copy_from_slice(&[0x3f, 0xe5, b2, b3]);
-             let m = compile::<NoBus>(&[(0, 0x0200_0000, vec![bop])], &mem, false);
-@@ -1977,7 +1990,7 @@ pub fn fop_selftest() -> u32 {
+             let m = compile::<NoBus>(&[(0, 0x0200_0000, vec![bop])], &mem, false, false);
+@@ -2154,7 +2167,7 @@ pub fn fop_selftest() -> u32 {
                  fail(op, d, a, b, 0, 0, "the host could not compile the module".to_owned());
                  continue;
              }

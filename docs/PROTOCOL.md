@@ -99,7 +99,7 @@ One message = a command byte + a body (8-bit bytes, multi-byte fields **little e
   | 29 | `sxq16`: SysEx send packets free for RemoteFM1 on the transport asked (USB's ring less the 64 kept for the updater, or Bluetooth's queue, 128) |
   | 31 | `bk_rx_ring32`, then 35 `bk_tx_ring32`: the vendor rings (32768 each) |
   | 39 | `sx_body_max16` (1024), then 41 `bk_body_max16` (16384): the longest body taken; a host keeps to them |
-  | 43 | `identity[8]` (`RFM_HELLO_IDENTITY`): the first 8 characters of the update identity, "FM-1_520" for 0.2's `FM-1_52XXYYZZ` (0.1: "FM-1_015") |
+  | 43 | `identity[8]` (`RFM_HELLO_IDENTITY`): the first 8 characters of the update identity, "FM-1_720" for `FM-1_72XXYYZZ` (0.2 to 0.3.6: "FM-1_520" for `FM-1_52XXYYZZ`; 0.1: "FM-1_015") |
 
   `name` is "RemoteFM1" and `proto` is 2 (M0 answered "RemoteFM1-M0", 1). Then come these fields:
 
@@ -329,17 +329,18 @@ the Bluetooth link).
 
 The M-UPGRADE SysEx path (`F0 00 59 …`, the soft key, `fm1_install.py`) is untouched and works at any time over USB,
 in a session or not; RemoteFM1's own messages never hold its frame slot, and 64 packets of the USB SysEx send ring are
-always left to its replies. 0.2 answers it as itself, `FM-1_52XXYYZZ` (release X.Y.Z, two digits each; a development
-build `FM-1_5200`), on the USB device "FM-1", and updates through felucca-bsp's loader (`ota-FM-1_900`). 0.1 answered
-as `FM-1_015`, as TransitFM1 does. Bluetooth carries no update. A host must never send it by accident: every
-RemoteFM1 message starts `F0 7D 52 46`.
+always left to its replies. It answers it as itself, `FM-1_72XXYYZZ` (release X.Y.Z, two digits each; a development
+build `FM-1_7200`), on the USB device "FM-1", and updates through felucca-bsp's loader (`ota-FM-1_900`). 0.1 answered
+as `FM-1_015`, as TransitFM1 does; 0.2 to 0.3.6 as `FM-1_52XXYYZZ` (dev `FM-1_5200`), moved to 72 from 0.3.7
+because QUADRO numbers its releases `FM-1_52XXYYZZ` too. Installers read both as RemoteFM1. Bluetooth carries no
+update. A host must never send it by accident: every RemoteFM1 message starts `F0 7D 52 46`.
 
 ## 7. What 0.2 added (all within version 2)
 
 - Bluetooth MIDI SysEx as a third transport (section 1), in the Bluetooth build; HELLO_R `transports` bits 4 and 5.
 - Sessions per transport: panel events to the session's port, a Bluetooth disconnect ends a Bluetooth session.
 - The vendor interface's number: 4 from 0.2.1, with USB audio in and out beside it (2 before). Found by class.
-- The identity `FM-1_52XXYYZZ` (HELLO_R `identity` "FM-1_520"); `loader_state` -2 for an unknown flash chip.
+- The identity `FM-1_52XXYYZZ` (HELLO_R `identity` "FM-1_520"; `FM-1_72XXYYZZ`, "FM-1_720", from 0.3.7); `loader_state` -2 for an unknown flash chip.
 - Three LED levels (mid and dim merge), no battery reading: `caps` 0x2F.
 - 0.2.2: TILES' HOLD flag (section 3), `caps` bit7, `RFM_HOLD_MS`; libremotefm1 sends a Bluetooth screen
   change whole (section 1). The Bluetooth radio at 2M, long link packets, MTU 247, 16 receive buffers, 7.5 ms asked

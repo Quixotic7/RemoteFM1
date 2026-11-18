@@ -3,7 +3,7 @@
 // (web/installer/releases.json, the files in web/installer/firmware) boot in fm1_web.wasm and a held C4 must sound,
 // with no network (test.mjs, the wider check, fetches the Hub's firmwares).
 // 2026-11-08: RemoteFM1 0.3.4..0.3.6 were silent in the player's emulator. Their felucca-bsp checks the audio PLL
-// before it starts the I2S, and the emulator's PLL registers read 0 (patches/0005). The page drew the screen and
+// before it starts the I2S, and the emulator's PLL registers read 0 (our old patches/0005, upstream since d2bcc33). The page drew the screen and
 // played nothing; native cores were fine. The Pages workflow runs this after it builds the emulator.
 //   node web/engines/emu/own-test.mjs [--wasm=path/fm1_web.wasm]
 import { readFileSync, existsSync } from "node:fs";

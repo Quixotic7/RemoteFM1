@@ -31,7 +31,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { siteEntry, CATEGORIES, HUB, authorNative, preferNative, rfm1Entry, compareVersions, isPrerelease } from "../js/live.js";
+import { siteEntry, CATEGORIES, HUB, authorNative, preferNative, rfm1Entry, compareVersions, isPrerelease, unblocked } from "../js/live.js";
 import { inspect } from "../../engines/rfm1/engine.js";
 import { nativeAvailability, ungatedCores, annotate } from "./site_guard.mjs";
 
@@ -311,7 +311,14 @@ if (fwDir) {
     const card = cardOf(m.id);
     const d = { file: `${rel}/${name}`, release: fwRelease && fwRelease.url, ...(card || {}) };
     const r = rfm1Entry(d, m, { sha256: sha, size: bytes.length });
-    const i = firmwares.findIndex((f) => f.id === r.id);
+    let i = firmwares.findIndex((f) => f.id === r.id);
+    if (i < 0) {
+      // the author's manifest id spelled with - or _ where the Hub's id has none (kris_jangle, the Hub's krisjangle):
+      // the Hub's entry, when exactly one matches that way (the entry keeps the Hub's id, so its links stay)
+      const bare = (s) => String(s).replace(/[-_]/g, "");
+      const near = firmwares.map((f, k) => [f, k]).filter(([f]) => bare(f.id) === bare(r.id));
+      if (near.length === 1) { i = near[0][1]; console.log(`build_catalog: ${r.id}: ${name} joins the Hub's ${firmwares[i].id}`); }
+    }
     if (i < 0) {
       if (!card) console.log(`build_catalog: ${r.id} (${name}) has no card text in data/fw-catalog.json or RemoteFM1FW's catalog: category Other`);
       if (!r.what) r.what = `${r.name} by ${r.authorFull}, built to WebAssembly (.rfm1) and run natively here.`;
@@ -391,7 +398,7 @@ const catalog = {
   fwCatalog: fwDir ? { repo: fwRelease && fwRelease.repo, tag: fwRelease && fwRelease.tag, url: fwRelease && fwRelease.url } : null,
   nativeAuthors: ext ? { workflow: ext.workflow, trustedRefs: ext.trustedRefs, docs: "native/",
     accepted: ext.accepted.map((b) => `${b.id} ${b.version}`), rejected: ext.rejected.map((r) => ({ repo: r.repo, tag: r.tag, why: r.why })) } : null,
-  firmwares,
+  firmwares: unblocked(firmwares),   // (live.js BLOCKED: never listed)
 };
 writeFileSync(out, JSON.stringify(catalog, null, 1) + "\n");
 const nNative = firmwares.filter((f) => f.native).length;

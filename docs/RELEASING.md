@@ -11,7 +11,8 @@ tags only.
 
 ## What a release is
 
-Two packages, both installing as `FM-1_52XXYYZZ` (0.3.2: `FM-1_52000302`; `firmware/fm1.toml` `id_prefix`):
+Two packages, both installing as `FM-1_72XXYYZZ` (0.3.7: `FM-1_72000307`; `firmware/fm1.toml` `id_prefix`). 0.2 to
+0.3.6 were `FM-1_52XXYYZZ`; 52 moved to 72 because QUADRO numbers its releases `FM-1_52XXYYZZ` too:
 
 | file | build | |
 |---|---|---|

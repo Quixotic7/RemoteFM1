@@ -240,6 +240,12 @@ const byName = (a, b) => a.name.localeCompare(b.name, "en", { sensitivity: "base
 //   - RemoteFM1's entry (a same-origin package) stays as it is; so does a firmware this site hosts as an .rfm1: on the
 //     Hub too, it gets the Hub's package as its emulated engine, the .rfm1 stays its default; unless the emulator
 //     can't run that package (emuSkip: FIZZ's needs its data blob), then the .rfm1 alone.
+// Firmwares this site never lists, plays or links, whatever the Hub says (the owner's call): Bubba Machine bricks
+// FM-1s and its author has not answered for weeks (2026-11-09). build_catalog.mjs leaves them out of catalog.json,
+// mergeLive out of the live Hub's list.
+export const BLOCKED = new Set(["bubba"]);
+export const unblocked = (list) => list.filter((f) => f && !BLOCKED.has(f.id));
+
 export function mergeLive(snapshot, hub, { emuSkip = {} } = {}) {
   const byId = new Map(snapshot.firmwares.map((f) => [f.id, f]));
   const seen = new Set(), out = [];
@@ -265,7 +271,7 @@ export function mergeLive(snapshot, hub, { emuSkip = {} } = {}) {
     else if (f.native) out.push({ ...f, engines: ["native"], defaultEngine: "native", nativeBehind: false, offHub: true });
   }
   out.sort(byName);
-  return { ...snapshot, firmwares: out, hubUpdated: hub.updated || snapshot.hubUpdated, live: true };
+  return { ...snapshot, firmwares: unblocked(out), hubUpdated: hub.updated || snapshot.hubUpdated, live: true };
 }
 
 // fetchHub(signal) -> the Hub's catalog JSON. The snapshot (live: false) when it fails or takes longer than timeoutMs.
@@ -392,12 +398,13 @@ export function browse(list, { engine = "all", cat = "All", q = "" } = {}) {
     (cat === "All" || (f.categories || []).includes(cat)) &&
     (!s || [f.name, f.author, f.authorFull, f.tag, f.what, f.id].some((x) => x && String(x).toLowerCase().includes(s))));
 }
-// the browser's two sections (the owner: native first, the .fwsc ones below, less prominent): native, the firmwares
-// with an .rfm1 (this site's or RemoteFM1FW's) or a native core; emulated, the ones that only run as .fwsc packages
+// the browser's two sections (the owner, 2026-11-09: no engine filter, only the category chips): native, the firmwares
+// with an .rfm1 (this site's or RemoteFM1FW's) or a native core, a click always starts native; emulated, every
+// firmware with a .fwsc package (also a native one's, often the Hub's newer release), a click always starts emulated
 export const runsNative = (f) => (!!f.native && f.engines.includes("native")) || f.engines.includes("rfm1");
 export function browseSections(list, opts = {}) {
-  const all = browse(list, opts);
-  return { native: all.filter(runsNative), emulated: all.filter((f) => !runsNative(f)) };
+  const all = browse(list, { ...opts, engine: "all" });
+  return { native: all.filter(runsNative), emulated: all.filter((f) => f.engines.includes("emu")) };
 }
 // what a card shows under a filter: { version, note, engine } (engine: the one a click starts; null: the default)
 export function cardView(f, engine = "all") {

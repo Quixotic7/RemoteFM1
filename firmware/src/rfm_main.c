@@ -65,7 +65,7 @@
 #define RF_GEN_MAX RF_BK_SRC_MAX            /* M0's SOURCE: the longest DATA message made */
 #endif
 #ifndef FELUCCA_ID
-#define FELUCCA_ID "FM-1_5200"              /* (the host simulator; tools/build.py gives the FM-1's build its own) */
+#define FELUCCA_ID "FM-1_7200"              /* (the host simulator; tools/build.py gives the FM-1's build its own) */
 #endif
 #define RFA_FW_VER APP_VERSION
 #define RFA_IDENTITY FELUCCA_ID

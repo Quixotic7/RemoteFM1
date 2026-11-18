@@ -116,6 +116,8 @@ try {
   await sleep(1200);
   let w = await js("window.__w");
   ok(w.frames > 0 && w.colours >= 2, `it draws (${w.frames} frames in 1.2 s, ${w.colours >= 64 ? "64+" : w.colours} colours)`);
+  await press("Minus", "-", 120);                       // (wakes it from the logo screen: since beta.19 a waking press does nothing else)
+  await sleep(300);
   const t0 = await js("performance.now()");
   await press("Minus", "-", 120);                       // (PLAY)
   await sleep(2500);

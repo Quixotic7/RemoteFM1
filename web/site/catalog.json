@@ -1,6 +1,6 @@
 {
  "about": "Built by web/site/tools/build_catalog.mjs from the FM-1 Firmware Hub's catalog, FM1VST's cores, RemoteFM1's own release (web/installer/releases.json) and the site's .rfm1 files (data/site-rfm1.json). Edit those, not this file.",
- "generated": "2026-11-08",
+ "generated": "2026-11-14",
  "hubUpdated": "2026-10-18 17:01 UTC",
  "hubSource": "snapshot",
  "hub": "https://thefirmwarehub.com/",
@@ -132,41 +132,6 @@
     "size": 610086,
     "product": "FM-1_2101"
    }
-  },
-  {
-   "id": "bubba",
-   "name": "Bubba Machine",
-   "version": "0.8.0-beta",
-   "author": "Erbubar23",
-   "authorFull": "Erbubar23",
-   "category": "Groovebox",
-   "categories": [
-    "Groovebox",
-    "Drums",
-    "Synth"
-   ],
-   "tag": "Six-track groovebox written…",
-   "what": "A six-track groovebox written from scratch: TR drums from Plaits' 808 and 909 models, a sampler with a 16-slice slicer, a bass and three free tracks (analog, 6-op FM, 303 acid), scenes and fills, all at 44.1 kHz.",
-   "license": null,
-   "source": "https://github.com/Erbubar23/bubba-machine/tree/v0.8.0-beta",
-   "repo": "Erbubar23/bubba-machine",
-   "release": "https://github.com/Erbubar23/bubba-machine/releases/tag/v0.8.0-beta",
-   "site": "https://erbubar23.github.io/bubba-machine/en/",
-   "play": "https://erbubar23.github.io/bubba-machine/en/",
-   "editor": null,
-   "beta": true,
-   "engines": [
-    "emu"
-   ],
-   "defaultEngine": "emu",
-   "native": null,
-   "emu": {
-    "pkg": "https://thefirmwarehub.com/fw/bubba-0.8.0-beta.fwsc",
-    "sha256": "e8fc401adb9bc7a8d853f8a12ab8b392c3fc2b26d9812716c0472c7dc69e3bfa",
-    "size": 699956,
-    "product": "FM-1_003"
-   },
-   "emuNote": "runs and draws its screen, but no sound comes out (PLAY, the keys)"
   },
   {
    "id": "choralroot",
@@ -608,7 +573,7 @@
   {
    "id": "fizz",
    "name": "FIZZ",
-   "version": "0.12.0-beta.13",
+   "version": "0.12.0-beta.19",
    "author": "Quixotic7",
    "authorFull": "Michael P Jones (Quixotic7)",
    "category": "Groovebox",
@@ -618,9 +583,9 @@
    "tag": "FM TONE step sequencer",
    "what": "A step sequencer for FM TONE, ChoralRoot's FM voice: eight tracks sharing 16 voices, p-locks, a pool of 128 sounds, pages with their own start and end, conditions, chance, ratchets and chords of up to six notes. Built by this site from FIZZ's release to WebAssembly (.rfm1) and run natively here; PLAY starts the demo pattern, REC turns the keys into a keyboard.",
    "license": "MPL-2.0 AND GPL-3.0-only AND MIT AND FTL AND OFL-1.1",
-   "source": "https://github.com/Quixotic7/FIZZ/tree/v0.12.0-beta.13",
+   "source": "https://github.com/Quixotic7/FIZZ/tree/v0.12.0-beta.19",
    "repo": "Quixotic7/FIZZ",
-   "release": "https://github.com/Quixotic7/FIZZ/releases/tag/v0.12.0-beta.13",
+   "release": "https://github.com/Quixotic7/FIZZ/releases/tag/v0.12.0-beta.19",
    "site": "https://quixotic7.github.io/FIZZ/",
    "play": null,
    "editor": "https://quixotic7.github.io/FIZZ/manager/",
@@ -633,14 +598,14 @@
    "emu": null,
    "rfm1": {
     "from": "site",
-    "file": "fw/fizz-0.12.0-beta.13.rfm1",
-    "sha256": "00b78d7a27b365b243ef565dafe05462474c8a8f4c988e8bd5e2e6ddfcfcf9f6",
-    "size": 1613288,
-    "fileName": "fizz-0.12.0-beta.13.rfm1",
-    "version": "0.12.0-beta.13",
-    "sourceUrl": "https://github.com/Quixotic7/FIZZ@d50844dbe32dfe7e4a706f326ba291064e788ed8",
+    "file": "fw/fizz-0.12.0-beta.19.rfm1",
+    "sha256": "4e7375d7e6848b6a5989b9e71ec36b22fb0d439a202b0ad3141c8d8759c11de4",
+    "size": 1593432,
+    "fileName": "fizz-0.12.0-beta.19.rfm1",
+    "version": "0.12.0-beta.19",
+    "sourceUrl": "https://github.com/Quixotic7/FIZZ@d46d452a8be97b40027c289d1865bc4b13f0cc1c",
     "glueUrl": "https://github.com/Quixotic7/FM1VST/tree/d5f8f64101b401abf6fd9aaa3f20c3c507e34d60",
-    "builtBy": "FM1VST 0.6.2 (d5f8f64101b4) fm1_add_rfm1, emcc 6.0.13",
+    "builtBy": "FM1VST 0.6.2 (d5f8f64101b4) fm1_add_rfm1, emcc 6.0.11",
     "authors": [
      "Michael P Jones (Quixotic7)"
     ]

@@ -14,8 +14,8 @@ import { Updater, classifyFirmware, remoteFm1Version } from "./fm1ota.js";
 import { Package, productOf, logicalImage, sha256hex, OFFICIAL_PACKAGES } from "./fm1pkg.js";
 
 export const IDENTITY = "FM-1_015";               // RemoteFM1 0.1's (it answered as the official V15); 0.2 and later
-                                                  // answer as themselves, FM-1_52XXYYZZ (fm1ota.js remoteFm1Version,
-                                                  // releases.json identity)
+                                                  // answer as themselves, FM-1_72XXYYZZ (0.2 to 0.3.6:
+                                                  // FM-1_52XXYYZZ; fm1ota.js remoteFm1Version, releases.json identity)
 const INFO_REQ = [0xF0, 0x7D, 0x46, 0x4C, 0x01, 0xF7];   // the backup protocol's INFO (Felucca, ChoralRoot, ...)
 const HELLO_REQ = [0xF0, 0x7D, 0x52, 0x46, 0x01, 0xF7];  // RemoteFM1's HELLO (docs/PROTOCOL.md section 2), no body
 

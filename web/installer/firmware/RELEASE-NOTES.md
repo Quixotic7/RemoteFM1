@@ -1,3 +1,11 @@
+# Unreleased (0.3.7)
+
+- **A new identity:** RemoteFM1 now answers installers as `FM-1_72XXYYZZ` (0.3.7: `FM-1_72000307`; a development
+  build `FM-1_7200`). 0.2 to 0.3.6 answered `FM-1_52XXYYZZ`, the same scheme as QUADRO (by Matt Allison), whose 1.x
+  releases are `FM-1_5201xxxx` and would collide with RemoteFM1 1.0. 72 is "r", as 52 was "R"; the SysEx ID
+  `7D 52 46` is unchanged. The installer here and `fm1_install.py` read both, so a unit on 0.2 to 0.3.6 still
+  installs and upgrades. The SMK-37 builds move the same way (`SMK-37 Pro_72XXYYZZ`).
+
 # RemoteFM1 0.3.6
 
 Released 2026-11-08, built and signed on GitHub with `tools/hub_build.sh 0.3.6` (docs/RELEASING.md). It replaces 0.3.5.

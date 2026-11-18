@@ -104,15 +104,15 @@ ok(cat.firmwares.every((f) => cat.categories.includes(f.category)), "catalog: ev
   const L = await import("./js/live.js");
   const { inspect } = await import("../engines/rfm1/engine.js");
   const fz = cat.firmwares.find((f) => f.id === "fizz"), d = JSON.parse(readFileSync(new URL("./data/site-rfm1.json", import.meta.url), "utf8")).firmwares.find((x) => /\/fizz-/.test(x.file));
-  ok(fz && fz.name === "FIZZ" && fz.author === "Quixotic7" && fz.authorFull === "Michael P Jones (Quixotic7)" && fz.version === "0.12.0-beta.13" && fz.beta
-     && fz.category === "Groovebox" && fz.tag && fz.what && fz.source === "https://github.com/Quixotic7/FIZZ/tree/v0.12.0-beta.13" && fz.repo === "Quixotic7/FIZZ"
-     && fz.release === "https://github.com/Quixotic7/FIZZ/releases/tag/v0.12.0-beta.13", "fizz: in the catalog: FIZZ 0.12.0-beta.13 by Quixotic7, beta, Groovebox, its source and release at the tag");
+  ok(fz && fz.name === "FIZZ" && fz.author === "Quixotic7" && fz.authorFull === "Michael P Jones (Quixotic7)" && fz.version === "0.12.0-beta.19" && fz.beta
+     && fz.category === "Groovebox" && fz.tag && fz.what && fz.source === "https://github.com/Quixotic7/FIZZ/tree/v0.12.0-beta.19" && fz.repo === "Quixotic7/FIZZ"
+     && fz.release === "https://github.com/Quixotic7/FIZZ/releases/tag/v0.12.0-beta.19", "fizz: in the catalog: FIZZ 0.12.0-beta.19 by Quixotic7, beta, Groovebox, its source and release at the tag");
   ok(fz.engines.join() === "rfm1" && fz.defaultEngine === "rfm1" && !fz.native && !fz.emu && !fz.local && L.siteRfm1(fz) && !L.localRfm1(fz)
-     && fz.rfm1.file === "fw/fizz-0.12.0-beta.13.rfm1" && /^[0-9a-f]{64}$/.test(fz.rfm1.sha256) && fz.rfm1.size > 0,
+     && fz.rfm1.file === "fw/fizz-0.12.0-beta.19.rfm1" && /^[0-9a-f]{64}$/.test(fz.rfm1.sha256) && fz.rfm1.size > 0,
      "fizz: the rfm1 engine only, its file this site's (rfm1: file, sha256, size; not a visitor's)");
   const bytes = readFileSync(new URL(fz.rfm1.file, import.meta.url)), sha = createHash("sha256").update(bytes).digest("hex");
   const sums = readFileSync(new URL("./fw/SHA256SUMS", import.meta.url), "utf8");
-  ok(sha === fz.rfm1.sha256 && sha === d.sha256 && bytes.length === fz.rfm1.size && sums.includes(`${sha}  fizz-0.12.0-beta.13.rfm1`),
+  ok(sha === fz.rfm1.sha256 && sha === d.sha256 && bytes.length === fz.rfm1.size && sums.includes(`${sha}  fizz-0.12.0-beta.19.rfm1`),
      `fizz: the file is there; its SHA-256 is the catalog's, data/site-rfm1.json's and fw/SHA256SUMS's (${sha.slice(0, 12)}...)`);
   const m = inspect(new Uint8Array(bytes)).manifest;
   ok(m.id === "fizz" && m.version === fz.version && m.license === "MPL-2.0 AND GPL-3.0-only AND MIT AND FTL AND OFL-1.1" && fz.license === m.license
@@ -125,14 +125,14 @@ ok(cat.firmwares.every((f) => cat.categories.includes(f.category)), "catalog: ev
   const s = L.sourceOf(fz, "rfm1", cat.credits);
   ok(s.url === `https://github.com/Quixotic7/FIZZ/tree/${m.source_url.split("@")[1]}` && s.refKind === "commit" && s.glue && /^Quixotic7\/FM1VST @ [0-9a-f]{7}$/.test(s.glue.label)
      && s.title.includes(` · ${m.license} · source at commit`), "fizz: the header's source link: FIZZ at its commit, FM1VST's glue at its commit");
-  const hubFizz = { id: "fizz", name: "FIZZ", kind: "groove", author: "Quixotic7", version: "0.12.0-beta.13", pkg: "fw/fizz-0.12.0-beta.13.fwsc", sha256: "d".repeat(64), size: 611496, what: "The Hub's text." };
+  const hubFizz = { id: "fizz", name: "FIZZ", kind: "groove", author: "Quixotic7", version: "0.12.0-beta.19", pkg: "fw/fizz-0.12.0-beta.19.fwsc", sha256: "d".repeat(64), size: 611496, what: "The Hub's text." };
   const hub0 = JSON.parse(readFileSync(new URL("./data/hub-catalog.snapshot.json", import.meta.url), "utf8"));
   const without = L.mergeLive(cat, hub0, {}), skip = L.mergeLive(cat, { ...hub0, firmwares: [...hub0.firmwares, hubFizz] }, { emuSkip: { fizz: "needs its data" } });
   const withEmu = L.mergeLive(cat, { ...hub0, firmwares: [...hub0.firmwares, hubFizz] }, {});
   const one = (c) => c.firmwares.filter((f) => f.id === "fizz");
   const we = one(withEmu)[0];
   ok(one(without).length === 1 && one(without)[0].engines.join() === "rfm1" && one(skip).length === 1 && one(skip)[0].engines.join() === "rfm1" && !one(skip)[0].emu
-     && one(withEmu).length === 1 && we.engines.join() === "rfm1,emu" && we.defaultEngine === "rfm1" && we.emu.pkg === "https://thefirmwarehub.com/fw/fizz-0.12.0-beta.13.fwsc" && L.siteRfm1(we),
+     && one(withEmu).length === 1 && we.engines.join() === "rfm1,emu" && we.defaultEngine === "rfm1" && we.emu.pkg === "https://thefirmwarehub.com/fw/fizz-0.12.0-beta.19.fwsc" && L.siteRfm1(we),
      "fizz: the live merge keeps it off the Hub; on the Hub, one entry: the .rfm1 alone where the package can't be emulated, else rfm1 + the Hub's package");
 }
 
@@ -224,6 +224,10 @@ ok(cat.firmwares.every((f) => cat.categories.includes(f.category)), "catalog: ev
      && nativeOnly.some((f) => f.id === "fizz")
      && emuOnly.every((f) => f.engines.includes("emu") && !f.emuNote) && !emuOnly.some((f) => f.id === "bubba" || f.id === "amb") && emuOnly.some((f) => f.id === "felucca"),
      "filter: All everything; Native the cores and the site's .rfm1 (FIZZ); Emulated what fm1-emu runs (not bubba, not a native-only one)");
+  // blocked (live.js BLOCKED): Bubba Machine bricks FM-1s; never listed, from the snapshot or the live Hub
+  ok(L.BLOCKED.has("bubba") && !m.firmwares.some((f) => f.id === "bubba") && !cat.firmwares.some((f) => f.id === "bubba")
+     && L.unblocked([{ id: "bubba" }, { id: "felucca" }]).map((f) => f.id).join() === "felucca",
+     "blocked: Bubba Machine is in neither the site's catalog nor the live Hub's list");
   ok(L.browse(m.firmwares, { engine: "native", cat: "Groovebox", q: "fel" }).map((f) => f.id).join() === "felucca,melodee,pigeon,skiff" && L.browse(m.firmwares, { engine: "emu", q: "zzzz" }).length === 0,
      "filter: combines with a category chip and the search (Melodee's, PIGEON's, Skiff's blurbs name Felucca)");
   const cvN = L.cardView(mf, "native"), cvE = L.cardView(mf, "emu"), cvA = L.cardView(mf, "all");
@@ -271,48 +275,50 @@ ok(cat.firmwares.every((f) => cat.categories.includes(f.category)), "catalog: ev
 // ---- the emulated CPU clock (js/cpu.js)
 {
   const P = await import("./js/cpu.js");
-  ok(P.mhzFor("choralroot", {}).mhz === 360 && P.mhzFor("choralroot", {}).choice === "auto" && P.DEVICE_MHZ === 360
-     && P.MHZ_CHOICES.join() === "auto,240,320,360,480,640" && P.inDeviceRange(320) && P.inDeviceRange(360) && P.isOverclock(480) && P.isOverclock(640) && !P.isOverclock(360),
-     "cpu: the default is Auto at 360 MHz; choices Auto 240 320 360 480 640 (320-360 the device's, 480 640 overclock)");
+  ok(P.mhzFor("choralroot", {}).mhz === 320 && P.mhzFor("choralroot", {}).choice === "auto"
+     && P.MHZ_CHOICES.join() === "auto,80,120,160,240,320,360" && P.inDeviceRange(320) && P.inDeviceRange(360) && !P.inDeviceRange(240),
+     "cpu: the default is Auto at 320 MHz; choices Auto 80 120 160 240 320 360 (no overclock)");
   let prefs = {};
-  Object.assign(prefs, P.pickMhz(prefs, "choralroot", 640));
+  Object.assign(prefs, P.pickMhz(120));
   const saved = JSON.parse(JSON.stringify(prefs));                           // (through localStorage)
-  ok(P.mhzFor("choralroot", saved).mhz === 640 && P.mhzFor("choralroot", saved).choice === 640 && P.mhzFor("felucca", saved).mhz === 360
-     && P.mhzFor("x", { mhz: { x: 100 } }).mhz === 360, "cpu: a pick is kept per firmware, before the default (100 is no choice)");
+  ok(P.mhzFor("choralroot", saved).mhz === 120 && P.mhzFor("choralroot", saved).choice === 120 && P.mhzFor("felucca", saved).mhz === 120
+     && P.mhzFor("x", { cpuMhz: 100 }).mhz === 320 && P.mhzFor("x", { cpuMhz: 640 }).mhz === 320,
+     "cpu: a pick is one for every firmware (switching firmware keeps it); 100 and 640 are no choice");
   // Auto, too slow: load above 80 % for 2 s (after the 4 s grace) -> 320
   const run = (g, samples) => { for (const [t, load, late] of samples) { const r = g.feed({ load, lateMs: late || 0 }, t); if (r) return [t, r]; } return null; };
   const busy = (from, to, load, late = 0) => { const s = []; for (let t = from; t <= to; t += 500) s.push([t, load, late]); return s; };
-  const g = new P.Governor({ choice: "auto", mhz: 360, now: 0 });
+  const g = new P.Governor({ choice: "auto", mhz: 320, now: 0 });
   const r = run(g, [...busy(500, 3500, 0.99), ...busy(4000, 5000, 0.5), ...busy(5500, 9000, 0.9)]);
-  ok(r && r[1].step === 320 && r[0] === 7500, `cpu: Auto, load 90 % for 2 s after the boot's grace -> steps to 320 MHz (at ${r && r[0]} ms)`);
-  prefs.autoMhz = P.stepDown({}, "x", 320);
-  ok(P.mhzFor("x", prefs).mhz === 320 && [360, 320, 240, 180].map(P.nextStep).join() === "320,240,180,120" && P.nextStep(120) === null,
-     "cpu: 360 -> 320 -> 240 -> 180 -> 120 (the floor), and the step is kept (never up by itself)");
+  ok(r && r[1].step === 240 && r[0] === 7500, `cpu: Auto, load 90 % for 2 s after the boot's grace -> steps to 240 MHz (at ${r && r[0]} ms)`);
+  prefs = { ...P.pickMhz("auto"), ...P.stepDown(120) };
+  ok(P.mhzFor("x", prefs).mhz === 120 && P.mhzFor("felucca", prefs).mhz === 120 && P.mhzFor("melodee", prefs, { cores: 2 }).mhz === 120
+     && [320, 240, 160, 120].map(P.nextStep).join() === "240,160,120,80" && P.nextStep(80) === null,
+     "cpu: 320 -> 240 -> 160 -> 120 -> 80 (the floor); Auto's step is kept for the next firmwares too (never up by itself)");
   const gl = new P.Governor({ choice: "auto", mhz: 240, now: 0 });
   const rl = run(gl, busy(4000, 9000, 0.3, 70));
-  ok(rl && rl[1].step === 180, "cpu: Auto, dropouts adding up (70 ms late a report) -> the next step down");
-  ok(run(new P.Governor({ choice: "auto", mhz: 360, now: 0 }), [...busy(4000, 20000, 0.7), ...busy(20500, 21500, 0.95), ...busy(22000, 40000, 0.6, 10)]) === null,
+  ok(rl && rl[1].step === 160, "cpu: Auto, dropouts adding up (70 ms late a report) -> the next step down");
+  ok(run(new P.Governor({ choice: "auto", mhz: 320, now: 0 }), [...busy(4000, 20000, 0.7), ...busy(20500, 21500, 0.95), ...busy(22000, 40000, 0.6, 10)]) === null,
      "cpu: Auto, 70 % load and short spikes -> stays");
-  const gm = new P.Governor({ choice: 640, mhz: 640, now: 0 }), rm = run(gm, busy(4000, 9000, 0.95));
-  ok(rm && rm[1].warn && !rm[1].step && gm.feed({ load: 0.99 }, 10000) === null, "cpu: a manual 640 never changes; it warns once");
-  ok(run(new P.Governor({ choice: "auto", mhz: 120, now: 0 }), busy(4000, 9000, 0.95))[1].warn, "cpu: Auto at the 120 MHz floor, still too slow -> a warning, no lower step");
+  const gm = new P.Governor({ choice: 360, mhz: 360, now: 0 }), rm = run(gm, busy(4000, 9000, 0.95));
+  ok(rm && rm[1].warn && !rm[1].step && gm.feed({ load: 0.99 }, 10000) === null, "cpu: a manual 360 never changes; it warns once");
+  ok(run(new P.Governor({ choice: "auto", mhz: 80, now: 0 }), busy(4000, 9000, 0.95))[1].warn, "cpu: Auto at the 80 MHz floor, still too slow -> a warning, no lower step");
   // headroom before the audio breaks: the busiest stretch (peak) or the browser's glitch count
   const feed = (g, samples) => { for (const [t, m] of samples) { const r = g.feed(m, t); if (r) return [t, r]; } return null; };
   const peaky = []; for (let t = 4000; t <= 9000; t += 500) peaky.push([t, { load: 0.6, peak: 0.97 }]);
-  const rp = feed(new P.Governor({ choice: "auto", mhz: 360, now: 0 }), peaky);
-  ok(rp && rp[1].step === 320 && rp[0] === 5000, `cpu: Auto, mean 60 % but its busiest 21 ms above 95 % in 3 of 4 reports -> 320 (at ${rp && rp[0]} ms)`);
+  const rp = feed(new P.Governor({ choice: "auto", mhz: 320, now: 0 }), peaky);
+  ok(rp && rp[1].step === 240 && rp[0] === 5000, `cpu: Auto, mean 60 % but its busiest 21 ms above 95 % in 3 of 4 reports -> 240 (at ${rp && rp[0]} ms)`);
   const oneSpike = []; for (let t = 4000; t <= 20000; t += 500) oneSpike.push([t, { load: 0.7, peak: t % 2500 ? 0.8 : 1.2 }]);
-  ok(feed(new P.Governor({ choice: "auto", mhz: 360, now: 0 }), oneSpike) === null, "cpu: Auto, a peak now and then (1 report in 5) -> stays");
+  ok(feed(new P.Governor({ choice: "auto", mhz: 320, now: 0 }), oneSpike) === null, "cpu: Auto, a peak now and then (1 report in 5) -> stays");
   const gl3 = []; let n = 40; for (let t = 1000; t <= 9000; t += 500) { if (t >= 6000) n += 1; gl3.push([t, { load: 0.5, peak: 0.6, glitches: t < 4000 ? (n += 10) : n }]); }
-  const rg = feed(new P.Governor({ choice: "auto", mhz: 360, now: 0 }), gl3);
-  ok(rg && rg[1].step === 320 && rg[0] === 7000, `cpu: Auto, 3 glitches within 3 s (the browser's count; boot glitches don't count) -> 320 (at ${rg && rg[0]} ms)`);
-  ok(feed(new P.Governor({ choice: "auto", mhz: 360, now: 0 }), busy(4000, 9000, 0.78).map(([t, l]) => [t, { load: l, peak: 0.9, glitches: 5 }])) === null,
+  const rg = feed(new P.Governor({ choice: "auto", mhz: 320, now: 0 }), gl3);
+  ok(rg && rg[1].step === 240 && rg[0] === 7000, `cpu: Auto, 3 glitches within 3 s (the browser's count; boot glitches don't count) -> 240 (at ${rg && rg[0]} ms)`);
+  ok(feed(new P.Governor({ choice: "auto", mhz: 320, now: 0 }), busy(4000, 9000, 0.78).map(([t, l]) => [t, { load: l, peak: 0.9, glitches: 5 }])) === null,
      "cpu: Auto, 78 % with a 90 % peak and no new glitches -> stays");
-  ok(P.mhzFor("melodee", {}, { cores: 4 }).mhz === 320 && P.mhzFor("felucca", {}, { cores: 4 }).mhz === 360 && P.mhzFor("melodee", {}, { cores: 8 }).mhz === 360
-     && P.mhzFor("melodee", {}, {}).mhz === 360 && P.mhzFor("melodee", { mhz: { melodee: 360 } }, { cores: 2 }).mhz === 360,
+  ok(P.mhzFor("melodee", {}, { cores: 4 }).mhz === 240 && P.mhzFor("felucca", {}, { cores: 4 }).mhz === 320 && P.mhzFor("melodee", {}, { cores: 8 }).mhz === 320
+     && P.mhzFor("melodee", {}, {}).mhz === 320 && P.mhzFor("melodee", { cpuMhz: 360 }, { cores: 2 }).mhz === 360,
      "cpu: a weak host (4 cores or fewer) starts Auto one step lower for a dual-core firmware; a pick or an unknown host does not");
-  Object.assign(prefs, P.pickMhz(prefs, "x", "auto"));
-  ok(P.mhzFor("x", prefs).mhz === 360, "cpu: picking Auto again starts at 360");
+  Object.assign(prefs, P.pickMhz("auto"));
+  ok(P.mhzFor("x", prefs).mhz === 320, "cpu: picking Auto again starts at 320");
   ok(["choralroot", "melodee", "sloopdx", "fm106", "coralflower"].every((id) => P.DUAL_CORE.has(id) && cat.firmwares.some((f) => f.id === id)), "cpu: the dual-core firmwares (CPU-heavy) are in the catalog");
 }
 
@@ -1594,10 +1600,18 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
      "fetch_fw_catalog: --from copies and checks; a file not its SHA256SUMS line fails, writing nothing");
   // the browser: native (.rfm1 / native core) first, the emulated-only (.fwsc) below
   const sec = L.browseSections(c.firmwares);
-  ok(sec.native.length + sec.emulated.length === c.firmwares.length && sec.native.every(L.runsNative) && sec.emulated.every((f) => !f.native && !f.engines.includes("rfm1"))
-     && sec.native.some((f) => f.id === "sloop") && sec.emulated.some((f) => f.id === "bubba")
-     && L.browseSections(c.firmwares, { q: "sloop" }).native.some((f) => f.id === "sloop") && L.browseSections(c.firmwares, { q: "bubba" }).emulated.length === 1,
-     "browser: native and .rfm1 firmwares first, the emulated-only ones in a section below; search spans both");
+  const both = c.firmwares.filter((f) => L.runsNative(f) && f.engines.includes("emu"));
+  ok(sec.native.every(L.runsNative) && sec.emulated.every((f) => f.engines.includes("emu"))
+     && c.firmwares.every((f) => sec.native.includes(f) || sec.emulated.includes(f))
+     && both.every((f) => sec.native.includes(f) && sec.emulated.includes(f))
+     && sec.native.some((f) => f.id === "sloop") && sec.emulated.some((f) => f.id === "beetle") && !sec.native.some((f) => f.id === "beetle")
+     && L.browseSections(c.firmwares, { q: "sloop" }).native.some((f) => f.id === "sloop") && L.browseSections(c.firmwares, { q: "beetle" }).emulated.some((f) => f.id === "beetle") && !L.browseSections(c.firmwares, { q: "beetle" }).native.length
+     && L.browseSections(c.firmwares, { engine: "native" }).emulated.length === sec.emulated.length,
+     "browser: native and .rfm1 firmwares on top; every .fwsc package below (a native one's too); no engine filter; search spans both");
+  // a card starts its section's engine: native (or the .rfm1) on top, emulated below, whatever the default
+  const nb = c.firmwares.find((f) => f.native && f.engines.includes("native") && f.engines.includes("emu"));
+  ok(!nb || (L.cardView(nb, "native").engine === "native" && L.cardView(nb, "emu").engine === "emu"),
+     "browser: a native card starts native, the same firmware's emulated card starts emulated");
   rmSync(dir, { recursive: true, force: true }); rmSync(fout, { recursive: true, force: true }); unlinkSync(out);
 }
 

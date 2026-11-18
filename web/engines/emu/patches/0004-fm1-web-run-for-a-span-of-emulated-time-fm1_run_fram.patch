@@ -1,7 +1,7 @@
-From 54ea8a2a929dcdcba7665f6521b9325a6c93a694 Mon Sep 17 00:00:00 2001
+From 26a259d7f8f575c28a396bba4f260b25ae1cea11 Mon Sep 17 00:00:00 2001
 From: Michael P Jones <QuixoticSeven@gmail.com>
 Date: Sun, 18 Oct 2026 23:33:49 -0700
-Subject: [PATCH] fm1-web: run for a span of emulated time (fm1_run_frames,
+Subject: [PATCH 2/2] fm1-web: run for a span of emulated time (fm1_run_frames,
  fm1_time_frames)
 
 fm1_render runs the machine until the I2S DMA has produced the frames
@@ -29,10 +29,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 32 insertions(+)
 
 diff --git a/crates/fm1-web/src/lib.rs b/crates/fm1-web/src/lib.rs
-index 2f0ebc1..920888d 100644
+index de515ad..5129e41 100644
 --- a/crates/fm1-web/src/lib.rs
 +++ b/crates/fm1-web/src/lib.rs
-@@ -433,6 +433,38 @@ pub extern "C" fn fm1_cpu1_survives(on: u32) {
+@@ -450,6 +450,38 @@ pub extern "C" fn fm1_cpu1_survives(on: u32) {
      if let Some(m) = machine() { m.soc.cpu1_survives = on != 0; }
  }
  

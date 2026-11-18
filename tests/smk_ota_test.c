@@ -19,7 +19,7 @@
 #ifndef SMK_MODEL
 #define SMK_MODEL "SMK-37 Pro"
 #endif
-#define FELUCCA_ID SMK_MODEL "_5200"
+#define FELUCCA_ID SMK_MODEL "_7200"
 #define FELUCCA_OTA_DRYRUN 0
 #define FL_OTA_LO 0xBB000u                       /* (felucca-bsp fm1_flash.h's, SMK-37) */
 #define FL_OTA_HI 0xC0000u
@@ -251,7 +251,7 @@ int main(int argc, char **argv)
     snprintf(want, sizeof want, "%s_", SMK_MODEL);
     bad += check("the SMK package: 36 identity blocks", nb == 36);
     bad += check("its identity names the model and RemoteFM1's number", !strncmp(ident, want, strlen(want)) &&
-                 !strncmp(ident + strlen(want), "52", 2));
+                 !strncmp(ident + strlen(want), "72", 2));
     printf("  identity %s (%zu characters)\n", ident, strlen(ident));
     memcpy(head, logical + 0x400, sizeof head);         /* (flash.bin's head: the SPL and the chip key, as a unit has) */
 

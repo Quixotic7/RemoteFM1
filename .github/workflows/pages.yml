@@ -171,7 +171,7 @@ jobs:
           cp web/vendor/fm1-emu/LICENSE _site/engines/emu/LICENSE-fm1-emu.txt
 
       # the emulator just built plays RemoteFM1's own release with a key held (0.3.4..0.3.6 were silent in it:
-      # felucca-bsp's audio PLL check, patches/0005); a silent emulator is not deployed
+      # felucca-bsp's audio PLL check, upstream d2bcc33); a silent emulator is not deployed
       - name: Emulated engine sounds (RemoteFM1's own packages)
         if: steps.emu.outcome == 'success'
         run: node web/engines/emu/own-test.mjs --wasm="$PWD/_site/engines/emu/fm1_web.wasm"
@@ -220,6 +220,9 @@ jobs:
           # the catalog: the Hub's live one, else the snapshot in the tree; native only where the core's .wasm is here
           node web/site/tools/build_catalog.mjs --layout pages --hub https://thefirmwarehub.com/catalog.json --out _site/catalog.json --native-dir _site/engines/native "${ext[@]}" "${fwcat[@]}" \
             || node web/site/tools/build_catalog.mjs --layout pages --out _site/catalog.json --native-dir _site/engines/native "${ext[@]}" "${fwcat[@]}"
+          # the last deploy's .rfm1 files this one dropped (a firmware's older version), kept one more deploy: the CDN
+          # serves the old catalog.json for up to 10 minutes and a player would ask for them (keep_previous_rfm1.mjs)
+          node web/site/tools/keep_previous_rfm1.mjs --site _site --live https://remotefm1.com/ || true
           mkdir -p _site/installer
           cp -R web/installer/index.html web/installer/installer.js web/installer/fm1ota.js web/installer/fm1pkg.js \
                 web/installer/releases.json web/installer/firmware _site/installer/
