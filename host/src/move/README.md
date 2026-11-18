@@ -137,7 +137,7 @@ its 8 columns through the 16 tracks.
 |---|---|---|
 | pads | the track's layout, the scale and octave (shared with MIDI mode), on the track's channel; what they play is what an empty step gets | clips (the owner's mockup): a column a track (8 in view), a row a clip slot (4 in view, the top row first) |
 | steps | the 16 steps of the page | the 2 under each column: the first stops that track's clips (at the bar; lit while it plays something, blinking while it stops), the second mutes it (the track's colour; muted: red, dim) |
-| Left / Right | page; Right past the clip's last page: a ghost page (below); a step held: micro timing (the MICRO popup) | the tracks, one at a time (1..16) |
+| Left / Right | page, round the loop's pages; in Loop's page edit, Right past the last page: a ghost page (below); a step held: micro timing (the MICRO popup) | the tracks, one at a time (1..16) |
 | Up / Down | octave (MIDI mode's); a step held: transpose | the clip slots, one at a time |
 | knobs | the knob page: TRIG (below), then Control mode's CC banks 1..4, live on the track's channel; a step held: its CC locks | nothing; a touch selects the track in that knob's column |
 | volume knob | MASTER; a step held: its notes' velocity (a VELO popup) | MASTER |
@@ -167,12 +167,16 @@ its 8 columns through the 16 tracks.
 
 **Pages and the loop.** A clip's loop is a start and a length (`lstart`, `len`: any pages of the 16).
 
-- **Loop held, or latched** (a tap on Loop latches it, its LED lit, until Loop or Back): the steps are the 16 pages
-  (shown white, in the loop the track's colour, outside with notes dim white). A step: show that page. Two steps
-  held: the loop is those pages and the ones between. A double tap (400 ms): the loop is that page alone. The jog:
+- **Loop held, or latched: page edit** (a tap on Loop latches it, its LED glowing, until a tap on Loop or Back): the
+  steps are the 16 pages: the loop's in the track's colour, the one shown white, the playing one pulsing, the clip's
+  others (outside the loop) dim, past the clip off. A step: show that page. Two steps held: the loop is those pages and
+  the ones between (the page shown moves into it). A double tap (400 ms): the loop is that page alone. The jog:
   the length, a step a detent (Shift: a page), growing into new pages up to 16 (the owner's; the Move's wheel moves
   bars). The popup: the length in bars (+ steps), a bar over the 16 pages.
-- **Ghost pages** (Move's "+" bar): Right past the loop's last page goes to a page that is not in the clip yet; each
+- **Left / Right** outside page edit (the owner's): the page shown, round the loop's pages only (loop 3..6: Right
+  from 6 is 3, Left from 3 is 6); never a ghost page. A step held: micro timing, as before.
+- **Ghost pages** (Move's "+" bar), in page edit only: Right past the loop's last page goes to a page that is not in
+  the clip yet (it stays shown when page edit ends, for a step to go in; Left / Right then leave it); each
   Right or Left that adds or takes one away shows "BAR n" for a second. The page strip is then a 1 px line under the
   real pages, blank for the ghosts, a "+" at the far end, and the clip's steps / pages in a small box. The clip grows
   to that page only when a note goes in there (a step, a paste); leaving it adds nothing.

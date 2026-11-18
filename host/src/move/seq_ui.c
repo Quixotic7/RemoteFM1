@@ -101,6 +101,15 @@ static int layer_on(const rfm_move_seq_t *q, int id)
     default: return 0;
     }
 }
+/* a clip's last page: the loop's, or a later one with notes (past it: ghosts) */
+static int clip_end_page(const rfm_move_t *m, int clip)
+{
+    int lo, hi = rfmv_seq_clip_range(m, clip, &lo), k, end = (rfmv_seq_loop_hi(m, clip) - 1) / RFM_MOVE_SEQ_PAGE;
+    for (k = lo; k < hi; k++)
+        if (m->seq.notes[k].step / RFM_MOVE_SEQ_PAGE > end)
+            end = m->seq.notes[k].step / RFM_MOVE_SEQ_PAGE;
+    return end;
+}
 static void layer_close(rfm_move_t *m, int id)
 {
     rfm_move_seq_t *q = &m->seq;
@@ -767,6 +776,8 @@ void rfmv_seq_step(rfm_move_t *m, int s, int down, uint32_t now)
             const int a = q->loop_first < s ? q->loop_first : s, b = q->loop_first < s ? s : q->loop_first;
             rfmv_seq_group(m);
             rfmv_seq_loop_set(m, clip, a * RFM_MOVE_SEQ_PAGE, (b - a + 1) * RFM_MOVE_SEQ_PAGE);
+            if (q->page < a || q->page > b)
+                q->page = (uint8_t)a;                   /* (the page shown: in the new loop) */
             q->loop_tap = -1;
         } else {
             if (q->loop_tap == s && now - q->loop_tap_ms < 400) {
@@ -955,9 +966,9 @@ int rfmv_seq_button(rfm_move_t *m, int cc, int down, uint32_t now)
                 else if (q->shift_ms && now - q->shift_ms < 300)
                     q->shift_lock = 1, q->shift_ms = 0, layer(q, LY_SHIFT);
             }
-            if (mb == SEQ_M_LOOP && q->loop_latch) {   /* latched: this press ends it (at its release) */
-                q->loop_latch = 0;
-                q->mods_used |= SEQ_M_LOOP;
+            if (mb == SEQ_M_LOOP && q->loop_latch) {   /* latched: this press ends it, at once (as Back) */
+                layer_close(m, LY_LOOP);
+                q->loop_end = 1;                        /* (its release: nothing) */
                 return 1;
             }
             q->mods |= (uint8_t)mb, q->mods_used &= (uint8_t)~mb;
@@ -967,6 +978,8 @@ int rfmv_seq_button(rfm_move_t *m, int cc, int down, uint32_t now)
                 q->copy_src = 0, q->copy_pasted = 0;
         } else if (mb == SEQ_M_SHIFT && q->shift_lock) {
             ;                                           /* (latched: it stays down) */
+        } else if (mb == SEQ_M_LOOP && q->loop_end) {
+            q->loop_end = 0;                            /* (the press that ended the latch) */
         } else if (mb == SEQ_M_LOOP && !(q->mods_used & SEQ_M_LOOP) && !q->loop_latch && !q->view && !q->projects) {
             q->loop_latch = 1, layer(q, LY_LOOP);       /* a tap on Loop: latched (the jog sets the length) until
                                                          * Loop or Back again */
@@ -1138,14 +1151,22 @@ int rfmv_seq_button(rfm_move_t *m, int cc, int down, uint32_t now)
         const int d = cc == MR_CC_RIGHT ? 1 : -1;
         if (q->view)                                    /* the tracks, one a press (8 of 16 in view) */
             q->track_page = (uint8_t)clampi(q->track_page + d, 0, RFM_MOVE_SEQ_TRACKS - 8);
-        else {                                          /* the loop's pages; Right past the last: a pending page
-                                                         * (+1, +2 ..: the clip grows to it when a step goes in there;
-                                                         * Left steps back) */
+        else {
             const int clip = edit_clip(m), a = rfmv_seq_loop_lo(m, clip) / RFM_MOVE_SEQ_PAGE;
             const int pages = (rfmv_seq_loop_hi(m, clip) + RFM_MOVE_SEQ_PAGE - 1) / RFM_MOVE_SEQ_PAGE, was = q->page;
-            q->page = (uint8_t)clampi(q->page + d, q->page < a ? 0 : a, RFM_MOVE_SEQ_PAGES - 1);
-            if (q->page != was && (q->page >= pages || was >= pages))
-                rfmv_pop(m, POP_BAR, q->page);          /* (a ghost page added or taken away: "BAR n", a second) */
+            if (q->mods & SEQ_M_LOOP) {                 /* Loop's page edit (held or latched): the pages; Right
+                                                         * past the last a pending (ghost) page (+1, +2 ..: the clip
+                                                         * grows to it when a step goes in there; Left steps back) */
+                q->mods_used |= SEQ_M_LOOP;
+                q->page = (uint8_t)clampi(q->page + d, q->page < a ? 0 : a, RFM_MOVE_SEQ_PAGES - 1);
+                if (q->page != was && (q->page >= pages || was >= pages))
+                    rfmv_pop(m, POP_BAR, q->page);      /* (a ghost page added or taken away: "BAR n", a second) */
+            } else {                                    /* otherwise (the owner's): the loop's pages, round, never
+                                                         * a ghost */
+                const int n = pages - a;
+                q->page = (uint8_t)(n > 0 ? a + ((q->page < a || q->page >= pages ? (d > 0 ? n - 1 : 0) : q->page - a) + d + n) % n
+                                          : a);
+            }
         }
         return 1;
     }
@@ -1653,13 +1674,25 @@ void rfmv_seq_leds(const rfm_move_t *m, rgb_t c[L_WHITE0], uint8_t w[13])
                 v = TRACK_RGB[i];
             else
                 v = sc(TRACK_RGB[i], used ? 64 : 10);
-        } else if (q->mods & SEQ_M_LOOP) {              /* the pages: shown white, in the loop the track's colour,
-                                                         * outside with notes dim white */
+        } else if (q->mods & SEQ_M_LOOP) {              /* the pages: the loop's in the track's colour, the one
+                                                         * shown white, the playing one pulsing; the clip's others
+                                                         * (outside the loop) dim; past the clip off */
             const int a = rfmv_seq_loop_lo(m, clip) / RFM_MOVE_SEQ_PAGE, b = (rfmv_seq_loop_hi(m, clip) - 1) / RFM_MOVE_SEQ_PAGE;
+            const int pos = q->tr[q->sel_track].active == q->tr[q->sel_track].sel ? rfmv_seq_clip_pos(m, q->sel_track) : -1;
+            const int end = clip_end_page(m, clip);
             int lo, hi = rfmv_seq_clip_range(m, clip, &lo), k, notes = 0;
             for (k = lo; k < hi && !notes; k++)
                 notes = q->notes[k].step / RFM_MOVE_SEQ_PAGE == i;
-            v = i == q->page ? RFMV_WHITE : i >= a && i <= b ? tc : notes ? sc(RFMV_WHITE, 48) : sc(RFMV_WHITE, 6);
+            if (i == q->page)
+                v = RFMV_WHITE;
+            else if (pos >= 0 && pos / RFM_MOVE_SEQ_PAGE == i)
+                v = sc(i >= a && i <= b ? tc : RFMV_WHITE, pu);   /* the playhead's page */
+            else if (i >= a && i <= b)
+                v = tc;
+            else if (i <= end)
+                v = sc(RFMV_WHITE, notes ? 48 : 14);
+            else
+                v = RFMV_OFF;
             if (rfmv_seq_src_page(m, clip, i))           /* the page clipboard's source: cut red, copied blinking */
                 v = rfmv_seq_src_page(m, clip, i) == 2 ? sc(RFMV_RED, bl ? 220 : 60) : sc(RFMV_WHITE, bl ? 256 : 30);
         } else if (q->mods & SEQ_M_SHIFT) {             /* the shortcuts */
@@ -1756,7 +1789,11 @@ void rfmv_seq_leds(const rfm_move_t *m, rgb_t c[L_WHITE0], uint8_t w[13])
         w[W_RIGHT] = q->page + 1 < RFM_MOVE_SEQ_PAGES ? ((q->page + 1) * RFM_MOVE_SEQ_PAGE < rfmv_seq_loop_hi(m, clip) ? 100 : 40) : 8;
     }
     w[W_UNDO] = q->un ? 60 : 6;
-    w[W_LOOP] = (q->mods & SEQ_M_LOOP) ? 127 : 40;
+    if (q->loop_latch) {                                /* latched (page edit on): glowing, a second round */
+        const int ph = (int)(q->now_us / 1000u % 1000u);
+        w[W_LOOP] = (uint8_t)(60 + (ph < 500 ? ph : 1000 - ph) * 67 / 500);
+    } else
+        w[W_LOOP] = (q->mods & SEQ_M_LOOP) ? 127 : 40;
     w[W_COPY] = (q->mods & SEQ_M_COPY) ? 127 : q->paste ? (bl ? 127 : 30) : q->clip_kind && q->cut ? 70 : 30;
     w[W_MUTE] = (q->mods & SEQ_M_MUTE) ? 127 : q->tr[q->sel_track].mute ? 100 : 30;
     w[W_DELETE] = (q->mods & SEQ_M_DELETE) ? 127 : 30;

@@ -391,6 +391,7 @@ typedef struct {
     int8_t loop_tap;                                    /* .. the page tapped last, for a double tap */
     uint32_t loop_tap_ms;
     uint8_t loop_latch;                                 /* Loop tapped: held on (the jog sets the length) */
+    uint8_t loop_end;                                   /* the Loop press that ended the latch (its release: nothing) */
     uint32_t tap_ms[4];
     uint8_t ntap;
     uint8_t msg;                                        /* a short message on the screen (SEQ_MSG_*) */

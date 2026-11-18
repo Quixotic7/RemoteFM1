@@ -277,7 +277,22 @@ static void test_model(void)
     tap_step(m, 1);                                     /* page 3, step 2 = step 34 */
     CHECK(rfmv_seq_find(m, 0, 33, 48) >= 0);
     press(m, MR_CC_RIGHT), press(m, MR_CC_RIGHT);
+    CHECK(m->seq.page == 0 && m->seq.len[0] == 64);     /* (no page edit: round the loop's pages, no ghost) */
+    press(m, MR_CC_LEFT);
+    CHECK(m->seq.page == 3);
+    press(m, MR_CC_LOOP);                               /* Loop latched (page edit): its LED glowing */
+    {
+        uint8_t w[13], w2[13];
+        rfmv_rgb_t c[L_WHITE0];
+        rfmv_seq_leds(m, c, w);
+        adv(m, RATE / 4);
+        rfmv_seq_leds(m, c, w2);
+        CHECK(m->seq.loop_latch && w[W_LOOP] != w2[W_LOOP] && w[W_LOOP] >= 60 && w2[W_LOOP] >= 60);
+    }
+    press(m, MR_CC_RIGHT);
     CHECK(m->seq.page == 4 && m->seq.len[0] == 64);     /* (past the last page: a pending one, the clip unchanged) */
+    press(m, MR_CC_LOOP);                               /* a tap again: off (the ghost page stays shown, for a step) */
+    CHECK(!m->seq.loop_latch && !(m->seq.mods & SEQ_M_LOOP) && m->seq.page == 4);
     button(m, MR_CC_SHIFT, 1), tap_step(m, 14), button(m, MR_CC_SHIFT, 0);   /* Shift + step 15: double (Move) */
     CHECK(m->seq.len[0] == 128 && rfmv_seq_find(m, 0, 33 + 64, 48) >= 0 && rfmv_seq_find(m, 0, 8 + 64, 52) >= 0);
     button(m, MR_CC_LOOP, 1), step(m, 15, 1), step(m, 0, 1), step(m, 0, 0), step(m, 15, 0), button(m, MR_CC_LOOP, 0);
@@ -1941,6 +1956,9 @@ static void test_controls(void)
         const int c = clip_of(m);
         rfmv_seq_loop_set(m, c, 0, 16);
         m->seq.page = 0;
+        press(m, MR_CC_RIGHT);
+        CHECK(m->seq.page == 0);                        /* (no page edit: round the one page) */
+        press(m, MR_CC_LOOP);                           /* (page edit on, latched) */
         press(m, MR_CC_RIGHT), press(m, MR_CC_RIGHT), press(m, MR_CC_RIGHT);
         CHECK(m->seq.page == 3 && m->seq.len[c] == 16);
         rest(m);
@@ -1955,12 +1973,17 @@ static void test_controls(void)
         CHECK(!rfmv_pop_up(m, POP_BAR) && px_at(out, 127 - 6 * 4 - 3, 0));   /* (the box: "16/1") */
         press(m, MR_CC_LEFT);
         CHECK(m->seq.page == 2 && m->seq.len[c] == 16);
+        press(m, MR_CC_LOOP);                           /* (page edit off: the ghost page shown stays, for a step) */
         tap_step(m, 4);                                 /* page 3, step 5: the clip is 3 pages now */
         CHECK(m->seq.len[c] == 48 && rfmv_seq_find(m, c, 36, 48) >= 0);
         press(m, MR_CC_RIGHT);
-        CHECK(m->seq.page == 3 && m->seq.len[c] == 48);
-        press(m, MR_CC_LEFT), press(m, MR_CC_LEFT), press(m, MR_CC_LEFT), press(m, MR_CC_LEFT);
-        CHECK(m->seq.page == 0);
+        CHECK(m->seq.page == 0 && m->seq.len[c] == 48);   /* (round the 3 pages) */
+        press(m, MR_CC_LOOP), press(m, MR_CC_RIGHT), press(m, MR_CC_RIGHT), press(m, MR_CC_RIGHT), press(m, MR_CC_LOOP);
+        CHECK(m->seq.page == 3 && m->seq.len[c] == 48);   /* (page edit: a ghost again) */
+        press(m, MR_CC_LEFT), press(m, MR_CC_LEFT), press(m, MR_CC_LEFT);
+        CHECK(m->seq.page == 0);                        /* (from the ghost: the loop's last page, then round) */
+        press(m, MR_CC_LEFT);
+        CHECK(m->seq.page == 2);
         adv(m, 2 * FPS);
     }
     /* Shift's lock: a double tap latches it (step 2 = the clock without holding); a press unlatches it */
@@ -2514,6 +2537,41 @@ static void test_only_play_starts(void)
 #undef STOPPED
 }
 
+/* Loop's pages on the step LEDs (the owner's bug: page 1 always lit): loop 3..6, page 4 shown, page 5 playing, a
+ * note on page 7: 3 and 6 the track's colour, 4 white, 5 the playhead's (pulsing), 1 2 and 7 dim, 8..16 off */
+static void test_loop_page_leds(void)
+{
+    rfm_move_t *m = &M;
+    rfmv_rgb_t c[L_WHITE0];
+    uint8_t w[13];
+    int i, pos;
+    fresh(m);
+    rfmv_seq_note_put(m, 0, 100, 60, 100, RFM_MOVE_SEQ_TPS, 0);   /* (page 7) */
+    rfmv_seq_note_put(m, 0, 40, 60, 100, RFM_MOVE_SEQ_TPS, 0);
+    rfmv_seq_loop_set(m, 0, 32, 64);                    /* pages 3..6 */
+    m->seq.page = 3;
+    press(m, MR_CC_PLAY);
+    adv(m, 33 * FPS + FPS / 2);
+    pos = rfmv_seq_clip_pos(m, 0);
+    CHECKF(pos / 16 == 4, "pos %d", pos);
+    press(m, MR_CC_LOOP);                               /* (latched: the pages) */
+    rfmv_seq_leds(m, c, w);
+    CHECK(c[L_STEP0 + 2].r == c[L_STEP0 + 5].r && c[L_STEP0 + 2].g == c[L_STEP0 + 5].g && c[L_STEP0 + 2].b == c[L_STEP0 + 5].b &&
+          (c[L_STEP0 + 2].r | c[L_STEP0 + 2].g | c[L_STEP0 + 2].b) && !(c[L_STEP0 + 2].r == c[L_STEP0 + 2].g && c[L_STEP0 + 2].g == c[L_STEP0 + 2].b));
+    CHECK(c[L_STEP0 + 3].r == 255 && c[L_STEP0 + 3].g == 255 && c[L_STEP0 + 3].b == 255);   /* (shown) */
+    CHECK((c[L_STEP0 + 4].r | c[L_STEP0 + 4].g | c[L_STEP0 + 4].b) &&
+          memcmp(&c[L_STEP0 + 4], &c[L_STEP0 + 3], sizeof c[0]));   /* (playing: its own) */
+    for (i = 0; i < 16; i++) {
+        const rfmv_rgb_t v = c[L_STEP0 + i];
+        if (i == 0 || i == 1 || i == 6)
+            CHECKF(v.r && v.r == v.g && v.g == v.b && v.r <= 60, "page %d dim (%d)", i + 1, v.r);
+        else if (i >= 7)
+            CHECKF(!v.r && !v.g && !v.b, "page %d off", i + 1);
+    }
+    press(m, MR_CC_LOOP);
+    rfm_move_seq_play(m, 0);
+}
+
 int main(void)
 {
     test_model();
@@ -2523,6 +2581,7 @@ int main(void)
     test_note_offs();
     test_record();
     test_only_play_starts();
+    test_loop_page_leds();
     test_edits();
     test_scale_root();
     test_blob();
