@@ -164,7 +164,7 @@ int main(int argc, char **argv)
 
     /* FM-1 mode: pad-2-1 (pad 16, note 84) = key 0 with velocity and pressure; Play; knob 1 = PRESETS; the
      * volume knob = MASTER; the jog wheel = SELECT; step 16 = key 26 */
-    inject(fifo, "note 84 100\nat 84 50\nnote 84 0\ncc 85 127\ncc 85 0\ncc 71 3\ncc 71 126\ncc 79 2\ncc 14 1\n"
+    inject(fifo, "note 84 100\nat 84 50\nnote 84 0\ncc 85 127\ncc 85 0\ncc 71 6\ncc 71 124\ncc 79 2\ncc 14 1\n"
                  "note 31 127\nnote 31 0\n");
     pump(c, 12, 3000);
     CHECK(find(RFM_MOVE_ACT_KEY, 0, 1, 0) && g_acts[0].vel == 100, "pad-2-1 pressed: FM-1 key 0 down, velocity 100");
@@ -172,7 +172,7 @@ int main(int argc, char **argv)
     CHECK(find(RFM_MOVE_ACT_KEY, 0, 0, 0), "released: key 0 up");
     CHECK(find(RFM_MOVE_ACT_BTN, RFM_MOVE_B_PLAY, 1, 0) && find(RFM_MOVE_ACT_BTN, RFM_MOVE_B_PLAY, 0, 0), "Play: PLAY");
     CHECK(find(RFM_MOVE_ACT_TURN, RFM_MOVE_E_PRESETS, 0, 3) && find(RFM_MOVE_ACT_TURN, RFM_MOVE_E_PRESETS, 0, -2),
-          "knob 1: PRESETS +3, -2");
+          "knob 1: PRESETS +3, -2 (6 ticks, -4: a detent every 2)");
     CHECK(find(RFM_MOVE_ACT_MASTER, 0, 0, 768 + 32), "volume knob: MASTER 800");
     CHECK(find(RFM_MOVE_ACT_TURN, RFM_MOVE_E_SELECT, 0, 1), "jog wheel: SELECT +1");
     CHECK(find(RFM_MOVE_ACT_KEY, 26, 1, 0) && find(RFM_MOVE_ACT_KEY, 26, 0, 0), "step 16: key 26 (G5)");

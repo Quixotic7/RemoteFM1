@@ -107,6 +107,7 @@ typedef struct {
     uint8_t drum[RFM_MOVE_NPADS];                       /* the drum layout's notes, by pad (0 = bottom-left) */
     uint8_t midi_view;                                  /* MIDI mode's screen: RFM_MOVE_MV_* */
 } rfm_move_settings_t;
+#define RFM_MOVE_KNOB_TICKS 2                           /* the Move's knob ticks an FM-1 encoder detent (the jog: 1) */
 #define RFM_MOVE_SETTINGS_VERSION 2                     /* (version 1, 77 bytes, loads too: no MIDI screen) */
 #define RFM_MOVE_SETTINGS_BYTES (6 + 7 + RFM_MOVE_NBANKS * RFM_MOVE_NKNOBS + RFM_MOVE_NPADS + 1)
 enum { RFM_MOVE_MV_PADS, RFM_MOVE_MV_NOTES, RFM_MOVE_MV_N };   /* MIDI mode's screens (a tap on Track 2 turns them) */
@@ -393,6 +394,7 @@ typedef struct {
     uint16_t master;                                    /* MASTER as the host last said or the volume knob set */
     int8_t edit_pad;                                    /* the drum pad the jog wheel is editing, -1 none */
     uint8_t shift_down;                                 /* Shift is down (MIDI mode: Shift + step 9) */
+    int8_t knob_acc[RFM_MOVE_NKNOBS];                   /* FM-1 encoders: the ticks short of a detent (RFM_MOVE_KNOB_TICKS) */
     uint8_t mmenu;                                      /* MIDI mode's Keys & Scales menu is open */
     uint32_t tbtn_ms[4];                                /* a Track button's press (a tap: its release soon after) */
     uint8_t tbtn_sw;                                    /* bits: that press changed the mode */

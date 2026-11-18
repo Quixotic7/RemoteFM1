@@ -629,11 +629,18 @@ static void on_knob(rfm_move_t *m, int k, int d, uint32_t now)
         }
         return;
     }
-    if (KNOB_ENC[k] >= 0) {                            /* (the popup counts this gesture's detents) */
+    if (KNOB_ENC[k] >= 0) {                            /* (the popup counts this gesture's detents, the FM-1's) */
         const int acc = m->pop == POP_ENC && m->pop_i == k && (m->touched == k || rfmv_pop_up(m, POP_ENC)) ? m->pop_val : 0;
-        emit(m, RFM_MOVE_ACT_TURN, KNOB_ENC[k], 0, 0, d);
+        int t;
+        if ((m->knob_acc[k] > 0 && d < 0) || (m->knob_acc[k] < 0 && d > 0))
+            m->knob_acc[k] = 0;                         /* (a turn back: the half detent forgotten) */
+        t = m->knob_acc[k] + d;                         /* the owner's: half as fast, an FM-1 detent every 2 ticks */
+        m->knob_acc[k] = (int8_t)(t % RFM_MOVE_KNOB_TICKS);
+        t /= RFM_MOVE_KNOB_TICKS;
+        if (t)
+            emit(m, RFM_MOVE_ACT_TURN, KNOB_ENC[k], 0, 0, t);
         rfmv_pop(m, POP_ENC, k);
-        m->pop_val = (int16_t)clampi(acc + d, -9999, 9999);
+        m->pop_val = (int16_t)clampi(acc + t, -9999, 9999);
     }
 }
 
@@ -692,6 +699,8 @@ static void on_touch(rfm_move_t *m, int k, int on)
     if (!on) {
         if (m->touched == k)
             m->touched = -1;
+        if (k < RFM_MOVE_NKNOBS)
+            m->knob_acc[k] = 0;
         if (rfmv_half(m) && (m->pop == POP_ENC || m->pop == POP_MASTER) && m->pop_i == k) {
             m->pop = POP_NONE, m->pop_val = 0;          /* (FM-1 mode, MIDI's NOTES: the release ends the gesture: the
                                                          * popup goes, its count starts again) */

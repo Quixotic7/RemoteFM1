@@ -213,13 +213,27 @@ static void test_buttons_knobs(void)
     for (i = 0; i < 8; i++) {
         CHECK(rfm_move_knob_enc(i) == ENC[i]);
         clear();
-        knob(&m, i, 3);
-        knob(&m, i, -2);
+        knob(&m, i, 6);                                 /* (the owner's: an FM-1 detent every 2 of the Move's ticks) */
+        knob(&m, i, -4);
         if (ENC[i] < 0)
             CHECK(nact == 0);
         else
             CHECK(nact == 2 && has(RFM_MOVE_ACT_TURN, ENC[i], 0, 3) && has(RFM_MOVE_ACT_TURN, ENC[i], 0, -2));
     }
+    clear();
+    knob(&m, 4, 1);                                     /* a tick: nothing yet; the next: a detent */
+    CHECK(nact == 0);
+    knob(&m, 4, 1);
+    CHECK(nact == 1 && has(RFM_MOVE_ACT_TURN, ENC[4], 0, 1));
+    knob(&m, 4, 1), knob(&m, 4, -1), knob(&m, 4, -1);   /* (a turn back forgets the half: -1 needs two) */
+    CHECK(nact == 2 && has(RFM_MOVE_ACT_TURN, ENC[4], 0, -1));
+    knob(&m, 4, 3);                                     /* (3 ticks: 1 detent, 1 left over) */
+    touch(&m, 4, 1), touch(&m, 4, 0);                   /* (the release forgets it) */
+    clear();
+    knob(&m, 4, 1);
+    CHECK(nact == 0);
+    knob(&m, 4, -1);
+    clear();
     clear();
     jog(&m, -1);
     jog(&m, 5);
@@ -372,7 +386,7 @@ static void test_layouts(void)
     CHECK(has_midi(0x99, 48, 100) && has_midi(0x89, 48, 0));
     /* in MIDI mode the knobs are still the FM-1's */
     clear();
-    knob(&m, 0, 1);
+    knob(&m, 0, 2);
     CHECK(has(RFM_MOVE_ACT_TURN, RFM_MOVE_E_PRESETS, 0, 1));
 }
 
@@ -727,7 +741,7 @@ static void test_screen(void)
 
     /* the knob popup: a turn (the firmware's label, this gesture's detents) */
     touch(&m, 4, 1);
-    knob(&m, 4, 2), knob(&m, 4, 1);
+    knob(&m, 4, 4), knob(&m, 4, 2);                     /* (6 ticks: 3 detents) */
     rfm_move_screen(&m, NULL, out);
     CHECK(m.pop == POP_ENC && m.pop_val == 3);
     CHECK(px_at(out, 0, 0) && px_at(out, 63, 63) && !px_at(out, 1, 1));       /* the frame: the left half only */
@@ -743,7 +757,7 @@ static void test_screen(void)
     ms(&m, 20);
     rfm_move_screen(&m, NULL, out2);
     CHECK(!rfmv_pop_up(&m, POP_ENC) && art_diff(out2) == 6 * 6);   /* still touched: the drawing's highlight only */
-    knob(&m, 4, 1);                                     /* (turning again in the same touch: the count goes on) */
+    knob(&m, 4, 2);                                     /* (turning again in the same touch: the count goes on) */
     CHECK(m.pop_val == 4);
     touch(&m, 4, 0);                                    /* the release: gone at once, the count back to 0 */
     rfm_move_screen(&m, NULL, out);
@@ -751,7 +765,7 @@ static void test_screen(void)
     touch(&m, 4, 1);                                    /* a later touch: the highlight, no popup */
     rfm_move_screen(&m, NULL, out);
     CHECK(art_diff(out) == 6 * 6 && !rfmv_pop_up(&m, POP_ENC) && m.pop_val == 0);
-    knob(&m, 4, -1);                                    /* a new gesture: the count starts again */
+    knob(&m, 4, -2);                                    /* a new gesture: the count starts again */
     CHECK(m.pop_val == -1 && rfmv_pop_up(&m, POP_ENC));
     touch(&m, 4, 0);
     touch(&m, 8, 1), knob(&m, 8, 1), knob(&m, 8, -1);   /* MASTER the same */
@@ -948,7 +962,7 @@ static void test_midi_round(void)
     pad(&m, 0, 0), pad(&m, 2, 0), pad(&m, 4, 0);
     touch(&m, 4, 1);
     CHECK(!rfmv_pop_up(&m, POP_ENC));                   /* (a touch: nothing) */
-    knob(&m, 4, 2);
+    knob(&m, 4, 4);
     rfm_move_screen(&m, NULL, out);
     CHECK(rfmv_pop_up(&m, POP_ENC) && m.pop_val == 2 && px_at(out, 0, 0) && px_at(out, 63, 63));
     touch(&m, 4, 0);

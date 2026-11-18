@@ -1707,8 +1707,8 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
     core.setMaster(500);
     a = core.input(cc(79, 2));
     ok(a.length === 1 && a[0].kind === "master" && a[0].value === 532, "move core: the volume knob +2 detents = MASTER 500 -> 532");
-    a = core.input(cc(75, 3)).concat(core.input(cc(75, 126)));
-    ok(a.length === 2 && a[0].kind === "turn" && a[0].enc === 2 && a[0].steps === 3 && a[1].steps === -2, "move core: knob 5 = K1 (matrix 2), +3 and -2");
+    a = core.input(cc(75, 6)).concat(core.input(cc(75, 124)));
+    ok(a.length === 2 && a[0].kind === "turn" && a[0].enc === 2 && a[0].steps === 3 && a[1].steps === -2, "move core: knob 5 = K1 (matrix 2), +3 and -2 (6 and -4 ticks: a detent every 2)");
     a = core.input(cc(42, 127));
     ok(core.state().mode === 1 && a.some((x) => x.kind === "settings"), "move core: Track 2 = MIDI mode (a settings action)");
     core.input(pad(25, 100)); core.input(pad(25, 0)); core.input(cc(42, 0));
@@ -1974,7 +1974,7 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
     w.controls.holdKey(0, SRC.KEY, true);
     w.input(cc(85, 127));
     ok(w.controls.btnHeld(B.PLAY), "MoveLink: Play holds PLAY");
-    w.input(cc(85, 0), cc(75, 2));
+    w.input(cc(85, 0), cc(75, 4));
     ok(!w.controls.btnHeld(B.PLAY) && w.encs[roleToMatrix(E.K1)] === 2, "MoveLink: ...lets it go; knob 5 turns K1 two detents");
     const m0 = w.controls.master;
     w.input(cc(79, 1));

@@ -57,7 +57,7 @@ while it turns (the firmware's SELECT label, its detents), gone and counted from
 | steps 1..16 | the 16 white keys in order (key 0 F3 .. key 26 G5), velocity 100 |
 | pad velocity / poly aftertouch | the key's velocity / pressure (0..127; `rfm_move_lean` gives key_lean 0..100) |
 | Capture Sample Mute Delete Copy Shift Menu Undo Loop **Back** Play Rec Left Right | FX SEL ENV LFO EDIT GLO HOME SAVE ARP **SEQ** PLAY REC OCT- OCT+ |
-| knob 1, 2, 5, 6, 7, 8 (3 and 4 unused) | PRESETS, ALGO, K1, K2, K3, K4 (detent for detent) |
+| knob 1, 2, 5, 6, 7, 8 (3 and 4 unused) | PRESETS, ALGO, K1, K2, K3, K4: an FM-1 detent every 2 of the Move's ticks (`RFM_MOVE_KNOB_TICKS`, the owner's: half as fast; a turn back or the knob let go forgets a half); the same in MIDI mode |
 | jog wheel turn | SELECT (the click does nothing: the FM-1 has no encoder push) |
 | volume knob | MASTER, 16 a detent, 0..1023 |
 | Up / Down | nothing (they are the MIDI modes' octave) |

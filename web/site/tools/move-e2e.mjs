@@ -193,7 +193,7 @@ try {
   await press("cc 85 0");
   ok(!bit((await panel()).buttons, M.play), "...and lets it go");
   await js("(window.__enc = [0, 0, 0, 0, 0, 0, 0], true)");
-  await press("note 4 127\ncc 75 1\ncc 75 1\nnote 4 0");
+  await press("note 4 127\ncc 75 2\ncc 75 2\nnote 4 0");   // (4 ticks: 2 detents, one every 2)
   const enc = await js("window.__enc");
   ok(enc[M.k1] === 2 && enc.reduce((a, v) => a + Math.abs(v), 0) === 2, `knob 5 turns K1 two detents (${enc.join(" ")})`);
   const m0 = await js("FM1Rec && FM1Move.o.controls.master");
