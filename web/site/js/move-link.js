@@ -346,7 +346,7 @@ export class MoveLink {
   event(ev) {
     switch (ev.type) {
       case "send": this.send(ev.bytes); return;
-      case "open": this.openTransport(); return;
+      case "open": this.openTransport(ev.attempt); return;
       case "close": { const t = this.t; this.t = null; if (t) { t.onmessage = null; t.onclose = null; t.close(); } return; }
       case "action": this.apply([ev.act]); return;
       case "released":
@@ -502,8 +502,8 @@ export class MoveLink {
   release() { if (this.core) this.sess((c, now) => c.sessRelease(now)); }
   flush() { if (this.core) this.sess((c, now) => c.sessFlush(now)); }
 
-  // the session asks for the transport (a first try or a retry)
-  openTransport() {
+  // the session asks for the transport (a first try or a retry: attempt, its id, goes back with the transport's calls)
+  openTransport(attempt) {
     const u = this.url();
     let t;
     if (this.via === "bridge") {
@@ -519,8 +519,8 @@ export class MoveLink {
     this.core.setMaster(this.o.controls.master);
     this.px = this.o.site.screen().pixels;
     this.sess((c, now) => c.sessFrame(now, this.px));
-    t.onmessage = (b) => { if (this.t === t) this.rx(b); };
-    t.onclose = (why) => { if (this.t === t) { this.closeWhy = why; this.sess((c, now) => c.sessClosed(now, 0)); } };
+    t.onmessage = (b) => { if (this.t === t) this.rx(b, attempt); };
+    t.onclose = (why) => { if (this.t === t) { this.closeWhy = why; this.sess((c, now) => c.sessClosed(now, attempt, 0)); } };
     // https, direct: a socket still opening may be the browser asking about local network devices; it is left to
     // open (patient), and the bridge offered meanwhile
     const askable = this.via === "direct" && this.mayBlock(u);
@@ -528,30 +528,24 @@ export class MoveLink {
     this.arm();
     Promise.resolve().then(() => t.connect()).then(() => {
       if (this.t !== t) { t.close(); return; }
-      this.sess((c, now) => c.sessOpened(now));
+      this.sess((c, now) => c.sessOpened(now, attempt));
     }, (e) => {
       if (this.t !== t) return;
       if (e && e.final) { this.want = false; this.stop(); this.offer = this.via === "bridge"; this.set("bad", e.message); return; }
       this.closeWhy = e && e.message ? e.message : "no answer";
-      this.sess((c, now) => c.sessClosed(now, 0));
+      this.sess((c, now) => c.sessClosed(now, attempt, 0));
     });
   }
   send(bytes) { if (this.t && this.t.send(bytes)) { this.sent++; return true; } return false; }
-  whyText(why) {
-    if (why === WHY.CLOSED) return this.closeWhy || "the link closed";
-    if (why === WHY.NO_ANSWER) return `no answer from ${hostOf(this.url())}`;
-    if (why === WHY.SILENT) return "the Move went quiet";
-    if (why === WHY.GARBLED) return "a message the page doesn't understand";
-    if (why === WHY.NOT_MOVE) return "not a Move Remote answer";
-    if (why === WHY.SHUTDOWN) return "the Move is powering off";
-    return "the link closed";
-  }
+  // the words the session's C gives every host (session.h rfm1cs_status_text ..): the address shown, the transport's
+  // own words for a close, its name
+  words() { return { host: hostOf(this.url()), closed: this.closeWhy, link: this.t ? this.t.name : "" }; }
+  whyText(why) { return this.core.whyText(why, this.words()); }
   // the link went (the session let everything go and closed the transport); it tries again while wanted
   onLost(why, wasLive) {
-    const name = wasLive ? this.moveName() || "The Move" : "The Move";
     this.why = this.whyText(why); this.whyCode = why;
     this.T.clearInterval(this.timers.seq); this.timers.seq = 0;
-    if (wasLive) this.o.toast(`${name}: link lost (${this.why}).`, "bad");
+    if (wasLive) this.o.toast(this.core.lostText(why, wasLive, this.words()), "bad");
     if (this.wasLive) { this.wasLive = false; this.changed(); }
     if (!this.want || why === WHY.PROTO) return;
     if (this.via === "bridge" && !this.bridgeOpen()) { this.bridgeGone(); return; }   // (only a click opens it again)
@@ -561,29 +555,28 @@ export class MoveLink {
     }
   }
   onBye(reason, wasLive) {
-    const name = wasLive ? this.moveName() || "The Move" : "The Move";
     this.want = false;
     this.stop();
-    const why = reason === BYE.EXIT ? `${name} left Move Remote (its exit gesture).` : reason === BYE.REPLACED ? `Another host took ${name} over.`
-      : reason === BYE.PROTOCOL ? `${name} closed the link: a protocol error.` : `${name} closed the link.`;
-    this.set(reason === BYE.PROTOCOL ? "bad" : "off", why);
-    this.o.toast(why);
+    const { tone, text } = this.core.byeText(reason, wasLive);
+    this.set(tone, text);
+    this.o.toast(text);
   }
   onStatus(changed) {
     const st = this.core.sessStatus();
     if (changed & CH.STATE) {
       if (st.state === STATE.CONNECTED) this.onConnected();
-      else if (st.state === STATE.RETRYING && this.want) this.set("busy", `${cap(this.why)}: trying again in ${Math.round(st.retryMs / 1000)} s...`);
+      else if (st.state === STATE.RETRYING && this.want) { const t = this.core.sessText(this.words()); this.set(t.tone, t.text); }
       else if (st.state === STATE.FAILED && this.want) {
+        const t = this.core.sessText(this.words());     // (before stop(): the words are FAILED's)
         this.want = false;
-        if (this.whyCode === WHY.PROTO) { this.stop(); this.set("bad", `The Move speaks Move Remote protocol ${st.proto}; this page speaks ${MR.PROTO}. Update one of them.`); }
-        else { this.closeBridge(); this.set("bad", `${cap(this.why)}. Is Move Remote running on the Move, and is ${hostOf(this.url())} its address? Over USB-C it is ${MR.USB_ADDR}.`); }
+        if (this.whyCode === WHY.PROTO) this.stop(); else this.closeBridge();
+        this.set(t.tone, t.text);
       }
     }
     if ((changed & CH.WAITING) && st.state === STATE.CONNECTING) {
-      const u = this.url();
-      if (st.waiting) { this.offer = true; this.set("busy", `No answer from ${hostOf(u)} yet. Allow local network devices if the browser asks, or open the bridge window.`); }
-      else { this.offer = false; this.set("busy", `Connecting to ${hostOf(u)}...`); }
+      const t = this.core.sessText(this.words());
+      if (st.waiting) { this.offer = true; this.set(t.tone, `${t.text} Allow local network devices if the browser asks, or open the bridge window.`); }
+      else { this.offer = false; this.set(t.tone, t.text); }
     }
     // the sequencer: a stop cuts the timed notes; the open project kept; the status follows the clock and tempo
     if (this.wasPlaying && !st.playing && this.o.site.midiCut) this.o.site.midiCut();
@@ -594,20 +587,21 @@ export class MoveLink {
     if (key !== this.seqKey) { this.seqKey = key; for (const cb of this.subs) cb(v); }
   }
   onConnected() {
-    const st = this.core.sessStatus(), first = !this.wasLive, name = this.moveName();
+    const first = !this.wasLive, name = this.moveName();
     this.wasLive = true;
     this.T.clearInterval(this.timers.seq);
     this.seq.reset();
     this.timers.seq = this.T.setInterval(() => this.pump(), SEQ_MS);
-    this.set("on", `${name || "Move"} connected${st.via in MR.VIA ? " over " + MR.VIA[st.via] : ""} (${this.t ? this.t.name : ""}): ${MODE_NAMES[this.core.state().mode]} mode. Track 1..4 pick the mode.`);
+    const t = this.core.sessText(this.words());
+    this.set(t.tone, t.text);
     if (first) { this.o.toast(`${name || "The Move"} is the FM-1's controller now.`, "ok"); this.changed(); }
   }
 
   // ---- the Move's bytes: the sequencer brought up to the audio clock first (its input lands in the core's timeline)
-  rx(bytes) {
+  rx(bytes, attempt) {
     this.pump();
     if (this.core) this.core.setMaster(this.o.controls.master);
-    this.sess((c, now) => c.sessRx(now, bytes));
+    this.sess((c, now) => c.sessRx(now, attempt, bytes));
   }
   // ---- the sequencer's clock: the core advanced to the audio clock (or the wall clock while no audio runs)
   audioNow() { const a = this.o.site.audioNow ? this.o.site.audioNow() : null; return a || { ms: this.now() }; }
@@ -675,7 +669,7 @@ export class MoveLink {
     await this.store.chain;
     const recs = await this.store.list(), pick = slot === undefined ? recs : recs.filter((r) => r.slot === slot);
     if (!pick.length) return null;
-    return { name: slot === undefined ? SET_NAME : fileName(slot), bytes: packFile(pick, slot === undefined ? 2 : 1) };
+    return { name: slot === undefined ? SET_NAME : fileName(slot), bytes: packFile(await this.ensureCore(), pick, slot === undefined ? 2 : 1) };
   }
   // Import a file's bytes: a single project into `slot` (or the first free one; -1 / undefined), a set into its own
   // slots. Every project is checked by the core first; nothing is stored unless all are good. Returns the slots
@@ -683,7 +677,7 @@ export class MoveLink {
   async importFile(bytes, slot) {
     if (!bytes || bytes.length > MAX_FILE) throw new Error(`Not a Move project file: ${bytes ? `it is ${bytes.length} bytes, more than a full set` : "nothing to read"}.`);
     const core = await this.ensureCore();
-    const f = unpackFile(bytes, (b) => core.projectCheck(b));
+    const f = unpackFile(core, bytes);
     const recs = await this.store.list(), used = dirBits(recs);
     let todo = f.entries;
     if (f.kind === 1) {
