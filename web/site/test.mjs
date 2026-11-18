@@ -1722,6 +1722,147 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
     ok(core.screen(null).length === 1024 && core.screen(new Uint16Array(240 * 240).fill(0xFFFF)).some((b) => b), "move core: the screen packs to 1024 bytes and shows something");
     core.free(); back.free();
 
+    // ---- the sequencer (js/move-seq.js, the core's kinds 8..10 and frames) and the projects (js/move-projects.js)
+    const S = await import("./js/move-seq.js"), MP = await import("./js/move-projects.js");
+    const { TimedMidi } = await import("./worklet/host.js");
+    {
+      const c = await load(), inp = (...pk) => pk.flatMap((p) => c.input(p)), kinds = (a) => a.map((x) => x.kind + (x.slot !== undefined ? ":" + x.slot : "")).join(" ");
+      inp(cc(40, 127), cc(40, 0));
+      for (let s = 0; s < 16; s++) inp(P(0x90, 16 + s, 127), P(0x80, 16 + s, 0));
+      ok(c.state().mode === 3 && c.bpm10() === 1200 && !c.following() && c.projectSlot() === 0, "move seq: Track 4 = Sequencer, 120.0 BPM on its own clock, project 1");
+      // the scheduler on a fake audio clock: pumps at uneven times, 10 000 blocks at 48 kHz; every note at exactly n x 6000
+      const ons = [], saves = [];
+      let late = 0, nowF = 0;
+      const clk = new S.SeqClock({ advance: (n, r) => c.seqAdvance(n, r), midiIn: (b) => c.seqMidiIn(b), emit: (acts, at) => {
+        for (const a of acts) {
+          if (a.kind === "midi" && (a.bytes[0] & 0xf0) === 0x90) { ons.push(at + a.frame); if (at + a.frame < nowF) late++; }
+          if (a.kind === "projectSave") saves.push(a);
+          if (a.frame >= 128 || a.frame < 0) late += 1000;
+        } } });
+      c.seqPlay(1);
+      let rnd = 7;
+      for (let i = 1; i <= 10000; i++) { nowF = i * 128; rnd = (rnd * 1103515245 + 12345) & 0x7fffffff; if (rnd % 4 === 0) clk.pump({ frame: nowF, rate: 48000 }); }
+      ok(ons.length === 214 && ons.slice(1).every((x, i) => x - ons[i] === 6000) && late === 0 && clk.pos - nowF <= Math.round(S.LEAD_S * 48000) && clk.pos > nowF,
+         `move seq: 10 000 blocks on a fake audio clock: ${ons.length} 16ths each exactly 6000 frames apart (no drift), none late, the core ${clk.pos - nowF} frames ahead`);
+      ok(saves.length === 1 && saves[0].bytes.length > 608 && c.projectCheck(saves[0].bytes) === 0 && saves[0].slot === 0,
+         `move seq: the autosave: a PROJECT_SAVE (kind 8) of slot 1 with a valid blob (${saves[0] && saves[0].bytes.length} bytes)`);
+      // actions land at block start + frame: a fake core with a note at frame 37 of every call
+      const got = [];
+      const fake = new S.SeqClock({ advance: () => [{ kind: "midi", bytes: Uint8Array.of(0x90, 60, 1), frame: 37 }], midiIn: () => [], emit: (a, at) => got.push(at + a[0].frame) });
+      fake.pump({ frame: 1000, rate: 44100 }); fake.pump({ frame: 1700, rate: 44100 });
+      ok(got.length > 4 && got.every((x, i) => x === 1000 + 37 + 128 * i), `move seq: the scheduler: each block's actions at its start + frame (${got.slice(0, 3).join(", ")} ...)`);
+      // a gap (a frozen tab): not caught up, the core goes on from the audio clock
+      const before = fake.stats.blocks;
+      fake.pump({ frame: 1700 + 44100, rate: 44100 });
+      ok(fake.stats.gaps === 1 && fake.stats.blocks - before === Math.floor(Math.round(S.LEAD_S * 44100) / 128), "move seq: a second's gap is skipped, not caught up in a burst");
+      // the firmware's MIDI clock: F8 at 24 PPQN from frame 0 (100 BPM: 1200 frames a clock at 48 kHz), FA first;
+      // the clock bytes inside SysEx and around other messages; the sequencer follows its tempo and its start
+      const f = await load(), finp = (...pk) => pk.flatMap((p) => f.input(p));
+      finp(cc(40, 127), cc(40, 0));
+      for (let s = 0; s < 16; s += 4) finp(P(0x90, 16 + s, 127), P(0x80, 16 + s, 0));
+      const fon = [];
+      const fc = new S.SeqClock({ advance: (n, r) => f.seqAdvance(n, r), midiIn: (b) => f.seqMidiIn(b), emit: (acts, at) => { for (const a of acts) if (a.kind === "midi" && (a.bytes[0] & 0xf0) === 0x90) fon.push(at + a.frame); } });
+      let next = 0, clocks = 0;
+      fc.pump({ frame: 0, rate: 48000 });
+      for (let q = 0; q < 2500; q++) {
+        const qf = q * 128;
+        const out = [];
+        while (next < qf + 128) { if (clocks === 0) out.push(0xF0, 0x7D, 0xF8, 0x01, 0xF7, 0xFA, 0xB0, 1); out.push(0xF8); clocks++; next = Math.round(clocks * 1200); if (clocks === 1) out.push(64); }
+        if (out.length) fc.clock(Uint8Array.from(out), qf);
+        if (q % 3 === 0) fc.pump({ frame: qf, rate: 48000 });
+      }
+      const lead = Math.round(S.LEAD_S * 48000), d = fon.slice(1).map((x, i) => x - fon[i]);
+      ok(f.following() && f.bpm10() === 1000 && fon.length >= 8 && d.every((x) => Math.abs(x - 4 * 6 * 1200) <= 128),
+         `move seq: following a fed F8 stream (with FA, inside SysEx and around a CC): 100.0 BPM (${f.bpm10() / 10}), beats ${d[0]} frames apart (28 800 at 100 BPM)`);
+      ok(fon[0] >= lead && fon[0] - lead <= 2 * 1200 + 128, `move seq: ...the first note on the clock's start, the lead (${lead} frames) after it (at ${fon[0]})`);
+      fc.clock(Uint8Array.of(0xFC), 2500 * 128);
+      fc.pump({ frame: 2502 * 128, rate: 48000 });
+      ok(!f.playing(), "move seq: the firmware's STOP stops it");
+      ok(new S.RealtimeParser() && (() => { const m = []; const r = new S.RealtimeParser(); r.push(Uint8Array.of(0xF2, 5), (x) => m.push(Array.from(x).join())); r.push(Uint8Array.of(1, 0xFE, 0xFB), (x) => m.push(Array.from(x).join())); return m.join("|") === "242,5,1|251"; })(),
+         "move seq: song position split across chunks, active sensing ignored, CONTINUE");
+      // kinds 8..10: Shift + step 1 opens the grid; an empty pad: the current saved, the new one made (two PROJECT_SAVEs)
+      c.seqPlay(0);
+      inp(cc(49, 127), P(0x90, 16, 127), P(0x80, 16, 0), cc(49, 0));
+      let a = inp(P(0x90, 93, 100), P(0x80, 93, 0));
+      ok(kinds(a) === "projectSave:0 projectSave:1" && c.projectSlot() === 1 && a.every((x) => x.frame === 0 && c.projectCheck(x.bytes) === 0),
+         `move seq: the grid, project 2's pad: ${kinds(a)} (both valid blobs, frame 0)`);
+      const p1 = saves[0].bytes;
+      inp(cc(49, 127), P(0x90, 16, 127), P(0x80, 16, 0), cc(49, 0));
+      a = inp(P(0x90, 92, 100), P(0x80, 92, 0));
+      ok(kinds(a) === "projectSave:1 projectLoad:0" && c.projectSlot() === 1, `move seq: project 1's pad: ${kinds(a)} (PROJECT_LOAD, kind 9)`);
+      ok(c.projectLoad(0, p1.slice(0, 100)) === null && c.projectLoad(0, p1) !== null && c.projectSlot() === 0, "move seq: a bad answer refused, the good one loads project 1");
+      inp(cc(49, 127), P(0x90, 16, 127), P(0x80, 16, 0), cc(49, 0));
+      a = inp(cc(119, 127), P(0x90, 93, 100), P(0x80, 93, 0), cc(119, 0));
+      ok(kinds(a) === "projectDelete:1", `move seq: Delete + project 2's pad: ${kinds(a)} (kind 10)`);
+      c.free(); f.free();
+
+      // the worklet's timed MIDI queue
+      const tm = new TimedMidi(), dl = [];
+      tm.add(Uint8Array.of(0x90, 60, 100), 1000, 0); tm.add(Uint8Array.of(0x80, 60, 0), 1200, 0); tm.add(Uint8Array.of(0x90, 62, 100), 1100, 0);
+      tm.due(896, 128, (b, at) => dl.push(at)); dl.push("|"); tm.due(1024, 128, (b, at) => dl.push(at));
+      ok(dl.join() === "|,1000", "worklet: timed MIDI goes in the quantum nearest to its frame (1000: at 1024, not 896), in order");
+      tm.add(Uint8Array.of(0x90, 64, 100), 5000, 1024); tm.cancel(Uint8Array.of(0x80, 64, 0));
+      ok(tm.q.length === 2 && tm.q.map((e) => e.at).join() === "1100,1200", "worklet: an untimed note off drops the queued note on of that note, the rest stay");
+      tm.add(Uint8Array.of(0x90, 65, 100), 6000, 1024);
+      const cut = []; tm.cut((b) => cut.push(b[0]));
+      ok(cut.join() === "128" && tm.q.length === 0, "worklet: a cut: the queued note offs at once, the note ons dropped");
+    }
+
+    // ---- the project store on a fake IndexedDB, the file format
+    {
+      const fakeIDB = () => {
+        const stores = new Map();
+        const later = (f) => setTimeout(f, 0);
+        return { stores, open() {
+          const r = {};
+          later(() => {
+            const db = { createObjectStore(name, o) { stores.set(name, { key: o.keyPath, m: new Map() }); },
+              transaction(name) {
+                const st = stores.get(name), t = {}, reqs = [];
+                const rq = (fn) => { const q = {}; reqs.push(() => { q.result = fn(); if (q.onsuccess) q.onsuccess(); }); return q; };
+                t.objectStore = () => ({ put: (v) => rq(() => { st.m.set(v[st.key], structuredClone(v)); return v[st.key]; }),
+                  get: (k) => rq(() => st.m.get(k)), delete: (k) => rq(() => { st.m.delete(k); }), getAll: () => rq(() => [...st.m.values()]) });
+                later(() => { reqs.forEach((f) => f()); if (t.oncomplete) t.oncomplete(); });
+                return t;
+              } };
+            r.result = db;
+            if (!stores.size && r.onupgradeneeded) r.onupgradeneeded();
+            r.onsuccess();
+          });
+          return r;
+        } };
+      };
+      const idb = fakeIDB(), st = new MP.MoveProjects(idb), core = await load();
+      const blob = core.projectSave();
+      await st.put(3, blob, "2026-11-17T10:00:00.000Z");
+      await st.put(0, blob);
+      const order = [st.put(5, blob), st.remove(5), st.put(7, blob)];
+      await Promise.all(order);
+      const ls = await st.list();
+      ok(ls.map((r) => r.slot).join() === "0,3,7" && (await st.dir()) === (1 | 8 | 128) && (await st.get(3)).saved === "2026-11-17T10:00:00.000Z" && (await st.get(5)) === null,
+         "move projects: the store on a fake IndexedDB: put, get, remove in order, list by slot, the slot bits");
+      ok((await new MP.MoveProjects(null).list()).length === 0 && (await new MP.MoveProjects(null).get(1)) === null, "move projects: no IndexedDB: an empty list, nothing thrown");
+      const chk = (b) => core.projectCheck(b);
+      const one = MP.packFile([ls[1]]), set = MP.packFile(ls, 2);
+      const u1 = MP.unpackFile(one, chk), us = MP.unpackFile(set, chk);
+      ok(String.fromCharCode(...one.subarray(0, 4)) === "RMVP" && one[4] === 1 && one[5] === 1 && one.length === 8 + 10 + blob.length && u1.entries[0].slot === 3
+         && u1.entries[0].saved === "2026-11-17T10:00:00.000Z" && u1.entries[0].bytes.every((b, i) => b === blob[i]),
+         `move projects: a .rfmmove round trip (RMVP v1, one project, ${one.length} bytes, slot and date kept)`);
+      ok(us.kind === 2 && us.entries.map((e) => e.slot).join() === "0,3,7", "move projects: a .rfmmoveset round trip (three projects)");
+      const refuse = (b) => { try { MP.unpackFile(b, chk); return ""; } catch (e) { return e.message; } };
+      const bad = { truncated: one.slice(0, one.length - 1), "a byte after": Uint8Array.from([...one, 0]), magic: Uint8Array.from([0x58, ...one.subarray(1)]),
+        "huge": new Uint8Array(MP.MAX_FILE + 1), "damaged blob": (() => { const x = one.slice(); x[40] ^= 0x55; return x; })(),
+        "slot twice": MP.packFile([ls[0], ls[0]], 2), "header only": one.slice(0, 8), empty: new Uint8Array(0), "kind 1 with two": MP.packFile(ls.slice(0, 2), 1),
+        "random": Uint8Array.from({ length: 3000 }, (_, i) => (i * 7919) & 255) };
+      const why = Object.entries(bad).map(([k, b]) => [k, refuse(b)]);
+      ok(why.every(([, m]) => /^Not a Move project file: /.test(m)), `move projects: refused with a reason: ${why.map(([k, m]) => `${k} (${m.replace("Not a Move project file: ", "").slice(0, 28)})`).join("; ")}`);
+      let crashed = 0;
+      for (let i = 0; i <= one.length; i++) { try { MP.unpackFile(one.slice(0, i), chk); if (i !== one.length) crashed++; } catch (e) { if (!/^Not a Move/.test(e.message)) crashed++; } }
+      ok(crashed === 0, `move projects: every truncation of a file refused cleanly (${one.length + 1} lengths)`);
+      core.free();
+      globalThis.__fakeIDB = fakeIDB;
+    }
+
     // ---- MoveLink against a fake transport and a fake clock
     class Clock {
       constructor() { this.t = 1000; this.q = []; this.n = 0; }
@@ -1743,8 +1884,8 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
       }
     }
     const tick = () => new Promise((r) => setImmediate(r));
-    const world = (prefs = {}, location = { protocol: "http:" }) => {
-      const clock = new Clock(), subs = {}, midi = [], masters = [], toasts = [], transports = [], encs = [0, 0, 0, 0, 0, 0, 0];
+    const world = (prefs = {}, location = { protocol: "http:" }, extra = {}) => {
+      const clock = new Clock(), subs = {}, midi = [], masters = [], toasts = [], transports = [], encs = [0, 0, 0, 0, 0, 0, 0], timed = [], cuts = [];
       let levels = new Uint8Array(44), px = new Uint16Array(240 * 240);
       const controls = new Controls((p) => p.enc.forEach((v, i) => { encs[i] += v; }));
       const site = {
@@ -1753,12 +1894,14 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
         leds: () => ({ levels: levels.slice(), playGreen: 0 }),
         screen: () => ({ seq: 1, pixels: px }),
         current: () => ({ info: null }),
-        midiIn: (b) => midi.push(Array.from(b)),
+        midiIn: (b, at) => { if (typeof at === "number") timed.push({ at, b: Array.from(b) }); else midi.push(Array.from(b)); },
+        midiCut: () => cuts.push(clock.t),
+        audioNow: extra.audioNow || (() => null),
       };
       let saves = 0;
       const link = new L.MoveLink({ controls, site, prefs, save: () => { saves++; }, toast: (t) => toasts.push(t),
         mapAct: (x) => { masters.push(x); if (x.kind === "master") controls.setMaster(x.value); },
-        core: (s) => load(s), now: () => clock.t, timers: clock, location,
+        core: (s) => load(s), now: () => clock.t, timers: clock, location, projects: extra.projects,
         transport: (url) => {
           const t = { name: "fake", url, out: [], closed: false, onmessage: null, onclose: null,
             connect: async () => {}, send(b) { if (t.closed) return false; t.out.push(...(new L.Deframer().push(b) || [])); return true; }, close() { t.closed = true; } };
@@ -1769,7 +1912,7 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
       const dev = (bytes) => T().onmessage(bytes);
       const input = (...pkts) => { const p = new Uint8Array(pkts.length * 8), dv = new DataView(p.buffer); pkts.forEach((k, i) => { dv.setUint32(i * 8, 1000 + i, true); dv.setUint32(i * 8 + 4, k, true); }); dev(L.frame(L.MR.D_INPUT, p)); };
       const types = () => T().out.map((m) => m.type);
-      return { clock, controls, site, link, midi, masters, toasts, transports, T, dev, input, types, encs, prefs, get saves() { return saves; },
+      return { timed, cuts, clock, controls, site, link, midi, masters, toasts, transports, T, dev, input, types, encs, prefs, get saves() { return saves; },
         setLevels: (l) => { levels = l; site.emit("leds", l, 0); }, setPx: (p) => { px = p; site.emit("frame", p, 2); } };
     };
 
@@ -1883,6 +2026,60 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
     w5.clock.advance(50);
     ok(before.some((b, i) => b !== w5.link.shown[i]), "MoveLink: a live label (K1 CUTOFF) redraws the Move's screen");
     w5.link.disconnect();
+
+    // the sequencer and the projects through MoveLink: the audio clock (48 kHz, 1 ms of the fake clock = 48 frames),
+    // a fake IndexedDB with project 4 stored and last used
+    {
+      const MP = await import("./js/move-projects.js");
+      const idb = globalThis.__fakeIDB(), store = new MP.MoveProjects(idb), c0 = await load();
+      const blank = c0.projectSave(); c0.free();
+      await store.put(3, blank, "2026-11-01T12:00:00.000Z");
+      let w6;
+      const audio = () => ({ frame: Math.round((w6.clock.t - 1000) * 48), rate: 48000 });
+      w6 = world({ moveProject: 3 }, { protocol: "http:" }, { audioNow: () => audio(), projects: store });
+      await w6.link.connect(); await tick(); w6.dev(devHello()); await tick();
+      ok(w6.link.core.projectSlot() === 3 && w6.link.view().project === 3 && w6.link.view().clock === "INT" && w6.link.view().bpm10 === 1200,
+         "MoveLink: at start the store's last project (4) is the core's, the clock INT 120 BPM");
+      ok(w6.link.projects().length === 1 && w6.link.projects()[0].name === "Project 4" && w6.link.projects()[0].current, "MoveLink: the project list: Project 4, open");
+      w6.input(cc(40, 127), cc(40, 0));
+      for (let st = 0; st < 16; st++) w6.input(P(0x90, 16 + st, 127), P(0x80, 16 + st, 0));
+      w6.timed.length = 0; w6.midi.length = 0; w6.cuts.length = 0;
+      w6.input(cc(85, 127), cc(85, 0));
+      w6.clock.advance(1000);
+      const ons = w6.timed.filter((x) => x.b[0] === 0x90).map((x) => x.at);
+      ok(ons.length >= 8 && ons.slice(1).every((x, i) => x - ons[i] === 6000) && w6.link.view().playing,
+         `MoveLink: Play: the sequencer's notes timed into the worklet by the audio clock, 6000 frames apart (${ons.length} in 1 s)`);
+      ok(ons.every((x) => x >= 0) && Math.max(...w6.timed.map((x) => x.at)) <= audio().frame + Math.round(0.03 * 48000) + 128, "MoveLink: ...never more than the lead ahead of the audio clock");
+      w6.input(cc(85, 127), cc(85, 0));
+      w6.clock.advance(20);
+      ok(!w6.link.view().playing && w6.cuts.length === 1 && w6.midi.some((b) => b[0] === 0x80), "MoveLink: Play again stops it: the timed queue cut, its note let go at once");
+      // the firmware's clock: F8 every 1250 frames (96 BPM), as the worklet posts it with the quantum's frame
+      for (let k = 0; k < 120; k++) { w6.clock.advance(1250 / 48); w6.site.emit("midiOut", Uint8Array.of(0xF8), audio().frame); }
+      ok(w6.link.view().clock === "firmware" && Math.abs(w6.link.view().bpm10 - 960) <= 2, `MoveLink: the firmware's F8 stream: the clock from the firmware, ${w6.link.view().bpm10 / 10} BPM`);
+      w6.clock.advance(800);
+      ok(w6.link.view().clock === "INT", "MoveLink: ...and INT again 500 ms after the last clock");
+      // the autosave on disconnect, then Backup and Import
+      w6.link.disconnect();
+      await tick(); await store.chain; await tick();
+      const rec = await store.get(3);
+      ok(rec && rec.bytes.length > blank.length && w6.cuts.length >= 2, `MoveLink: Disconnect saves the edited project 4 (${rec && rec.bytes.length} bytes) and cuts the queue`);
+      const one = await w6.link.backup(3), all = await w6.link.backup();
+      ok(one.name === "move-project-04.rfmmove" && all.name === "move-projects.rfmmoveset" && one.bytes[5] === 1 && all.bytes[5] === 2, `MoveLink: Backup: ${one.name} and ${all.name}`);
+      const into = await w6.link.importFile(one.bytes, 9);
+      const again = await w6.link.importFile(one.bytes, -1);
+      ok(into.join() === "9" && again.join() === "0" && (await store.dir()) === ((1 << 3) | (1 << 9) | 1) && w6.link.projects().map((p) => p.slot).join() === "0,3,9",
+         "MoveLink: Import of the backup into project 10, then into the first free slot (1)");
+      const corrupt = one.bytes.slice(); corrupt[60] ^= 0xFF;
+      let msg = "";
+      try { await w6.link.importFile(corrupt, 12); } catch (e) { msg = e.message; }
+      let msg2 = "";
+      try { await w6.link.importFile(new Uint8Array(MP.MAX_FILE + 10), 12); } catch (e) { msg2 = e.message; }
+      ok(/damaged/.test(msg) && /more than a full set/.test(msg2) && !(await store.get(12)), `MoveLink: a damaged file and a huge one refused ("${msg}"), nothing stored`);
+      const s5 = await w6.link.importFile(all.bytes);
+      ok(s5.join() === "3", "MoveLink: Import of the set: its project back in slot 4");
+      await w6.link.deleteProject(9);
+      ok(w6.link.projects().map((p) => p.slot).join() === "0,3", "MoveLink: Delete takes project 10 out");
+    }
   }
 }
 

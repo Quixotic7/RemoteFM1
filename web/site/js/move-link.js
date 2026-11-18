@@ -17,9 +17,18 @@
 // it changed (DISPLAY). PING every second; nothing heard for 3 s (STATUS comes every 500 ms) and the link is lost.
 // Lost: everything the Move held is let go, and it connects again (1, 2, 4 s ...) while wanted. BYE: the exit
 // gesture or another host taking the Move ends it; a power off tries again.
+//
+// The sequencer (Track 4; host/src/move/README.md): js/move-seq.js's SeqClock advances the core by the audio clock
+// (site.audioNow()) every SEQ_MS and before each input, its MIDI timed into the worklet (site.midiIn(bytes, at)); the
+// firmware's MIDI out ("midiOut", with its frame) brings its MIDI clock in. When the sequencer stops, and on a
+// disconnect, a lost link or the page going, the timed queue is cut (site.midiCut()) and every note let go. Projects:
+// js/move-projects.js's store (IndexedDB), PROJECT_SAVE / LOAD / DELETE answered there; at start the store's slots
+// (projectDir) and the last project (prefs.moveProject) go to the core; the autosave flushed on disconnect and pagehide.
 import { h } from "./sheet.js";
 import { SRC, E, NB, labelToMatrix, roleToMatrix } from "./panel.js";
 import { lean, MODE_NAMES } from "./move-core.js";
+import { SeqClock } from "./move-seq.js";
+import { MoveProjects, unpackFile, packFile, projectName, fileName, SET_NAME, firstFree, validSlot, dirBits, SLOTS, EXT_ONE, EXT_SET, MAX_FILE } from "./move-projects.js";
 
 // ---- the protocol (include/moveremote/proto.h)
 export const MR = {
@@ -31,6 +40,7 @@ export const MR = {
 export const BYE = { EXIT: 1, REPLACED: 2, SHUTDOWN: 3, QUIT: 4, PROTOCOL: 5 };
 export const DEFAULT_URL = "ws://move.local:7720/ws";
 export const HOST_NAME = "RemoteFM1 web";
+export const SEQ_MS = 10;
 export const SCREEN_MS = 33, PING_MS = 1000, SILENT_MS = 3000, HELLO_MS = 4000, RETRY_MS = [1000, 2000, 4000];
 
 // one message: u16 len (type + payload) | u8 type | payload
@@ -168,7 +178,8 @@ const fromB64 = (s) => { try { return Uint8Array.from(atob(String(s)), (c) => c.
 
 export class MoveLink {
   // opts: { controls, site, prefs, save(), toast(text, kind, ms), mapAct(action) (MASTER), core(settingsBytes) ->
-  //         Promise<MoveCore>, transport(url) -> transport (default MoveWebSocket), now(), timers, location, onActive }
+  //         Promise<MoveCore>, transport(url) -> transport (default MoveWebSocket), now(), timers, location, onActive,
+  //         projects (a MoveProjects store; default IndexedDB's) }
   constructor(opts) {
     this.o = opts;
     this.now = opts.now || (() => performance.now());
@@ -179,7 +190,10 @@ export class MoveLink {
     this.want = false; this.live = false; this.everLive = false; this.retries = 0;
     this.tone = "off"; this.detail = "Not connected."; this.subs = new Set();
     this.deframer = new Deframer();
-    this.timers = { hello: 0, ping: 0, retry: 0, screen: 0 };
+    this.timers = { hello: 0, ping: 0, retry: 0, screen: 0, seq: 0 };
+    this.store = opts.projects || new MoveProjects();
+    this.seq = new SeqClock({ advance: (n, r) => this.core.seqAdvance(n, r), midiIn: (b) => this.core.seqMidiIn(b), emit: (a, at) => this.apply(a, at) });
+    this.wasPlaying = false; this.seqKey = ""; this.projSubs = new Set(); this.projList = []; this.coreP = null;
     this.lastRx = 0; this.token = 0;
     this.px = null; this.dirty = false; this.lastShot = -1e9; this.shown = null;
     this.labels = null; this.keymap = null;
@@ -189,14 +203,17 @@ export class MoveLink {
     s.on("frame", (px) => { this.px = px; this.screenSoon(); });
     s.on("info", (info) => this.onInfo(info));
     s.on("firmware", () => { const sc = s.screen(); this.px = sc.pixels; this.onInfo(s.current().info); this.screenSoon(); });
-    if (typeof addEventListener === "function") addEventListener("pagehide", () => { if (this.t) this.t.close(); });
+    s.on("midiOut", (bytes, frame) => { if (this.live && this.core) { this.seq.clock(bytes, frame); this.afterSeq(); } });
+    if (typeof addEventListener === "function") addEventListener("pagehide", () => { this.flush(); this.release(); if (this.t) this.t.close(); });
   }
   on(cb) { this.subs.add(cb); return () => this.subs.delete(cb); }
   url() { return normalizeUrl(this.o.prefs.moveUrl || DEFAULT_URL); }
   view() {
     return { tone: this.tone, detail: this.detail, want: this.want, active: this.live, url: this.url(),
       link: this.t ? this.t.name : "", via: this.hello ? MR.VIA[this.hello.via] || "" : "", name: this.hello ? this.hello.name : "",
-      mode: this.core && this.live ? MODE_NAMES[this.core.state().mode] : "" };
+      mode: this.core && this.live ? MODE_NAMES[this.core.state().mode] : "",
+      clock: this.core && this.live ? (this.core.following() ? "firmware" : "INT") : "", bpm10: this.core && this.live ? this.core.bpm10() : 0,
+      playing: !!(this.core && this.live && this.core.playing()), project: this.core ? this.core.projectSlot() : -1 };
   }
   set(tone, detail) { this.tone = tone; this.detail = detail; for (const cb of this.subs) cb(this.view()); }
   changed() { if (this.o.onActive) this.o.onActive(this.live); }
@@ -211,13 +228,34 @@ export class MoveLink {
     this.o.save();
     if (mixedContentBlocked(u, this.loc && this.loc.protocol)) { this.want = false; this.set("bad", MIXED_TEXT); return; }
     this.set("busy", `Connecting to ${hostOf(u)}...`);
-    if (!this.core) {
-      try { this.core = await this.o.core(fromB64(this.o.prefs.move)); }
-      catch (e) { this.want = false; this.set("bad", "The Move's module did not load (web/move/build.sh builds it)."); return; }
-      this.applyLabels(); this.core.setKeymap(this.keymap);
-    }
+    try { await this.ensureCore(); }
+    catch (e) { this.want = false; this.set("bad", "The Move's module did not load (web/move/build.sh builds it)."); return; }
     if (!this.want) return;
     this.open(u);
+  }
+  // the core (once): the settings from prefs, the labels and keymap, the store's projects and the last one opened
+  ensureCore() {
+    if (this.core) return Promise.resolve(this.core);
+    if (!this.coreP) {
+      this.coreP = (async () => {
+        const core = await this.o.core(fromB64(this.o.prefs.move));
+        this.core = core;
+        this.applyLabels(); core.setKeymap(this.keymap);
+        await this.initProjects();
+        return core;
+      })().catch((e) => { this.coreP = null; this.core = null; throw e; });
+    }
+    return this.coreP;
+  }
+  async initProjects() {
+    const core = this.core, recs = await this.store.list();
+    core.projectDir(dirBits(recs));
+    const last = validSlot(this.o.prefs.moveProject) ? this.o.prefs.moveProject : 0, rec = recs.find((r) => r.slot === last);
+    let acts = core.projectLoad(last, rec ? rec.bytes : null);
+    if (acts === null) { acts = core.projectLoad(last, null); this.o.toast(`${projectName(last)} could not be read: it starts empty (the stored copy is kept until it is saved over).`, "bad"); }
+    this.apply(acts || []);
+    this.projList = recs;
+    this.projChanged();
   }
   auto() { if (this.o.prefs.moveAuto && !this.want) return this.connect(); return Promise.resolve(); }
   disconnect() {
@@ -226,8 +264,9 @@ export class MoveLink {
     this.stop();
     this.set("off", "Not connected.");
   }
-  // the transport and timers gone, everything held let go
+  // the transport and timers gone, everything held let go (the project saved first, if it changed)
   stop() {
+    this.flush();
     for (const k of Object.keys(this.timers)) { this.T.clearTimeout(this.timers[k]); this.T.clearInterval(this.timers[k]); this.timers[k] = 0; }
     const t = this.t;
     this.t = null;
@@ -239,8 +278,12 @@ export class MoveLink {
   }
   release() {
     if (this.core) this.apply(this.core.releaseAll());
+    if (this.o.site.midiCut) this.o.site.midiCut();
+    this.wasPlaying = false;
+    this.seq.reset();
     this.o.controls.releaseSrc(SRC.MOVE);
   }
+  flush() { if (this.core) this.apply(this.core.projectFlush()); }
 
   open(u) {
     const t = this.makeTransport(u);
@@ -290,15 +333,37 @@ export class MoveLink {
     if (type === MR.D_PONG) { this.stats.pongs++; return; }
     if (type === MR.D_STATUS) { if (p.length >= 32) this.status = { battery: p[4], jacks: p[6], ledPending: u16(p, 24) }; return; }
     if (type !== MR.D_INPUT || !this.live) return;
+    this.pump();
     const c = this.o.controls, now = this.now() >>> 0;
     for (let i = 0; i + 8 <= p.length; i += 8) {
       this.stats.inputs++;
       this.core.setMaster(c.master);
       this.apply(this.core.input(u32(p, i + 4), u32(p, i), now));
     }
+    this.afterSeq();
     this.flushLeds();
     this.dirty = true;
     this.screenSoon();
+  }
+  // ---- the sequencer's clock: the core advanced to the audio clock (or the wall clock while no audio runs)
+  audioNow() { const a = this.o.site.audioNow ? this.o.site.audioNow() : null; return a || { ms: this.now() }; }
+  pump() {
+    if (!this.live || !this.core) return;
+    this.seq.pump(this.audioNow());
+    this.afterSeq();
+    this.flushLeds();
+    if (this.wasPlaying || this.core.state().mode === 3) this.screenSoon();   // (the playhead, blinks, messages)
+  }
+  // after the core moved: a stop cuts the timed notes; the status follows the clock source and tempo; the open project
+  afterSeq() {
+    if (!this.core) return;
+    const playing = this.core.playing();
+    if (this.wasPlaying && !playing && this.o.site.midiCut) this.o.site.midiCut();
+    this.wasPlaying = playing;
+    const cur = this.core.projectSlot();
+    if (validSlot(cur) && cur !== this.o.prefs.moveProject) { this.o.prefs.moveProject = cur; this.o.save(); this.projChanged(); }
+    const v = this.view(), key = `${v.clock}|${v.bpm10}|${v.playing}`;
+    if (key !== this.seqKey) { this.seqKey = key; for (const cb of this.subs) cb(v); }
   }
   onHello(hl) {
     if (!hl) return this.lost("not a Move Remote answer");
@@ -319,6 +384,9 @@ export class MoveLink {
     this.screenSoon();
     this.T.clearInterval(this.timers.ping);
     this.timers.ping = this.T.setInterval(() => this.heartbeat(), PING_MS);
+    this.T.clearInterval(this.timers.seq);
+    this.seq.reset();
+    this.timers.seq = this.T.setInterval(() => this.pump(), SEQ_MS);
     this.set("on", `${hl.name || "Move"} connected${hl.via in MR.VIA ? " over " + MR.VIA[hl.via] : ""} (${this.t.name}): ${MODE_NAMES[this.core.state().mode]} mode. Track 1..4 pick the mode.`);
     if (first) { this.o.toast(`${hl.name || "The Move"} is the FM-1's controller now.`, "ok"); this.changed(); }
   }
@@ -339,18 +407,87 @@ export class MoveLink {
     this.send(pingMsg(++this.token, this.now()));
   }
 
-  // ---- the core's actions onto the page
-  apply(acts) {
+  // ---- the core's actions onto the page; at: the absolute audio frame the sequencer's actions are due at (a.frame
+  // after it), or undefined / null: now
+  apply(acts, at) {
     const c = this.o.controls;
     for (const a of acts) {
+      if (a.kind === "midi") {
+        if (typeof at === "number") this.o.site.midiIn(a.bytes, at + (a.frame || 0));
+        else this.o.site.midiIn(a.bytes, undefined, { cancel: true });
+        continue;
+      }
       if (a.kind === "key") c.holdKey(a.k, SRC.MOVE, a.down, a.down ? a.vel : 0);
       else if (a.kind === "press") c.leanKey(a.k, lean(a.value));
       else if (a.kind === "btn") c.holdBtn(MATRIX_TO_LABEL[a.m], SRC.MOVE, a.down);
       else if (a.kind === "turn") c.turn(MATRIX_TO_ROLE[a.enc], a.steps);
       else if (a.kind === "master") this.o.mapAct({ kind: "master", value: a.value });
-      else if (a.kind === "midi") this.o.site.midiIn(a.bytes);
       else if (a.kind === "settings") this.keep();
+      else if (a.kind === "projectSave") this.projSave(a.slot, a.bytes);
+      else if (a.kind === "projectLoad") this.projLoad(a.slot);
+      else if (a.kind === "projectDelete") this.projDelete(a.slot);
     }
+  }
+
+  // ---- projects (the core asks; the store answers)
+  projSave(slot, bytes) {
+    return this.store.put(slot, bytes).then(() => this.refreshProjects(), (e) => { this.o.toast(`The Move's ${projectName(slot)} was not kept: ${e.message || e}.`, "bad"); });
+  }
+  projLoad(slot) {
+    return this.store.get(slot).then((rec) => {
+      if (!this.core) return;
+      let acts = this.core.projectLoad(slot, rec ? rec.bytes : null);
+      if (acts === null) { this.o.toast(`${projectName(slot)} could not be read.`, "bad"); acts = []; }
+      this.apply(acts);
+      this.afterSeq(); this.flushLeds(); this.screenSoon();
+    });
+  }
+  projDelete(slot) { return this.store.remove(slot).then(() => this.refreshProjects(), () => this.refreshProjects()); }
+  onProjects(cb) { this.projSubs.add(cb); return () => this.projSubs.delete(cb); }
+  projChanged() { for (const cb of this.projSubs) { try { cb(this.projects()); } catch (e) { console.error(e); } } }
+  async refreshProjects() {
+    this.projList = await this.store.list();
+    if (this.core) this.core.projectDir(dirBits(this.projList));
+    this.projChanged();
+    return this.projList;
+  }
+  // what the page lists: [{ slot, name, size, saved, current }]
+  projects() {
+    const cur = this.core ? this.core.projectSlot() : validSlot(this.o.prefs.moveProject) ? this.o.prefs.moveProject : -1;
+    return this.projList.map((r) => ({ slot: r.slot, name: projectName(r.slot), size: r.bytes.length, saved: r.saved, current: r.slot === cur }));
+  }
+  // Backup: one project's file, or every project's ({ name, bytes }), null when there is none
+  async backup(slot) {
+    if (this.core) this.flush();
+    await this.store.chain;
+    const recs = await this.store.list(), pick = slot === undefined ? recs : recs.filter((r) => r.slot === slot);
+    if (!pick.length) return null;
+    return { name: slot === undefined ? SET_NAME : fileName(slot), bytes: packFile(pick, slot === undefined ? 2 : 1) };
+  }
+  // Import a file's bytes: a single project into `slot` (or the first free one; -1 / undefined), a set into its own
+  // slots. Every project is checked by the core first; nothing is stored unless all are good. Returns the slots
+  // written; throws an Error saying why it was refused
+  async importFile(bytes, slot) {
+    if (!bytes || bytes.length > MAX_FILE) throw new Error(`Not a Move project file: ${bytes ? `it is ${bytes.length} bytes, more than a full set` : "nothing to read"}.`);
+    const core = await this.ensureCore();
+    const f = unpackFile(bytes, (b) => core.projectCheck(b));
+    const recs = await this.store.list(), used = dirBits(recs);
+    let todo = f.entries;
+    if (f.kind === 1) {
+      const to = validSlot(slot) ? slot : firstFree(used);
+      if (to < 0) throw new Error("All 32 project slots are used: pick one to replace, or delete one first.");
+      todo = [{ ...f.entries[0], slot: to }];
+    }
+    for (const e of todo) await this.store.put(e.slot, e.bytes, new Date().toISOString());
+    const cur = core.projectSlot(), mine = todo.find((e) => e.slot === cur);
+    if (mine) { const acts = core.projectLoad(cur, mine.bytes); if (acts) this.apply(acts); this.afterSeq(); this.flushLeds(); this.screenSoon(); }
+    await this.refreshProjects();
+    return todo.map((e) => e.slot);
+  }
+  async deleteProject(slot) {
+    await this.store.remove(slot);
+    if (this.core && this.core.projectSlot() === slot) { const acts = this.core.projectLoad(slot, null); if (acts) this.apply(acts); this.afterSeq(); this.flushLeds(); this.screenSoon(); }
+    await this.refreshProjects();
   }
   keep() {
     if (!this.core) return;
@@ -436,10 +573,64 @@ export function mountMove(slot, link) {
   };
   link.on(show);
   show(link.view());
+  // the sequencer: its clock source and tempo, and the 32 projects (Backup, Import, Delete)
+  const clock = h("p", { class: "move-clock small muted" });
+  const showClock = (v) => {
+    clock.textContent = v.clock ? `Sequencer: ${v.playing ? "playing" : "stopped"}, clock ${v.clock === "firmware" ? "from the firmware" : "INT"} ${(v.bpm10 / 10).toFixed(1)} BPM${validSlot(v.project) ? `, ${projectName(v.project)}` : ""}.` : "";
+    clock.hidden = !v.clock;
+  };
+  link.on(showClock);
+  showClock(link.view());
+  const list = h("div", { class: "move-projects" });
+  const into = h("select", { class: "move-into", "aria-label": "Import into" });
+  const file = h("input", { type: "file", class: "move-file", accept: `${EXT_ONE},${EXT_SET}`, hidden: true });
+  const importBtn = h("button", { class: "pill" }, "Import...");
+  const allBtn = h("button", { class: "pill" }, "Back up all");
+  const say = (t, kind) => link.o.toast(t, kind);
+  const fmtDate = (iso) => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }); };
+  const showProjects = (ps) => {
+    const used = new Set(ps.map((p) => p.slot)), keep = into.value;
+    into.replaceChildren(h("option", { value: "-1" }, "first free slot"),
+      ...Array.from({ length: SLOTS }, (_, s) => h("option", { value: String(s) }, `into ${projectName(s)}${used.has(s) ? " (replaces it)" : ""}`)));
+    into.value = keep || "-1";
+    allBtn.disabled = !ps.length;
+    list.replaceChildren(...(ps.length ? ps.map((p) => h("div", { class: "move-proj" + (p.current ? " current" : ""), "data-slot": String(p.slot) },
+      h("span", { class: "move-proj-name" }, p.name, p.current ? " (open)" : ""),
+      h("span", { class: "move-proj-meta small muted" }, `${(p.size / 1024).toFixed(1)} KB, ${fmtDate(p.saved)}`),
+      h("button", { class: "pill small", onclick: () => link.backup(p.slot).then((f) => f && download(f.name, f.bytes)) }, "Backup"),
+      h("button", { class: "pill small", onclick: () => link.deleteProject(p.slot).then(() => say(`${p.name} deleted.`)) }, "Delete")))
+      : [h("p", { class: "small muted" }, "No projects yet: Track 4 on the Move is the sequencer, Shift + step 1 its 32 projects.")]));
+  };
+  link.onProjects(showProjects);
+  showProjects(link.projects());
+  link.refreshProjects().catch(() => {});
+  allBtn.addEventListener("click", () => link.backup().then((f) => f && download(f.name, f.bytes)));
+  importBtn.addEventListener("click", () => file.click());
+  file.addEventListener("change", async () => {
+    const f = file.files && file.files[0];
+    file.value = "";
+    if (!f) return;
+    try {
+      if (f.size > MAX_FILE) throw new Error(`Not a Move project file: it is ${f.size} bytes, more than a full set.`);
+      const slots = await link.importFile(new Uint8Array(await f.arrayBuffer()), Number(into.value));
+      say(`Imported ${slots.map(projectName).join(", ")}.`, "ok");
+    } catch (e) { say(e && e.message ? e.message : String(e), "bad"); }
+  });
   slot.replaceChildren(
     h("p", { class: "row-sub", style: { margin: "0 0 10px" } }, "An Ableton Move running Move Remote becomes this FM-1's controller: its pads play the keys (or MIDI), its buttons and knobs are the FM-1's, and the page lights its pads and draws its screen. Track 1..4: FM-1, MIDI, Control, Sequencer."),
     h("div", { class: "move-row" }, addr, usb),
     h("div", { class: "pills two" }, btn),
     line,
+    clock,
+    h("p", { class: "row-sub", style: { margin: "12px 0 6px" } }, "The sequencer's projects, in this browser (not in the firmware's saves):"),
+    list,
+    h("div", { class: "move-row move-import" }, into, importBtn, allBtn, file),
     h("p", { class: "note" }, `Wi-Fi: move.local (or the Move's address); USB-C: ${MR.USB_ADDR}. The page must be on http (web/serve.sh) or localhost: browsers block ws:// from an https page. Shift + touch the volume knob + click the jog wheel on the Move to leave Move Remote.`));
+}
+// a file to the visitor's downloads
+function download(name, bytes) {
+  const url = URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" })), a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }

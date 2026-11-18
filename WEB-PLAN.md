@@ -89,6 +89,23 @@ screen, LEDs and flash go to the page by `postMessage` at up to 30 Hz.
   the page served over http (`web/serve.sh`). Tests: `web/site/test.mjs` (framing, the wasm core against
   `host/tests/test_move.c`'s answers, `MoveLink` on a fake transport and clock) and `web/site/tools/move-e2e.mjs`
   (headless Chromium against Move Remote's own simulator, `moveremote-sim`, driven through its test FIFO).
+  **The sequencer (Track 4)** runs in the page's core and is timed by the audio clock (`js/move-seq.js` SeqClock): every
+  10 ms and before each Move input the core is advanced in 128-frame blocks up to the AudioContext's frame plus a
+  30 ms lead; each action's frame becomes an absolute context frame, and the worklet (`worklet/host.js` TimedMidi,
+  `{type: "midi", at}`) hands it to the engine before the render of the quantum nearest to it. Measured in
+  `move-e2e` (Felucca, 44.1 kHz, 8 bars of 16ths at 120 BPM, 132 notes): the schedule exact (0.5 frames off the ideal:
+  5512.5 frames a 16th), each note in the engine within 63.5 frames of its ideal (half a quantum; mean 0.3), none late,
+  no drift. A stop, a disconnect, a lost link and pagehide cut the worklet's queue (`midiCut`: its note offs now, its
+  note ons dropped) and let every note go. The firmware's MIDI out reaches the page with its quantum's frame
+  (`midiOut` `frame`); its F8 / FA / FB / FC / F2 go to `rfm_move_seq_midi_in` at that frame plus the lead, so in AUTO
+  the sequencer follows the firmware's tempo and transport (its notes the lead, 30 ms, after the firmware's beat), and
+  goes back to its own BPM 500 ms after the last clock. The Move section shows the clock source (INT / from the
+  firmware) and the tempo. Which firmwares send clock: host/src/move/README.md, "The web player". **Projects:** the 32
+  slots in IndexedDB `remotefm1-move` (`js/move-projects.js`; not the firmwares' saves), the core's PROJECT_SAVE /
+  LOAD / DELETE answered there, the last project (prefs `moveProject`) opened at start, the autosave flushed on
+  disconnect and pagehide; the section lists them (size, date) with Backup (`.rfmmove`; all: `.rfmmoveset`), Import
+  (into a picked or the first free slot; every project checked by `rfm_move_project_check`, a bad file refused with
+  the reason) and Delete.
 - **Saves:** per firmware and version in IndexedDB, with backup export and import (`.fm1save`-compatible if
   fm1-emu's format can be shared).
 - **Use my FM-1:** connects to a unit running RemoteFM1, through Web MIDI everywhere it exists and WebUSB bulk in

@@ -482,7 +482,7 @@ function makePlayer() {
       const was = state.entry;
       currentFlash().catch(() => null).then((bytes) => { if (state.entry === was) boot(bytes ? { name: saves.AUTOSAVE, bytes } : null); });
     },
-    midiOut(bytes) { siteEmit("midiOut", bytes); if (editor) editor.fromEngine(bytes); },
+    midiOut(bytes, frame) { siteEmit("midiOut", bytes, frame); if (editor) editor.fromEngine(bytes); },
     load: onLoad,
     rec(m) { if (rec) rec.onRec(m); else if (m.type === "recChunk") player.recBuf(m.l, m.r); },
     tap(pcm) { if (fm1) fm1.audio(pcm, player.sampleRate); player.tapBuf(pcm); },
@@ -927,7 +927,8 @@ async function main() {
   sheet = new Sheet(app);
   const made = makeSite({ controls, getState: () => state, installerUrl: catalog.paths.installer,
     setStatus: (t) => { app.remoteStatus = t; const el = sheet.remoteSlot.querySelector(".remote-status"); if (el) el.textContent = t; },
-    midiIn: (b) => player && player.midi(b) });
+    midiIn: (b, at, o) => player && player.midi(b, at, o), midiCut: () => player && player.midiCut(),
+    audioNow: () => (player ? player.audioNow() : null) });
   site = made.site; siteEmit = made.emit;
   window.FM1Site = site;
   window.FM1Device = device;   // (the faceplate view: the e2e tests read its anchors)

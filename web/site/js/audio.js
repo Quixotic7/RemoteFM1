@@ -7,6 +7,10 @@
 //   await p.setSink(id)                       the output device: "" the system's, else an enumerateDevices() id (sinkSupport())
 //   await p.load(entry, "native" | "emu" | "rfm1" | "mock", flashBytes | null)
 //   p.panel(msg); p.midi(bytes); p.flashReq();
+//   p.midi(bytes, at, { cancel })            timed MIDI (worklet/host.js TimedMidi): at the context frame `at`
+//   p.midiCut(); p.audioNow()                 the timed queue's notes stopped; { frame, rate } of the running context, or null
+//   p.midiLog(on); await p.midiLogTake()      (tests) the timed note ons' [at, frame] pairs
+//   events.midiOut(bytes, frame)              the firmware's MIDI out and the frame of the quantum that made it
 //   p.setVolume(0..1)                         the page's volume: a GainNode after the worklet (recordings are taken before it)
 //   p.setMuted(on)                            the page's own output silent (its sound plays on the FM-1 over Bluetooth)
 //   p.tap(on)                                 the engine's sound, mono, to "tap" (Float32Array chunks of 1024 frames at
@@ -187,7 +191,8 @@ export class Player {
     else if (m.type === "labels") this.emit("labels", m);
     else if (m.type === "flash") this.emit("flash", m);
     else if (m.type === "halted") this.emit("halted", m.code);
-    else if (m.type === "midiOut") this.emit("midiOut", m.bytes);
+    else if (m.type === "midiOut") this.emit("midiOut", m.bytes, m.frame);
+    else if (m.type === "midiLog") { const w = this.logWait; this.logWait = null; if (w) w(m); }
     else if (m.type === "error") this.emit("error", m.message);
     else if (m.type === "load") this.emit("load", { ...m, glitches: this.glitches() });
     else if (m.type === "recChunk" || m.type === "recLevel") this.emit("rec", m);
@@ -348,7 +353,21 @@ export class Player {
   recStop() { if (this.node) this.node.port.postMessage({ type: "rec", on: false }); }
   recBuf(l, r) { if (this.node && l && l.buffer.byteLength) this.node.port.postMessage({ type: "recBuf", l, r }, [l.buffer, r.buffer]); }
   panel(p) { if (this.node) this.node.port.postMessage({ type: "panel", ...p }); }
-  midi(bytes) { if (this.node) this.node.port.postMessage({ type: "midi", bytes: Uint8Array.from(bytes) }); }
+  midi(bytes, at, o) {
+    if (!this.node) return;
+    const m = { type: "midi", bytes: Uint8Array.from(bytes) };
+    if (typeof at === "number") m.at = at;
+    if (o && o.cancel) m.cancel = true;
+    this.node.port.postMessage(m);
+  }
+  midiCut() { if (this.node) this.node.port.postMessage({ type: "midiCut" }); }
+  // the context's clock as the worklet counts it (currentFrame), while it runs
+  audioNow() { return this.running && this.node ? { frame: Math.round(this.ctx.currentTime * this.ctx.sampleRate), rate: this.ctx.sampleRate } : null; }
+  midiLog(on) { if (this.node) this.node.port.postMessage({ type: "midiLog", on: !!on }); }
+  midiLogTake() {
+    if (!this.node) return Promise.resolve(null);
+    return new Promise((r) => { this.logWait = r; this.node.port.postMessage({ type: "midiLogTake" }); });
+  }
   flashReq() { if (this.node) this.node.port.postMessage({ type: "flashReq" }); }
   // a Fantasy CFW's file API (engines/rfm1/engine.js FileApi): an answer, and "the folder changed"
   fsReply(reply, transfer = []) { if (this.node) this.node.port.postMessage(reply, transfer); }

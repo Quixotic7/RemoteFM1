@@ -11,7 +11,16 @@
 // Actions (move.h rfm_move_act_t, matrix order):
 //   { kind: "key", k, down, vel }  { kind: "press", k, value }  { kind: "btn", m, down }  { kind: "turn", enc, steps }
 //   { kind: "master", value }  { kind: "midi", bytes }  { kind: "settings" }
-export const ACT = { KEY: 1, PRESS: 2, BTN: 3, TURN: 4, MASTER: 5, MIDI: 6, SETTINGS: 7 };
+//   { kind: "projectSave", slot, bytes }  { kind: "projectLoad", slot }  { kind: "projectDelete", slot }
+// and every action has `frame`: for seqAdvance's, the offset from the call's start it is due at (0 otherwise).
+// The sequencer (host/src/move/README.md, "Sequencer"):
+//   core.seqAdvance(frames, rate) -> actions (every block, playing or not); core.seqMidiIn(bytes) -> actions
+//   core.seqPlay(on); core.setBpm(bpm10); core.setClock(mode); core.bpm10(); core.following(); core.playing()
+//   core.projectLoad(slot, bytes | null) -> actions, or null (an invalid blob); core.projectDir(bits);
+//   core.projectFlush() -> actions; core.projectSlot(); core.projectSave() -> the current blob; core.projectCheck(bytes)
+export const ACT = { KEY: 1, PRESS: 2, BTN: 3, TURN: 4, MASTER: 5, MIDI: 6, SETTINGS: 7, PROJECT_SAVE: 8, PROJECT_LOAD: 9, PROJECT_DELETE: 10 };
+export const CLOCK = { AUTO: 0, INT: 1, EXT: 2 };
+export const PROJECTS = 32, PROJECT_MAX = 37472;
 export const MODE = { FM1: 0, MIDI: 1, CONTROL: 2, SEQ: 3 };
 export const MODE_NAMES = ["FM-1", "MIDI", "Control", "Sequencer"];
 export const SCREEN_BYTES = 1024, SETTINGS_BYTES = 77, NLEDS = 76;
@@ -52,10 +61,10 @@ export class MoveCore {
     return this;
   }
   _acts(n) {
-    const M = this.M, base = M._mw_acts(this.w), out = [];
+    const M = this.M, base = M._mw_acts(this.w), fr = M._mw_act_frames(this.w), out = [];
     for (let i = 0; i < n; i++) {
       const o = base + i * ACT_BYTES, b = M.HEAPU8, kind = b[o], index = b[o + 1], down = !!b[o + 2], vel = b[o + 3];
-      const value = (b[o + 4] | (b[o + 5] << 8)) << 16 >> 16;
+      const value = (b[o + 4] | (b[o + 5] << 8)) << 16 >> 16, len = out.length;
       if (kind === ACT.KEY) out.push({ kind: "key", k: index, down, vel });
       else if (kind === ACT.PRESS) out.push({ kind: "press", k: index, value });
       else if (kind === ACT.BTN) out.push({ kind: "btn", m: index, down });
@@ -63,9 +72,41 @@ export class MoveCore {
       else if (kind === ACT.MASTER) out.push({ kind: "master", value });
       else if (kind === ACT.MIDI) out.push({ kind: "midi", bytes: b.slice(o + 7, o + 7 + Math.min(3, b[o + 6])) });
       else if (kind === ACT.SETTINGS) out.push({ kind: "settings" });
+      else if (kind === ACT.PROJECT_SAVE) {
+        const p = M._mw_blob(this.w, value), nb = M._mw_blob_len(this.w, value);
+        if (p && nb) out.push({ kind: "projectSave", slot: index, bytes: M.HEAPU8.slice(p, p + nb) });
+      } else if (kind === ACT.PROJECT_LOAD) out.push({ kind: "projectLoad", slot: index });
+      else if (kind === ACT.PROJECT_DELETE) out.push({ kind: "projectDelete", slot: index });
+      if (out.length > len) out[len].frame = (b[fr + 4 * i] | (b[fr + 4 * i + 1] << 8) | (b[fr + 4 * i + 2] << 16) | (b[fr + 4 * i + 3] << 24)) >>> 0;
     }
     return out;
   }
+  // a blob into the module's memory for one call: fn(ptr, n)
+  _withBytes(bytes, fn) {
+    const M = this.M;
+    if (!bytes || !bytes.length) return fn(0, 0);
+    const p = M._malloc(bytes.length);
+    try { M.HEAPU8.set(bytes, p); return fn(p, bytes.length); } finally { M._free(p); }
+  }
+  // ---- the sequencer
+  seqAdvance(frames, rate) { return this._acts(this.M._mw_seq_advance(this.w, frames >>> 0, rate >>> 0)); }
+  seqMidiIn(bytes) { return this._withBytes(bytes, (p, n) => this._acts(this.M._mw_seq_midi_in(this.w, p, n))); }
+  seqPlay(on) { return this._acts(this.M._mw_seq_play(this.w, on ? 1 : 0)); }
+  setBpm(bpm10) { this.M._mw_seq_set_bpm(this.w, bpm10 | 0); }
+  bpm10() { return this.M._mw_seq_bpm10(this.w); }
+  setClock(mode) { this.M._mw_seq_set_clock(this.w, mode | 0); }
+  following() { return !!this.M._mw_seq_following(this.w); }
+  playing() { return !!this.M._mw_seq_playing(this.w); }
+  // ---- projects
+  projectCheck(bytes) { return bytes && bytes.length && bytes.length <= PROJECT_MAX ? this._withBytes(bytes, (p, n) => this.M._mw_project_check(p, n)) : -1; }
+  projectLoad(slot, bytes) {
+    const r = this._withBytes(bytes, (p, n) => this.M._mw_project_load(this.w, slot | 0, p, n));
+    return r < 0 ? null : this._acts(r);
+  }
+  projectDir(bits) { this.M._mw_project_dir(this.w, bits >>> 0); }
+  projectFlush() { return this._acts(this.M._mw_project_flush(this.w)); }
+  projectSlot() { return this.M._mw_project_slot(this.w); }
+  projectSave() { const n = this.M._mw_project_save(this.w); if (n <= 0) return null; const p = this.M._mw_blob(this.w, 0); return this.M.HEAPU8.slice(p, p + n); }
   input(packet, frame = 0, nowMs = 0) { return this._acts(this.M._mw_input(this.w, packet >>> 0, frame >>> 0, nowMs >>> 0)); }
   releaseAll() { return this._acts(this.M._mw_release_all(this.w)); }
   setMode(mode) { return this._acts(this.M._mw_set_mode(this.w, mode | 0)); }

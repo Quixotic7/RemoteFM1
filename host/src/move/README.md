@@ -263,7 +263,62 @@ and three golden screens (track, session, project grid: `move_seq_*.pbm` in the 
 - **The web player**: done over WebSocket (WEB-PLAN.md, "An Ableton Move as the controller": `web/move/build.sh`,
   `web/site/js/move-core.js`, `move-link.js`; `mr_client.c` compiles under Emscripten and the linker drops its
   sockets). Still to come: a way past https → `ws://` (docs/REMOTEFM1.md upstream lists the options).
-- **The sequencer in the web player**: `web/move/src/move_web.c` exports it (`mw_seq_advance`, `mw_seq_midi_in`,
-  `mw_project_load` / `_save` / `_check` / `_dir` / `_flush`, `mw_act_frames`, `mw_blob`); `move-core.js` and the
-  player still have to call them: the clock from the audio worklet, the firmware's MIDI clock if it sends one,
-  the 32 projects' storage with export and import.
+- **The sequencer in the web player**: done (below, "The web player").
+
+## The web player
+
+`web/move/src/move_web.c` exports the sequencer (`mw_seq_*`, `mw_project_*`, `mw_act_frames`, `mw_blob`);
+`web/site/js/move-core.js` wraps it (kinds 8..10 as `projectSave` / `projectLoad` / `projectDelete`, every action
+with its `frame`).
+
+**What the host does there.** The core stays on the page's main thread (the pads, LEDs and screen need it), so
+`js/move-seq.js` (SeqClock) advances it ahead of the audio: every 10 ms and before each Move input, in blocks of 128
+frames at the context's rate, up to the AudioContext's frame plus 30 ms (`LEAD_S`). An action at `frame` in a block
+starting at absolute frame `pos` goes to the worklet as `{type: "midi", bytes, at: pos + frame}`; the worklet
+(`web/site/worklet/host.js`, TimedMidi) gives it to the engine before the render of the quantum nearest to `at`, so a
+note lands within half a quantum (64 frames) of its frame, and the core only ever counts the frames it is given: no
+drift. Measured (move-e2e, Felucca at 44.1 kHz, 8 bars of 16ths at 120 BPM): every note in the engine within 63.5
+frames of its ideal, mean 0.3, none late. A gap over 250 ms (a frozen tab, a suspended context) is skipped, not caught
+up. Without running audio the wall clock stands in (MIDI at once). The sequencer stopping, a disconnect, a lost link
+and pagehide cut the worklet's queue (`midiCut`: queued note offs now, note ons dropped); a note off given now drops a
+queued note on of the same note. Live pads are not delayed.
+
+**The firmware's MIDI clock.** The worklet posts the firmware's MIDI out with the frame of the quantum that made it;
+the page takes F8 FA FB FC and F2 out of it (SysEx skipped) and feeds each to `rfm_move_seq_midi_in` at that frame
+plus the lead, in the core's timeline. In AUTO the sequencer then follows the firmware's tempo, start and stop, its
+notes the lead (30 ms) behind the firmware's own beat, steadily; 500 ms without a clock and it is on its own BPM again.
+The Move section of the page says which (`clock INT` / `from the firmware`, and the BPM). Recorded pad notes land the
+lead late too (the core runs that far ahead of what is heard); quantize takes it out.
+
+| Firmware (web player) | Sends MIDI clock? |
+|---|---|
+| Hub firmwares on the emulated engine (fm1-emu) | no: fm1-emu models no MIDI out |
+| Felucca (native) | no: receives clock and transport only (`midi_clock.c`); checked headless: PLAY, SEQ, ARP and keys for ~13 s of device time, no F8/FA/FC out |
+| Melodee (native) | no: receive only, as Felucca |
+| ChoralRoot (native) | yes, by default (Options > MIDI Clock: OUT, `cr_out.c`): F8 at its BPM all the time, FA / FC when its loop starts and stops; none with MIDI Clock IN or OFF |
+| FIZZ (.rfm1) | yes while its sequencer plays on its own clock (SETTINGS CLOCK OUT, on by default): FA, F8, FC (`core/app/app.c` mo_clock) |
+| fm1-base apps | only if the app sends it: the base's clock code (keremimo's, felucca-bsp `chip/usb.c`) is receive and transport sync |
+
+**Projects.** IndexedDB `remotefm1-move`, store `projects`, a record a slot `{ slot, bytes, saved }`
+(`js/move-projects.js`), apart from the firmwares' saves. At start the store's slots go to `rfm_move_project_dir`
+and the last project opened (prefs `moveProject`) to `rfm_move_project_load`; PROJECT_SAVE / DELETE are written in
+order, PROJECT_LOAD is answered from the store; the autosave is flushed on disconnect and pagehide. The page's Move
+section lists the projects ("Project N": the blob has no name), with their size and date, Backup, Delete, Back up all
+and Import (into a picked slot or the first free one; a set into its own slots).
+
+The file (`.rfmmove` one project, `.rfmmoveset` several), little-endian:
+
+| Bytes | Field |
+|---|---|
+| 4 | `RMVP` |
+| 1 | version, 1 |
+| 1 | kind: 1 one project, 2 a set |
+| 2 | count, 1..32 (1 for kind 1) |
+| per entry: 1 | slot 0..31 (unique) |
+| 1 | flags, 0 |
+| 4 | saved, Unix seconds (0 unknown) |
+| 4 | len, 1..37472 |
+| len | the core's blob (`RMSQ`, as `rfm_move_project_save` writes it) |
+
+Nothing may follow the last entry; a file over 8 + 32 x (10 + 37472) bytes is not read; every blob must pass
+`rfm_move_project_check`, or nothing is imported.
