@@ -1952,7 +1952,8 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
       // (move-link.js 1b8a351's own formulas, kept here as the reference)
       const oldWhy = (why, host, closeWhy) => why === WHY.CLOSED ? closeWhy || "the link closed" : why === WHY.NO_ANSWER ? `no answer from ${host}`
         : why === WHY.SILENT ? "the Move went quiet" : why === WHY.GARBLED ? "a message the page doesn't understand" : why === WHY.NOT_MOVE ? "not a Move Remote answer"
-        : why === WHY.SHUTDOWN ? "the Move is powering off" : "the link closed";
+        : why === WHY.SHUTDOWN ? "the Move is powering off"
+        : why === WHY.PROTO ? "the Move speaks another Move Remote protocol" : "the link closed";   // 0.3.1: PROTO has its own words
       const oldBye = (reason, name) => reason === BYE.EXIT ? `${name} left Move Remote (its exit gesture).` : reason === BYE.REPLACED ? `Another host took ${name} over.`
         : reason === BYE.PROTOCOL ? `${name} closed the link: a protocol error.` : `${name} closed the link.`;
       const hosts = ["move.local", "172.16.254.1:7720", "[fe80::1]:7720"], closes = ["", "no answer", "the bridge window was closed"];
