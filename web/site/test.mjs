@@ -1709,9 +1709,9 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
     ok(a.length === 1 && a[0].kind === "master" && a[0].value === 532, "move core: the volume knob +2 detents = MASTER 500 -> 532");
     a = core.input(cc(75, 6)).concat(core.input(cc(75, 124)));
     ok(a.length === 2 && a[0].kind === "turn" && a[0].enc === 2 && a[0].steps === 3 && a[1].steps === -2, "move core: knob 5 = K1 (matrix 2), +3 and -2 (6 and -4 ticks: a detent every 2)");
-    a = core.input(cc(42, 127));
-    ok(core.state().mode === 1 && a.some((x) => x.kind === "settings"), "move core: Track 2 = MIDI mode (a settings action)");
-    core.input(pad(25, 100)); core.input(pad(25, 0)); core.input(cc(42, 0));
+    a = core.input(cc(42, 127)).concat(core.input(cc(42, 0)));
+    ok(core.state().mode === 1 && a.some((x) => x.kind === "settings"), "move core: a Track 2 tap = MIDI mode (a settings action)");
+    core.input(cc(42, 127)); core.input(pad(25, 100)); core.input(pad(25, 0)); core.input(cc(42, 0));
     ok(core.state().layout === 1 && core.padNote(0) === 48 && core.padNote(8) === 53, "move core: Track 2 held + top pad 2 = the chromatic layout (+5 a row)");
     a = core.input(pad(0, 100));
     ok(a.length === 1 && a[0].kind === "midi" && Array.from(a[0].bytes).join() === "144,48,100", "move core: MIDI mode: pad 0 sends C3 note on, channel 1");
@@ -2017,11 +2017,11 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
     w.dev(L.frame(L.MR.D_STATUS, new Uint8Array(32)));
 
     // settings: Track 2 (MIDI mode), its layout and a note to the firmware's MIDI in; kept in prefs
-    w.input(cc(42, 127));
+    w.input(cc(42, 127), cc(42, 0));
     ok(!w.controls.keyHeld(0) || (w.controls.keySrc[0] & SRC.MOVE) === 0, "MoveLink: a mode change lets the Move's key go");
     ok(w.controls.keyHeld(0) && (w.controls.keySrc[0] & SRC.KEY), "MoveLink: ...the computer key's hold of the same key stays");
     w.controls.holdKey(0, SRC.KEY, false);
-    w.input(pad(25, 100), pad(25, 0), cc(42, 0), pad(0, 80));
+    w.input(cc(42, 127), pad(25, 100), pad(25, 0), cc(42, 0), pad(0, 80));
     ok(w.midi.length === 1 && w.midi[0].join() === "144,48,80" && typeof w.prefs.move === "string" && w.saves > 1, `MoveLink: MIDI mode: pad 0 = C3 into site.midiIn; the settings saved (${w.prefs.move.length} base64 chars)`);
     ok(/MIDI mode/.test(w.link.view().detail), `MoveLink: the status names the mode: "${w.link.view().detail}"`);
 

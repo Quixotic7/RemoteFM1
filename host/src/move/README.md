@@ -28,13 +28,17 @@ Track 1..4 select the mode; the selected Track LED is lit in the mode's colour (
 on). In modes 1..3 the named buttons, Left / Right and the volume knob are the FM-1's (below); the knobs are the
 FM-1's except in Control mode. Sequencer mode has its own (section 4).
 
-**Switching.** Track 2, 3, 4 switch on their press; the new mode's name is the first thing drawn, over the whole
-screen (no frame, as big as it fits, centred), and the mode's own screen only once the name has gone (a second;
-`rfm_move_screen_timed` keeps the host drawing). **Track 1 switches to FM-1 mode only on a tap** (released within
-`RFM_MOVE_TAP_MS`, 300 ms, with nothing done while it was down), its name drawn at that release; **held, in any
-mode, it is the Move's Shift layer** (below) and switches nothing. A held Track button's own screen (its menu)
-appears only once held 300 ms (or used), replacing the name; no name at its release then. A tap on the Track button
-of the mode already on turns its screens where it has several, naming each: Track 2 in MIDI mode, PADS / NOTES.
+**Switching.** All four Track buttons, in every mode, switch **only on a quick tap**: released within
+`RFM_MOVE_TAP_MS` (300 ms) with nothing done while down. A press never switches, nor does a hold. At the tap's release
+the new mode's name is drawn at once, over the whole screen (no frame, as big as it fits, centred), and the mode's own
+screen only once the name has gone (a second; `rfm_move_screen_timed` keeps the host drawing). A tap on the Track
+button of the mode already on turns its screens where it has several, naming each: Track 2 in MIDI mode, PADS / NOTES.
+
+**Holding**, from any mode, gives that button's layer or menu over the mode that is on, which stays on (the menu's
+screen appears once held 300 ms, or at once when used; no name at the release): Track 1 the Move's Shift layer
+(below); Track 2 the MIDI menu (top pads the layout, the other pads the scale, steps the channel, knob 1 the root,
+knob 2 the scale, Up / Down the octave); Track 3 the CC numbers of the bank (knobs); Track 4 the sequencer's track
+menu (steps: tap select, double tap solo, hold mute; its knobs, jog and Up / Down). Let go: back to the mode as it was.
 
 ### 1. FM-1 mode
 

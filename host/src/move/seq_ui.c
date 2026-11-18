@@ -652,6 +652,7 @@ void rfmv_seq_step(rfm_move_t *m, int s, int down, uint32_t now)
         return;
     }
     if (rfmv_seq_trk_held(m)) {                         /* a Track button held: steps are the 16 tracks */
+        rfmv_menu(m, MENU_TRACK, s);                    /* (Track 4 used: its release is no tap) */
         if (q->mods & SEQ_M_COPY) {
             q->mods_used |= SEQ_M_COPY;
             if (!q->copy_src || q->clip_kind != 3) {

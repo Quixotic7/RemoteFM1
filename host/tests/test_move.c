@@ -271,15 +271,16 @@ static void test_modes(void)
     step(&m, 4, 1);
     button(&m, MR_CC_SHIFT, 1);
     clear();
-    track(&m, 1, 1);                                    /* Track 2: MIDI mode, everything let go */
-    CHECK(m.s.mode == RFM_MOVE_MODE_MIDI && (m.track_held & 2));
+    track(&m, 1, 1);                                    /* Track 2 down: no switch (the owner's: only a tap) */
+    CHECK(m.s.mode == RFM_MOVE_MODE_FM1 && (m.track_held & 2) && nact == 0);
+    track(&m, 1, 0);                                    /* .. its tap: MIDI mode, everything let go */
+    CHECK(m.s.mode == RFM_MOVE_MODE_MIDI && m.track_held == 0);
     CHECK(has(RFM_MOVE_ACT_KEY, 0, 0, 0) && has(RFM_MOVE_ACT_PRESS, 0, 0, 0) &&
           has(RFM_MOVE_ACT_KEY, rfm_move_step_key(4), 0, 0) && has(RFM_MOVE_ACT_BTN, RFM_MOVE_B_GLO, 0, 0));
     CHECK(count(RFM_MOVE_ACT_SETTINGS) == 1);
     clear();
     pad(&m, pad_of(2, 1), 0), step(&m, 4, 0), button(&m, MR_CC_SHIFT, 0);   /* the old presses' ends: nothing */
-    track(&m, 1, 0);
-    CHECK(nact == 0 && m.track_held == 0);
+    CHECK(nact == 0);
     clear();
     track(&m, 1, 1), track(&m, 1, 0);                   /* the same mode, a tap: its next screen (NOTES), named */
     CHECK(count(RFM_MOVE_ACT_SETTINGS) == 1 && m.s.midi_view == RFM_MOVE_MV_NOTES && m.pop == POP_MODE && m.pop_i == 11);
@@ -343,6 +344,7 @@ static void test_layouts(void)
 
     /* through the input: Track 2 + top pads = the layout, Track 2 + steps = the channel, Up / Down the octave */
     rfm_move_init(&m, NULL, on_act, NULL);
+    track(&m, 1, 1), track(&m, 1, 0);                   /* (a tap: MIDI mode) */
     track(&m, 1, 1);
     clear();
     pad(&m, pad_of(1, 2), 100), pad(&m, pad_of(1, 2), 0);
@@ -390,6 +392,7 @@ static void test_drum_settings(void)
     rfm_move_settings_t s, t;
     uint8_t img[RFM_MOVE_SETTINGS_BYTES], bad[RFM_MOVE_SETTINGS_BYTES];
     rfm_move_init(&m, NULL, on_act, NULL);
+    track(&m, 1, 1), track(&m, 1, 0);                   /* (a tap: MIDI mode) */
     track(&m, 1, 1);
     pad(&m, pad_of(1, 3), 100), pad(&m, pad_of(1, 3), 0);   /* layout 3: drums */
     track(&m, 1, 0);
@@ -906,8 +909,10 @@ static void test_midi_round(void)
     CHECK(!px_at(out, 2, 2) && !px_at(out, 0, 0) && d == 0 && px_at(out, 64 - 46, 18 + 1));   /* (the whole screen, no
                                                          * frame: "MIDI" at 4x, centred) */
     ms(&m, RFM_MOVE_POPUP_MS);
-    track(&m, 2, 1), now_ms += 500, track(&m, 2, 0);    /* Track 3 held: Control mode, no popup */
-    CHECK(m.s.mode == RFM_MOVE_MODE_CONTROL && m.pop != POP_MODE);
+    track(&m, 2, 1), now_ms += 500, track(&m, 2, 0);    /* Track 3 held: its menu over MIDI mode, no switch */
+    CHECK(m.s.mode == RFM_MOVE_MODE_MIDI && !rfmv_pop_up(&m, POP_MODE));
+    track(&m, 2, 1), track(&m, 2, 0);                   /* (a tap: Control mode) */
+    ms(&m, RFM_MOVE_POPUP_MS);
     m.thumb[10][10] = 1;                                /* (a lit pixel on the FM-1's screen: covered by the popup) */
     track(&m, 0, 1), track(&m, 0, 0);                   /* FM-1: "FM-1" over the whole screen too */
     CHECK(m.pop == POP_MODE && m.pop_i == 0);
@@ -1145,34 +1150,45 @@ static void test_fm1_shift_layer(void)
     CHECK(count(RFM_MOVE_ACT_KEY) == 2);
 }
 
-/* a Track button that switches the mode: its name from the press (the new mode's screen not drawn until the name
- * goes); held 300 ms: the hold menu instead, and no name at the release */
+/* a Track button switches only on a tap: its name at the release, first (the new mode's screen once the name has
+ * gone); a press shows nothing new; a hold is its menu over the mode that is on, which stays */
 static void test_mode_name_first(void)
 {
     static rfm_move_t m;
     uint8_t out[MR_SCREEN_BYTES];
     int x, y, d;
     rfm_move_init(&m, NULL, on_act, NULL);
-    track(&m, 2, 1);                                    /* Control mode, still held */
+    track(&m, 2, 1);                                    /* Track 3 down: still FM-1 mode, no name */
+    rfm_move_screen(&m, NULL, out);
+    CHECK(m.s.mode == RFM_MOVE_MODE_FM1 && m.pop != POP_MODE);
+    track(&m, 2, 0);                                    /* the tap's release: Control mode, its name only */
     rfm_move_screen(&m, NULL, out);
     for (d = 0, y = 0; y < 64; y++)
         for (x = 0; x < 128; x++)
             d += px_at(out, x, y) && (y < 14 || y > 50);
-    CHECK(m.pop == POP_MODE && d == 0 && !px_at(out, 2, 8) && rfm_move_screen_timed(&m));   /* (the name only: no
-                                                         * bank tabs, no bars) */
-    track(&m, 2, 0);                                    /* a tap: the name stays its second */
-    rfm_move_screen(&m, NULL, out);
-    CHECK(m.pop == POP_MODE && !px_at(out, 2, 8));
+    CHECK(m.s.mode == RFM_MOVE_MODE_CONTROL && m.pop == POP_MODE && d == 0 && !px_at(out, 2, 8) &&
+          rfm_move_screen_timed(&m));                   /* (no bank tabs, no bars; the host draws again) */
     ms(&m, RFM_MOVE_POPUP_MS);
     rfm_move_screen(&m, NULL, out);
     CHECK(px_at(out, 2, 8) && !rfm_move_screen_timed(&m));   /* (then Control mode's screen) */
-    track(&m, 1, 1);                                    /* MIDI mode, held 300 ms: its menu replaces the name */
+    track(&m, 1, 1);                                    /* Track 2 held 300 ms: its menu over Control mode */
     ms(&m, RFM_MOVE_TAP_MS);
     rfm_move_screen(&m, NULL, out);
-    CHECK(px_at(out, 1, 0));                            /* (the menu's layout tabs) */
+    CHECK(px_at(out, 1, 0) && m.s.mode == RFM_MOVE_MODE_CONTROL);   /* (the menu's layout tabs) */
     now_ms += 400;
     track(&m, 1, 0);
-    CHECK(m.pop != POP_MODE);                           /* (no name at the release) */
+    CHECK(!rfmv_pop_up(&m, POP_MODE) && m.s.mode == RFM_MOVE_MODE_CONTROL);   /* (no switch, no name) */
+    track(&m, 0, 1), now_ms += 400, track(&m, 0, 0);   /* (Track 1 held, nothing done: no switch either) */
+    CHECK(m.s.mode == RFM_MOVE_MODE_CONTROL);
+    track(&m, 0, 1), track(&m, 0, 0), ms(&m, RFM_MOVE_POPUP_MS);   /* (a tap: FM-1 mode) */
+    CHECK(m.s.mode == RFM_MOVE_MODE_FM1);
+    track(&m, 1, 1), ms(&m, RFM_MOVE_TAP_MS);          /* Track 2 held from FM-1 mode: its menu, its pads */
+    rfm_move_screen(&m, NULL, out);
+    CHECK(px_at(out, 1, 0) && m.s.mode == RFM_MOVE_MODE_FM1);
+    pad(&m, 0, 100), pad(&m, 0, 0);                     /* (the top-left scale pad) */
+    CHECK(m.s.scale == rfmv_scale_of_pad(0));
+    now_ms += 400, track(&m, 1, 0);
+    CHECK(m.s.mode == RFM_MOVE_MODE_FM1 && !rfmv_pop_up(&m, POP_MODE));   /* (back to FM-1 mode, as it was) */
 }
 
 /* Track 1 in every mode (the owner's): a tap switches to FM-1 mode (its name at the release, first); held, it is the

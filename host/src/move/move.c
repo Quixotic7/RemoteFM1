@@ -401,7 +401,7 @@ int rfmv_half(const rfm_move_t *m)                     /* popups on the left hal
 {
     return m->s.mode == RFM_MOVE_MODE_FM1 || (m->s.mode == RFM_MOVE_MODE_MIDI && !m->mmenu && m->s.midi_view == RFM_MOVE_MV_NOTES);
 }
-int rfmv_seq_trk_held(const rfm_move_t *m) { return m->s.mode == RFM_MOVE_MODE_SEQ && rfmv_track_held(m, 3); }
+int rfmv_seq_trk_held(const rfm_move_t *m) { return rfmv_track_held(m, 3); }   /* (any mode) */
 #define track_held(m, t) rfmv_track_held(m, t)
 static int cc_mode(const rfm_move_t *m) { return m->s.mode == RFM_MOVE_MODE_CONTROL || m->s.mode == RFM_MOVE_MODE_SEQ; }
 
@@ -519,6 +519,9 @@ static void on_step(rfm_move_t *m, int s, int down, uint32_t now)
     } else if (fm1_seq_layer(m) && m->seq.smenu == RFM_MOVE_SM_ARP && m->seq.arp_page) {
         h->kind = H_MENU;                               /* (the arp's lanes: a lane step) */
         rfmv_seq_step(m, s, 1, now);
+    } else if (track_held(m, 3) && m->s.mode != RFM_MOVE_MODE_SEQ) {
+        h->kind = H_SEQ;                                /* (Track 4 held, any mode: the steps are the 16 tracks) */
+        rfmv_seq_step(m, s, 1, now);
     } else if (!midi_mode(m)) {
         h->kind = H_KEY, h->a = (uint8_t)STEP_KEY[s];
         key_hold(m, h->a, 100);                         /* (steps have no velocity: the FM-1's own default, 100) */
@@ -534,27 +537,21 @@ static void on_button(rfm_move_t *m, int cc, int down, uint32_t now)
     int b;
     if (cc >= MR_CC_TRACK4 && cc <= MR_CC_TRACK1) {
         const int t = MR_CC_TRACK1 - cc;
-        if (down) {
-            const int was = m->s.mode;
-            if (t != RFM_MOVE_MODE_FM1)                 /* (Track 1: a tap switches, at its release; held: the Shift
-                                                         * layer, in any mode) */
-                rfm_move_set_mode(m, t);
+        if (down) {                                     /* (the owner's: a press never switches; a hold is the
+                                                         * button's menu or layer, in the mode that is on) */
             rfmv_menu(m, MENU_NONE, 0);
             m->track_held = (uint8_t)(m->track_held | 1u << t);
-            m->tbtn_ms[t] = now, m->tbtn_clk[t] = rfmv_now_ms(m), m->tbtn_sw = (uint8_t)(was != m->s.mode ? m->tbtn_sw | 1u << t : m->tbtn_sw & ~(1u << t));
-            if (was != m->s.mode)
-                rfmv_pop(m, POP_MODE, t);               /* the mode's name first, from the press: its screen only
-                                                         * once the name has gone (or the hold menu, held 300 ms) */
+            m->tbtn_ms[t] = now, m->tbtn_clk[t] = rfmv_now_ms(m);
         } else if (m->track_held >> t & 1) {
             m->track_held = (uint8_t)(m->track_held & ~(1u << t));
             if (now - m->tbtn_ms[t] >= RFM_MOVE_TAP_MS || m->menu_what != MENU_NONE) {
-                if (m->pop == POP_MODE)
-                    m->pop = POP_NONE;                  /* (a hold: its menu was the screen; no name again) */
-            } else if (t == RFM_MOVE_MODE_FM1 && m->s.mode != RFM_MOVE_MODE_FM1) {
-                rfm_move_set_mode(m, RFM_MOVE_MODE_FM1);   /* Track 1 tapped: FM-1 mode, its name first */
-                rfmv_pop(m, POP_MODE, RFM_MOVE_MODE_FM1);
-            } else if (m->s.mode == t && !(m->tbtn_sw >> t & 1)) {   /* a tap in the mode already on: its next
-                                                         * screen (Track 2: MIDI mode's), named */
+                ;                                       /* (a hold, or used: no switch) */
+            } else if (m->s.mode != t) {                /* a tap: that mode, its name first (its screen once the name
+                                                         * has gone) */
+                rfm_move_set_mode(m, t);
+                rfmv_pop(m, POP_MODE, t);
+            } else {                                    /* a tap in the mode already on: its next screen (Track 2:
+                                                         * MIDI mode's), named */
                 if (t == RFM_MOVE_MODE_MIDI) {
                     m->s.midi_view = (uint8_t)((m->s.midi_view + 1) % RFM_MOVE_MV_N);
                     changed(m);
@@ -562,6 +559,11 @@ static void on_button(rfm_move_t *m, int cc, int down, uint32_t now)
                 }
             }
         }
+        return;
+    }
+    if (track_held(m, 3) && m->s.mode != RFM_MOVE_MODE_SEQ && (cc == MR_CC_UP || cc == MR_CC_DOWN)) {
+        if (down)                                       /* (Track 4 held, any mode: the selected track's rate) */
+            rfmv_seq_button(m, cc, 1, now);
         return;
     }
     if (track_held(m, 0) && (cc == MR_CC_REC || cc == MR_CC_PLAY || cc == MR_CC_CAPTURE || cc == MR_CC_UNDO ||
@@ -648,7 +650,17 @@ static void on_knob(rfm_move_t *m, int k, int d, uint32_t now)
     }
     if (k < 0 || k >= RFM_MOVE_NKNOBS)
         return;
-    if (m->s.mode == RFM_MOVE_MODE_SEQ) {
+    if (track_held(m, 2)) {                             /* Track 3 held (any mode): the knob's CC number, this bank */
+        const int b = m->s.bank, c = clampi(m->s.cc[b][k] + d, 0, 127);
+        rfmv_menu(m, MENU_CC, k);
+        if (c != m->s.cc[b][k]) {
+            m->s.cc[b][k] = (uint8_t)c;
+            changed(m);
+        }
+        return;
+    }
+    if (m->s.mode == RFM_MOVE_MODE_SEQ || track_held(m, 3)) {   /* (Track 4 held, any mode: the sequencer's track
+                                                         * settings) */
         rfmv_seq_knob(m, k, d, now);
         return;
     }
@@ -690,8 +702,9 @@ static void on_jog(rfm_move_t *m, int d, uint32_t now)
 {
     if (!d)
         return;
-    if (fm1_seq_layer(m) && m->seq.smenu) {
-        rfmv_seq_jog(m, d, now);                        /* (FM-1 mode, a sequencer menu open: its jog) */
+    if ((fm1_seq_layer(m) && m->seq.smenu) || (track_held(m, 3) && m->s.mode != RFM_MOVE_MODE_SEQ)) {
+        rfmv_seq_jog(m, d, now);                        /* (a sequencer menu open outside it, or Track 4 held: the
+                                                         * track's channel) */
         return;
     }
     if (track_held(m, 1) || (m->mmenu && m->s.mode == RFM_MOVE_MODE_MIDI)) {   /* Track 2 held, Keys & Scales: the
