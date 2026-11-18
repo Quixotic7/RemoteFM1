@@ -258,7 +258,8 @@ int main(int argc, char **argv)
         CHECK(state_has(dir, "led_pending=0 "), "every LED write taken");
         g_nact = 0;
         rfm_move_seq_play(&g_m, 0);
-        inject(fifo, "cc 42 127\ncc 42 0\n");          /* back to MIDI mode for the last part */
+        inject(fifo, "cc 51 127\ncc 51 0\ncc 42 127\ncc 42 0\n");   /* Back (the sequencer's Track buttons are
+                                                         * tracks), then MIDI mode for the last part */
         pump(c, 1, 3000);
     }
 

@@ -70,6 +70,16 @@ void rfmv_dotted(mr_canvas_t *cv, int x, int y, int w, int h)
         mr_gfx_pixel(cv, x, y + i, 1), mr_gfx_pixel(cv, x + w - 1, y + i, 1);
 }
 
+void rfmv_xbox(mr_canvas_t *cv, int x, int y, int w, int h)
+{
+    int i;
+    box(cv, x, y, w, h);
+    for (i = 0; i < w; i++) {                           /* (the diagonals, scaled to the box) */
+        const int j = i * (h - 1) / (w - 1 > 0 ? w - 1 : 1);
+        mr_gfx_pixel(cv, x + i, y + j, 1), mr_gfx_pixel(cv, x + w - 1 - i, y + j, 1);
+    }
+}
+
 /* the CSS triangle (border-left w, top / bottom h / 2 transparent): row j is w x (1 - |centre - h/2| / (h/2)) long */
 void rfmv_tri(mr_canvas_t *cv, int x, int y, int w, int h, int on)
 {
@@ -162,7 +172,8 @@ static int pop_held(const rfm_move_t *m)
     switch (m->pop) {
     case POP_ENC:
     case POP_MASTER:
-    case POP_CC: return m->touched == i;
+    case POP_CC:
+    case POP_TRIG: return m->touched == i;
     case POP_SELECT: return m->touched == 9;
     case POP_DRUM: return i < RFM_MOVE_NPADS && m->pad_down[i];
     case POP_LOOP: return (m->seq.mods & SEQ_M_LOOP) != 0;
@@ -279,13 +290,183 @@ static void value_popup(const rfm_move_t *m, mr_canvas_t *cv)
         frac = len * 1000 / RFM_MOVE_SEQ_MAXLEN;
         break;
     }
-    default:                                            /* POP_BANK */
-        snprintf(l, sizeof l, "BANK");
-        snprintf(v, sizeof v, "%d", m->s.bank + 1);
-        frac = (m->s.bank + 1) * 1000 / RFM_MOVE_NBANKS;
+    default:                                            /* POP_BANK (the sequencer: TRIG before bank 1) */
+        if (m->s.mode == RFM_MOVE_MODE_SEQ && q->trig) {
+            snprintf(l, sizeof l, "KNOBS");
+            snprintf(v, sizeof v, "TRIG");
+            frac = 0;
+        } else {
+            snprintf(l, sizeof l, "BANK");
+            snprintf(v, sizeof v, "%d", m->s.bank + 1);
+            frac = (m->s.bank + 1) * 1000 / RFM_MOVE_NBANKS;
+        }
         break;
     }
     knob_popup(cv, l, v, u, frac, centred, -135 + frac * 270 / 1000);
+}
+
+/* ---- the TRIG page's popup: a picture on the left, the name and the value at 2x on the right */
+static void hline(mr_canvas_t *cv, int x, int y, int w) { fill(cv, x, y, w, 2, 1); }
+static void arrow(mr_canvas_t *cv, int x0, int x1, int y)   /* a 2 px arrow from x0 to x1 (its head at x1) */
+{
+    const int d = x1 > x0 ? 1 : -1;
+    int i;
+    hline(cv, x0 < x1 ? x0 : x1, y, (x1 - x0) * d + 1);
+    for (i = 1; i <= 5; i++)
+        fill(cv, x1 - d * i, y - i, 1, 2 * i + 2, 1);
+}
+static void die(mr_canvas_t *cv, int x, int y)        /* a die showing five */
+{
+    box(cv, x, y, 26, 26);
+    box(cv, x + 1, y + 1, 24, 24);
+    fill(cv, x + 5, y + 5, 4, 4, 1), fill(cv, x + 17, y + 5, 4, 4, 1), fill(cv, x + 11, y + 11, 4, 4, 1);
+    fill(cv, x + 5, y + 17, 4, 4, 1), fill(cv, x + 17, y + 17, 4, 4, 1);
+}
+static void hop(mr_canvas_t *cv, int x, int y, int w)  /* an arc from (x, y) to (x + w, y), up */
+{
+    int i;
+    for (i = 0; i <= w; i++) {
+        const int u = 2 * i - w, h = (w * w - u * u) * 10 / (w * w > 0 ? w * w : 1);
+        fill(cv, x + i, y - h, 1, 2, 1);
+    }
+}
+static const char *const FN_NAMES[RFM_MOVE_FN_N] = { "NONE", "RESTART", "REVERSE", "FORWARD", "FLIP", "RANDOM",
+                                                      "RND FN", "LEAP", "JUMP" };
+void rfmv_cond_name(int c, char *b, int cap)
+{
+    static const char *const N[] = { "FILL", "!FILL", "PRE", "!PRE", "NEI", "!NEI", "1ST", "!1ST" };
+    if (c >= 1 && c <= RFM_MOVE_COND_AB_N) {
+        int bb = 2, a = c;
+        while (a > bb)
+            a -= bb, bb++;
+        snprintf(b, (size_t)cap, "%d:%d", a, bb);
+    } else if (c >= RFM_MOVE_COND_FILL && c < RFM_MOVE_COND_N)
+        snprintf(b, (size_t)cap, "%s", N[c - RFM_MOVE_COND_FILL]);
+    else
+        snprintf(b, (size_t)cap, "ALWAYS");
+}
+static void trig_popup(const rfm_move_t *m, mr_canvas_t *cv)
+{
+    const rfm_move_seq_t *q = &m->seq;
+    const int k = m->pop_i, clip = SEQ_CLIP(q->sel_track, q->tr[q->sel_track].sel);
+    int abs = q->page * RFM_MOVE_SEQ_PAGE + (q->step_first >= 0 ? q->step_first : 0), v, i;
+    char l[16], b[16];
+    if (q->step_first < 0) {                            /* none held: the clip's first step with notes */
+        int lo, hi = rfmv_seq_clip_range(m, clip, &lo);
+        abs = hi > lo ? q->notes[lo].step : abs;
+    }
+    v = rfmv_seq_trig_val(m, clip, abs, k);
+    rfmv_frame(cv, 2, 2, 124, 60);
+    l[0] = b[0] = 0;
+    switch (k) {
+    case 0:                                             /* a step, its note early or late */
+        snprintf(l, sizeof l, "MICRO"), snprintf(b, sizeof b, v ? "%+d" : "0", v);
+        box(cv, 12, 22, 24, 20);
+        for (i = 22; i < 42; i += 3)
+            mr_gfx_pixel(cv, 12, i, 1);
+        fill(cv, 12 + v, 26, 4, 12, 1);
+        break;
+    case 1:                                             /* the hits */
+        snprintf(l, sizeof l, "RATCH"), snprintf(b, sizeof b, "x%d", v);
+        for (i = 0; i < v; i++)
+            fill(cv, 8 + i * 32 / v, 14, 32 / v > 4 ? 3 : 2, 34, 1);
+        break;
+    case 2:
+        snprintf(l, sizeof l, "CHANCE"), snprintf(b, sizeof b, "%d%%", v);
+        die(cv, 10, 18);
+        break;
+    case 3:                                             /* A:B: B passes, the A-th filled */
+        snprintf(l, sizeof l, "COND"), rfmv_cond_name(v, b, sizeof b);
+        if (v >= 1 && v <= RFM_MOVE_COND_AB_N) {
+            int bb = 2, a = v;
+            while (a > bb)
+                a -= bb, bb++;
+            for (i = 0; i < bb; i++)
+                mr_gfx_rect(cv, 6 + (i % 4) * 10, 18 + (i / 4) * 12, 8, 8, 1, i == a - 1);
+        } else if (v)
+            rfmv_big(cv, 8, 22, v == RFM_MOVE_COND_FILL || v == RFM_MOVE_COND_NFILL ? "F" : v <= RFM_MOVE_COND_NPRE ? "P" : v <= RFM_MOVE_COND_NNEI ? "N" : "1", 4, 1);
+        break;
+    case 4:
+        snprintf(l, sizeof l, "FUNC"), snprintf(b, sizeof b, "%s", FN_NAMES[clampi(v, 0, RFM_MOVE_FN_N - 1)]);
+        switch (v) {
+        case RFM_MOVE_FN_RESTART: arrow(cv, 40, 10, 30), fill(cv, 6, 20, 2, 22, 1); break;
+        case RFM_MOVE_FN_REVERSE: arrow(cv, 40, 8, 30); break;
+        case RFM_MOVE_FN_FORWARD: arrow(cv, 8, 40, 30); break;
+        case RFM_MOVE_FN_FLIP: arrow(cv, 8, 40, 22), arrow(cv, 40, 8, 38); break;
+        case RFM_MOVE_FN_RANDOM: die(cv, 10, 18); break;
+        case RFM_MOVE_FN_RFUNC: die(cv, 6, 18), rfmv_big(cv, 36, 22, "?", 2, 1); break;
+        case RFM_MOVE_FN_LEAP: hop(cv, 6, 40, 14), hop(cv, 22, 40, 14), fill(cv, 38, 38, 4, 4, 1); break;
+        case RFM_MOVE_FN_JUMP: hop(cv, 6, 42, 34), fill(cv, 38, 40, 4, 4, 1); break;
+        default: break;
+        }
+        break;
+    case 5: {
+        const int f = rfmv_seq_trig_val(m, clip, abs, 4);
+        if (f == RFM_MOVE_FN_LEAP)
+            snprintf(l, sizeof l, "LEAP"), snprintf(b, sizeof b, "%+d", v), hop(cv, 6, 40, 30);
+        else if (f == RFM_MOVE_FN_JUMP)
+            snprintf(l, sizeof l, "TO STEP"), snprintf(b, sizeof b, "%d", v + 1), hop(cv, 6, 42, 34);
+        else
+            snprintf(l, sizeof l, "AMOUNT"), snprintf(b, sizeof b, "--");
+        break;
+    }
+    case 6:                                             /* a gate bar over a step's width (a step: 8 px) */
+        snprintf(l, sizeof l, "LENGTH");
+        if (rfmv_seq_len_inf(v))
+            snprintf(b, sizeof b, "INF");
+        else if (v % RFM_MOVE_SEQ_TPS == 0)
+            snprintf(b, sizeof b, "%d", v / RFM_MOVE_SEQ_TPS);
+        else if (v < RFM_MOVE_SEQ_TPS)
+            snprintf(b, sizeof b, "1/%d", RFM_MOVE_SEQ_TPS / v > 0 ? (RFM_MOVE_SEQ_TPS + v / 2) / v : 1);
+        else
+            snprintf(b, sizeof b, "%d.%d", v / RFM_MOVE_SEQ_TPS, v % RFM_MOVE_SEQ_TPS * 10 / RFM_MOVE_SEQ_TPS);
+        for (i = 0; i < 5; i++)
+            mr_gfx_pixel(cv, 6 + i * 8, 44, 1);         /* (the steps) */
+        fill(cv, 6, 26, clampi(v * 8 / RFM_MOVE_SEQ_TPS, 1, 38), 12, 1);
+        if (rfmv_seq_len_inf(v))
+            fill(cv, 40, 26, 4, 12, 0), rfmv_big(cv, 40, 24, ">", 2, 1);
+        break;
+    case 7:                                             /* velocity: a level */
+        snprintf(l, sizeof l, "VELO"), snprintf(b, sizeof b, "%d", v);
+        box(cv, 14, 12, 16, 40);
+        fill(cv, 14, 52 - v * 40 / 127, 16, v * 40 / 127, 1);
+        break;
+    default: snprintf(l, sizeof l, "--"); break;
+    }
+    big_fit(cv, 50, 10, l, 2, 74, 1);
+    big_fit(cv, 50, 34, b, 2, 74, 1);
+}
+
+/* Loop held: the 16 pages (in the loop filled, the shown one marked under it) and the loop's pages at 2x */
+static void loop_popup(const rfm_move_t *m, mr_canvas_t *cv)
+{
+    const rfm_move_seq_t *q = &m->seq;
+    const int clip = SEQ_CLIP(q->sel_track, q->tr[q->sel_track].sel);
+    const int a = rfmv_seq_loop_lo(m, clip), h = rfmv_seq_loop_hi(m, clip), pa = a / RFM_MOVE_SEQ_PAGE;
+    const int pb = (h - 1) / RFM_MOVE_SEQ_PAGE;
+    char b[24];
+    int i;
+    rfmv_frame(cv, 2, 2, 124, 60);
+    {                                                   /* the length: pages (+ steps) */
+        const int L = h - a, P = L / RFM_MOVE_SEQ_PAGE, S = L % RFM_MOVE_SEQ_PAGE;
+        if (!P)
+            snprintf(b, sizeof b, "%d ST", S);
+        else if (S)
+            snprintf(b, sizeof b, "%dP+%d", P, S);
+        else
+            snprintf(b, sizeof b, "%d %s", P, P == 1 ? "BAR" : "BARS");
+    }
+    big_mid(cv, 64, 8, b, 2, 1);
+    {                                                   /* the loop bar: its span over the 16 pages, end marks */
+        const int x0 = 5 + a * 112 / RFM_MOVE_SEQ_MAXLEN, x1 = 5 + h * 112 / RFM_MOVE_SEQ_MAXLEN;
+        fill(cv, x0, 26, x1 - x0 > 1 ? x1 - x0 : 1, 3, 1);
+        fill(cv, x0, 24, 1, 7, 1), fill(cv, x1 - 1 > x0 ? x1 - 1 : x0, 24, 1, 7, 1);
+    }
+    for (i = 0; i < RFM_MOVE_SEQ_PAGES; i++) {
+        mr_gfx_rect(cv, 4 + i * 7 + 1, 34, 6, 12, 1, i >= pa && i <= pb);
+        if (i == q->page)
+            fill(cv, 4 + i * 7 + 1, 49, 6, 2, 1);
+    }
 }
 
 /* StepPopup: the held step's notes as inverted chips (the first two and "+n" past three), its velocity (a level
@@ -410,6 +591,22 @@ static void popups(const rfm_move_t *m, mr_canvas_t *cv)
     if (up) {
         if (m->pop == POP_STEP)
             step_popup(m, cv);
+        else if (m->pop == POP_TRIG)
+            trig_popup(m, cv);
+        else if (m->pop == POP_LOOP)
+            loop_popup(m, cv);
+        else if (m->pop == POP_TRACK) {                 /* a track / bank change: "TRACK n" and the 4 x 4 */
+            char b[12];
+            snprintf(b, sizeof b, "TR %d", m->pop_i + 1);
+            rfmv_frame(cv, 2, 2, 124, 60);
+            rfmv_seq_track_glyph(m, cv, 10, 12, 8);
+            rfmv_big(cv, 56, 22, b, 2, 1);
+        } else if (m->pop == POP_BAR) {                   /* Move's "Bar 2" (a ghost page), over the page strip */
+            char b[12];
+            snprintf(b, sizeof b, "BAR %d", m->pop_i + 1);
+            fill(cv, 0, 12, 128, 38, 0);
+            big_mid(cv, 64, 24, b, 2, 1);
+        }
         else if (m->pop == POP_PROJ)
             project_popup(m, cv);
         else
@@ -638,6 +835,8 @@ void rfm_move_screen(rfm_move_t *m, const uint16_t *rgb565, uint8_t out[MR_SCREE
         thumb_from(m, rgb565);
     mr_gfx_clear(&cv, 0);
     for (t = 1; t < 4 && !rfmv_track_held(m, t); t++) {}   /* (Track 1 has no menu: FM-1 mode stays in view) */
+    if (m->s.mode == RFM_MOVE_MODE_SEQ)
+        t = rfmv_seq_trk_held(m) ? 3 : 4;               /* (the sequencer: any Track button, its track's menu) */
     if (t < 4) {
         held_menu(m, &cv, t);
         mr_gfx_pack(&cv, out);

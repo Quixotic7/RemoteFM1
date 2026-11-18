@@ -10,7 +10,7 @@
 
 typedef struct { uint8_t r, g, b; } rfmv_rgb_t;
 
-enum { H_NONE = 0, H_KEY, H_BTN, H_NOTE, H_MENU, H_SEQ };
+enum { H_NONE = 0, H_KEY, H_BTN, H_NOTE, H_MENU, H_SEQ, H_ARP };
 /* the LED list (rfm_move_leds): pads, steps, the RGB CC LEDs, then the 13 white ones (WHITE_CC order) */
 enum { L_PAD0 = 0, L_STEP0 = 32, L_PLAY = 48, L_REC, L_SAMPLE, L_TRACK0, L_RING0 = 55, L_WHITE0 = 63 };
 enum { W_SHIFT, W_MENU, W_BACK, W_CAPTURE, W_DOWN, W_UP, W_UNDO, W_LOOP, W_COPY, W_LEFT, W_RIGHT, W_MUTE, W_DELETE };
@@ -27,6 +27,7 @@ rfmv_rgb_t rfmv_add(rfmv_rgb_t a, rfmv_rgb_t b);
 rfmv_rgb_t rfmv_midi_pad(const rfm_move_t *m, int p, rfmv_rgb_t mode);
 rfmv_rgb_t rfmv_layout_pad(const rfm_move_t *m, int p, rfmv_rgb_t mode);   /* .. as if not pressed */
 int rfmv_track_held(const rfm_move_t *m, int t);
+int rfmv_seq_trk_held(const rfm_move_t *m);            /* the sequencer: a Track button held (its track's settings) */
 
 /* actions (stamped with m->seq.frame) */
 void rfmv_emit(rfm_move_t *m, uint8_t kind, int index, int down, int vel, int value);
@@ -40,8 +41,8 @@ int rfmv_level(const rfm_move_t *m, int id);           /* the FM-1 LED level 0..
 
 /* ---- screen.c: the screen (every mode's picture, the popups, the held Track buttons' menus) */
 enum { POP_NONE = 0, POP_ENC, POP_MASTER, POP_CC, POP_SELECT, POP_DRUM, POP_TEMPO, POP_LOOP, POP_BANK, POP_STEP,
-       POP_PROJ };
-enum { MENU_NONE = 0, MENU_LAYOUT, MENU_SCALE, MENU_ROOT, MENU_CHANNEL, MENU_CC, MENU_TRACK, MENU_TCH };
+       POP_PROJ, POP_TRIG, POP_BAR, POP_TRACK };
+enum { MENU_NONE = 0, MENU_LAYOUT, MENU_SCALE, MENU_ROOT, MENU_CHANNEL, MENU_CC, MENU_TRACK, MENU_TCH, MENU_RATE };
 uint32_t rfmv_now_ms(const rfm_move_t *m);             /* the sequencer clock's ms (what popups time out on) */
 void rfmv_pop(rfm_move_t *m, int kind, int i);          /* a popup up (again) now */
 void rfmv_pop_let(rfm_move_t *m, int kind, int i);      /* its control let go: it drops RFM_MOVE_POPUP_MS from now */
@@ -50,6 +51,9 @@ void rfmv_menu(rfm_move_t *m, int what, int i);         /* a held Track button's
 int rfmv_big(mr_canvas_t *cv, int x, int y, const char *s, int k, int on);   /* font5x7 at k x; returns the end x */
 int rfmv_big_w(const char *s, int k);                   /* .. its width */
 void rfmv_dotted(mr_canvas_t *cv, int x, int y, int w, int h);   /* a dotted outline */
+void rfmv_cond_name(int c, char *b, int cap);           /* "1:2", "FILL" .. */
+void rfmv_seq_track_glyph(const rfm_move_t *m, mr_canvas_t *cv, int x, int y, int k);   /* which of the 16 tracks */
+void rfmv_xbox(mr_canvas_t *cv, int x, int y, int w, int h);     /* an outline crossed out (a cut) */
 void rfmv_tri(mr_canvas_t *cv, int x, int y, int w, int h, int on);   /* a play triangle, pointing right */
 void rfmv_disc(mr_canvas_t *cv, int x, int y, int d, int on);         /* a filled circle in a d x d box */
 void rfmv_frame(mr_canvas_t *cv, int x, int y, int w, int h);         /* a popup's box: black, a 1 px white frame */
@@ -59,7 +63,7 @@ void rfmv_fm1_art(const rfm_move_t *m, mr_canvas_t *cv);   /* FM-1 mode's left h
 /* ---- seq.c: the data model (sorted arrays), the journal, the clock, the engine */
 #define SEQ_CLIP(track, scene) ((track) * RFM_MOVE_SEQ_SCENES + (scene))
 enum { SEQ_NONE = -2, SEQ_STOP = -1 };
-enum { OP_NOTE_ADD = 1, OP_NOTE_DEL, OP_LOCK, OP_LEN };
+enum { OP_NOTE_ADD = 1, OP_NOTE_DEL, OP_LOCK, OP_LEN, OP_LSTART };
 #define SEQ_NOLOCK 0xFF
 
 void rfmv_seq_init(rfm_move_t *m);                     /* an empty project, the clock reset */
@@ -72,6 +76,11 @@ int rfmv_seq_find(const rfm_move_t *m, int clip, int step, int note);  /* index,
 int rfmv_seq_lock_get(const rfm_move_t *m, int clip, int step, int cc); /* value, -1 */
 int rfmv_seq_clip_used(const rfm_move_t *m, int clip);                 /* notes or locks */
 int rfmv_seq_track_used(const rfm_move_t *m, int track);
+int rfmv_seq_clip_has(const rfm_move_t *m, int clip);  /* used, or made (an empty clip shown as a clip) */
+void rfmv_seq_clip_make(rfm_move_t *m, int clip, int on);
+int rfmv_seq_loop_lo(const rfm_move_t *m, int clip);   /* the loop: [lo, hi) */
+int rfmv_seq_loop_hi(const rfm_move_t *m, int clip);
+int rfmv_seq_tps(int rate);                            /* ticks a step at a rate */
 /* edits (journaled into the current undo group, the project marked changed) */
 void rfmv_seq_group(rfm_move_t *m);                    /* a new undo group: one gesture */
 int rfmv_seq_note_put(rfm_move_t *m, int clip, int step, int note, int vel, int len, int micro);   /* add/replace */
@@ -79,6 +88,9 @@ int rfmv_seq_note_del(rfm_move_t *m, int clip, int step, int note);
 void rfmv_seq_step_clear(rfm_move_t *m, int clip, int step);
 int rfmv_seq_lock_set(rfm_move_t *m, int clip, int step, int cc, int val);   /* val -1: remove */
 void rfmv_seq_len_set(rfm_move_t *m, int clip, int len);
+void rfmv_seq_loop_set(rfm_move_t *m, int clip, int lo, int len);   /* the loop's start and length (steps) */
+void rfmv_seq_preview(rfm_move_t *m, int clip, int step);   /* a step's notes sound once (a held step) */
+int rfmv_seq_trig(const rfm_move_t *m, int clip, int step, int id);   /* a trig parameter (RFM_MOVE_TRIG_*), -1 none */
 void rfmv_seq_clip_clear(rfm_move_t *m, int clip);
 void rfmv_seq_clip_quantize(rfm_move_t *m, int clip);
 int rfmv_seq_clip_double(rfm_move_t *m, int clip);
@@ -110,6 +122,19 @@ void rfmv_seq_pad_on(rfm_move_t *m, int pad, int note, int vel);
 void rfmv_seq_pad_off(rfm_move_t *m, int pad, int note);
 int rfmv_seq_capture(rfm_move_t *m);                   /* the clip's scene, -1 nothing captured */
 void rfmv_seq_tap(rfm_move_t *m, uint32_t now_ms);
+void rfmv_seq_sample(rfm_move_t *m);                   /* Record (Capture mode, stopped): arm / done at the nearest bar */
+void rfmv_seq_audio_rec(rfm_move_t *m);                /* Sample: the audio loop armed / ended at the next bar */
+void rfmv_seq_ui_poll(rfm_move_t *m);
+void rfmv_seq_track_button(rfm_move_t *m, int t, int down, uint32_t now);   /* Track 1..4 in the sequencer */
+void rfmv_seq_select(rfm_move_t *m, int track);        /* a track selected: its layout and CC numbers in */
+void rfmv_seq_enter(rfm_move_t *m);                    /* Sequencer mode entered / left: the settings swapped */
+void rfmv_seq_leave(rfm_move_t *m);
+void rfmv_seq_sync(rfm_move_t *m);                     /* the selected track's layout and CC numbers from the settings */
+void rfmv_seq_arp_default(rfm_move_arp_t *a);
+int rfmv_seq_arp_rate_of(int i);                       /* the arp's RATE: notes a bar */
+int rfmv_seq_arp_on(rfm_move_t *m, int note, int vel); /* the selected track's arp takes a pad note: 1 */
+void rfmv_seq_arp_off(rfm_move_t *m, int note);
+void rfmv_seq_arp_stop(rfm_move_t *m);                  /* (advance) a step held long enough: its popup */
 void rfmv_seq_dirty(rfm_move_t *m);
 
 /* ---- project.c */
@@ -124,8 +149,15 @@ enum { SEQ_M_SHIFT = 1, SEQ_M_COPY = 2, SEQ_M_DELETE = 4, SEQ_M_MUTE = 8, SEQ_M_
 enum { SEQ_MSG_NONE = 0, SEQ_MSG_NOCLIP, SEQ_MSG_FULL, SEQ_MSG_LOADFAIL, SEQ_MSG_CAPTURED, SEQ_MSG_UNDO,
        SEQ_MSG_REDO, SEQ_MSG_COPIED, SEQ_MSG_PASTED, SEQ_MSG_CUT, SEQ_MSG_QUANT, SEQ_MSG_DOUBLE, SEQ_MSG_EXTTAP,
        SEQ_MSG_DUP, SEQ_MSG_CLEARED, SEQ_MSG_CAPCLEAR, SEQ_MSG_CLK_AUTO, SEQ_MSG_CLK_INT, SEQ_MSG_CLK_EXT,
-       SEQ_MSG_FULLVEL_ON, SEQ_MSG_FULLVEL_OFF };
-void rfmv_seq_ui_release(rfm_move_t *m);               /* leaving the mode / release-all: held things let go */
+       SEQ_MSG_FULLVEL_ON, SEQ_MSG_FULLVEL_OFF, SEQ_MSG_METRO_ON, SEQ_MSG_METRO_OFF };
+void rfmv_seq_ui_release(rfm_move_t *m);
+int rfmv_seq_src_step(const rfm_move_t *m, int clip, int abs);   /* the clipboard's source: 1 copied, 2 cut, 0 */
+int rfmv_seq_src_clip(const rfm_move_t *m, int clip);
+int rfmv_pick_layout(rfm_move_t *m, int p);
+int rfmv_seq_len_index(int len);                       /* the TRIG page's lengths: the nearest, the length of */
+int rfmv_seq_len_of(int i);
+int rfmv_seq_len_inf(int len);
+int rfmv_seq_trig_val(const rfm_move_t *m, int clip, int abs, int k);   /* the TRIG page's knob k on a step */            /* a held Track button's pad: layout (top row), scale (row 2) */               /* leaving the mode / release-all: held things let go */
 void rfmv_seq_pad(rfm_move_t *m, int p, int vel, uint32_t now);
 void rfmv_seq_step(rfm_move_t *m, int s, int down, uint32_t now);
 int rfmv_seq_button(rfm_move_t *m, int cc, int down, uint32_t now);   /* 1 taken */

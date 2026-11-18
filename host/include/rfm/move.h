@@ -75,6 +75,10 @@ enum {
     RFM_MOVE_ACT_PROJECT_SAVE = 8,                      /* index slot 0..31: store data/len (a project blob) */
     RFM_MOVE_ACT_PROJECT_LOAD = 9,                      /* index slot: answer with rfm_move_project_load(m, slot, ..) */
     RFM_MOVE_ACT_PROJECT_DELETE = 10,                   /* index slot: forget it */
+    RFM_MOVE_ACT_AUDIO_REC = 12,                        /* Sample's audio loop (frame-stamped, on a bar line): value 1
+                                                         * start, 0 stop (index: the bars recorded, at a stop) */
+    RFM_MOVE_ACT_CLICK = 11,                            /* the metronome (frame-stamped): value 1 a bar's first beat,
+                                                         * 0 another beat; the host plays a click */
 };
 typedef struct {
     uint8_t kind;                                       /* RFM_MOVE_ACT_* */
@@ -136,15 +140,55 @@ typedef struct {
 #define RFM_MOVE_SEQ_LOCKS 2048                         /* CC locks a project */
 #define RFM_MOVE_SEQ_UNDO 2048                          /* undo journal entries */
 #define RFM_MOVE_SEQ_SOUNDING 64                        /* sequencer notes sounding at once */
-#define RFM_MOVE_SEQ_CAPTURE 256                        /* Capture: pad events kept */
-#define RFM_MOVE_SEQ_CAPTURE_BARS 8                     /* .. from the last 8 bars */
+#define RFM_MOVE_SEQ_CAPTURE 1024                       /* Capture: pad events kept */
+#define RFM_MOVE_SEQ_CAPTURE_BARS 16                    /* .. a phrase of at most 16 bars */
+#define RFM_MOVE_SEQ_CAPTURE_GAP 2                      /* .. silence of more than 2 bars ends a phrase */
+#define RFM_MOVE_SEQ_HOLD_MS 300                        /* a step held this long is a hold (its popup; no tap) */
+#define RFM_MOVE_SEQ_RATES 10                           /* track rates: 1/32T 1/32 1/16T 1/16 1/8T 1/8 1/4T 1/4 1/2T 1/2 */
+#define RFM_MOVE_SEQ_RATE_16 3                          /* .. 1/16, the default */
+/* the trig parameters (the TRIG knob page): kept as CC locks with these numbers (above the MIDI CCs, never sent) */
+enum { RFM_MOVE_TRIG_RATCHET = 128,                     /* 2..8 hits in the step (none: 1) */
+       RFM_MOVE_TRIG_CHANCE,                            /* 1..99 % (none: 100) */
+       RFM_MOVE_TRIG_COND,                              /* 1..43: RFM_MOVE_COND_* (none: always) */
+       RFM_MOVE_TRIG_FUNC,                              /* 1..8: RFM_MOVE_FN_* (none: nothing) */
+       RFM_MOVE_TRIG_LEAP,                              /* LEAP's n + 15, 0..30 (none: +2) */
+       RFM_MOVE_TRIG_JUMP,                              /* JUMP's target step 0..255 (none: the loop's start) */
+       RFM_MOVE_TRIG_LAST = RFM_MOVE_TRIG_JUMP };
+/* conditions: 1..35 A:B (B 2..8, A 1..B: plays on pass A of every B), then these */
+enum { RFM_MOVE_COND_AB_N = 35, RFM_MOVE_COND_FILL = 36, RFM_MOVE_COND_NFILL, RFM_MOVE_COND_PRE, RFM_MOVE_COND_NPRE,
+       RFM_MOVE_COND_NEI, RFM_MOVE_COND_NNEI, RFM_MOVE_COND_1ST, RFM_MOVE_COND_N1ST, RFM_MOVE_COND_N };
+/* the arp (FIZZ's ARP: its patterns, RATE's notes a bar, MODE) */
+enum { RFM_MOVE_AP_UP, RFM_MOVE_AP_DN, RFM_MOVE_AP_UPDN, RFM_MOVE_AP_DNUP, RFM_MOVE_AP_UANDD, RFM_MOVE_AP_DANDU,
+       RFM_MOVE_AP_CON, RFM_MOVE_AP_DIV, RFM_MOVE_AP_CONDIV, RFM_MOVE_AP_HI1, RFM_MOVE_AP_HI2, RFM_MOVE_AP_LO1,
+       RFM_MOVE_AP_LO2, RFM_MOVE_AP_RAND, RFM_MOVE_AP_ROTH, RFM_MOVE_AP_RONC, RFM_MOVE_AP_ASP, RFM_MOVE_AP_N };
+enum { RFM_MOVE_AM_OFF, RFM_MOVE_AM_ON, RFM_MOVE_AM_1ST, RFM_MOVE_AM_ONCE, RFM_MOVE_AM_HOLD, RFM_MOVE_AM_N };
+#define RFM_MOVE_ARP_RATES 16
+typedef struct {
+    uint8_t pat, rate, range, chance, mode, gate;       /* RFM_MOVE_AP_*, 0..15, 1..8, 0..100, RFM_MOVE_AM_*, 2..200 % */
+    int8_t odist;                                       /* the octaves' step, -24..24 semitones */
+} rfm_move_arp_t;
+/* Shift + step (Ableton Move's printed functions, Move manual: step 1 Set Overview, 2 Setup, 3 Workflow Settings,
+ * 5 Tempo, 6 Metronome, 7 Groove, 8 Layout (16 Pitches), 9 Keys & Scales, 10 Full Velocity, 11 Repeat (Arp),
+ * 14 New Clip, 15 Double Loop, 16 Quantize); the menus they open (rfm_move_seq_t.smenu) */
+enum { RFM_MOVE_SM_NONE, RFM_MOVE_SM_WORKFLOW, RFM_MOVE_SM_TEMPO, RFM_MOVE_SM_GROOVE, RFM_MOVE_SM_LAYOUT,
+       RFM_MOVE_SM_KEYS, RFM_MOVE_SM_ARP, RFM_MOVE_SM_REC };
+/* the record settings (Shift + Record; saved): what Record does, and how a live take meets what is there */
+enum { RFM_MOVE_RM_CAPTURE, RFM_MOVE_RM_RECORD, RFM_MOVE_RM_STEP, RFM_MOVE_RM_N };
+enum { RFM_MOVE_RS_OVERDUB, RFM_MOVE_RS_REPLACE, RFM_MOVE_RS_N };
+/* step functions (FIZZ's, the OMX-27 Form's) */
+enum { RFM_MOVE_FN_NONE, RFM_MOVE_FN_RESTART, RFM_MOVE_FN_REVERSE, RFM_MOVE_FN_FORWARD, RFM_MOVE_FN_FLIP,
+       RFM_MOVE_FN_RANDOM, RFM_MOVE_FN_RFUNC, RFM_MOVE_FN_LEAP, RFM_MOVE_FN_JUMP, RFM_MOVE_FN_N };
 #define RFM_MOVE_SEQ_BPM10_MIN 200                      /* 20.0 .. 300.0 BPM */
 #define RFM_MOVE_SEQ_BPM10_MAX 3000
 #define RFM_MOVE_PROJECTS 32
-#define RFM_MOVE_PROJECT_VERSION 1
+#define RFM_MOVE_PROJECT_VERSION 2                      /* (version 1 blobs load too) */
 #define RFM_MOVE_AUTOSAVE_MS 2000                       /* an edited project is saved this long after the last edit */
-/* the blob: header 24, tracks 16 x 4, clip lengths 256 x 2, notes 2 + n x 7, locks 2 + n x 4, FNV-1a 4 */
-#define RFM_MOVE_PROJECT_FIXED (24 + RFM_MOVE_SEQ_TRACKS * 4 + RFM_MOVE_SEQ_CLIPS * 2 + 2 + 2 + 4)
+/* the blob: header 24, tracks 16 x 4, clip lengths 256 x 2, notes 2 + n x 7, locks 2 + n x 4, (version 2) loop
+ * starts 256, clips made 32, track rates 16, grooves 16, arps 16 x 7, FNV-1a 4 */
+#define RFM_MOVE_ARP_BYTES 7                            /* a track's arp: pattern rate range chance mode gate odist */
+#define RFM_MOVE_PROJECT_EXT (RFM_MOVE_SEQ_CLIPS + RFM_MOVE_SEQ_CLIPS / 8 + \
+                              RFM_MOVE_SEQ_TRACKS * (2 + RFM_MOVE_ARP_BYTES + 1 + RFM_MOVE_NBANKS * RFM_MOVE_NKNOBS))
+#define RFM_MOVE_PROJECT_FIXED (24 + RFM_MOVE_SEQ_TRACKS * 4 + RFM_MOVE_SEQ_CLIPS * 2 + 2 + 2 + RFM_MOVE_PROJECT_EXT + 4)
 #define RFM_MOVE_PROJECT_MAX (RFM_MOVE_PROJECT_FIXED + RFM_MOVE_SEQ_NOTES * 7 + RFM_MOVE_SEQ_LOCKS * 4)
 enum { RFM_MOVE_CLOCK_AUTO = 0, RFM_MOVE_CLOCK_INTERNAL = 1, RFM_MOVE_CLOCK_EXTERNAL = 2 };
 
@@ -166,12 +210,23 @@ typedef struct {
     int8_t active, sel;                                 /* (saved) the clip that plays (-1 none), the one edited */
     int8_t queued;                                      /* -2 nothing, -1 stop, 0..15: launch at the next bar */
     uint8_t grow, grow_stop;                            /* recording into an empty clip: it grows a bar at a time */
-    uint8_t rsv;
+    uint8_t rate;                                       /* (saved) 0..RFM_MOVE_SEQ_RATES - 1 */
+    uint8_t groove;                                     /* (saved) Move's groove 0..150 %: 100 = a triplet swing */
+    rfm_move_arp_t arp;                                 /* (saved) */
+    uint8_t layout;                                     /* (saved) the pads' layout on this track */
+    uint8_t cc[RFM_MOVE_NBANKS][RFM_MOVE_NKNOBS];       /* (saved) its knobs' CC numbers, bank by bank */
     int32_t t0;                                         /* the song tick the active clip started at */
+    /* the playhead (the engine's) */
+    int16_t pos, next;                                  /* the step playing (-1: not yet), the next (-1: not chosen) */
+    uint8_t sub, tps;                                   /* ticks into the step, ticks the step lasts */
+    int8_t dir;                                         /* +1, -1 (REVERSE) */
+    uint8_t fire, nfire;                                /* the step's (the next one's) condition and chance passed */
+    uint8_t pre;                                        /* the last condition's result (PRE, NEI) */
+    uint16_t pass, npass;                               /* loop passes since the launch (1: the first) */
 } rfm_move_track_t;
 typedef struct { uint8_t ch, note, track, rsv; int32_t off; } rfm_move_sounding_t;
 typedef struct { int32_t t; uint8_t note, vel, rsv[2]; } rfm_move_cap_t;   /* t: timeline tick, vel 0 = off */
-typedef struct { int32_t t; uint8_t clip, note, vel, on; } rfm_move_recnote_t;
+typedef struct { int32_t t; uint8_t clip, note, vel, on, step; int8_t micro; uint8_t rsv[2]; } rfm_move_recnote_t;
 typedef struct {                                        /* a stored project in brief (rfm_move_project_info) */
     uint8_t ok;                                         /* 1: known */
     uint8_t clips;                                      /* clips with notes or locks */
@@ -184,7 +239,9 @@ typedef struct {
     uint16_t bpm10;                                     /* the internal clock, BPM x 10 */
     uint8_t clock_mode, fixed_vel, sel_track;
     rfm_move_track_t tr[RFM_MOVE_SEQ_TRACKS];
-    uint16_t len[RFM_MOVE_SEQ_CLIPS];                   /* clip lengths, steps 1..256 */
+    uint16_t len[RFM_MOVE_SEQ_CLIPS];                   /* clip loop lengths, steps 1..256 */
+    uint8_t lstart[RFM_MOVE_SEQ_CLIPS];                 /* .. the loop's first step (lstart + len <= 256) */
+    uint8_t made[RFM_MOVE_SEQ_CLIPS / 8];               /* bits: clips made (an empty clip, a session pad press) */
     uint16_t nnotes, nlocks;
     rfm_move_note_t notes[RFM_MOVE_SEQ_NOTES];
     rfm_move_lock_t locks[RFM_MOVE_SEQ_LOCKS];
@@ -206,6 +263,32 @@ typedef struct {
     uint8_t nsnd;
     /* ---- recording, capture */
     uint8_t rec;                                        /* armed */
+    uint8_t srec;                                       /* Sample's take: 1 armed (the first note starts it), 2 on */
+    uint8_t fill;                                       /* FILL (the jog wheel held down) */
+    uint32_t rng;                                       /* chance, random functions */
+    uint32_t lead_us;                                   /* the host runs the clock this far ahead of what sounds */
+    uint8_t metro;                                      /* the metronome (off at first) */
+    uint8_t rec_mode, rec_style;                        /* (saved) RFM_MOVE_RM_*, RFM_MOVE_RS_* */
+    uint8_t steprec;                                    /* Step mode on: the cursor's step gets what is played */
+    int16_t step_cur;                                   /* .. the cursor (a step of the edited clip) */
+    uint32_t steps_chord;                               /* .. pads of the chord being written (bits) */
+    uint8_t take;                                       /* the live take's mark on its notes (Replace keeps them) */
+    uint8_t arec;                                       /* Sample's audio loop: 1 armed, 2 recording, 3 to stop */
+    int32_t arec_T;                                     /* .. the song tick it started at */
+    uint8_t qstrength;                                  /* Quantize's amount, % (Workflow Settings) */
+    uint8_t smenu;                                      /* a Shift + step menu open (RFM_MOVE_SM_*) */
+    uint8_t shift_lock;                                 /* Shift latched (a double tap) */
+    uint8_t bank;                                       /* the Track buttons' bank: tracks bank*4+1 .. +4 */
+    uint8_t layer[8], nlayer;                           /* what Back closes, the latest last (a Shift menu, the grid,
+                                                         * Loop's latch, Shift's lock, the clipboard's marks) */
+    uint8_t in_seq;                                     /* the settings hold the selected track's layout / CCs */
+    uint8_t stash_layout, stash_cc[RFM_MOVE_NBANKS][RFM_MOVE_NKNOBS];   /* .. MIDI / Control mode's, meanwhile */
+    uint32_t shift_ms;                                  /* .. its last press */
+    /* the arp (the selected track's pads) */
+    uint8_t arp_n, arp_down, arp_run, arp_track, arp_nseq, arp_last;
+    uint8_t arp_pitch[8], arp_vel[8], arp_ord[8], arp_seq[32];
+    uint16_t arp_pos, arp_oct, arp_steps;
+    int32_t arp_next, arp_k, arp_t0;
     uint16_t rec_group;
     rfm_move_recnote_t recn[RFM_MOVE_NPADS];            /* notes being recorded, by pad */
     rfm_move_cap_t cap[RFM_MOVE_SEQ_CAPTURE];
@@ -214,9 +297,10 @@ typedef struct {
     rfm_move_op_t ops[RFM_MOVE_SEQ_UNDO];
     uint16_t un, utop, group, broken;
     /* ---- the clipboard */
-    uint8_t clip_kind, cut;                             /* 0 empty, 1 a step, 2 a clip, 3 a track; cut: Delete made it */
-    uint8_t clip_src, clip_step;
+    uint8_t clip_kind, cut;                             /* 0 empty, 1 a step, 2 a clip, 3 a track; cut: Shift + Copy */
+    uint8_t clip_src, clip_step;                        /* where it came from (track; clip, step) */
     uint16_t clip_len, clip_nn, clip_nl;
+    uint8_t clip_lstart;
     rfm_move_note_t clip_notes[RFM_MOVE_SEQ_POLY * RFM_MOVE_SEQ_MAXLEN];
     rfm_move_lock_t clip_locks[RFM_MOVE_SEQ_LOCKS];
     /* ---- projects */
@@ -241,6 +325,13 @@ typedef struct {
     uint16_t step_held;                                 /* bits: steps held (track view) */
     uint16_t step_add, step_edit;                       /* .. pressed onto an empty note / edited while held */
     int8_t step_first;                                  /* the first step held, -1 none */
+    uint32_t step_t[RFM_MOVE_NSTEPS];                   /* the clock (ms) when each held step was pressed */
+    uint8_t step_popped;                                /* .. its popup is up (a hold) */
+    uint8_t trig;                                       /* the knobs are on the TRIG page (before bank 1) */
+    int8_t loop_first;                                  /* Loop held: the page step held first, -1 none */
+    int8_t loop_tap;                                    /* .. the page tapped last, for a double tap */
+    uint32_t loop_tap_ms;
+    uint8_t loop_latch;                                 /* Loop tapped: held on (the jog sets the length) */
     uint32_t tap_ms[4];
     uint8_t ntap;
     uint8_t msg;                                        /* a short message on the screen (SEQ_MSG_*) */
@@ -324,6 +415,10 @@ void rfm_move_seq_play(rfm_move_t *m, int on);         /* as Play in Sequencer m
 void rfm_move_seq_set_bpm(rfm_move_t *m, int bpm10);   /* the internal clock, BPM x 10 (200..3000) */
 int rfm_move_seq_bpm10(const rfm_move_t *m);           /* the tempo in use (measured when following) */
 void rfm_move_seq_set_clock(rfm_move_t *m, int mode);  /* RFM_MOVE_CLOCK_* */
+/* how far ahead of what sounds the host advances the clock (the web player: its 30 ms lead): recordings and
+ * Capture place what is played this much earlier, where it was heard */
+void rfm_move_seq_set_lead_us(rfm_move_t *m, uint32_t us);
+const char *rfm_move_seq_rate_name(int rate);           /* "1/16" .. */
 int rfm_move_seq_following(const rfm_move_t *m);       /* 1: the external clock drives the sequencer now */
 
 /* ---- projects: 32 slots the host stores (the core never does IO)

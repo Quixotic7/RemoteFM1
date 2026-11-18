@@ -137,6 +137,7 @@ static int nnotes_clip(const rfm_move_t *m, int clip)
     return hi - lo;
 }
 
+
 /* ================================================================ the data model, steps === */
 static void test_model(void)
 {
@@ -189,12 +190,14 @@ static void test_model(void)
     pad(m, 0, 100), pad(m, 0, 0);
     pad(m, 4, 70), pad(m, 4, 0);                        /* (one after the other: the last one, G3) */
     CHECK(m->seq.nlast == 1 && m->seq.last_note[0] == 55);
-    /* hold a step, pads in and out of it (not recorded, still sounding) */
-    step(m, 8, 1);                                      /* empty: G3 goes in at once */
-    CHECK(rfmv_seq_find(m, 0, 8, 55) >= 0);
+    /* hold an empty step: nothing goes in until pads are pressed (the owner: not the last notes); pads in and
+     * out of it (not recorded, still sounding) */
+    step(m, 8, 1);
+    CHECK(rfmv_seq_range(m, 0, 8, &lo) == lo);
     pad(m, 0, 100), pad(m, 0, 0);                       /* C3 in */
     pad(m, 2, 100), pad(m, 2, 0);                       /* E3 in */
-    pad(m, 4, 100), pad(m, 4, 0);                       /* G3 out */
+    pad(m, 4, 100), pad(m, 4, 0);                       /* G3 in */
+    pad(m, 4, 100), pad(m, 4, 0);                       /* .. and out */
     step(m, 8, 0);
     hi = rfmv_seq_range(m, 0, 8, &lo);
     CHECK(hi - lo == 2 && m->seq.notes[lo].note == 48 && m->seq.notes[lo + 1].note == 52);
@@ -245,40 +248,53 @@ static void test_model(void)
     rfmv_seq_step_clear(m, 0, 5);
     knob(m, 8, -2);
     CHECK(m->master == mst - 32);                         /* (no step held: MASTER again) */
-    /* lengths and pages: Loop + step 4 = 4 pages; Left / Right page; Shift + Loop doubles */
-    button(m, MR_CC_LOOP, 1), tap_step(m, 3), button(m, MR_CC_LOOP, 0);
-    CHECK(m->seq.len[0] == 64);
+    /* loops and pages (the owner's Loop): Loop + steps 1 and 4 held = pages 1..4; Left / Right page; Shift + Loop
+     * doubles */
+    button(m, MR_CC_LOOP, 1), step(m, 0, 1), step(m, 3, 1), step(m, 3, 0), step(m, 0, 0), button(m, MR_CC_LOOP, 0);
+    CHECK(m->seq.len[0] == 64 && m->seq.lstart[0] == 0 && m->seq.page == 0);
     press(m, MR_CC_RIGHT), press(m, MR_CC_RIGHT);
     CHECK(m->seq.page == 2);
     pad(m, 0, 100), pad(m, 0, 0);
     tap_step(m, 1);                                     /* page 3, step 2 = step 34 */
     CHECK(rfmv_seq_find(m, 0, 33, 48) >= 0);
     press(m, MR_CC_RIGHT), press(m, MR_CC_RIGHT);
-    CHECK(m->seq.page == 3);                            /* (the clip's last page) */
+    CHECK(m->seq.page == 4 && m->seq.len[0] == 64);     /* (past the last page: a pending one, the clip unchanged) */
     button(m, MR_CC_SHIFT, 1), tap_step(m, 14), button(m, MR_CC_SHIFT, 0);   /* Shift + step 15: double (Move) */
     CHECK(m->seq.len[0] == 128 && rfmv_seq_find(m, 0, 33 + 64, 48) >= 0 && rfmv_seq_find(m, 0, 8 + 64, 52) >= 0);
-    button(m, MR_CC_LOOP, 1), tap_step(m, 15), button(m, MR_CC_LOOP, 0);
-    CHECK(m->seq.len[0] == 256);
+    button(m, MR_CC_LOOP, 1), step(m, 15, 1), step(m, 0, 1), step(m, 0, 0), step(m, 15, 0), button(m, MR_CC_LOOP, 0);
+    CHECK(m->seq.len[0] == 256 && m->seq.lstart[0] == 0);   /* (either order) */
     button(m, MR_CC_SHIFT, 1), press(m, MR_CC_LOOP), button(m, MR_CC_SHIFT, 0);
     CHECK(m->seq.len[0] == 256);                        /* (at most 16 pages) */
-    button(m, MR_CC_LOOP, 1), tap_step(m, 0), button(m, MR_CC_LOOP, 0);
-    CHECK(m->seq.len[0] == 16 && m->seq.page == 0);
-    CHECK(rfmv_seq_find(m, 0, 33, 48) >= 0);            /* (past the end: kept, not played) */
-    /* Loop held + jog (Move): a page a detent; Shift: a step */
-    button(m, MR_CC_LOOP, 1), jog(m, 2), button(m, MR_CC_LOOP, 0);
-    CHECK(m->seq.len[0] == 48);
-    button(m, MR_CC_LOOP, 1), button(m, MR_CC_SHIFT, 1), jog(m, -3), button(m, MR_CC_SHIFT, 0), button(m, MR_CC_LOOP, 0);
+    button(m, MR_CC_LOOP, 1), tap_step(m, 2), button(m, MR_CC_LOOP, 0);   /* a tap: the page shown, the loop kept */
+    CHECK(m->seq.len[0] == 256 && m->seq.page == 2);
+    button(m, MR_CC_LOOP, 1), tap_step(m, 1), tap_step(m, 1), button(m, MR_CC_LOOP, 0);   /* a double tap: that page */
+    CHECK(m->seq.len[0] == 16 && m->seq.lstart[0] == 16 && m->seq.page == 1);
+    CHECK(rfmv_seq_find(m, 0, 33, 48) >= 0);            /* (outside the loop: kept, not played) */
+    button(m, MR_CC_LOOP, 1), tap_step(m, 5), tap_step(m, 4), button(m, MR_CC_LOOP, 0);   /* (two pages: no double) */
+    CHECK(m->seq.lstart[0] == 16 && m->seq.page == 4);
+    /* Loop held + jog (Move): a step a detent; Shift: a page */
+    button(m, MR_CC_LOOP, 1), button(m, MR_CC_SHIFT, 1), jog(m, 2), button(m, MR_CC_SHIFT, 0), button(m, MR_CC_LOOP, 0);
+    CHECK(m->seq.len[0] == 48 && m->seq.lstart[0] == 16);
+    button(m, MR_CC_LOOP, 1), jog(m, -3), button(m, MR_CC_LOOP, 0);
     CHECK(m->seq.len[0] == 45);
     press(m, MR_CC_UNDO);                               /* (one Loop hold, one undo) */
     CHECK(m->seq.len[0] == 48);
-    button(m, MR_CC_LOOP, 1), jog(m, -9), button(m, MR_CC_LOOP, 0);
-    CHECK(m->seq.len[0] == 16 && m->seq.page == 0);
-    /* steps past the clip's end do nothing */
+    button(m, MR_CC_LOOP, 1), button(m, MR_CC_SHIFT, 1), jog(m, -9), button(m, MR_CC_SHIFT, 0), button(m, MR_CC_LOOP, 0);
+    CHECK(m->seq.len[0] == 16);
+    press(m, MR_CC_UNDO), press(m, MR_CC_UNDO), press(m, MR_CC_UNDO);   /* (to before the double tap: pages 1..16) */
+    CHECK(m->seq.lstart[0] == 0 && m->seq.len[0] == 256);
+    button(m, MR_CC_LOOP, 1), tap_step(m, 0), tap_step(m, 0), button(m, MR_CC_LOOP, 0);
+    CHECK(m->seq.len[0] == 16 && m->seq.lstart[0] == 0 && m->seq.page == 0);
+    /* steps outside the loop can be edited (the owner: any page) */
     m->seq.len[0] = 8;
     clear();
     i = m->seq.nnotes;
     tap_step(m, 12);
+    CHECK(m->seq.nnotes == i + 1);
+    tap_step(m, 12);
     CHECK(m->seq.nnotes == i);
+    m->seq.len[0] = 16;
+    adv(m, 8 * FPS);                                    /* (held steps were heard: their previews end) */
     /* Track 4 held + step: the track; + jog: its channel */
     track(m, 3, 1);
     tap_step(m, 5);
@@ -384,8 +400,8 @@ static void test_external(void)
         CHECKF(on >= 480 + 11 * 1000 && on <= 480 + 12 * 1000, "E at %llu", (unsigned long long)on);
     }
     /* tap tempo while following: shown, no effect */
-    press(m, MR_CC_SAMPLE), now_ms += 400, press(m, MR_CC_SAMPLE);
-    CHECK(m->seq.bpm10 == 1200 && m->seq.msg == SEQ_MSG_EXTTAP);
+    button(m, MR_CC_SHIFT, 1), press(m, MR_CC_SAMPLE), now_ms += 400, press(m, MR_CC_SAMPLE), button(m, MR_CC_SHIFT, 0);
+    CHECK(m->seq.bpm10 == 1200 && m->seq.msg == SEQ_MSG_EXTTAP && !m->seq.srec);
     /* Stop: the sequencer stops, nothing left sounding */
     rfmv_seq_note_put(m, 0, 4, 64, 100, 24 * 8, 0);     /* a long one */
     for (i = 0; i < 20; i++)
@@ -434,8 +450,8 @@ static void test_external(void)
         adv(m, RATE);
         CHECK(m->seq.tl <= tl + 3 && rfm_move_seq_following(m));   /* no clock: no ticks, no timeout */
     }
-    /* Shift + step 3 cycles the clock source */
-    button(m, MR_CC_SHIFT, 1), tap_step(m, 2), button(m, MR_CC_SHIFT, 0);
+    /* Shift + step 2 (Move's Setup) cycles the clock source */
+    button(m, MR_CC_SHIFT, 1), tap_step(m, 1), button(m, MR_CC_SHIFT, 0);
     CHECK(m->seq.clock_mode == RFM_MOVE_CLOCK_AUTO);
 }
 
@@ -457,16 +473,21 @@ static void test_launch(void)
     CHECK(sounding[2][67] == 1);
     /* track 1, scene 2 (pad: column 1, the second row from the top = 16): queued for the next bar */
     clear();
-    pad(m, 16, 100), pad(m, 16, 0);
+    pad(m, 25, 100), pad(m, 25, 0);
     CHECK(m->seq.tr[0].queued == 1 && m->seq.tr[0].active == 0 && nact == 0);
     adv(m, 12 * FPS);
     CHECK(m->seq.tr[0].active == 1 && find_midi(0x90, 62, 100, &at) && at == 16 * FPS && !find_midi(0x90, 60, -1, NULL));
-    /* press the playing clip: it plays on (Move); an empty slot in the track: it stops at the next bar, the slot
-     * selected */
-    pad(m, 16, 100), pad(m, 16, 0);
+    /* press the playing clip: it plays on (Move); an empty slot in the track: a new (empty) clip there, selected
+     * and launched at the next bar (the owner) */
+    pad(m, 25, 100), pad(m, 25, 0);
     CHECK(m->seq.tr[0].queued == SEQ_NONE && m->seq.tr[0].active == 1);
-    pad(m, 8, 100), pad(m, 8, 0);                       /* track 1, scene 3: empty */
-    CHECK(m->seq.tr[0].queued == SEQ_STOP && m->seq.tr[0].sel == 2);
+    pad(m, 26, 100), pad(m, 26, 0);                       /* track 1, scene 3: empty */
+    CHECK(m->seq.tr[0].queued == 2 && m->seq.tr[0].sel == 2 && rfmv_seq_clip_has(m, SEQ_CLIP(0, 2)));
+    CHECK(!rfmv_seq_clip_used(m, SEQ_CLIP(0, 2)));
+    button(m, MR_CC_DELETE, 1), pad(m, 26, 100), pad(m, 26, 0), button(m, MR_CC_DELETE, 0);   /* (the new clip cut: the
+                                                         * track stops at the bar instead) */
+    CHECK(!rfmv_seq_clip_has(m, SEQ_CLIP(0, 2)) && m->seq.tr[0].queued == SEQ_STOP);
+    m->seq.clip_kind = 0, m->seq.cut = 0;
     adv(m, 16 * FPS);
     CHECK(m->seq.tr[0].active == -1);
     /* a scene: step 2 launches scene 2 (tracks without a clip there stop: track 3's long note ends) */
@@ -498,21 +519,23 @@ static void test_launch(void)
     pad(m, 24, 100), pad(m, 24, 0);                     /* track 1, scene 1 */
     CHECK(m->seq.tr[0].active == 0 && m->seq.start_pending == 1);
     rfm_move_seq_play(m, 0);
-    pad(m, 0, 100), pad(m, 0, 0);                       /* track 1, scene 4: empty */
-    CHECK(m->seq.tr[0].active == -1 && m->seq.tr[0].sel == 3 && !m->seq.start_pending);
+    pad(m, 27, 100), pad(m, 27, 0);                       /* track 1, scene 4: empty: a new clip, no start */
+    CHECK(m->seq.tr[0].active == 3 && m->seq.tr[0].sel == 3 && !m->seq.start_pending);
+    CHECK(rfmv_seq_clip_has(m, SEQ_CLIP(0, 3)));
     button(m, MR_CC_SHIFT, 1), pad(m, 17, 100), pad(m, 17, 0), button(m, MR_CC_SHIFT, 0);   /* track 2 scene 2 */
     CHECK(m->seq.sel_track == 1 && m->seq.tr[1].sel == 1);
-    /* paging: Right = tracks 9-16, Down = scenes 2-5 */
-    press(m, MR_CC_RIGHT), press(m, MR_CC_DOWN);
-    CHECK(m->seq.track_page == 1 && m->seq.scene_off == 1);
+    /* Move's session: a row a track (the bank's 4, Track 1 on top), a column a scene; Down = the next bank (tracks
+     * 5-8), Right = the scenes one on */
+    press(m, MR_CC_DOWN), press(m, MR_CC_RIGHT);
+    CHECK(m->seq.bank == 1 && m->seq.scene_off == 1 && m->seq.sel_track == 5);
     pad(m, 24, 100), pad(m, 24, 0);
-    CHECK(m->seq.sel_track == 8 && m->seq.tr[8].sel == 1);
+    CHECK(m->seq.sel_track == 4 && m->seq.tr[4].sel == 1);
     for (i = 0; i < 20; i++)
-        press(m, MR_CC_DOWN);
-    CHECK(m->seq.scene_off == 12);
+        press(m, MR_CC_RIGHT), press(m, MR_CC_DOWN);
+    CHECK(m->seq.scene_off == 8 && m->seq.bank == 3);
     for (i = 0; i < 20; i++)
-        press(m, MR_CC_UP);
-    CHECK(m->seq.scene_off == 0);
+        press(m, MR_CC_LEFT), press(m, MR_CC_UP);
+    CHECK(m->seq.scene_off == 0 && m->seq.bank == 0);
 }
 
 /* every path that ends the sequencer's notes */
@@ -548,7 +571,7 @@ static void test_note_offs(void)
     CHECK(stuck() == 0 && !m->seq.playing && rfm_move_project_slot(m) == 3);
     fresh(m);
     play_long(m);
-    track(m, 3, 1), jog(m, 1), track(m, 3, 0);          /* 5 the track's channel changes */
+    track(m, 0, 1), jog(m, 1), track(m, 0, 0);          /* 5 the track's channel changes (Track 1 held) */
     CHECK(sounding[0][60] == 0);
     for (t = 0; t < 4; t++)                             /* 6 clip changes (stop at the bar) */
         rfmv_seq_launch(m, t, -1);
@@ -560,7 +583,7 @@ static void test_note_offs(void)
     rfmv_seq_note_put(m, 0, 0, 72, 100, 24 * 3, 0);
     rfm_move_seq_play(m, 1);
     adv(m, FPS);
-    track(m, 0, 1), track(m, 0, 0);
+    press(m, MR_CC_BACK);
     CHECK(m->s.mode == RFM_MOVE_MODE_FM1 && m->seq.playing && sounding[0][72] == 1);
     adv(m, 3 * FPS);
     CHECK(sounding[0][72] == 0);
@@ -593,6 +616,7 @@ static void test_record(void)
     rfm_move_t *m = &M;
     int i, lo, hi;
     fresh(m);
+    m->seq.rec_mode = RFM_MOVE_RM_RECORD;               /* (the record settings' Record: Move's own) */
     press(m, MR_CC_REC);                                /* armed, a bar's count-in (Move), then the transport */
     CHECK(m->seq.rec && m->seq.start_pending == 3);
     adv(m, 16 * FPS);
@@ -636,6 +660,7 @@ static void test_record(void)
     CHECK(m->seq.notes[rfmv_seq_find(m, 0, 12, 60)].vel == 127);
     /* session: an empty clip with Rec armed records into it, growing a bar at a time until pressed again */
     fresh(m);
+    m->seq.rec_mode = RFM_MOVE_RM_RECORD;
     press(m, MR_CC_MENU);
     press(m, MR_CC_REC);
     press(m, MR_CC_REC);                                /* (off in the count-in: no start) */
@@ -717,11 +742,12 @@ static void test_edits(void)
     button(m, MR_CC_COPY, 1), tap_step(m, 0), tap_step(m, 8), tap_step(m, 12), button(m, MR_CC_COPY, 0);
     hi = rfmv_seq_range(m, 0, 8, &lo);
     CHECK(hi - lo == 2 && rfmv_seq_range(m, 0, 12, &lo) - lo == 2 && nnotes_clip(m, 0) == 6);
-    /* Delete + step 13 = cut; Copy + step 15 = its paste */
+    /* the owner's cut: Delete + step 13 (notes) = cut, an X on it; Delete + step 15 (empty) = its paste */
     button(m, MR_CC_DELETE, 1), tap_step(m, 12), button(m, MR_CC_DELETE, 0);
-    CHECK(nnotes_clip(m, 0) == 4 && m->seq.cut);
-    button(m, MR_CC_COPY, 1), tap_step(m, 14), button(m, MR_CC_COPY, 0);
+    CHECK(nnotes_clip(m, 0) == 4 && m->seq.cut && rfmv_seq_src_step(m, 0, 12) == 2 && m->seq.msg == SEQ_MSG_NONE);
+    button(m, MR_CC_DELETE, 1), tap_step(m, 14), button(m, MR_CC_DELETE, 0);
     CHECK(rfmv_seq_range(m, 0, 14, &lo) - lo == 2 && nnotes_clip(m, 0) == 6 && !m->seq.cut);
+    CHECK(rfmv_seq_src_step(m, 0, 12) == 0);
     /* undo: the paste, the cut, the second paste; redo the lot */
     press(m, MR_CC_UNDO);
     CHECK(nnotes_clip(m, 0) == 4 && rfmv_seq_range(m, 0, 14, &lo) == lo);
@@ -777,14 +803,18 @@ static void test_edits(void)
     clear();
     knob(m, 1, 2);
     CHECK(find_midi(0xB0, 25, 66, NULL));
-    /* session: Copy + clip, clip = a clip copy; Delete + clip = cut, Copy + clip = paste */
+    /* session: Copy + clip, clip = a clip copy (the source dashed while Copy is held); Delete + clip = cut (an X),
+     * Delete + an empty slot = its paste */
     press(m, MR_CC_MENU);
-    button(m, MR_CC_COPY, 1), pad(m, 24, 100), pad(m, 24, 0), pad(m, 26, 100), pad(m, 26, 0), button(m, MR_CC_COPY, 0);
+    button(m, MR_CC_COPY, 1), pad(m, 24, 100), pad(m, 24, 0);
+    CHECK(rfmv_seq_src_clip(m, 0) == 1);
+    pad(m, 8, 100), pad(m, 8, 0), button(m, MR_CC_COPY, 0);
     CHECK(nnotes_clip(m, SEQ_CLIP(2, 0)) == nnotes_clip(m, 0) && rfmv_seq_lock_get(m, SEQ_CLIP(2, 0), 8, 16) == 67);
-    button(m, MR_CC_DELETE, 1), pad(m, 26, 100), pad(m, 26, 0), button(m, MR_CC_DELETE, 0);
-    CHECK(!rfmv_seq_clip_used(m, SEQ_CLIP(2, 0)));
-    button(m, MR_CC_COPY, 1), pad(m, 19, 100), pad(m, 19, 0), button(m, MR_CC_COPY, 0);   /* track 4, scene 2 */
-    CHECK(nnotes_clip(m, SEQ_CLIP(3, 1)) == nnotes_clip(m, 0));
+    CHECK(rfmv_seq_src_clip(m, 0) == 0);
+    button(m, MR_CC_DELETE, 1), pad(m, 8, 100), pad(m, 8, 0), button(m, MR_CC_DELETE, 0);
+    CHECK(!rfmv_seq_clip_has(m, SEQ_CLIP(2, 0)) && rfmv_seq_src_clip(m, SEQ_CLIP(2, 0)) == 2);
+    button(m, MR_CC_DELETE, 1), pad(m, 1, 100), pad(m, 1, 0), button(m, MR_CC_DELETE, 0);   /* track 4, scene 2 */
+    CHECK(nnotes_clip(m, SEQ_CLIP(3, 1)) == nnotes_clip(m, 0) && !m->seq.cut);
     /* Track 4 held: Copy + steps = a track copy; Delete + step = the track cleared */
     track(m, 3, 1);
     button(m, MR_CC_COPY, 1), tap_step(m, 3), tap_step(m, 9), button(m, MR_CC_COPY, 0);
@@ -813,15 +843,15 @@ static void test_edits(void)
     fresh(m);
     rfmv_seq_note_put(m, 0, 0, 60, 100, 24, 0);
     button(m, MR_CC_COPY, 1), tap_step(m, 0), button(m, MR_CC_COPY, 0);
-    CHECK(m->seq.paste == 1 && m->seq.clip_kind == 1 && m->seq.msg == SEQ_MSG_COPIED);
+    CHECK(m->seq.paste == 1 && m->seq.clip_kind == 1 && m->seq.msg == SEQ_MSG_NONE && rfmv_seq_src_step(m, 0, 0) == 1);
     tap_step(m, 5);
-    CHECK(rfmv_seq_find(m, 0, 5, 60) >= 0 && !m->seq.paste && m->seq.msg == SEQ_MSG_PASTED);
+    CHECK(rfmv_seq_find(m, 0, 5, 60) >= 0 && !m->seq.paste && m->seq.msg == SEQ_MSG_NONE);
     tap_step(m, 6);                                     /* (then step entry again: the root, C3) */
     CHECK(rfmv_seq_find(m, 0, 6, 60) < 0 && rfmv_seq_find(m, 0, 6, 48) >= 0);
     /* Copy alone with a copy waiting: dropped (Move: Copy again clears the clipboard) */
     button(m, MR_CC_COPY, 1), tap_step(m, 0), button(m, MR_CC_COPY, 0);
     press(m, MR_CC_COPY);
-    CHECK(!m->seq.paste && m->seq.clip_kind == 0 && m->seq.msg == SEQ_MSG_CLEARED);
+    CHECK(!m->seq.paste && m->seq.clip_kind == 0 && m->seq.msg == SEQ_MSG_NONE);
     tap_step(m, 7);
     CHECK(rfmv_seq_find(m, 0, 7, 60) < 0);
     /* Copy alone (Move): the clip duplicated into the track's next empty slot, selected and playing */
@@ -835,13 +865,13 @@ static void test_edits(void)
     press(m, MR_CC_MENU);
     button(m, MR_CC_COPY, 1), pad(m, 24, 100), pad(m, 24, 0), button(m, MR_CC_COPY, 0);
     CHECK(m->seq.paste && m->seq.clip_kind == 2);
-    pad(m, 26, 100), pad(m, 26, 0);
+    pad(m, 8, 100), pad(m, 8, 0);
     CHECK(nnotes_clip(m, SEQ_CLIP(2, 0)) == 4 && !m->seq.paste && m->seq.tr[2].queued == SEQ_NONE);
-    /* Delete alone (Move): the selected track's clip deleted (a cut: undoable, pasteable) */
+    /* Delete alone (Move): the selected track's clip deleted (undoable) */
     press(m, MR_CC_MENU);
     CHECK(m->seq.sel_track == 0 && m->seq.tr[0].sel == 1);
     press(m, MR_CC_DELETE);
-    CHECK(!rfmv_seq_clip_used(m, SEQ_CLIP(0, 1)) && m->seq.cut && m->seq.msg == SEQ_MSG_CUT);
+    CHECK(!rfmv_seq_clip_has(m, SEQ_CLIP(0, 1)) && m->seq.msg == SEQ_MSG_CLEARED);
     press(m, MR_CC_UNDO);
     CHECK(nnotes_clip(m, SEQ_CLIP(0, 1)) == 4);
     step(m, 3, 1), press(m, MR_CC_DELETE), step(m, 3, 0);   /* (with a step held: nothing) */
@@ -855,6 +885,7 @@ static void test_scale_root(void)
     rfm_move_t *m = &M;
     int i;
     fresh(m);
+    press(m, MR_CC_BACK);                               /* (FM-1 mode; the sequencer's Track buttons are its tracks) */
     track(m, 1, 1);                                     /* Track 2 held (MIDI mode) */
     jog(m, 2);                                          /* root D */
     pad(m, 17, 100), pad(m, 17, 0);                     /* row 2, column 2: minor */
@@ -983,7 +1014,7 @@ static void test_blob(void)
     /* invalid blobs: nothing changes */
     CHECK(rfm_move_project_load(m2, 5, a, (uint32_t)n - 1) < 0 && same_project(&m->seq, &m2->seq) &&
           rfm_move_project_slot(m2) == 4);
-    memcpy(b, a, (size_t)n), b[4] = 2;
+    memcpy(b, a, (size_t)n), b[4] = 3;
     CHECK(rfm_move_project_check(b, (uint32_t)n) == -2);
     memcpy(b, a, (size_t)n), b[100] ^= 1;
     CHECK(rfm_move_project_check(b, (uint32_t)n) == -5);
@@ -1159,14 +1190,14 @@ static void write_pbm(const char *path, const uint8_t *packed)
     fclose(f);
 }
 
-#define GOLD_TRACK 0x6b5c04dau
-#define GOLD_STEP 0xcd369633u
-#define GOLD_SESSION 0xbe52fdfdu
-#define GOLD_PROJECTS 0xb59ff52du
-#define GOLD_PROJECT 0x717ef433u
-#define GOLD_TRACKS 0xc4b14d8fu
-#define GOLD_COUNT 0xb117a7b1u
-#define GOLD_MSG 0xffb67057u
+#define GOLD_TRACK 0x8085c9edu
+#define GOLD_STEP 0xcbab8d53u
+#define GOLD_SESSION 0x05524496u
+#define GOLD_PROJECTS 0x5204a535u
+#define GOLD_PROJECT 0x25ca21a2u
+#define GOLD_TRACKS 0x32878560u
+#define GOLD_COUNT 0xc387a502u
+#define GOLD_MSG 0x1ad29fd4u
 static int px_at(const uint8_t *packed, int x, int y) { return packed[(y >> 3) * 128 + x] >> (y & 7) & 1; }
 static void gold(const char *name, const uint8_t *out, uint32_t want)
 {
@@ -1221,6 +1252,9 @@ static void test_screens_leds(void)
     gold("track", out, GOLD_TRACK);
     step(m, 0, 1);
     rfm_move_screen(m, NULL, out);
+    CHECK(!rfmv_pop_up(m, POP_STEP) && !px_at(out, 6, 6));   /* (a press alone: no popup) */
+    adv(m, RATE * RFM_MOVE_SEQ_HOLD_MS / 1000 + 128);  /* held: its popup */
+    rfm_move_screen(m, NULL, out);
     CHECK(m->pop == POP_STEP && m->pop_i == 0 && px_at(out, 6, 6) && px_at(out, 2, 2) && px_at(out, 0, 52));
     gold("step", out, GOLD_STEP);
     /* the step LEDs (Move's): the held step in the track's colour, the playhead green, notes white, empty steps
@@ -1232,7 +1266,7 @@ static void test_screens_leds(void)
             const int s = leds[i].number - MR_NOTE_STEP0;
             if (s == 0)
                 CHECK(leds[i].r == 255 && leds[i].g == 42 && leds[i].b == 42);
-            if (s == 5)
+            if (s == rfmv_seq_clip_pos(m, 0))
                 CHECK(leds[i].r == 0 && leds[i].g == 255 && leds[i].b == 0);   /* the playhead */
             if (s == 4 || s == 8)
                 CHECK(leds[i].r == 255 && leds[i].g == 255 && leds[i].b == 255);
@@ -1266,11 +1300,11 @@ static void test_screens_leds(void)
     m->seq.tr[5].grow = 2, rfmv_seq_launch(m, 5, 1);    /* track 6: to record into scene 2 at the bar */
     press(m, MR_CC_MENU);
     rfm_move_screen(m, NULL, out);
-    CHECK(px_at(out, 1, 0) && px_at(out, 14, 1) && !px_at(out, 17, 0));      /* track 1 selected */
-    CHECK(px_at(out, 65, 1) && !px_at(out, 66, 1) && !px_at(out, 65, 0));    /* track 5 muted: dotted */
-    CHECK(px_at(out, 1, 4) && !px_at(out, 5, 7) && px_at(out, 4, 7));        /* track 1 scene 1: playing, a black triangle */
-    CHECK(px_at(out, 17, 19) && !px_at(out, 20, 23));                        /* track 2 scene 2: content, outlined */
-    CHECK(px_at(out, 55, 9) && !px_at(out, 54, 9));                          /* track 4 scene 1: empty, a dot */
+    CHECK(px_at(out, 0, 0) && px_at(out, 3, 1) && !px_at(out, 3, 5));        /* bank 1, track 1 selected (an arrow) */
+    CHECK(px_at(out, 8, 19) && !px_at(out, 9, 19));                          /* track 5 muted: its row dotted */
+    CHECK(px_at(out, 10, 1));                                                /* track 1 scene 1: playing, filled */
+    CHECK(px_at(out, 15, 4) && !px_at(out, 17, 5));                          /* track 2 scene 2: content, outlined */
+    CHECK(px_at(out, 11, 13) && !px_at(out, 10, 13));                        /* track 4 scene 1: empty, a dot */
     gold("session", out, GOLD_SESSION);
     rfm_move_leds_invalidate(m);
     n = rfm_move_leds(m, leds, RFM_MOVE_NLEDS);
@@ -1281,7 +1315,7 @@ static void test_screens_leds(void)
             CHECK(leds[i].r > 100 && leds[i].r == leds[i].g && leds[i].g == leds[i].b);
         if (!leds[i].cc && leds[i].number == MR_NOTE_PAD0 + 10)       /* track 3 scene 3: queued: green (blinking) */
             CHECK(leds[i].r == 0 && leds[i].g > 0);
-        if (!leds[i].cc && leds[i].number == MR_NOTE_PAD0 + 25)       /* track 2 scene 1: playing: its colour */
+        if (!leds[i].cc && leds[i].number == MR_NOTE_PAD0 + 16)       /* track 2 scene 1: playing: its colour */
             CHECK(leds[i].r > leds[i].b && leds[i].g > 0);
         if (leds[i].cc && leds[i].number == MR_CC_PLAY)
             CHECK(leds[i].g == 255 && leds[i].r == 0);
@@ -1290,12 +1324,12 @@ static void test_screens_leds(void)
     }
     /* the project grid */
     rfm_move_seq_play(m, 0);
-    {   /* projects 3 and 14 stored: this one (step 1's chord cleared by its tap: 2 notes on track 1, 2 on track 2,
+    {   /* projects 3 and 14 stored: this one (step 1's chord kept by its hold: 5 notes on track 1, 2 on track 2,
          * 5 clips) and a smaller one; their bars come from the blobs (rfm_move_project_info), the current one's live */
         static uint8_t blob[RFM_MOVE_PROJECT_MAX];
         int nb = rfm_move_project_save(m, blob, sizeof blob);
         CHECK(nb > 0 && rfm_move_project_info(m, 2, blob, (uint32_t)nb) == 0);
-        CHECK(m->seq.info[2].ok && m->seq.info[2].notes[0] == 2 && m->seq.info[2].notes[1] == 2 && m->seq.info[2].clips == 5);
+        CHECK(m->seq.info[2].ok && m->seq.info[2].notes[0] == 5 && m->seq.info[2].notes[1] == 2 && m->seq.info[2].clips == 5);
         CHECK(m->seq.info[2].bpm10 == 1200);
         rfmv_seq_clip_clear(m, SEQ_CLIP(4, 5));
         nb = rfm_move_project_save(m, blob, sizeof blob);
@@ -1333,7 +1367,8 @@ static void test_screens_leds(void)
     gold("tracks", out, GOLD_TRACKS);
     tap_step(m, 0);
     track(m, 3, 0);
-    /* the count-in (Rec from stopped): its beats at 4x */
+    /* the count-in (Rec from stopped, Record mode): its beats at 4x */
+    m->seq.rec_mode = RFM_MOVE_RM_RECORD;
     press(m, MR_CC_REC);
     rfm_move_screen(m, NULL, out);
     CHECK(m->seq.start_pending == 3 && px_at(out, 2, 2));
@@ -1350,7 +1385,7 @@ static void test_screens_leds(void)
     /* other modes while it plays: a small triangle over the FM-1 drawing */
     rfm_move_seq_play(m, 1);
     adv(m, FPS);
-    track(m, 0, 1), track(m, 0, 0);
+    press(m, MR_CC_BACK);
     rfm_move_screen(m, NULL, out);
     CHECK(px_at(out, 3, 3) && px_at(out, 7, 7) && !px_at(out, 8, 7) && !px_at(out, 7, 3));
     CHECK(GOLD_TRACK && GOLD_STEP && GOLD_SESSION && GOLD_PROJECTS && GOLD_PROJECT && GOLD_TRACKS && GOLD_COUNT &&
@@ -1366,26 +1401,43 @@ static void test_popups(void)
     const uint32_t pop_frames = RATE * RFM_MOVE_POPUP_MS / 1000;
     fresh(m);
     rfm_move_seq_set_clock(m, RFM_MOVE_CLOCK_INTERNAL);
-    /* a held step: its popup while held, a second after; a tap that clears a step: gone at once */
-    step(m, 2, 1);                                      /* (empty: the root goes in, the transport starts) */
-    rfm_move_screen(m, NULL, out);
-    CHECK(rfmv_pop_up(m, POP_STEP) && m->pop_i == 2 && px_at(out, 6, 6));
-    adv(m, 3 * RATE);
-    CHECK(rfmv_pop_up(m, POP_STEP));
-    step(m, 2, 0);
-    adv(m, pop_frames - 128);
-    CHECK(rfmv_pop_up(m, POP_STEP));
-    adv(m, 256);
-    CHECK(!rfmv_pop_up(m, POP_STEP));
-    rfm_move_screen(m, NULL, out);
-    CHECK(!px_at(out, 6, 6));
-    tap_step(m, 2);                                     /* a tap on a step with notes: cleared, the popup gone */
+    /* a held step: no popup for a tap, its popup after RFM_MOVE_SEQ_HOLD_MS held, a second after; a held empty
+     * step stays empty (the owner: no last notes), a held step with notes is kept (never deleted) */
     {
         int lo;
-        CHECK(rfmv_seq_range(m, 0, 2, &lo) == lo && m->pop == POP_NONE);
+        step(m, 2, 1);
+        rfm_move_screen(m, NULL, out);
+        CHECK(!rfmv_pop_up(m, POP_STEP) && !px_at(out, 6, 6));
+        adv(m, RATE * RFM_MOVE_SEQ_HOLD_MS / 1000 + 128);
+        rfm_move_screen(m, NULL, out);
+        CHECK(rfmv_pop_up(m, POP_STEP) && m->pop_i == 2 && px_at(out, 2, 30) && !px_at(out, 6, 6));   /* (no notes) */
+        adv(m, 3 * RATE);
+        CHECK(rfmv_pop_up(m, POP_STEP));
+        step(m, 2, 0);
+        CHECK(rfmv_seq_range(m, 0, 2, &lo) == lo);      /* (held, nothing pressed: still empty) */
+        adv(m, pop_frames - 128);
+        CHECK(rfmv_pop_up(m, POP_STEP));
+        adv(m, 256);
+        CHECK(!rfmv_pop_up(m, POP_STEP));
+        rfm_move_screen(m, NULL, out);
+        CHECK(!px_at(out, 2, 30));
+        tap_step(m, 2);                                 /* a tap on an empty step: the last notes, no popup */
+        CHECK(rfmv_seq_range(m, 0, 2, &lo) > lo && !rfmv_pop_up(m, POP_STEP));
+        clear();
+        step(m, 2, 1);                                  /* held: heard (a preview), and kept */
+        CHECK(find_midi(0x90, 48, -1, NULL));
+        adv(m, RATE);
+        step(m, 2, 0);
+        CHECK(rfmv_seq_range(m, 0, 2, &lo) > lo);
+        adv(m, pop_frames);
+        tap_step(m, 2);                                 /* a tap on a step with notes: cleared */
+        CHECK(rfmv_seq_range(m, 0, 2, &lo) == lo && !rfmv_pop_up(m, POP_STEP));
+        adv(m, pop_frames);
     }
     /* a held step and a later one (the notes reach to it): the popup stays the held one's (its length 3) */
+    tap_step(m, 4);
     step(m, 4, 1), step(m, 6, 1);
+    adv(m, RATE / 2);
     CHECK(m->pop == POP_STEP && m->pop_i == 4 && m->seq.notes[0].len == 3 * RFM_MOVE_SEQ_TPS);
     step(m, 6, 0);
     CHECK(rfmv_pop_up(m, POP_STEP) && m->pop_i == 4);
@@ -1394,7 +1446,7 @@ static void test_popups(void)
     /* Loop held: the clip's length (the jog: a page a detent) */
     button(m, MR_CC_LOOP, 1);
     jog(m, 1);
-    CHECK(rfmv_pop_up(m, POP_LOOP) && m->seq.len[0] == 32);
+    CHECK(rfmv_pop_up(m, POP_LOOP) && m->seq.len[0] == 17);
     rfm_move_screen(m, NULL, out);
     write_pbm("move_seq_pop_loop.pbm", out);
     adv(m, 2 * pop_frames);
@@ -1447,6 +1499,599 @@ static void test_popups(void)
     rfm_move_release_all(m);
 }
 
+static uint64_t b0;                                     /* (the frame a play started at) */
+static void rest(rfm_move_t *m) { adv(m, RATE * RFM_MOVE_POPUP_MS / 1000 + 256); }   /* (popups gone) */
+
+/* ================================================================ the owner's Move test (2026-11-17) === */
+static int count_on(int ch, int note)                   /* note ons in acts[] */
+{
+    int i, n = 0;
+    for (i = 0; i < nact; i++)
+        n += acts[i].a.kind == RFM_MOVE_ACT_MIDI && acts[i].a.bytes[0] == (0x90 | ch) && acts[i].a.bytes[1] == note &&
+             acts[i].a.bytes[2];
+    return n;
+}
+static int count_kind(int kind)
+{
+    int i, n = 0;
+    for (i = 0; i < nact; i++)
+        n += acts[i].a.kind == kind;
+    return n;
+}
+
+/* live recording while playing: the note goes in at its press (where it was heard, the host's lead taken off), its
+ * length at the release; the take does not double the held note */
+static void test_live_record(void)
+{
+    rfm_move_t *m = &M;
+    int i;
+    fresh(m);
+    rfmv_seq_note_put(m, 0, 0, 60, 100, 24, 0);         /* (a clip playing) */
+    rfm_move_seq_play(m, 1), b0 = base;
+    adv(m, 2 * FPS);
+    press(m, MR_CC_REC);                                /* Capture mode, playing: records into the existing pages */
+    CHECK(m->seq.rec && !m->seq.srec);
+    adv(m, 2 * FPS + 7 * FPT);                          /* step 5 + 7 ticks (T 103) */
+    pad(m, 1, 90);                                      /* D3 */
+    i = rfmv_seq_find(m, 0, 4, 50);
+    CHECK(i >= 0 && m->seq.notes[i].micro == 7);        /* (in at the press: visible while held) */
+    clear();
+    adv(m, 2 * FPS);
+    pad(m, 1, 0);
+    i = rfmv_seq_find(m, 0, 4, 50);
+    CHECK(i >= 0 && m->seq.notes[i].len == 48 && count_on(0, 50) == 0);   /* (not played again while held) */
+    /* the host's lead (the web player's 30 ms): what is played lands where it was heard */
+    rfm_move_seq_set_lead_us(m, 31250);                 /* 6 ticks at 120 BPM */
+    adv(m, 16 * FPS - (m->seq.T % 384) * FPT + 8 * FPS + 10 * FPT);   /* the next bar's step 9 + 10 ticks */
+    pad(m, 2, 100), pad(m, 2, 0);                       /* (played at +10 ticks and a little: heard 6 earlier) */
+    i = rfmv_seq_find(m, 0, 8, 52);
+    CHECK(i >= 0 && m->seq.notes[i].micro >= 4 && m->seq.notes[i].micro <= 5);
+    rfm_move_seq_set_lead_us(m, 0);
+    /* Replace: the playhead clears what the take passes over (not the take's own notes) */
+    press(m, MR_CC_REC);
+    CHECK(!m->seq.rec);
+    m->seq.rec_style = RFM_MOVE_RS_REPLACE;
+    press(m, MR_CC_REC);
+    adv(m, 16 * FPS + FPT);
+    CHECK(rfmv_seq_find(m, 0, 0, 60) < 0 && rfmv_seq_find(m, 0, 4, 50) < 0);
+    rfm_move_seq_play(m, 0);
+    CHECK(stuck() == 0);
+    /* Capture mode, stopped (the owner's intentional capture): Record arms; the first note clears the clip, starts
+     * the transport and is the clip's first step; Record again ends it at the nearest bar */
+    fresh(m);
+    rfmv_seq_note_put(m, 0, 3, 72, 100, 24, 0);         /* (an old note: cleared) */
+    press(m, MR_CC_REC);
+    CHECK(m->seq.srec == 1 && !m->seq.start_pending);
+    adv(m, 3 * FPS);
+    pad(m, 0, 100);
+    CHECK(m->seq.srec == 2 && m->seq.start_pending == 1 && rfmv_seq_find(m, 0, 0, 48) >= 0 && rfmv_seq_find(m, 0, 3, 72) < 0);
+    adv(m, FPS), pad(m, 0, 0);
+    adv(m, 16 * FPS + 2 * FPS);                         /* bar 2, step 4 */
+    pad(m, 4, 100), adv(m, FPS / 2), pad(m, 4, 0);
+    adv(m, 16 * FPS);                                   /* bar 3, step 4.5: */
+    press(m, MR_CC_REC);                                /* .. nearest bar line: the 2nd: 2 bars, at once */
+    CHECK(!m->seq.srec && !m->seq.rec && m->seq.len[0] == 32 && m->seq.tr[0].grow == 0);
+    CHECK(rfmv_seq_find(m, 0, 19, 55) >= 0 && nnotes_clip(m, 0) == 2);
+    CHECK(m->seq.notes[rfmv_seq_find(m, 0, 0, 48)].len == 24);
+    CHECK(rfmv_seq_clip_pos(m, 0) == 2 || rfmv_seq_clip_pos(m, 0) == 3);   /* (the loop went on, in phase) */
+    press(m, MR_CC_UNDO);                               /* (the take is one undo: the old note back) */
+    CHECK(rfmv_seq_find(m, 0, 3, 72) >= 0 && nnotes_clip(m, 0) == 1);
+    rfm_move_seq_play(m, 0);
+    /* Step mode: each note or chord into the cursor's step, then a step on (the track's rate) */
+    fresh(m);
+    m->seq.rec_mode = RFM_MOVE_RM_STEP;
+    press(m, MR_CC_REC);
+    CHECK(m->seq.steprec && m->seq.step_cur == 0);
+    pad(m, 0, 100), pad(m, 2, 90), pad(m, 0, 0), pad(m, 2, 0);   /* a chord */
+    pad(m, 4, 80), pad(m, 4, 0);
+    CHECK(rfmv_seq_find(m, 0, 0, 48) >= 0 && rfmv_seq_find(m, 0, 0, 52) >= 0 && rfmv_seq_find(m, 0, 1, 55) >= 0);
+    CHECK(m->seq.step_cur == 2);
+    press(m, MR_CC_REC);
+    CHECK(!m->seq.steprec);
+    rfm_move_seq_play(m, 0);
+    adv(m, 2 * FPS);
+    CHECK(stuck() == 0);
+    /* the record settings: Shift + Record, the jog = the mode, knob 2 = the style; saved with the project */
+    button(m, MR_CC_SHIFT, 1), press(m, MR_CC_REC), button(m, MR_CC_SHIFT, 0);
+    CHECK(m->seq.smenu == RFM_MOVE_SM_REC);
+    jog(m, -2), knob(m, 1, 1);
+    CHECK(m->seq.rec_mode == RFM_MOVE_RM_CAPTURE && m->seq.rec_style == RFM_MOVE_RS_REPLACE);
+    press(m, MR_CC_BACK);
+    CHECK(!m->seq.smenu && m->s.mode == RFM_MOVE_MODE_SEQ);
+}
+
+/* the TRIG page (jog left of bank 1): micro, ratchet, chance, condition, function, its amount, length */
+static void test_trig(void)
+{
+    rfm_move_t *m = &M;
+    int i, n1, n2;
+    fresh(m);
+    rfmv_seq_note_put(m, 0, 0, 60, 100, 24, 0);
+    rfmv_seq_note_put(m, 0, 4, 62, 100, 24, 0);
+    rfmv_seq_note_put(m, 0, 8, 64, 100, 24, 0);
+    jog(m, -1);
+    CHECK(m->seq.trig && m->pop == POP_BANK);
+    step(m, 4, 1);
+    knob(m, 1, 3);                                      /* ratchet x4 */
+    knob(m, 0, -3);                                     /* micro -3 */
+    knob(m, 6, 2);                                      /* length 1 step -> 2 steps (the table: 1, 1.5, 2) */
+    step(m, 4, 0);
+    i = rfmv_seq_find(m, 0, 4, 62);
+    CHECK(rfmv_seq_trig(m, 0, 4, RFM_MOVE_TRIG_RATCHET) == 4 && m->seq.notes[i].micro == -3 && m->seq.notes[i].len == 48);
+    CHECK(rfmv_seq_find(m, 0, 4, 62) >= 0);             /* (edited while held: kept) */
+    clear();
+    rfm_move_seq_play(m, 1), b0 = base;
+    adv(m, 16 * FPS);
+    CHECK(count_on(0, 62) == 4 && count_on(0, 60) == 1);
+    {   /* the four hits a quarter step apart, the first 3 ticks early */
+        uint64_t at;
+        find_midi(0x90, 62, 100, &at);
+        CHECK(at - b0 == (uint64_t)(4 * 24 - 3) * FPT);
+    }
+    rfm_move_seq_play(m, 0);
+    adv(m, 2 * FPS);
+    /* condition 1:2 on step 9: every other pass; FUNC JUMP on step 1 to step 9 (steps 2..8 skipped) */
+    step(m, 8, 1), knob(m, 3, 1), step(m, 8, 0);       /* 1:2 */
+    CHECK(rfmv_seq_trig(m, 0, 8, RFM_MOVE_TRIG_COND) == 1);
+    clear();
+    rfm_move_seq_play(m, 1), b0 = base;
+    adv(m, 4 * 16 * FPS);
+    CHECK(count_on(0, 64) == 2 && count_on(0, 60) == 4);
+    rfm_move_seq_play(m, 0);
+    step(m, 0, 1), knob(m, 4, RFM_MOVE_FN_JUMP), knob(m, 5, 8), step(m, 0, 0);
+    CHECK(rfmv_seq_trig(m, 0, 0, RFM_MOVE_TRIG_FUNC) == RFM_MOVE_FN_JUMP && rfmv_seq_trig(m, 0, 0, RFM_MOVE_TRIG_JUMP) == 8);
+    step(m, 8, 1), knob(m, 3, -1), step(m, 8, 0);      /* (no condition) */
+    clear();
+    rfm_move_seq_play(m, 1), b0 = base;
+    adv(m, 16 * FPS);
+    CHECK(count_on(0, 62) == 0 && count_on(0, 64) >= 1);   /* (step 5 skipped: the jump lands on step 9) */
+    {
+        uint64_t at;
+        find_midi(0x90, 64, 100, &at);
+        CHECK(at - b0 == FPS);                           /* (step 9 right after step 1) */
+    }
+    rfm_move_seq_play(m, 0);
+    /* REVERSE on step 1: then 16, 15 .. (the next step after step 1 is step 16) */
+    step(m, 0, 1), knob(m, 4, -(RFM_MOVE_FN_JUMP - RFM_MOVE_FN_REVERSE)), step(m, 0, 0);
+    rfmv_seq_note_put(m, 0, 15, 67, 100, 24, 0);
+    clear();
+    rfm_move_seq_play(m, 1), b0 = base;
+    adv(m, 3 * FPS);
+    {
+        uint64_t at;
+        CHECK(find_midi(0x90, 67, 100, &at) && at - b0 == FPS);
+    }
+    rfm_move_seq_play(m, 0);
+    /* chance: about half of 64 passes */
+    step(m, 0, 1), knob(m, 4, -RFM_MOVE_FN_REVERSE), knob(m, 2, -50), step(m, 0, 0);
+    CHECK(rfmv_seq_trig(m, 0, 0, RFM_MOVE_TRIG_CHANCE) == 50 && rfmv_seq_trig(m, 0, 0, RFM_MOVE_TRIG_FUNC) < 0);
+    clear();
+    rfm_move_seq_play(m, 1), b0 = base;
+    adv(m, 64 * 16 * FPS);
+    n1 = count_on(0, 60);
+    CHECKF(n1 > 16 && n1 < 48, "chance 50: %d of 64", n1);
+    rfm_move_seq_play(m, 0);
+    /* no step held: the whole clip's steps with notes */
+    knob(m, 1, 1);
+    CHECK(rfmv_seq_trig(m, 0, 8, RFM_MOVE_TRIG_RATCHET) == 2 && rfmv_seq_trig(m, 0, 15, RFM_MOVE_TRIG_RATCHET) == 2);
+    CHECK(rfmv_seq_trig(m, 0, 3, RFM_MOVE_TRIG_RATCHET) < 0);
+    /* the popup: its picture and words */
+    {
+        uint8_t out[MR_SCREEN_BYTES];
+        m->touched = 1;
+        rfmv_pop(m, POP_TRIG, 1);
+        rfm_move_screen(m, NULL, out);
+        CHECK(px_at(out, 2, 2) && px_at(out, 8, 30));
+        write_pbm("move_seq_pop_trig.pbm", out);
+        m->touched = -1;
+    }
+    jog(m, 1);
+    CHECK(!m->seq.trig && m->s.bank == 0);
+    (void)n2;
+    adv(m, 2 * FPS);
+    CHECK(stuck() == 0);
+}
+
+/* Mute held, Track 4 held (CC numbers, the layout, the rate), FILL, the metronome, groove, the arp, the Shift
+ * menus and Shift's lock */
+static void test_controls(void)
+{
+    rfm_move_t *m = &M;
+    uint8_t out[MR_SCREEN_BYTES];
+    int i, lo;
+    fresh(m);
+    rfmv_seq_note_put(m, SEQ_CLIP(1, 0), 0, 60, 100, 24, 0);
+    button(m, MR_CC_MUTE, 1);
+    rfm_move_screen(m, NULL, out);
+    CHECK(px_at(out, 17 + 7, 2 + 13) && !m->seq.tr[1].mute);   /* (the tracks: track 2 has notes: filled) */
+    tap_step(m, 1);
+    rfm_move_screen(m, NULL, out);
+    button(m, MR_CC_MUTE, 0);
+    CHECK(m->seq.tr[1].mute && px_at(out, 17, 2) && !px_at(out, 17 + 4, 2 + 13));   /* (crossed out) */
+    write_pbm("move_seq_mute.pbm", out);
+    /* Track 1 held (the selected track's button): knob 3 = its CC number, the top row's pads the layout, Up / Down
+     * the rate */
+    track(m, 0, 1);
+    knob(m, 2, 4);
+    i = m->s.cc[0][2];
+    knob(m, 2, -1);
+    CHECK(m->s.cc[0][2] == i - 1 && m->menu_what == MENU_CC);
+    pad(m, 25, 100), pad(m, 25, 0);                     /* chromatic */
+    CHECK(m->s.layout == RFM_MOVE_LAYOUT_CHROMATIC);
+    press(m, MR_CC_DOWN);                               /* 1/16 -> 1/8T: slower */
+    CHECK(m->seq.tr[0].rate == RFM_MOVE_SEQ_RATE_16 + 1 && m->menu_what == MENU_RATE);
+    press(m, MR_CC_DOWN), press(m, MR_CC_UP), press(m, MR_CC_DOWN);   /* 1/8 */
+    rfm_move_screen(m, NULL, out);
+    write_pbm("move_seq_trackmenu_rate.pbm", out);
+    track(m, 0, 0);
+    CHECK(m->seq.tr[0].rate == 5 && m->s.mode == RFM_MOVE_MODE_SEQ);
+    m->s.layout = RFM_MOVE_LAYOUT_SCALE;
+    rfmv_seq_note_put(m, 0, 1, 64, 100, 24, 0);
+    clear();
+    rfm_move_seq_play(m, 1), b0 = base;
+    adv(m, 3 * FPS);
+    {
+        uint64_t at;
+        CHECK(find_midi(0x90, 64, 100, &at) && at - b0 == 2 * FPS);   /* (step 2 at 1/8: two 16ths in) */
+    }
+    rfm_move_seq_play(m, 0);
+    m->seq.tr[0].rate = RFM_MOVE_SEQ_RATE_16;
+    /* FILL (the jog wheel held): a FILL step plays only then */
+    rfmv_seq_lock_set(m, 0, 1, RFM_MOVE_TRIG_COND, RFM_MOVE_COND_FILL);
+    clear();
+    rfm_move_seq_play(m, 1), b0 = base;
+    adv(m, 16 * FPS);
+    CHECK(count_on(0, 64) == 0);
+    raw(m, 0xB0, MR_CC_JOG_CLICK, 127);
+    CHECK(m->seq.fill);
+    adv(m, 16 * FPS);
+    raw(m, 0xB0, MR_CC_JOG_CLICK, 0);
+    CHECK(count_on(0, 64) == 1 && !m->seq.fill);
+    rfm_move_seq_play(m, 0);
+    /* Shift + step 6: the metronome (a click a beat, the bar's first marked) */
+    button(m, MR_CC_SHIFT, 1), tap_step(m, 5), button(m, MR_CC_SHIFT, 0);
+    CHECK(m->seq.metro);
+    clear();
+    rfm_move_seq_play(m, 1), b0 = base;
+    adv(m, 16 * FPS + 1);
+    CHECK(count_kind(RFM_MOVE_ACT_CLICK) == 5);
+    for (i = 0; i < nact && acts[i].a.kind != RFM_MOVE_ACT_CLICK; i++) {}
+    CHECK(i < nact && acts[i].a.value == 1 && acts[i].at == b0);
+    rfm_move_seq_play(m, 0);
+    button(m, MR_CC_SHIFT, 1), tap_step(m, 5), button(m, MR_CC_SHIFT, 0);
+    CHECK(!m->seq.metro);
+    /* Shift + step 7: groove (the jog): an off 16th late */
+    button(m, MR_CC_SHIFT, 1), tap_step(m, 6), button(m, MR_CC_SHIFT, 0);
+    CHECK(m->seq.smenu == RFM_MOVE_SM_GROOVE);
+    jog(m, 15);                                         /* (5 % a detent: 75 %) */
+    CHECK(m->seq.tr[0].groove == 75);
+    rest(m);
+    rfm_move_screen(m, NULL, out);
+    write_pbm("move_seq_groove.pbm", out);
+    press(m, MR_CC_BACK);
+    rfmv_seq_lock_set(m, 0, 1, RFM_MOVE_TRIG_COND, -1);
+    clear();
+    rfm_move_seq_play(m, 1), b0 = base;
+    adv(m, 3 * FPS);
+    {
+        uint64_t at;
+        CHECK(find_midi(0x90, 64, 100, &at) && at - b0 == FPS + 6 * FPT);   /* (step 2: 75 % of a third of a step late) */
+    }
+    rfm_move_seq_play(m, 0);
+    m->seq.tr[0].groove = 0;
+    /* Shift + step 3: Workflow Settings: the jog the channel, knob 2 the rate, knob 3 Quantize's amount */
+    button(m, MR_CC_SHIFT, 1), tap_step(m, 2), button(m, MR_CC_SHIFT, 0);
+    CHECK(m->seq.smenu == RFM_MOVE_SM_WORKFLOW);
+    jog(m, 2), knob(m, 1, -1), knob(m, 2, -10);
+    CHECK(m->seq.tr[0].ch == 2 && m->seq.tr[0].rate == 2 && m->seq.qstrength == 50);
+    rest(m);
+    rfm_move_screen(m, NULL, out);
+    write_pbm("move_seq_workflow.pbm", out);
+    press(m, MR_CC_BACK);
+    m->seq.tr[0].ch = 0, m->seq.tr[0].rate = RFM_MOVE_SEQ_RATE_16;
+    rfmv_seq_note_put(m, 0, 2, 66, 100, 24, 10);
+    button(m, MR_CC_SHIFT, 1), tap_step(m, 15), button(m, MR_CC_SHIFT, 0);   /* Shift + 16: quantize, 50 % */
+    CHECK(m->seq.notes[rfmv_seq_find(m, 0, 2, 66)].micro == 5);
+    /* Shift + step 5: the tempo (the jog); following the firmware's clock: locked */
+    button(m, MR_CC_SHIFT, 1), tap_step(m, 4), button(m, MR_CC_SHIFT, 0);
+    jog(m, 3);
+    CHECK(m->seq.smenu == RFM_MOVE_SM_TEMPO && m->seq.bpm10 == 1230);
+    rest(m);
+    rfm_move_screen(m, NULL, out);
+    write_pbm("move_seq_tempo.pbm", out);
+    rfm_move_seq_set_clock(m, RFM_MOVE_CLOCK_EXTERNAL);
+    jog(m, 3);
+    CHECK(m->seq.bpm10 == 1230);
+    rfm_move_seq_set_clock(m, RFM_MOVE_CLOCK_AUTO);
+    m->seq.following = 0;
+    press(m, MR_CC_BACK);
+    /* Shift + step 8 / 9: Layout, Keys & Scales (the pads pick; the jog the root) */
+    button(m, MR_CC_SHIFT, 1), tap_step(m, 7), button(m, MR_CC_SHIFT, 0);
+    clear();
+    pad(m, 27, 100), pad(m, 27, 0);
+    CHECK(m->seq.smenu == RFM_MOVE_SM_LAYOUT && m->s.layout == RFM_MOVE_LAYOUT_OCTAVE && count_kind(RFM_MOVE_ACT_MIDI) == 0);
+    button(m, MR_CC_SHIFT, 1), tap_step(m, 8), button(m, MR_CC_SHIFT, 0);
+    pad(m, 17, 100), pad(m, 17, 0), jog(m, 2);
+    CHECK(m->seq.smenu == RFM_MOVE_SM_KEYS && m->s.scale == 1 && m->s.root == 2);
+    rest(m);
+    rfm_move_screen(m, NULL, out);
+    write_pbm("move_seq_keys.pbm", out);
+    button(m, MR_CC_SHIFT, 1), tap_step(m, 8), button(m, MR_CC_SHIFT, 0);   /* (again: closed) */
+    CHECK(!m->seq.smenu);
+    rfm_move_set_scale(m, 0, 0), m->s.layout = RFM_MOVE_LAYOUT_SCALE;
+    /* Shift + step 11: the arp (FIZZ's): MODE ON, UP over two octaves at 1/16: C3 E3, C4 E4, C3 .. */
+    button(m, MR_CC_SHIFT, 1), tap_step(m, 10), button(m, MR_CC_SHIFT, 0);
+    knob(m, 4, 1), knob(m, 2, 1);                       /* MODE ON, RANGE 2 */
+    CHECK(m->seq.smenu == RFM_MOVE_SM_ARP && m->seq.tr[0].arp.mode == RFM_MOVE_AM_ON && m->seq.tr[0].arp.range == 2);
+    rest(m);
+    rfm_move_screen(m, NULL, out);
+    write_pbm("move_seq_arp.pbm", out);
+    press(m, MR_CC_BACK);
+    clear();
+    pad(m, 0, 100), pad(m, 2, 90);
+    CHECK(count_on(0, 48) == 0);                        /* (the arp plays them, on the next 16th) */
+    adv(m, 4 * FPS + FPT);
+    pad(m, 0, 0), pad(m, 2, 0);
+    CHECK(count_on(0, 48) == 1 && count_on(0, 52) == 1 && count_on(0, 60) == 1 && count_on(0, 64) == 1);
+    adv(m, 4 * FPS);
+    CHECK(count_on(0, 48) == 1 && !m->seq.arp_run && stuck() == 0);   /* (released: it stops) */
+    m->seq.tr[0].arp.mode = RFM_MOVE_AM_OFF;
+    /* Shift + step 14: a new clip in the track's next empty slot, selected */
+    button(m, MR_CC_SHIFT, 1), tap_step(m, 13), button(m, MR_CC_SHIFT, 0);
+    CHECK(m->seq.tr[0].sel == 1 && rfmv_seq_clip_has(m, SEQ_CLIP(0, 1)) && !rfmv_seq_clip_used(m, SEQ_CLIP(0, 1)));
+    /* Loop tapped: latched, the jog sets the length (a step a detent, growing into new pages); Loop again ends it */
+    m->seq.len[clip_of(m)] = 16;
+    press(m, MR_CC_LOOP);
+    CHECK(m->seq.loop_latch && (m->seq.mods & SEQ_M_LOOP));
+    jog(m, 5);
+    CHECK(m->seq.len[clip_of(m)] == 21 && rfmv_pop_up(m, POP_LOOP));
+    rfm_move_screen(m, NULL, out);
+    write_pbm("move_seq_loop_latch.pbm", out);
+    button(m, MR_CC_SHIFT, 1), jog(m, 1), button(m, MR_CC_SHIFT, 0);
+    CHECK(m->seq.len[clip_of(m)] == 37);
+    tap_step(m, 3);                                     /* (the steps: still the pages) */
+    CHECK(m->seq.page == 3);
+    press(m, MR_CC_LOOP);
+    CHECK(!m->seq.loop_latch && !(m->seq.mods & SEQ_M_LOOP));
+    jog(m, 1);
+    CHECK(m->seq.len[clip_of(m)] == 37);                         /* (the jog: the bank again) */
+    press(m, MR_CC_LOOP), press(m, MR_CC_BACK);         /* (Back ends it too) */
+    CHECK(!m->seq.loop_latch && !(m->seq.mods & SEQ_M_LOOP) && m->s.mode == RFM_MOVE_MODE_SEQ);
+    m->seq.page = 0, m->s.bank = 0;
+    /* Right past the clip's last page: pending pages (+1, +2: the clip unchanged), Left back; a step on one grows the
+     * clip to it */
+    {
+        const int c = clip_of(m);
+        rfmv_seq_loop_set(m, c, 0, 16);
+        m->seq.page = 0;
+        press(m, MR_CC_RIGHT), press(m, MR_CC_RIGHT), press(m, MR_CC_RIGHT);
+        CHECK(m->seq.page == 3 && m->seq.len[c] == 16);
+        rest(m);
+        rfm_move_screen(m, NULL, out);
+        write_pbm("move_seq_pending.pbm", out);
+        CHECK(m->pop == POP_BAR && m->pop_i == 3);      /* ("BAR 4", a second) */
+        CHECK(px_at(out, 0, 2) && px_at(out, 20, 2) && !px_at(out, 40, 2));   /* (the real page: a line, a ghost blank) */
+        CHECK(px_at(out, 100 / 4 * 4 - 100 / 8, 0));   /* (the "+" at the far end) */
+        rest(m);
+        rfm_move_screen(m, NULL, out);
+        write_pbm("move_seq_pending_rest.pbm", out);
+        CHECK(!rfmv_pop_up(m, POP_BAR) && px_at(out, 127 - 6 * 4 - 3, 0));   /* (the box: "16/1") */
+        press(m, MR_CC_LEFT);
+        CHECK(m->seq.page == 2 && m->seq.len[c] == 16);
+        tap_step(m, 4);                                 /* page 3, step 5: the clip is 3 pages now */
+        CHECK(m->seq.len[c] == 48 && rfmv_seq_find(m, c, 36, 48) >= 0);
+        press(m, MR_CC_RIGHT);
+        CHECK(m->seq.page == 3 && m->seq.len[c] == 48);
+        press(m, MR_CC_LEFT), press(m, MR_CC_LEFT), press(m, MR_CC_LEFT), press(m, MR_CC_LEFT);
+        CHECK(m->seq.page == 0);
+        adv(m, 2 * FPS);
+    }
+    /* Shift's lock: a double tap latches it (step 2 = the clock without holding); a press unlatches it */
+    press(m, MR_CC_SHIFT), press(m, MR_CC_SHIFT);
+    CHECK(m->seq.shift_lock && (m->seq.mods & SEQ_M_SHIFT));
+    i = m->seq.clock_mode;
+    tap_step(m, 1);
+    CHECK(m->seq.clock_mode == (i + 1) % 3);
+    press(m, MR_CC_SHIFT);
+    CHECK(!m->seq.shift_lock && !(m->seq.mods & SEQ_M_SHIFT));
+    now_ms += 1000;
+    tap_step(m, 1);
+    CHECK(m->seq.clock_mode == (i + 1) % 3);            /* (a step again) */
+    rfm_move_seq_set_clock(m, RFM_MOVE_CLOCK_AUTO);
+    (void)lo;
+}
+
+/* Capture: the last phrase (a silence of more than 2 bars ends it), its own tempo in an empty project */
+static void test_capture2(void)
+{
+    rfm_move_t *m = &M;
+    int i;
+    fresh(m);
+    /* an old phrase, 3 bars of silence, then the one to keep */
+    pad(m, 6, 100), adv(m, FPS), pad(m, 6, 0);
+    adv(m, 3 * 16 * FPS);
+    /* played at 100 BPM (7200 frames a 16th at 48 kHz), 8ths: C D E F G A B C (a bar) */
+    for (i = 0; i < 8; i++) {
+        pad(m, i, 100), adv(m, 7200), pad(m, i, 0), adv(m, 7200);
+    }
+    adv(m, 7200 * 2);
+    press(m, MR_CC_CAPTURE);
+    CHECKF(abs(m->seq.bpm10 - 1000) <= 5, "the tempo found: %d", m->seq.bpm10);
+    CHECK(m->seq.len[0] == 16 && nnotes_clip(m, 0) == 8 && rfmv_seq_find(m, 0, 6, 9 + 48) < 0);
+    CHECK(rfmv_seq_find(m, 0, 0, 48) >= 0 && rfmv_seq_find(m, 0, 2, 50) >= 0 && rfmv_seq_find(m, 0, 14, 60) >= 0);
+    CHECK(abs(m->seq.notes[rfmv_seq_find(m, 0, 14, 60)].micro) <= 1);
+    rfm_move_seq_play(m, 0);
+}
+
+/* Sample: the audio loop, from a bar line to a bar line (whole bars) */
+static void test_audio_loop(void)
+{
+    rfm_move_t *m = &M;
+    int i, a = -1, b = -1;
+    fresh(m);
+    rfmv_seq_note_put(m, 0, 0, 60, 100, 24, 0);
+    press(m, MR_CC_SAMPLE);
+    CHECK(m->seq.arec == 1 && !m->seq.start_pending);
+    adv(m, FPS);
+    clear();
+    pad(m, 0, 100), pad(m, 0, 0);                       /* stopped: the first note starts the transport */
+    CHECK(m->seq.start_pending == 1);
+    adv(m, 16 * FPS + 5 * FPS);
+    CHECK(m->seq.arec == 2);
+    {
+        uint8_t out[MR_SCREEN_BYTES];
+        rfm_move_screen(m, NULL, out);
+        CHECK(px_at(out, 100, 6));                      /* (the waveform, top right) */
+    }
+    press(m, MR_CC_SAMPLE);                             /* done at the next bar line: 2 bars */
+    CHECK(m->seq.arec == 3);
+    adv(m, 16 * FPS);
+    for (i = 0; i < nact; i++)
+        if (acts[i].a.kind == RFM_MOVE_ACT_AUDIO_REC)
+            *(acts[i].a.value ? &a : &b) = (int)acts[i].at;
+    CHECKF(b - a == 2 * 16 * (int)FPS && m->seq.arec == 0, "loop %d..%d", a, b);
+    for (i = 0; i < nact; i++)
+        if (acts[i].a.kind == RFM_MOVE_ACT_AUDIO_REC && !acts[i].a.value)
+            CHECK(acts[i].a.index == 2);
+    rfm_move_seq_play(m, 0);
+}
+
+/* the project blob, version 2's fields; a version 1 blob still loads */
+static void test_blob_v2(void)
+{
+    static uint8_t a[RFM_MOVE_PROJECT_MAX], b[RFM_MOVE_PROJECT_MAX];
+    rfm_move_t *m = &M, *m2 = &M2;
+    int n, n1;
+    fresh(m);
+    rfmv_seq_note_put(m, 0, 20, 60, 100, 24, 0);
+    rfmv_seq_loop_set(m, 0, 16, 32);
+    rfmv_seq_clip_make(m, SEQ_CLIP(2, 3), 1);
+    rfmv_seq_lock_set(m, 0, 20, RFM_MOVE_TRIG_COND, RFM_MOVE_COND_NFILL);
+    rfmv_seq_lock_set(m, 0, 20, RFM_MOVE_TRIG_JUMP, 200);
+    m->seq.tr[3].rate = 7, m->seq.tr[3].groove = 33, m->seq.tr[3].arp.pat = RFM_MOVE_AP_CONDIV, m->seq.tr[3].arp.odist = -7;
+    m->seq.rec_mode = RFM_MOVE_RM_STEP, m->seq.rec_style = RFM_MOVE_RS_REPLACE;
+    n = rfm_move_project_save(m, a, sizeof a);
+    CHECK(n == RFM_MOVE_PROJECT_FIXED + 7 + 2 * 4 && a[4] == 2);
+    rfm_move_init(m2, NULL, on_act, NULL);
+    CHECK(rfm_move_project_load(m2, 1, a, (uint32_t)n) == 0);
+    CHECK(m2->seq.lstart[0] == 16 && m2->seq.len[0] == 32 && rfmv_seq_clip_has(m2, SEQ_CLIP(2, 3)));
+    CHECK(rfmv_seq_trig(m2, 0, 20, RFM_MOVE_TRIG_JUMP) == 200 && m2->seq.tr[3].rate == 7 && m2->seq.tr[3].groove == 33);
+    CHECK(m2->seq.tr[3].arp.pat == RFM_MOVE_AP_CONDIV && m2->seq.tr[3].arp.odist == -7);
+    CHECK(m2->seq.rec_mode == RFM_MOVE_RM_STEP && m2->seq.rec_style == RFM_MOVE_RS_REPLACE);
+    /* a bad trig value, a loop past the end: refused */
+    memcpy(b, a, (size_t)n), b[n - 4 - RFM_MOVE_PROJECT_EXT + 0] = 250, refnv(b, (uint32_t)n);
+    CHECK(rfm_move_project_check(b, (uint32_t)n) == -9);
+    /* version 1: no extension, plain CC locks only */
+    fresh(m);
+    rfmv_seq_note_put(m, SEQ_CLIP(1, 2), 3, 60, 100, 24, 0);
+    n = rfm_move_project_save(m, a, sizeof a);
+    n1 = n - RFM_MOVE_PROJECT_EXT;
+    memcpy(b, a, (size_t)n1 - 4), b[4] = 1;
+    refnv(b, (uint32_t)n1);
+    rfm_move_init(m2, NULL, on_act, NULL);
+    CHECK(rfm_move_project_check(b, (uint32_t)n1) == 0 && rfm_move_project_load(m2, 1, b, (uint32_t)n1) == 0);
+    CHECK(rfmv_seq_find(m2, SEQ_CLIP(1, 2), 3, 60) >= 0 && rfmv_seq_clip_has(m2, SEQ_CLIP(1, 2)) && m2->seq.tr[0].rate == RFM_MOVE_SEQ_RATE_16);
+    CHECK(!rfmv_seq_clip_has(m2, SEQ_CLIP(1, 3)) && m2->seq.lstart[SEQ_CLIP(1, 2)] == 0);
+}
+
+/* 16 tracks, the Track buttons a bank of 4 (Shift + Track n: bank n), each track its own layout and CC numbers;
+ * Back closes the latest layer; a held step's jog, Left / Right and volume knob with their popups */
+static void test_tracks16(void)
+{
+    rfm_move_t *m = &M, *m2 = &M2;
+    static uint8_t blob[RFM_MOVE_PROJECT_MAX];
+    uint8_t out[MR_SCREEN_BYTES];
+    int n, i;
+    fresh(m);
+    CHECK(m->seq.sel_track == 0 && m->seq.bank == 0);
+    track(m, 2, 1), track(m, 2, 0);                     /* Track 3: track 3 */
+    CHECK(m->seq.sel_track == 2 && m->s.mode == RFM_MOVE_MODE_SEQ);
+    button(m, MR_CC_SHIFT, 1), track(m, 3, 1), track(m, 3, 0), button(m, MR_CC_SHIFT, 0);   /* bank 4: track 15 */
+    CHECK(m->seq.bank == 3 && m->seq.sel_track == 14 && m->pop == POP_TRACK);
+    rfm_move_screen(m, NULL, out);
+    write_pbm("move_seq_pop_track.pbm", out);
+    track(m, 0, 1), track(m, 0, 0);
+    CHECK(m->seq.sel_track == 12);
+    clear();
+    pad(m, 0, 100), pad(m, 0, 0);
+    CHECK(find_midi(0x9C, 48, 100, NULL));              /* (track 13 plays channel 13) */
+    {   /* the Track LEDs: the bank's tracks, the selected one full */
+        rfm_move_led_t leds[RFM_MOVE_NLEDS];
+        int k, ok = 0;
+        rfm_move_leds_invalidate(m);
+        k = rfm_move_leds(m, leds, RFM_MOVE_NLEDS);
+        for (i = 0; i < k; i++)
+            if (leds[i].cc && leds[i].number == MR_CC_TRACK1)
+                ok = leds[i].r > 100 || leds[i].g > 100 || leds[i].b > 100;
+        CHECK(ok);
+    }
+    button(m, MR_CC_MUTE, 1), track(m, 1, 1), track(m, 1, 0), button(m, MR_CC_MUTE, 0);   /* Mute + Track 2: track 14 */
+    CHECK(m->seq.tr[13].mute && m->seq.sel_track == 12);
+    /* each track its own layout and CC numbers (Track held: the top row's pads, the knobs) */
+    track(m, 0, 1), pad(m, 26, 100), pad(m, 26, 0), knob(m, 0, 5), track(m, 0, 0);
+    CHECK(m->s.layout == RFM_MOVE_LAYOUT_DRUM && m->s.cc[0][0] == 21);
+    track(m, 2, 1), track(m, 2, 0);                     /* track 15: its own (the defaults) */
+    CHECK(m->seq.sel_track == 14 && m->s.layout == RFM_MOVE_LAYOUT_SCALE && m->s.cc[0][0] == 16);
+    track(m, 0, 1), track(m, 0, 0);
+    CHECK(m->s.layout == RFM_MOVE_LAYOUT_DRUM && m->s.cc[0][0] == 21);
+    press(m, MR_CC_BACK);                               /* FM-1 mode: MIDI mode's settings back */
+    CHECK(m->s.mode == RFM_MOVE_MODE_FM1 && m->s.layout == RFM_MOVE_LAYOUT_SCALE && m->s.cc[0][0] == 16);
+    track(m, 3, 1), track(m, 3, 0);
+    CHECK(m->s.mode == RFM_MOVE_MODE_SEQ && m->s.layout == RFM_MOVE_LAYOUT_DRUM);
+    n = rfm_move_project_save(m, blob, sizeof blob);
+    rfm_move_init(m2, NULL, on_act, NULL);
+    track(m2, 3, 1), track(m2, 3, 0);
+    CHECK(rfm_move_project_load(m2, 2, blob, (uint32_t)n) == 0);
+    CHECK(m2->seq.sel_track == 12 && m2->seq.bank == 3 && m2->s.layout == RFM_MOVE_LAYOUT_DRUM && m2->s.cc[0][0] == 21);
+    CHECK(m2->seq.tr[14].layout == RFM_MOVE_LAYOUT_SCALE && m2->seq.tr[13].mute);
+    /* Back: the latest layer first (Shift locked, then a Shift menu: Back closes the menu, then the lock) */
+    m->s.layout = RFM_MOVE_LAYOUT_SCALE;
+    now_ms += 1000;
+    press(m, MR_CC_SHIFT), press(m, MR_CC_SHIFT);
+    CHECK(m->seq.shift_lock);
+    tap_step(m, 8);                                     /* (Shift locked: Keys & Scales) */
+    CHECK(m->seq.smenu == RFM_MOVE_SM_KEYS);
+    press(m, MR_CC_LOOP);                               /* Loop latched too */
+    CHECK(m->seq.loop_latch);
+    press(m, MR_CC_BACK);
+    CHECK(!m->seq.loop_latch && m->seq.smenu == RFM_MOVE_SM_KEYS && m->seq.shift_lock);
+    press(m, MR_CC_BACK);
+    CHECK(!m->seq.smenu && m->seq.shift_lock);
+    press(m, MR_CC_BACK);
+    CHECK(!m->seq.shift_lock && !(m->seq.mods & SEQ_M_SHIFT) && m->s.mode == RFM_MOVE_MODE_SEQ);
+    rfmv_seq_note_put(m, clip_of(m), 3, 60, 100, 24, 0);
+    button(m, MR_CC_COPY, 1), tap_step(m, 3), button(m, MR_CC_COPY, 0);   /* the clipboard's mark */
+    CHECK(rfmv_seq_src_step(m, clip_of(m), 3) == 1);
+    press(m, MR_CC_BACK);
+    CHECK(rfmv_seq_src_step(m, clip_of(m), 3) == 0 && m->s.mode == RFM_MOVE_MODE_SEQ);
+    press(m, MR_CC_BACK);                               /* nothing on: FM-1 mode */
+    CHECK(m->s.mode == RFM_MOVE_MODE_FM1);
+    track(m, 3, 1), track(m, 3, 0);
+    /* a held step: the jog the length (LENGTH's popup), Left / Right the micro timing (MICRO's), the volume knob the
+     * velocity (VELO's; MASTER untouched) */
+    {
+        const int c = clip_of(m), mst = m->master;
+        int k;
+        m->seq.page = 0;
+        step(m, 3, 1);
+        jog(m, 6);
+        k = rfmv_seq_find(m, c, 3, 60);
+        CHECK(m->seq.notes[k].len == 36 && m->pop == POP_TRIG && m->pop_i == 6);
+        press(m, MR_CC_RIGHT);
+        CHECK(m->seq.notes[k].micro == 2 && m->seq.page == 0 && m->pop == POP_TRIG && m->pop_i == 0);
+        knob(m, 8, -20);
+        CHECK(m->seq.notes[k].vel == 80 && m->master == mst && m->pop == POP_TRIG && m->pop_i == 7);
+        rfm_move_screen(m, NULL, out);
+        write_pbm("move_seq_pop_velo.pbm", out);
+        step(m, 3, 0);
+        knob(m, 8, -2);
+        CHECK(m->master == mst - 32);                   /* (released: MASTER again) */
+        CHECK(rfmv_seq_find(m, c, 3, 60) >= 0);
+        adv(m, 4 * FPS);
+    }
+    CHECK(stuck() == 0);
+}
+
 int main(void)
 {
     test_model();
@@ -1461,5 +2106,12 @@ int main(void)
     test_project_grid();
     test_screens_leds();
     test_popups();
+    test_live_record();
+    test_trig();
+    test_controls();
+    test_capture2();
+    test_audio_loop();
+    test_blob_v2();
+    test_tracks16();
     return check_done("move_seq");
 }

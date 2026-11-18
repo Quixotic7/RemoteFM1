@@ -158,6 +158,7 @@ if (typeof AudioWorkletProcessor !== "undefined") {
       if (m.type === "unload") { this.loading++; this.recStop("engine"); this.drop(); this.timed.clear(); return; }
       if (m.type === "panel") return this.panel.add(m);
       if (m.type === "rec") return m.on ? this.recStart(m) : this.recStop("stop");
+      if (m.type === "recStopAt") { if (this.rec) this.rec.stopAt = Math.max(0, +m.frame || 0); return; }
       if (m.type === "ain") {
         this.ain.on = !!m.on; this.ain.latency = +m.latency || 0; this.ain.peak = 0;
         if (this.engine && typeof this.engine.audioIn === "function") { try { this.engine.audioIn(this.ain.on, this.ain.latency); } catch (e) { this.fail("ain", e); } }
@@ -238,7 +239,8 @@ if (typeof AudioWorkletProcessor !== "undefined") {
       this.recFree = this.recFree.filter((p) => p[0].length === n);
       while (this.recFree.length < 2) this.recFree.push([new Float32Array(n), new Float32Array(n)]);
       const [l, r] = this.recFree.pop();
-      this.rec = { id: m.id, n, max: m.maxFrames > 0 ? m.maxFrames : Infinity, frames: 0, at: 0, l, r, start: -1, pl: 0, pr: 0 };
+      this.rec = { id: m.id, n, max: m.maxFrames > 0 ? m.maxFrames : Infinity, frames: 0, at: 0, l, r, start: -1, pl: 0, pr: 0,
+                   startAt: typeof m.startAt === "number" ? m.startAt : -1, stopAt: -1 };
     }
     recChunk(final, reason) {
       const r = this.rec;
@@ -261,11 +263,15 @@ if (typeof AudioWorkletProcessor !== "undefined") {
         }
       }
     }
+    // startAt / stopAt (the Move's loops): the take from / to those frames exactly, wherever they fall in a quantum
     capture(L, R) {
-      const r = this.rec, n = L.length;
-      if (r.start < 0) r.start = currentFrame;
-      let off = 0, pl = r.pl, pr = r.pr;
-      for (let i = 0; i < n; i++) { const a = L[i] < 0 ? -L[i] : L[i], b = R[i] < 0 ? -R[i] : R[i]; if (a > pl) pl = a; if (b > pr) pr = b; }
+      const r = this.rec, f0 = currentFrame;
+      let off = 0, n = L.length;
+      if (r.startAt > f0) { if (r.startAt >= f0 + n) return; off = r.startAt - f0; }
+      if (r.stopAt >= 0) { n = Math.min(n, r.stopAt - f0); if (n <= off) return this.recStop("loop"); }
+      if (r.start < 0) r.start = f0 + off;
+      let pl = r.pl, pr = r.pr;
+      for (let i = off; i < n; i++) { const a = L[i] < 0 ? -L[i] : L[i], b = R[i] < 0 ? -R[i] : R[i]; if (a > pl) pl = a; if (b > pr) pr = b; }
       r.pl = pl; r.pr = pr;
       while (off < n) {
         const k = Math.min(n - off, r.n - r.at, r.max - r.frames);
@@ -275,6 +281,7 @@ if (typeof AudioWorkletProcessor !== "undefined") {
         if (r.frames >= r.max) return this.recStop("cap");
         if (r.at === r.n) this.recChunk(false);
       }
+      if (r.stopAt >= 0 && f0 + L.length >= r.stopAt) this.recStop("loop");
     }
     // the share of the audio time spent rendering, and how far the wall clock ran ahead of the audio clock (late
     // quanta: dropouts). A window whose wall time is over twice its audio time is a pause (a sleeping machine), not load.

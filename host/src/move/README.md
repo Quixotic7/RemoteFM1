@@ -77,102 +77,184 @@ bank 2 CC 24..31, bank 3 CC 102..109, bank 4 CC 110..117. The volume knob is sti
 
 ### 4. Sequencer
 
-A Move-style sequencer that takes over the whole surface except the Track buttons and the volume knob (MASTER).
-16 tracks, track n on MIDI channel n (per track, changeable); 16 scenes; a clip per track and scene; projects. It
-keeps playing in every mode (in FM-1 mode a small play triangle over the drawing says so); Back returns to FM-1 mode.
+The owner's aim: a sequencer that feels like the Move's own, with 16 tracks instead of 4, and conditions, functions
+and the rest of the TRIG page on top. It takes over the whole surface, the Track buttons too, except the volume knob
+(MASTER). 16 tracks, each with its own MIDI channel (track n: channel n), rate, groove, arp, pad layout and CC
+numbers; 16 scenes; a clip per track and scene; projects. It keeps playing in every mode (in FM-1 mode a small play
+triangle over the drawing says so); Back returns to FM-1 mode when nothing else is open (below).
+
+**Tracks and banks.** The 4 Track buttons are the tracks of a bank (bank 1: tracks 1-4 .. bank 4: 13-16; their
+LEDs the tracks' colours, the selected one full, muted dimmer). Track n: select it (the Move's). **Shift + Track n:
+bank n** (the same position in it; a "TR n" popup with a 4 x 4 of the 16 tracks). Mute + Track n: mute it (the
+Move's). **A Track button held**: its track's settings: the steps are all 16 tracks (select), the jog its MIDI
+channel, the knobs the bank's CC numbers, the pads' top row the layout and row 2 the scale, Up / Down the rate. The
+track view shows which of the 16 (a 4 x 4 in the top-right corner: a column a bank, the selected track filled).
+From FM-1, MIDI or Control mode Track 4 still enters the sequencer; inside it Back leaves (the Track buttons are
+tracks there).
 
 **Two views** (Menu toggles; Track view first):
 
 | Control | Track view | Session view |
 |---|---|---|
-| pads | MIDI mode's layout, scale, octave (shared), on the track's channel; what they play is what an empty step gets | clips: 8 tracks across (Left / Right: 1-8, 9-16), 4 scenes down (Up / Down scroll 16) |
+| pads | the track's layout, the scale and octave (shared with MIDI mode), on the track's channel; what they play is what an empty step gets | clips, Move's way: a row a track (the bank's 4, Track 1 on top), a column a scene (8 of 16) |
 | steps | the 16 steps of the page | launch scene 1..16 |
-| Left / Right | page; a step held: nudge | tracks 1-8 / 9-16 |
-| Up / Down | octave (MIDI mode's); a step held: transpose | scenes |
-| knobs | Control mode's CC banks, live on the track's channel; with a step held: its CC locks | the same, live |
-| volume knob | MASTER; a step held: its notes' velocity | MASTER |
-| jog | the CC bank; a step held: its notes' length; Loop held: the clip's length; a drum pad held: its note | the CC bank |
+| Left / Right | page; Right past the clip's last page: a ghost page (below); a step held: micro timing (the MICRO popup) | the scenes, one a press |
+| Up / Down | octave (MIDI mode's); a step held: transpose | the bank (the tracks above / below) |
+| knobs | the knob page: TRIG (below), then Control mode's CC banks 1..4, live on the track's channel; a step held: its CC locks | the same, live |
+| volume knob | MASTER; a step held: its notes' velocity (a VELO popup) | MASTER |
+| jog | the knob page (TRIG, banks 1..4); a step held: its notes' length (the LENGTH popup); Loop held or latched: the loop's length; a Shift menu: its value; a drum pad held: its note | the knob page |
+| jog pressed | FILL while held (the FILL / !FILL conditions) | the same |
 
-**Steps (track view)**, as on the Move:
+**Steps (track view)**, as on the Move, with the owner's changes (2026-11-17):
 
 - **Pads, then a step.** Hold a note or a chord on the pads and press a step: the step gets exactly the held
-  notes, with their velocities (what was on it goes). Hold the pads and press several steps to put the chord on each.
-- **A step alone.** On an empty step it puts the *last notes*: the notes of the last step entered or edited, or of
-  the last pad chord played (pads pressed together, or the last single pad), or the root note (C3 at the defaults)
-  when nothing has been played yet. The notes go in on the press, so they sound at once. A short press on a step
-  that has notes clears them (its CC locks stay).
+  notes, with their velocities (what was on it goes).
+- **A tap** (a press shorter than `RFM_MOVE_SEQ_HOLD_MS`, 300 ms): on an empty step it puts the *last notes* (the
+  last step entered or edited, the last pad chord, or the root) at the release; on a step with notes it clears them.
+  A tap shows no popup.
+- **A hold** never clears a step. Holding a step with notes plays it once (a preview, on the track's channel); after
+  300 ms its popup comes up. Holding an empty step leaves it empty: the pads pressed while it is held go into it.
+  While a step is held: pads add or remove notes (up to 8); the volume knob sets the velocity; the jog wheel the
+  length (2 ticks a detent; Shift: whole steps); Left / Right nudge (Shift: 1 tick); Up / Down transpose (Shift: an
+  octave); the knobs set CC locks or (TRIG page) its trig parameters; a later step pressed stretches the notes to it.
+- **Any page can be edited**, in the loop or not (outside it: dimmer LEDs, the screen's steps row a line).
 - **The first note into an empty clip starts the transport** when it is stopped (the Move does the same).
-- **Hold a step** and its notes light up on the pads in bright white (a root note in the step too); every other pad
-  keeps its layout colour, dimmed. While it is held: pads add or remove notes (up to 8); the volume knob sets the
-  notes' velocity; the jog wheel their length, 2 ticks (about 10 % of a step) a detent, Shift + jog whole steps;
-  Left / Right nudge them 2 ticks (Shift: 1 tick) within -12..+11; Up / Down transpose a semitone (Shift: an
-  octave); the knobs set CC locks (Delete held removes one); a later step pressed stretches the notes to it. A step
-  edited this way is not cleared on its release, and its notes become the last notes.
-- Steps past the clip's end do nothing. Each note has a velocity (the pad's, or 127 with fixed velocity), a length
-  in ticks (24 a step) and a micro offset (-12..+11 ticks).
-- **Step LEDs** (Move's): notes white, an empty step the track's colour dimly (the beats a little brighter), the
-  playhead green, a held step the track's colour, steps past the loop dim grey.
+- **Step LEDs** (Move's): notes white, an empty step the track's colour dimly (all the same: the Move's LED shapes
+  mark the beats), the playhead green, a held step the track's colour, steps outside the loop dim; a copied step
+  blinking white, a cut one red; Step record's cursor red.
 
-**Clips (session view)**, as on the Move: a press on a clip with content launches it at the next bar; when the
-transport is stopped it becomes the track's clip at once and the transport starts. A press on the clip that is
-playing leaves it playing (it is selected). A press on an empty slot selects it and stops the track at the next bar
-(stopped: the track then plays nothing); with Rec armed it records into it instead, growing a bar at a time (up to
-16) until pressed again or Rec is turned off, then ends on the next bar. Shift + clip selects without launching.
-LEDs: empty off (selected: dim white), content the track's colour (the track's clip to play, while stopped,
-brighter), the selected clip white (pulsing on the beat while it plays), playing pulsing in the track's colour,
-queued to launch blinking green, about to stop blinking in the track's colour, recording red, muted tracks dimmer.
-Steps in session view light green for a playing scene, blink for a queued one. A scene launch stops tracks that have
-no clip in that scene.
+**Pages and the loop.** A clip's loop is a start and a length (`lstart`, `len`: any pages of the 16).
+
+- **Loop held, or latched** (a tap on Loop latches it, its LED lit, until Loop or Back): the steps are the 16 pages
+  (shown white, in the loop the track's colour, outside with notes dim white). A step: show that page. Two steps
+  held: the loop is those pages and the ones between. A double tap (400 ms): the loop is that page alone. The jog:
+  the length, a step a detent (Shift: a page), growing into new pages up to 16 (the owner's; the Move's wheel moves
+  bars). The popup: the length in bars (+ steps), a bar over the 16 pages.
+- **Ghost pages** (Move's "+" bar): Right past the loop's last page goes to a page that is not in the clip yet; each
+  Right or Left that adds or takes one away shows "BAR n" for a second. The page strip is then a 1 px line under the
+  real pages, blank for the ghosts, a "+" at the far end, and the clip's steps / pages in a small box. The clip grows
+  to that page only when a note goes in there (a step, a paste); leaving it adds nothing.
+- **Shift + Loop** / Shift + step 15: double the loop (its content copied into the new pages).
+
+**The TRIG page** (the jog left of bank 1; its popup at 2x with a picture). Per held step, or with no step held
+every step with notes in the clip:
+
+| Knob | Trig parameter (Elektron's) |
+|---|---|
+| 1 MICRO | the notes' micro timing, a tick (1/24 step) a detent, -12..+11 |
+| 2 RATCH | ratchets: 1..8 hits spread over the step (the notes shortened to fit) |
+| 3 CHANCE | 1..100 % (100: none) |
+| 4 COND | none, A:B (1:2 .. 8:8: plays on pass A of every B), FILL, !FILL, PRE, !PRE (the track's last condition), NEI, !NEI (the track before's), 1ST, !1ST |
+| 5 FUNC | FIZZ's step functions: RESTART, REVERSE, FORWARD, FLIP, RANDOM (jump), RND FN, LEAP n, JUMP n (run when the step plays) |
+| 6 AMOUNT | LEAP's n (-15..15, +2 at first) or JUMP's target step |
+| 7 LENGTH | the notes' length through Elektron's table: 1/8, 1/4, 1/2, 3/4, 1, 1.5, 2, 3, 4, 6, 8, 12, 16, 24, 32, 64 steps, INF |
+
+The trig parameters are CC locks numbered 128..133 (`RFM_MOVE_TRIG_*`, never sent), so undo, copy, cut, paste,
+double and the blob carry them. The engine walks each track with a playhead (`pos`, `sub`, `tps`): the next step is
+chosen half way through a step (functions, conditions and chance decided then), so early notes of the next step
+sound in time.
+
+**Clips (session view)**: a press on a clip launches it at the next bar (stopped: at once, and the transport
+starts); on the playing clip it stays. **A press on an empty slot makes a new empty clip there** (drawn as a clip),
+selects it and launches it (with Rec armed: records into it, growing a bar at a time). Shift + clip selects only.
+
+**Copy and cut** (the owner's; no popups: the source is marked, dashed when copied, an X when cut, on the steps row,
+the session grid and the LEDs). One clipboard for both:
+
+- **Copy held**: a step (or clip) with content is copied; an empty step (or slot) gets the clipboard pasted (a copy
+  or a cut). Copy never overwrites a full step: pressing one copies it again.
+- **Delete held**: a step (or clip) with content is cut (gone, kept in the clipboard, an X on it); an empty one gets
+  the clipboard pasted. So step, cut, press it again: pasted back, again: cut. A pasted cut empties the clipboard.
+- Copy released after copying: the next plain press pastes there (Move's way). Copy alone: a waiting copy is
+  dropped, else the clip is duplicated into the track's next empty slot. Delete alone: the selected clip deleted.
+  Delete + pad (track view): that note out of the clip. Track 4 held + Copy / Delete + step: a track copied / cleared.
+
+**Recording** (the record settings, Shift + Record: the jog the mode, knob 2 the style; saved with the project):
+
+| Mode | Record |
+|---|---|
+| CAPTURE (default) | stopped: the owner's intentional capture. Record arms it (blinking); the first note played clears the selected clip, starts the transport and is its first step; the take records with micro timing; Record again ends it at the nearest bar line (just past one: there, at once; else the next), the clip as many pages as bars. Playing: Record records into the existing pages (as RECORD) |
+| RECORD | Move's: armed while stopped, a bar's count-in, then the transport; records into the selected track's clip |
+| STEP | Record toggles a cursor (a red step, a bar over it on screen): each note or chord played goes into the cursor's step, then the cursor moves a step on (the track's rate), round the loop |
+
+| Style | |
+|---|---|
+| OVERDUB (default) | the take adds to what is there |
+| REPLACE | the playhead clears what the take passes over (not the take's own notes) |
+
+Live notes go in **at the press** (visible at once) at the step nearest where they were heard, with their micro
+offset, on the track's rate grid; their played length at the release. The host's lead (`rfm_move_seq_set_lead_us`:
+the web player's 30 ms) is taken off. A note being recorded is not played again by the clip while it is held.
+
+**Capture** (the Capture button): the last phrase played on the pads becomes a clip on the selected track: back from
+the last note until a silence of more than 2 bars (`RFM_MOVE_SEQ_CAPTURE_GAP`), at most 16 bars, rounded to whole
+bars. In an empty project (no clips) and stopped, the phrase's own tempo is found (the best fit of a 16th grid and
+whole bars, 70..180 BPM) and set. Playing: aligned to the song's bars. Shift + Capture: the capture forgotten.
+
+**Sample** (the audio loop): a press arms it (blinking); it records the firmware's audio from the next bar line
+(stopped: the first note played starts the transport, the loop from its first bar); a press while recording ends it
+at the next bar line, so the take is exactly N bars (`RFM_MOVE_ACT_AUDIO_REC`, frame-stamped; the web player's
+worklet cuts at those frames). The take goes to the recorder's Takes, named with its tempo and bars. A waveform in
+the screen's corner while it records. Shift + Sample: tap tempo.
 
 **Buttons.**
 
 | Move | Sequencer |
 |---|---|
-| Play | start / stop (when following an external clock: start at its next bar). Shift + Play: every clip again from its start, at once (Move's retrigger) |
-| Rec | arm / disarm recording. Armed while stopped: a bar's count-in (Rec blinks, the screen counts the beats at 4x; Rec again cancels), then the transport starts (following an external clock: at its next bar). Pads record into the selected track's playing clip |
-| Capture | Move's capture: the pad notes of the last 8 bars become a clip on the selected track (stopped: the transport starts with it). Shift + Capture: the capture forgotten. Play also forgets it |
-| Sample | tap tempo (the average of up to 4 taps; ignored, and "EXT TEMPO" shown, when following) |
-| Loop | held: the steps show the clip's pages (the shown page white, pages in the clip the track's colour, the rest dim); + step n: n pages long; + jog: a page a detent (Shift: a step). Shift + Loop: double the loop |
-| Copy | held + step / clip / (Track 4 held) track: copy it; then, still held, each further target pastes; or release Copy and press a target: pasted there (Move's way; Copy blinks while it waits). Copy alone: a waiting copy is dropped, else the selected clip is duplicated into the track's next empty slot (selected, and playing if the source was) |
-| Delete | + step / clip: cut (cleared, kept for the next Copy + target); + pad (track view): that note out of the clip; Track 4 held + step: the track cleared. Delete alone: the selected track's clip is cut (Move deletes the playing clip) |
+| Play | start / stop (following an external clock: at its next bar). Shift + Play: every clip from its start |
+| Record | the record mode's (above). Shift + Record: the record settings |
+| Capture | Capture (above) |
+| Sample | the audio loop (above); Shift + Sample: tap tempo |
+| Loop | held or latched: pages and the loop (above). Shift + Loop: double the loop |
+| Copy, Delete | copy, cut, paste (above) |
 | Undo | undo (multi-level); Shift + Undo: redo |
-| Mute | + step n (any view) or + clip: mute track n; alone: the selected track. A mute lets its notes go at once |
-| Shift + step 1 / 3 / 10 / 15 / 16 | project grid / clock source (AUTO, INT, EXT) / fixed velocity / double the loop / quantize the clip (Move's numbers: 3 its Workflow settings, 10 Full Velocity, 15 Double Loop, 16 Quantize) |
-| Shift + jog | tempo, 1 BPM a detent |
+| Mute | held: the screen shows the 16 tracks (with notes filled, muted crossed out); + step n or + clip: mute track n; alone: the selected track |
+| Shift | double-tap (a tap, then a press within 300 ms): latched (its LED lit, every Shift combination without holding it); a press unlatches it |
 | Menu | Track <-> Session view (or out of the project grid) |
-| Back | FM-1 mode (out of the project grid first) |
-| Track 4 held | steps = tracks (select; the LEDs: selected bright, content dim, muted red); jog = its MIDI channel |
+| Back | the universal escape: closes the latest layer still on, one a press (a Shift menu, the project grid, Loop's latch, Shift's lock, the clipboard's marks); with none: FM-1 mode |
+| Track 1..4 | the bank's tracks (above); held: the track's settings: steps = the 16 tracks; jog = its MIDI channel; knobs = the bank's CC numbers ("K3 CC74"); pads: the top row's first four the layout, row 2 the scale; Up / Down = the rate (1/32T .. 1/2, Up faster); the screen: layout, scale, what changed at 2x, the channel and the rate as strips |
+
+**Shift + step** (the Move's printed functions, its manual's numbers; a menu opens on the screen, the same Shift +
+step or Back closes it):
+
+| Step | Function |
+|---|---|
+| 1 Set Overview | the project grid |
+| 2 Setup | the clock source (AUTO, INT, EXT) |
+| 3 Workflow Settings | menu: the jog the track's MIDI channel, knob 2 its rate, knob 3 Quantize's amount (5 % a detent) |
+| 5 Tempo | menu: the tempo at 4x; the jog 1 BPM (Shift, or knob 2: 0.1); following the firmware's clock: locked (a padlock, EXT) |
+| 6 Metronome | on / off (off at first): a click a beat, the bar's first higher (`RFM_MOVE_ACT_CLICK`, frame-stamped; the web player plays it after the volume, never into a recording); also in the count-in |
+| 7 Groove | menu: the track's groove, 5 % a detent (Shift: 1 %), 0..150 %: the off 16ths late, 100 % a triplet swing (Move's) |
+| 8 Layout | menu: the pads' top row picks the layout (the jog too) |
+| 9 Keys & Scales | menu: row 2's pads the scale (knob 2 too), the top row the layout, the jog the root |
+| 10 Full Velocity | on / off |
+| 11 Repeat (arp) | menu: the track's arp, FIZZ's ARP: knobs PATTERN (UP .. AS PLAYED, 17), RATE (1/1 .. 1/64 of a bar), RANGE (octaves), CHANCE, MODE (OFF, ON, 1-ST, ONCE, HOLD), GATE, OCT DIST; the pattern's walk drawn. On, the track's pads play through it (not recorded) |
+| 14 New Clip | the track's next empty slot gets a new clip, selected |
+| 15 Double Loop | double the loop |
+| 16 Quantize | the clip's micro timing quantized by the Workflow amount (100 %: on the grid) |
+
+**Track rates**: 1/32T 1/32 1/16T 1/16 1/8T 1/8 1/4T 1/4 1/2T 1/2 (a step 8 .. 192 ticks at 96 PPQN); a step
+always has 24 micro ticks, scaled to the rate.
 
 **Projects.** Shift + step 1 opens the grid: 32 projects on the pads, top-left = project 1 (current: red, saved:
 white, empty: faint). A pad: the current project is saved, then that one is loaded (the host answers
 `PROJECT_LOAD`; the pad blinks until it does), or, for an empty pad, a new empty project starts there (saved at once).
 Delete + pad deletes a project (the current one empties). The current pad, Shift + step 1 or Back leaves. Changes
-are autosaved 2 s after the last edit (`RFM_MOVE_AUTOSAVE_MS`), and on every switch.
+are autosaved 2 s after the last edit (`RFM_MOVE_AUTOSAVE_MS`), and on every switch. Blob version 2 adds loop
+starts, made (empty) clips, track rates, grooves, arps and the record settings; version 1 blobs still load.
 
 **Screens**: track view, session view and the project grid are pictures (below, "The screen").
 
-**Move's sequencer and this one.** Checked against the Move manual (ableton.com/en/move/manual: step sequencing,
-Session, Loop, Copy / Delete, Record, Capture, the Shift shortcuts). Changed to match: chord entry with held pads,
-the last notes for empty steps, a tap clearing a step, the first note starting the transport, the held step's notes
-white on the pads, the step and Loop LED colours, velocity on the volume knob, nudge on Left / Right, transpose on
-Up / Down, length by the wheel in 10 % steps, Loop + wheel, Shift + step 10 / 15 / 16, Shift + Play as retrigger,
-Shift + Capture clearing the capture, Capture starting the transport, the count-in, the session press rules (an
-empty slot stops the track, the playing clip plays on, a clip starts the transport), Copy then release then target,
-Copy alone duplicating the clip, Delete alone deleting the clip. Left as they are:
+**Move's sequencer and this one.** Checked against the Move manual (`AbletonMove/move1-manual-en.md`). Where the
+owner chose otherwise, the owner's way: Delete = cut / paste, Copy pastes to empty steps, the record modes (Capture
+first), Sample = an audio loop (tap tempo on Shift + Sample), the Loop wheel a step a detent (Shift: a page; the
+Move's: a bar, Shift a 16th), a hold never clears a step, an empty slot makes a clip. Left as they are:
 
 - **The layout and the design's buttons**: Move's session has tracks as rows; here 8 tracks across and 4 scenes
-  down, as the design has them. Menu = Track / Session, Back = FM-1 mode, Sample = tap tempo, the Track buttons =
-  the four modes (so no Mute / Solo / Copy / Delete + Track button: Mute + step and Track 4 held + step do those),
-  steps in session view launch scenes (the Move has no scene buttons: it slides over a column).
-- **Hold a step and press a later one**: the notes reach to it. The manual describes holding several steps to edit
-  them together and pressing two steps (in Loop) for a loop's start and end; this sequencer has no loop start (a
-  clip plays from step 1), so Loop + step n keeps setting the length in pages.
-- **Long presses**: Move's long press on Left / Right (a whole step) or on +/- (an octave) is Shift + the button
-  here; a nudge stays within the step (-12..+11 ticks), it does not move a note to the next step.
-- **Not here**: copying a range of steps (Copy + hold + end step), the "+" bar past the end, the metronome (the
-  count-in is silent: Rec blinks and the screen counts), tempo detection on Capture, solo, groove, repeat / arp,
-  per-step automation shown as red steps (a CC lock is per step here), count-in on / off (always on from stopped).
-- **Delete + step and Delete + clip cut** (the design's Delete = cut / paste) where the Move only deletes.
+  down, as the design has them. Menu = Track / Session, Back = FM-1 mode, the Track buttons = the four modes (so
+  Mute + step and Track 4 held + step stand in for Mute / Copy / Delete + Track button).
+- **Not here**: copying a range of steps, solo, per-step automation shown as red steps, count-in on / off, the
+  arp's MOD and TRANSPOSE lanes, RESET and QUANT (FIZZ's ARP has them), Move's Repeat for drums (step 11 is the arp).
 
 ## Decisions where the design left a gap
 
@@ -251,7 +333,7 @@ rfm_move_seq_advance(&m, frames, rate);           /* every audio block, at its s
 rfm_move_seq_midi_in(&m, msg, n);                 /* the firmware's MIDI out realtime: F8 FA FB FC, F2 lsb msb */
 rfm_move_seq_play(&m, on); rfm_move_seq_set_bpm(&m, bpm10); rfm_move_seq_set_clock(&m, RFM_MOVE_CLOCK_AUTO);
 rfm_move_seq_bpm10(&m); rfm_move_seq_following(&m);
-n = rfm_move_project_save(&m, out, cap);          /* export: <= RFM_MOVE_PROJECT_MAX (37472) bytes, -1 cap too small */
+n = rfm_move_project_save(&m, out, cap);          /* export: <= RFM_MOVE_PROJECT_MAX (37904) bytes, -1 cap too small */
 rfm_move_project_check(blob, n);                  /* import: 0 valid */
 rfm_move_project_load(&m, slot, blob, n);         /* PROJECT_LOAD's answer (also at start); NULL/0 = empty; < 0 invalid */
 rfm_move_project_dir(&m, used_bits); rfm_move_project_flush(&m); rfm_move_project_slot(&m);
@@ -289,7 +371,7 @@ the clock alone (a popup up, playing), so the host draws it again then.
 | MIDI mode | the 8 × 4 pad map (14 × 14 cells, 16 px apart): the root filled, in the scale outlined, out of it a 2 × 2 dot, a pressed pad filled with a 6 × 6 black square |
 | Control mode | the 4 banks as tabs (the current one filled), the 8 values as full-height bars |
 | Track view | the clip's pages on top (the shown one filled, in the loop outlined, past it dotted; 4 segments, 8 or 16 thinner ones past 4 or 8 pages), the page's notes as a piano roll (8 px a step, 3 px a semitone up from the page's lowest note, squeezed past 13 semitones; the beats dotted; the playhead a 1 px line), the 16 steps at the bottom (notes or the playhead filled, empty outlined, past the clip's end dotted) |
-| Session view | the page's 8 tracks across, the 4 scenes on the pads down (14 × 13 cells): a 2 px bar over the selected track (muted: a dotted line there); a clip empty (a dot), with content (an outline), playing (filled, a black ▶), queued (a blinking outline), stopping (blinking between playing and an outline), recording (filled, a black ●; blinking while it waits for the bar) |
+| Session view | all 16 tracks × 16 scenes (a row a track, 7 × 4 cells): a clip empty (a dot), with content (an outline), playing (filled), queued (a blinking outline), stopping (blinking), recording (filled, blinking while it waits); copied dashed, cut crossed; on the left a bar over the pads' bank and an arrow at the selected track, a muted track's row dotted; the pads' 8 scenes between dotted lines; the 4 × 4 track glyph top right |
 | Project grid | the 32 slots as the pads are: the current one filled, a saved one outlined, each with three bars (its tracks with notes in three groups, a bar's height the bits of their note count, at most 8), an empty slot a dot; a project loading blinks |
 
 **FM-1 mode's drawing, live.** The drawing stays as drawn (its mini screen too) but for:
@@ -310,9 +392,14 @@ the clock alone (a popup up, playing), so the host draws it again then.
 | Popup | When | What |
 |---|---|---|
 | knob | a knob touched or turned: FM-1 encoders (in MIDI mode on a touch, in FM-1 mode on a turn), Control / Sequencer CCs, the volume knob; Sequencer mode: Shift + jog or tap tempo, Loop held, the jog's bank; a drum pad + jog | the label at 2x (the firmware's label, else SELECT .. PRESETS; `CC 16`; MASTER; TEMPO, LOOP, BANK, DRUM), the value at 2x with its unit small (% BPM BARS LOCK ..), a thick bar, a dial with its pointer; the right half hatched behind. An FM-1 encoder is relative: its value is this gesture's detents (+3), the bar from the middle, the dial turning 15° a detent |
-| step | a step held in track view | its notes as inverted chips (the first two and "+n" past three), the velocity (a level) and the length in steps (a bracket) at 2x; the steps row stays below, the held step marked over it. A tap that leaves the step empty (cleared) drops it at once |
+| step | a step held 300 ms or more in track view (a tap: none) | its notes as inverted chips (the first two and "+n" past three), the velocity (a level) and the length in steps (a bracket) at 2x; the steps row stays below, the held step marked over it |
+| trig | a knob touched or turned on the TRIG page | a picture (micro: a note in a step's box; ratchet: the hits; chance: a die; condition: the passes, the A-th filled; function: an arrow, a die, hops; length: a gate bar over steps) and the name and value at 2x |
+| loop | Loop held or latched | the length in bars (+ steps) at 2x, the loop as a bar over the 16 pages, the pages (in the loop filled, the shown one marked) |
+| bar | Left / Right adding or taking away a ghost page | "BAR n", 1 s |
+| Shift menus | Shift + step 3, 5, 7, 8, 9, 11; Shift + Record (stay open: the same again or Back) | Workflow: CH, RATE, QUANT; Tempo: the BPM at 4x (EXT and a padlock when locked); Groove: two 16ths, the second late; Layout, Keys & Scales: tabs and a keyboard; Arp: the pattern's walk, its name, rate, mode and range; Record: the mode's picture and name, the style |
+| mute | Mute held | the 16 tracks, muted crossed out |
 | project | a project pad held in the grid (also once that project is open: the grid closes on the load) | its number at 4x, a bar a track (its notes; 16 thinner bars when tracks 9..16 have notes), ▶ the tempo, the clip symbol and the clips |
-| message | an action's result (UNDO, COPIED, CLOCK AUTO, FULL VEL ..), 1 s | the words at 2x, a line or two |
+| message | an action's result (UNDO, CLOCK AUTO, FULL VEL, CLICK ON ..; not copy / cut / paste), 1 s | the words at 2x, a line or two |
 | count-in | Rec from stopped | the beats to go at 4x, a recording dot |
 
 The newer of a control's popup and a message shows; the count-in shows under both. The core knows the current
@@ -422,8 +509,8 @@ The file (`.rfmmove` one project, `.rfmmoveset` several), little-endian:
 | per entry: 1 | slot 0..31 (unique) |
 | 1 | flags, 0 |
 | 4 | saved, Unix seconds (0 unknown) |
-| 4 | len, 1..37472 |
+| 4 | len, 1..37904 |
 | len | the core's blob (`RMSQ`, as `rfm_move_project_save` writes it) |
 
-Nothing may follow the last entry; a file over 8 + 32 x (10 + 37472) bytes is not read; every blob must pass
+Nothing may follow the last entry; a file over 8 + 32 x (10 + 37904) bytes is not read; every blob must pass
 `rfm_move_project_check`, or nothing is imported.

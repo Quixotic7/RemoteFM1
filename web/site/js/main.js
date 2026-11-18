@@ -928,7 +928,9 @@ async function main() {
   const made = makeSite({ controls, getState: () => state, installerUrl: catalog.paths.installer,
     setStatus: (t) => { app.remoteStatus = t; const el = sheet.remoteSlot.querySelector(".remote-status"); if (el) el.textContent = t; },
     midiIn: (b, at, o) => player && player.midi(b, at, o), midiCut: () => player && player.midiCut(),
-    audioNow: () => (player ? player.audioNow() : null) });
+    audioNow: () => (player ? player.audioNow() : null),
+    click: (at, accent) => player && player.click(at, accent),
+    loopRec: (on, at, bars, bpm10) => rec && (on ? rec.loopStart(at) : rec.loopStop(at, bars, bpm10)) });
   site = made.site; siteEmit = made.emit;
   window.FM1Site = site;
   window.FM1Device = device;   // (the faceplate view: the e2e tests read its anchors)

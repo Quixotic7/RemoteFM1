@@ -15,13 +15,15 @@
 // and every action has `frame`: for seqAdvance's, the offset from the call's start it is due at (0 otherwise).
 // The sequencer (host/src/move/README.md, "Sequencer"):
 //   core.seqAdvance(frames, rate) -> actions (every block, playing or not); core.seqMidiIn(bytes) -> actions
-//   core.seqPlay(on); core.setBpm(bpm10); core.setClock(mode); core.bpm10(); core.following(); core.playing()
+//   core.seqPlay(on); core.setBpm(bpm10); core.setLead(us); core.setClock(mode); core.bpm10(); core.following(); core.playing()
+//   actions also: { kind: "click", accent } (the metronome), { kind: "audioRec", on, bars } (Sample's loop), frame-stamped
 //   core.projectLoad(slot, bytes | null) -> actions, or null (an invalid blob); core.projectDir(bits);
 //   core.projectFlush() -> actions; core.projectSlot(); core.projectSave() -> the current blob; core.projectCheck(bytes)
 //   core.projectInfo(slot, bytes): a stored project's content for the screen's project grid (0 ok)
-export const ACT = { KEY: 1, PRESS: 2, BTN: 3, TURN: 4, MASTER: 5, MIDI: 6, SETTINGS: 7, PROJECT_SAVE: 8, PROJECT_LOAD: 9, PROJECT_DELETE: 10 };
+export const ACT = { KEY: 1, PRESS: 2, BTN: 3, TURN: 4, MASTER: 5, MIDI: 6, SETTINGS: 7, PROJECT_SAVE: 8, PROJECT_LOAD: 9, PROJECT_DELETE: 10,
+  CLICK: 11, AUDIO_REC: 12 };
 export const CLOCK = { AUTO: 0, INT: 1, EXT: 2 };
-export const PROJECTS = 32, PROJECT_MAX = 37472;
+export const PROJECTS = 32, PROJECT_MAX = 37904;   // (RFM_MOVE_PROJECT_MAX, version 2 blobs)
 export const MODE = { FM1: 0, MIDI: 1, CONTROL: 2, SEQ: 3 };
 export const MODE_NAMES = ["FM-1", "MIDI", "Control", "Sequencer"];
 export const SCREEN_BYTES = 1024, SETTINGS_BYTES = 77, NLEDS = 76, POPUP_MS = 1000;   // (RFM_MOVE_POPUP_MS: a popup stays this long)
@@ -78,6 +80,8 @@ export class MoveCore {
         if (p && nb) out.push({ kind: "projectSave", slot: index, bytes: M.HEAPU8.slice(p, p + nb) });
       } else if (kind === ACT.PROJECT_LOAD) out.push({ kind: "projectLoad", slot: index });
       else if (kind === ACT.PROJECT_DELETE) out.push({ kind: "projectDelete", slot: index });
+      else if (kind === ACT.CLICK) out.push({ kind: "click", accent: !!value });          // the metronome
+      else if (kind === ACT.AUDIO_REC) out.push({ kind: "audioRec", on: !!value, bars: index });   // Sample's loop
       if (out.length > len) out[len].frame = (b[fr + 4 * i] | (b[fr + 4 * i + 1] << 8) | (b[fr + 4 * i + 2] << 16) | (b[fr + 4 * i + 3] << 24)) >>> 0;
     }
     return out;
@@ -94,6 +98,7 @@ export class MoveCore {
   seqMidiIn(bytes) { return this._withBytes(bytes, (p, n) => this._acts(this.M._mw_seq_midi_in(this.w, p, n))); }
   seqPlay(on) { return this._acts(this.M._mw_seq_play(this.w, on ? 1 : 0)); }
   setBpm(bpm10) { this.M._mw_seq_set_bpm(this.w, bpm10 | 0); }
+  setLead(us) { this.M._mw_seq_set_lead(this.w, Math.max(0, us | 0)); }   // (the clock's lead over what sounds)
   bpm10() { return this.M._mw_seq_bpm10(this.w); }
   setClock(mode) { this.M._mw_seq_set_clock(this.w, mode | 0); }
   following() { return !!this.M._mw_seq_following(this.w); }

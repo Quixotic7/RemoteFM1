@@ -1796,6 +1796,33 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
       a = inp(cc(119, 127), P(0x90, 93, 100), P(0x80, 93, 0), cc(119, 0));
       ok(kinds(a) === "projectDelete:1", `move seq: Delete + project 2's pad: ${kinds(a)} (kind 10)`);
       c.free(); f.free();
+      // Sample's audio loop (kind 12): from a bar line to a bar line of the sequencer's audio clock: frames = bars x 4 x
+      // 60 / bpm x rate (to the frame: the tick grid rounds); the metronome's clicks (kind 11) on the beats
+      for (const [rate, bpm10, bars] of [[48000, 1200, 2], [44100, 1000, 1], [44100, 1330, 3], [48000, 873, 4]]) {
+        const g = await load(), ginp = (...pk) => pk.flatMap((p) => g.input(p));
+        ginp(cc(40, 127), cc(40, 0));
+        g.setBpm(bpm10);
+        ginp(cc(49, 127), P(0x90, 21, 127), P(0x80, 21, 0), cc(49, 0));   // (Shift + step 6: the metronome)
+        const recs = [], clicks = [];
+        const gc = new S.SeqClock({ advance: (n, r) => g.seqAdvance(n, r), midiIn: (b) => g.seqMidiIn(b), emit: (acts, at) => {
+          for (const x of acts) { if (x.kind === "audioRec") recs.push({ ...x, at: at + x.frame }); if (x.kind === "click") clicks.push(at + x.frame); } } });
+        let fr = 0;
+        const run = (n) => { for (let i = 0; i < n; i++) { fr += 128; gc.pump({ frame: fr, rate }); } };
+        run(10);
+        gc.emit(ginp(cc(118, 127), cc(118, 0)), null);               // armed
+        run(37);
+        gc.emit(ginp(P(0x90, 68, 100), P(0x80, 68, 0)), null);       // stopped: the first note starts the transport
+        const barF = (4 * 60 * rate * 10) / bpm10;
+        run(Math.ceil((barF * bars - barF / 3) / 128));                // into the take's last bar ..
+        gc.emit(ginp(cc(118, 127), cc(118, 0)), null);               // .. its end: the next bar line
+        run(Math.ceil(barF / 128) + 20);
+        const on = recs.find((x) => x.on), off = recs.find((x) => !x.on);
+        const want = (bars * 4 * 60 * rate * 10) / bpm10;
+        ok(on && off && off.bars === bars && Math.abs(off.at - on.at - want) <= 1,
+           `move seq: Sample's loop at ${bpm10 / 10} BPM, ${rate} Hz: ${off ? off.at - on.at : "?"} frames = ${bars} bars (${want.toFixed(1)})`);
+        ok(clicks.length >= 4 * bars && Math.abs(clicks[4] - clicks[0] - barF) <= 1, `move seq: ...the metronome: a click a beat (${clicks.length})`);
+        g.free();
+      }
 
       // the worklet's timed MIDI queue
       const tm = new TimedMidi(), dl = [];

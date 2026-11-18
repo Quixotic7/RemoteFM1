@@ -21,6 +21,8 @@
 //                                          Move's sequencer), opts.cancel: its note offs drop queued note ons
 //     site.midiCut()                       the timed MIDI queue's note offs now, its note ons dropped
 //     site.audioNow()                      { frame, rate } of the running audio clock, or null
+//     site.click(at, accent)               a metronome click at an audio frame (null: now)
+//     site.loopRec(on, at, bars, bpm10)    a loop take from / to an audio frame (the recorder's Takes)
 //     site.setStatus(text, kind)           the line under the section's title ("", "ok", "warn", "bad")
 //     site.installerUrl                    the installer page, for "Install RemoteFM1 first"
 // The FM-1's own input arrives as source REMOTE, OR'ed with the page's own (a key held on either is held).
@@ -29,7 +31,8 @@ import { SRC, labelToMatrix, roleToMatrix, NB } from "./panel.js";
 const MATRIX_TO_LABEL = Array.from({ length: NB }, (_, m) => (m >= 2 ? m - 2 : m + 12));
 const MATRIX_TO_ROLE = [0, 1, 3, 4, 5, 6, 2];
 
-export function makeSite({ controls, getState, installerUrl, setStatus, midiIn, midiCut = () => {}, audioNow = () => null }) {
+export function makeSite({ controls, getState, installerUrl, setStatus, midiIn, midiCut = () => {}, audioNow = () => null,
+  click = () => {}, loopRec = () => {} }) {
   const subs = new Map();
   const site = {
     version: 1,
@@ -53,6 +56,8 @@ export function makeSite({ controls, getState, installerUrl, setStatus, midiIn, 
     midiIn: (bytes, at, opts) => midiIn(bytes, at, opts),
     midiCut: () => midiCut(),
     audioNow: () => audioNow(),
+    click: (at, accent) => click(at, accent),
+    loopRec: (on, at, bars, bpm10) => loopRec(on, at, bars, bpm10),
     setStatus: (text, kind = "") => setStatus(text, kind),
   };
   const emit = (ev, ...a) => { for (const cb of subs.get(ev) || []) { try { cb(...a); } catch (e) { console.error(e); } } };

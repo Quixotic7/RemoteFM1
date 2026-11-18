@@ -15,7 +15,9 @@
 //   p.setMuted(on)                            the page's own output silent (its sound plays on the FM-1 over Bluetooth)
 //   p.tap(on)                                 the engine's sound, mono, to "tap" (Float32Array chunks of 1024 frames at
 //                                             p.sampleRate); give each back with p.tapBuf(pcm)
-//   p.recStart({ id, chunkFrames, maxFrames }); p.recStop(); p.recBuf(l, r)   the recorder (js/rec-ui.js); events: rec(m)
+//   p.recStart({ id, chunkFrames, maxFrames, startAt? }); p.recStop(); p.recStopAt(frame); p.recBuf(l, r)   the recorder
+//                                             (js/rec-ui.js; startAt / recStopAt: frame-exact, the Move's loops); events: rec(m)
+//   p.click(at, accent)                       a metronome click (the Move's sequencer)
 //   events.fs(m): a Fantasy CFW's file request (js/folder.js serve()); p.fsReply(reply, transfer); p.fsChanged()
 //   await p.ainStart(deviceId) / p.ainStop()   live audio input for an .rfm1 cart with "ain1" (js/ain-ui.js): the
 //                                             visitor's input into the host node's input; events: ainLevel(m), ainEnded()
@@ -351,6 +353,19 @@ export class Player {
   get sampleRate() { return this.ctx ? this.ctx.sampleRate : 0; }
   recStart(o) { if (this.node) this.node.port.postMessage({ type: "rec", on: true, ...o }); }
   recStop() { if (this.node) this.node.port.postMessage({ type: "rec", on: false }); }
+  recStopAt(frame) { if (this.node) this.node.port.postMessage({ type: "recStopAt", frame }); }   // (exactly there)
+  // a metronome click at an audio frame (null: now): after the volume, so never in a recording
+  click(at, accent) {
+    if (!this.ctx || !this.out || !this.running) return;
+    const t = typeof at === "number" ? Math.max(this.ctx.currentTime, at / this.ctx.sampleRate) : this.ctx.currentTime;
+    const o = this.ctx.createOscillator(), g = this.ctx.createGain();
+    o.frequency.value = accent ? 1760 : 1320;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(accent ? 0.5 : 0.3, t + 0.002);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.04);
+    o.connect(g).connect(this.out);
+    o.start(t); o.stop(t + 0.05);
+  }
   recBuf(l, r) { if (this.node && l && l.buffer.byteLength) this.node.port.postMessage({ type: "recBuf", l, r }, [l.buffer, r.buffer]); }
   panel(p) { if (this.node) this.node.port.postMessage({ type: "panel", ...p }); }
   midi(bytes, at, o) {

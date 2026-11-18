@@ -285,7 +285,9 @@ static void test_modes(void)
     clear();
     pad(&m, 0, 100);                                    /* the sequencer's placeholder: the MIDI mode's pads */
     CHECK(has_midi(0x90, 48, 100));
-    track(&m, 0, 1), track(&m, 0, 0);
+    track(&m, 0, 1), track(&m, 0, 0);                   /* (the sequencer: Track 1 is its track 1, not a mode) */
+    CHECK(m.s.mode == RFM_MOVE_MODE_SEQ && m.seq.sel_track == 0);
+    button(&m, MR_CC_BACK, 1), button(&m, MR_CC_BACK, 0);   /* Back: FM-1 mode */
     CHECK(m.s.mode == RFM_MOVE_MODE_FM1 && has_midi(0x80, 48, 0));
 }
 

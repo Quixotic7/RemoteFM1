@@ -163,6 +163,7 @@ EMSCRIPTEN_KEEPALIVE int mw_seq_play(mw_t *w, int on)
     return w->nacts;
 }
 EMSCRIPTEN_KEEPALIVE void mw_seq_set_bpm(mw_t *w, int bpm10) { rfm_move_seq_set_bpm(&w->m, bpm10); }
+EMSCRIPTEN_KEEPALIVE void mw_seq_set_lead(mw_t *w, uint32_t us) { rfm_move_seq_set_lead_us(&w->m, us); }
 EMSCRIPTEN_KEEPALIVE int mw_seq_bpm10(const mw_t *w) { return rfm_move_seq_bpm10(&w->m); }
 EMSCRIPTEN_KEEPALIVE void mw_seq_set_clock(mw_t *w, int mode) { rfm_move_seq_set_clock(&w->m, mode); }
 EMSCRIPTEN_KEEPALIVE int mw_seq_following(const mw_t *w) { return rfm_move_seq_following(&w->m); }

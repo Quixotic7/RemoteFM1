@@ -14,7 +14,7 @@
 //   the core's project blob as rfm_move_project_save writes it (checked with rfm_move_project_check on import)
 // and nothing after the last entry. A file over MAX_FILE bytes is not read.
 export const DB = "remotefm1-move", STORE = "projects", VERSION = 1;
-export const SLOTS = 32, BLOB_MAX = 37472;
+export const SLOTS = 32, BLOB_MAX = 37904;   // (RFM_MOVE_PROJECT_MAX)
 export const MAGIC = [0x52, 0x4d, 0x56, 0x50], FILE_VERSION = 1, KIND_ONE = 1, KIND_SET = 2;
 export const HEAD = 8, ENTRY = 10;
 export const MAX_FILE = HEAD + SLOTS * (ENTRY + BLOB_MAX);

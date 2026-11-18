@@ -351,6 +351,8 @@ export class MoveLink {
   pump() {
     if (!this.live || !this.core) return;
     this.seq.pump(this.audioNow());
+    const lu = this.seq.rate ? Math.round((this.seq.lead / this.seq.rate) * 1e6) : 0;   // (recordings: where it was heard)
+    if (lu !== this.leadUs) { this.leadUs = lu; this.core.setLead(lu); }
     this.afterSeq();
     this.flushLeds();
     if (this.wasPlaying || this.core.state().mode === 3 || this.timedScreen) this.screenSoon();   // (the playhead, blinks, popups)
@@ -428,6 +430,10 @@ export class MoveLink {
       else if (a.kind === "projectSave") this.projSave(a.slot, a.bytes);
       else if (a.kind === "projectLoad") this.projLoad(a.slot);
       else if (a.kind === "projectDelete") this.projDelete(a.slot);
+      else if (a.kind === "click") { if (this.o.site.click) this.o.site.click(typeof at === "number" ? at + (a.frame || 0) : null, a.accent); }
+      else if (a.kind === "audioRec") {   // Sample: a loop of whole bars, from a bar line to a bar line (worklet frames)
+        if (this.o.site.loopRec) this.o.site.loopRec(a.on, typeof at === "number" ? at + (a.frame || 0) : null, a.bars, this.core.bpm10());
+      }
     }
   }
 
