@@ -91,7 +91,7 @@ static int send_leds(mr_client_t *c)
 }
 
 /* the simulator's screen shot (P1 128 64) against our packed frame */
-static int shot_matches(const char *dir, const char *fifo, mr_client_t *c, const uint8_t *packed)
+static int shot_once(const char *dir, const char *fifo, mr_client_t *c, const uint8_t *packed)
 {
     char path[512], line[256];
     int x, y, ok = 1, tries;
@@ -117,6 +117,18 @@ static int shot_matches(const char *dir, const char *fifo, mr_client_t *c, const
     }
     fclose(f);
     return ok;
+}
+/* the simulator's screen shot is the frame sent (a few tries: the shot may be taken before the frame lands, or read
+ * while the simulator still writes it) */
+static int shot_matches(const char *dir, const char *fifo, mr_client_t *c, const uint8_t *packed)
+{
+    int tries;
+    for (tries = 0; tries < 8; tries++) {
+        if (shot_once(dir, fifo, c, packed))
+            return 1;
+        pump(c, -1, 50);
+    }
+    return 0;
 }
 
 static int state_has(const char *dir, const char *what)
