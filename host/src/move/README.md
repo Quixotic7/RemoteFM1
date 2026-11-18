@@ -195,8 +195,8 @@ every step with notes in the clip:
 | 2 RATCH | ratchets: 1..8 hits spread over the step (the notes shortened to fit) |
 | 3 CHANCE | 1..100 % (100: none) |
 | 4 COND | none, A:B (1:2 .. 8:8: plays on pass A of every B), FILL, !FILL, PRE, !PRE (the track's last condition), NEI, !NEI (the track before's), 1ST, !1ST |
-| 5 FUNC | FIZZ's step functions: RESTART, REVERSE, FORWARD, FLIP, RANDOM (jump), RND FN, LEAP n, JUMP n (run when the step plays) |
-| 6 AMOUNT | LEAP's n (-15..15, +2 at first) or JUMP's target step |
+| 5 FUNC | FIZZ's step functions: RESTART, REVERSE, FORWARD, FLIP, RANDOM (jump), RND FN, LEAP n, JUMP n (run when the step plays); REPEAT n (the owner's): the step plays again on its next n steps at the track's rate, as if copied there (its notes, lengths, locks, ratchets); the real steps under them are skipped and the playhead goes on after them; its condition and chance are decided once, the copies follow (a step that does not play has silent copies); the repeats stop at the loop's end (Move-like: no wrap), the loop going on from its start |
+| 6 AMOUNT | LEAP's n (-15..15, +2 at first), JUMP's target step, or REPEAT's n (1..16) |
 | 7 LENGTH | the notes' length through Elektron's table: 1/8, 1/4, 1/2, 3/4, 1, 1.5, 2, 3, 4, 6, 8, 12, 16, 24, 32, 64 steps, INF |
 
 The trig parameters are CC locks numbered 128..133 (`RFM_MOVE_TRIG_*`, never sent), so undo, copy, cut, paste,
@@ -498,7 +498,7 @@ midi.knob), so the FM-1's screen stays in view.
 | edit | a knob turned (ctl.knob, seq.lock), the volume knob, Shift + jog, the jog's bank, a drum pad + jog | the name on row 1, the value under it at 4x (2x when wider), no box; a bar (bipolar from the middle for an FM-1 encoder's detents); a held step's CC lock: a padlock; the knob pages on the strip |
 | step | a step held 300 ms in track view (seq.step), only while it is held (a quick tap never shows it; the release drops it) | its notes in words (Ableton's names; "+n" past what fits), the velocity with its icon, the length with a bracket; the steps row, the held step marked |
 | held-step edits | a step held + the arrows, the jog, the volume knob (seq.micro, seq.len, seq.vel) | "Nudge" (in % of a step), "Length" (steps), "Velocity" (with a bar) at 4x; the page strip with the step's tick |
-| trig | a knob on the TRIG page (trig.*) | a picture on the left (micro: the note between its step's ticks; ratchet: the hits; chance: a die; condition: A:B, the A-th tall; function: the playhead's path; length: a gate bar) and the name and value on the right; the strip the five knob pages, TRIG first |
+| trig | a knob on the TRIG page (trig.*) | a picture on the left (micro: the note between its step's ticks; ratchet: the hits; chance: a die; condition: A:B, the A-th tall; function: the playhead's path (Repeat: the step filled, its copies dashed after it); length: a gate bar) and the name and value on the right; the strip the five knob pages, TRIG first |
 | loop length | the jog in page edit (loop.len) | "Loop", "4 Bars" at 4x, the looped pages thick on a strip of 16, a second |
 | bar | Right past the end in page edit (loop.ghost) | "Bar n" over the ghost strip, a second |
 | project | a project pad held (proj.held); + knob 1 (proj.color) | its number at 4x, a bar a track, ▶ its tempo, its clips; the colour once: "Color" and its number at 4x, the 16 colours on the strip |

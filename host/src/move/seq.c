@@ -523,6 +523,7 @@ void rfmv_seq_project_clear(rfm_move_t *m)
         memset(&q->tr[t], 0, sizeof q->tr[t]);
         q->tr[t].ch = (uint8_t)t, q->tr[t].active = 0, q->tr[t].sel = 0, q->tr[t].queued = SEQ_NONE;
         q->tr[t].rate = RFM_MOVE_SEQ_RATE_16, q->tr[t].pos = q->tr[t].next = -1, q->tr[t].dir = 1;
+        q->tr[t].rsrc = q->tr[t].nrsrc = -1;
         rfmv_seq_arp_default(&q->tr[t].arp);
         q->tr[t].layout = RFM_MOVE_LAYOUT_SCALE;
         rfmv_seq_tdef_default(q->tr[t].tdef);
@@ -690,10 +691,12 @@ static void choose(rfm_move_t *m, int track)
     rfm_move_seq_t *q = &m->seq;
     rfm_move_track_t *t = &q->tr[track];
     const int clip = SEQ_CLIP(track, t->active), pos = t->pos;
-    int lo, hi, L, f = 0, next = -1, pass = t->pass;
+    int lo, hi, L, f = 0, next = -1, pass = t->pass, rep = 0;
     loop_of(q, track, clip, &lo, &hi);
     L = hi - lo;
-    if (t->fire && t->grow != 1 && (f = rfmv_seq_lock_get(m, clip, pos, RFM_MOVE_TRIG_FUNC)) < 0)
+    if (t->rsrc >= 0)
+        f = 0;                                          /* (a repeat: the step under it does nothing) */
+    else if (t->fire && t->grow != 1 && (f = rfmv_seq_lock_get(m, clip, pos, RFM_MOVE_TRIG_FUNC)) < 0)
         f = 0;
     if (f == RFM_MOVE_FN_RFUNC)
         f = (int)(rnd(q) % 5u);                         /* none, restart, reverse, forward, flip */
@@ -718,7 +721,17 @@ static void choose(rfm_move_t *m, int track)
         next = v >= lo && v < hi ? v : lo;
         break;
     }
+    case RFM_MOVE_FN_REPEAT: {
+        const int v = rfmv_seq_lock_get(m, clip, pos, RFM_MOVE_TRIG_REPEAT);
+        rep = v < 1 ? 1 : v;
+        break;
+    }
     default: break;
+    }
+    if (t->rsrc < 0 && !t->fire && t->grow != 1 && rfmv_seq_lock_get(m, clip, pos, RFM_MOVE_TRIG_FUNC) == RFM_MOVE_FN_REPEAT) {
+        const int v = rfmv_seq_lock_get(m, clip, pos, RFM_MOVE_TRIG_REPEAT);   /* (it did not play: its copies are
+                                                         * silent too, as copies of it would be) */
+        rep = v < 1 ? 1 : v;
     }
     if (next < 0) {                                     /* the natural step */
         next = pos + t->dir;
@@ -730,6 +743,15 @@ static void choose(rfm_move_t *m, int track)
             next = hi - 1, pass++;
     }
     t->next = (int16_t)next, t->npass = (uint16_t)clampi(pass, 1, 60000);
+    t->nrsrc = -1, t->nrleft = 0;
+    if ((t->rsrc >= 0 ? t->rleft > 0 : rep > 0) && pass == t->pass && t->dir > 0 && next == pos + 1) {
+        /* REPEAT: the next step plays the source's content (its condition and chance as decided for it), until the
+         * count is done or the loop's end (no wrap) */
+        t->nrsrc = (int16_t)(t->rsrc >= 0 ? t->rsrc : pos);
+        t->nrleft = (uint8_t)(t->rsrc >= 0 ? t->rleft - 1 : rep - 1);
+        t->nfire = t->fire;
+        return;
+    }
     t->nfire = (uint8_t)decide(m, track, clip, next, t->npass);
 }
 
@@ -746,7 +768,7 @@ static void seek(rfm_move_t *m, int track, int32_t T)
     st = d / t->tps;
     t->pos = (int16_t)(lo + st % (hi - lo)), t->sub = (uint8_t)(d % t->tps);
     t->pass = (uint16_t)clampi(1 + st / (hi - lo), 1, 60000);
-    t->dir = 1, t->next = -1;
+    t->dir = 1, t->next = -1, t->rsrc = t->nrsrc = -1, t->rleft = t->nrleft = 0;
     t->fire = (uint8_t)decide(m, track, clip, t->pos, t->pass);
 }
 
@@ -831,6 +853,7 @@ static void track_tick(rfm_move_t *m, int tr, int32_t T)
         if (t->next < 0)
             choose(m, tr);
         t->pos = t->next, t->pass = t->npass, t->fire = t->nfire, t->sub = 0, t->next = -1;
+        t->rsrc = t->nrsrc, t->rleft = t->nrleft, t->nrsrc = -1, t->nrleft = 0;
         t->tps = (uint8_t)rfmv_seq_tps(t->rate);
         loop_of(q, tr, clip, &llo, &lhi);
         if (t->grow == 1 && (old + 1 - llo) % RFM_MOVE_SEQ_PAGE == 0) {   /* a recording clip: a page more, or done */
@@ -858,8 +881,9 @@ static void track_tick(rfm_move_t *m, int tr, int32_t T)
     if (!rfmv_seq_audible(m, tr))                       /* (muted, or another track soloed) */
         return;
     if (t->fire) {
-        const int r = rfmv_seq_lock_get(m, clip, t->pos, RFM_MOVE_TRIG_RATCHET), nr = r < 2 ? 1 : r;
-        hi = rfmv_seq_range(m, clip, t->pos, &lo);
+        const int ps = t->rsrc >= 0 ? t->rsrc : t->pos; /* (a repeat: the source's content) */
+        const int r = rfmv_seq_lock_get(m, clip, ps, RFM_MOVE_TRIG_RATCHET), nr = r < 2 ? 1 : r;
+        hi = rfmv_seq_range(m, clip, ps, &lo);
         for (i = lo; i < hi; i++) {
             const rfm_move_note_t n = q->notes[i];      /* (note_on cannot change the notes) */
             const int mt = groove_at(m, tr, t->pos, micro_ticks(n.micro, t->tps));
@@ -871,13 +895,13 @@ static void track_tick(rfm_move_t *m, int tr, int32_t T)
                     note_on(m, tr, n.note, n.vel, len);
         }
         if (t->sub == 0) {
-            hi = rfmv_seq_lock_range(m, clip, t->pos, &lo);
+            hi = rfmv_seq_lock_range(m, clip, ps, &lo);
             for (i = lo; i < hi && q->locks[i].cc < 128; i++)
                 rfmv_emit_midi(m, 0xB0 | t->ch, q->locks[i].cc, q->locks[i].val);
         }
     }
     if (t->next >= 0 && t->nfire && t->sub >= t->tps / 2) {   /* the next step's early notes */
-        hi = rfmv_seq_range(m, clip, t->next, &lo);
+        hi = rfmv_seq_range(m, clip, t->nrsrc >= 0 ? t->nrsrc : t->next, &lo);
         for (i = lo; i < hi; i++) {
             const rfm_move_note_t n = q->notes[i];
             const int mt = groove_at(m, tr, t->next, micro_ticks(n.micro, t->tps));

@@ -107,6 +107,7 @@ static int trig_ok(int cc, int v)
     case RFM_MOVE_TRIG_FUNC: return v >= 1 && v < RFM_MOVE_FN_N;
     case RFM_MOVE_TRIG_LEAP: return v <= 30;
     case RFM_MOVE_TRIG_JUMP: return v < RFM_MOVE_SEQ_MAXLEN;
+    case RFM_MOVE_TRIG_REPEAT: return v >= 1 && v <= 16;
     default: return 0;
     }
 }

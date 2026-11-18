@@ -172,7 +172,8 @@ enum { RFM_MOVE_TRIG_RATCHET = 128,                     /* 2..8 hits in the step
        RFM_MOVE_TRIG_FUNC,                              /* 1..8: RFM_MOVE_FN_* (none: nothing) */
        RFM_MOVE_TRIG_LEAP,                              /* LEAP's n + 15, 0..30 (none: +2) */
        RFM_MOVE_TRIG_JUMP,                              /* JUMP's target step 0..255 (none: the loop's start) */
-       RFM_MOVE_TRIG_LAST = RFM_MOVE_TRIG_JUMP };
+       RFM_MOVE_TRIG_REPEAT,                            /* REPEAT's n, 1..16 more steps (none: 1) */
+       RFM_MOVE_TRIG_LAST = RFM_MOVE_TRIG_REPEAT };
 /* conditions: 1..35 A:B (B 2..8, A 1..B: plays on pass A of every B), then these */
 enum { RFM_MOVE_COND_AB_N = 35, RFM_MOVE_COND_FILL = 36, RFM_MOVE_COND_NFILL, RFM_MOVE_COND_PRE, RFM_MOVE_COND_NPRE,
        RFM_MOVE_COND_NEI, RFM_MOVE_COND_NNEI, RFM_MOVE_COND_1ST, RFM_MOVE_COND_N1ST, RFM_MOVE_COND_N };
@@ -206,7 +207,9 @@ enum { RFM_MOVE_RM_CAPTURE, RFM_MOVE_RM_RECORD, RFM_MOVE_RM_STEP, RFM_MOVE_RM_N 
 enum { RFM_MOVE_RS_OVERDUB, RFM_MOVE_RS_REPLACE, RFM_MOVE_RS_N };
 /* step functions (FIZZ's, the OMX-27 Form's) */
 enum { RFM_MOVE_FN_NONE, RFM_MOVE_FN_RESTART, RFM_MOVE_FN_REVERSE, RFM_MOVE_FN_FORWARD, RFM_MOVE_FN_FLIP,
-       RFM_MOVE_FN_RANDOM, RFM_MOVE_FN_RFUNC, RFM_MOVE_FN_LEAP, RFM_MOVE_FN_JUMP, RFM_MOVE_FN_N };
+       RFM_MOVE_FN_RANDOM, RFM_MOVE_FN_RFUNC, RFM_MOVE_FN_LEAP, RFM_MOVE_FN_JUMP, RFM_MOVE_FN_REPEAT, RFM_MOVE_FN_N };
+/* (REPEAT, the owner's: the step plays again on its next n steps, as if copied there; the steps under it skipped; it
+ * stops at the loop's end) */
 #define RFM_MOVE_SEQ_BPM10_MIN 200                      /* 20.0 .. 300.0 BPM */
 #define RFM_MOVE_SEQ_BPM10_MAX 3000
 #define RFM_MOVE_PROJECTS 32
@@ -259,6 +262,9 @@ typedef struct {
     int32_t t0;                                         /* the song tick the active clip started at */
     /* the playhead (the engine's) */
     int16_t pos, next;                                  /* the step playing (-1: not yet), the next (-1: not chosen) */
+    int16_t rsrc, nrsrc;                                /* REPEAT: the step whose content plays at pos (-1: pos's own), at
+                                                         * next */
+    uint8_t rleft, nrleft;                              /* .. repeats still to come after pos, after next */
     uint8_t sub, tps;                                   /* ticks into the step, ticks the step lasts */
     int8_t dir;                                         /* +1, -1 (REVERSE) */
     uint8_t fire, nfire;                                /* the step's (the next one's) condition and chance passed */

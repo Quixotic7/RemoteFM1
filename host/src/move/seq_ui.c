@@ -1234,6 +1234,8 @@ int rfmv_seq_trig_val(const rfm_move_t *m, int clip, int abs, int k)
             return (v = rfmv_seq_trig(m, clip, abs, RFM_MOVE_TRIG_LEAP)) < 0 ? 2 : v - 15;
         if (f == RFM_MOVE_FN_JUMP)
             return (v = rfmv_seq_trig(m, clip, abs, RFM_MOVE_TRIG_JUMP)) < 0 ? rfmv_seq_loop_lo(m, clip) : v;
+        if (f == RFM_MOVE_FN_REPEAT)
+            return (v = rfmv_seq_trig(m, clip, abs, RFM_MOVE_TRIG_REPEAT)) < 0 ? 1 : v;
         return 0;
     }
     case 6:                                             /* length: the step's first note's, ticks (24 a step) */
@@ -1275,7 +1277,8 @@ int rfmv_seq_tdef_val(const rfm_move_t *m, int k)
     case 2: return d[2];
     case 3: return d[3];
     case 4: return d[4];
-    case 5: return d[4] == RFM_MOVE_FN_LEAP ? d[5] - 15 : d[4] == RFM_MOVE_FN_JUMP ? d[6] : 0;
+    case 5: return d[4] == RFM_MOVE_FN_LEAP ? d[5] - 15 : d[4] == RFM_MOVE_FN_JUMP ? d[6]
+                 : d[4] == RFM_MOVE_FN_REPEAT ? clampi(d[6], 1, 16) : 0;   /* (JUMP's step, REPEAT's n: one byte) */
     case 6: return LENS[d[7] < NLENS ? d[7] : 4];
     default: return 0;
     }
@@ -1297,6 +1300,8 @@ static void tdef_turn(rfm_move_t *m, int k, int d)
             t[5] = (uint8_t)(n + 15);
         } else if (t[4] == RFM_MOVE_FN_JUMP)
             t[6] = (uint8_t)clampi(t[6] + d, 0, RFM_MOVE_SEQ_MAXLEN - 1);
+        else if (t[4] == RFM_MOVE_FN_REPEAT)
+            t[6] = (uint8_t)clampi(clampi(t[6], 1, 16) + d, 1, 16);
         break;
     case 6: t[7] = (uint8_t)clampi(t[7] + d, 0, NLENS - 1); break;
     default: break;
@@ -1320,6 +1325,8 @@ void rfmv_seq_tdef_apply(rfm_move_t *m, int clip, int abs, int entry)
             rfmv_seq_lock_set(m, clip, abs, RFM_MOVE_TRIG_LEAP, t[5]);
         else if (t[4] == RFM_MOVE_FN_JUMP)
             rfmv_seq_lock_set(m, clip, abs, RFM_MOVE_TRIG_JUMP, t[6]);
+        else if (t[4] == RFM_MOVE_FN_REPEAT)
+            rfmv_seq_lock_set(m, clip, abs, RFM_MOVE_TRIG_REPEAT, clampi(t[6], 1, 16));
     }
     if (entry && (t[0] != 12 || t[7] != 4)) {
         int lo, hi = rfmv_seq_range(m, clip, abs, &lo), i, n = hi - lo;
@@ -1383,6 +1390,10 @@ static void trig_turn(rfm_move_t *m, int clip, int abs, int k, int d)
             rfmv_seq_lock_set(m, clip, abs, RFM_MOVE_TRIG_LEAP, n + 15);
         } else if (f == RFM_MOVE_FN_JUMP)
             rfmv_seq_lock_set(m, clip, abs, RFM_MOVE_TRIG_JUMP, clampi(v + d, 0, RFM_MOVE_SEQ_MAXLEN - 1));
+        else if (f == RFM_MOVE_FN_REPEAT) {
+            const int n = clampi(v + d, 1, 16);
+            rfmv_seq_lock_set(m, clip, abs, RFM_MOVE_TRIG_REPEAT, n);
+        }
         break;
     }
     default: break;

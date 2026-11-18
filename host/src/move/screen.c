@@ -194,7 +194,14 @@ static void value_popup(const rfm_move_t *m, mr_canvas_t *cv)
  * strip, TRIG first. A step held and the arrows, the jog or the volume knob (not on the TRIG page): Nudge, Length,
  * Velocity as edit popups over the page strip */
 static const char *const FN_NAMES[RFM_MOVE_FN_N] = { "None", "Restart", "Reverse", "Forward", "Flip", "Random",
-                                                      "Rnd Fn", "Leap", "Jump" };
+                                                      "Rnd Fn", "Leap", "Jump", "Repeat" };
+static void repeat_pic(mr_canvas_t *cv, int n)         /* the step filled, its copies dashed after it */
+{
+    int i;
+    v2_R(cv, 3, 24, 6, 12, 1);
+    for (i = 0; i < n && i < 4; i++)
+        v2_dashO(cv, 11 + i * 8, 24, 6, 12);
+}
 void rfmv_cond_name(int c, char *b, int cap)
 {
     static const char *const N[] = { "Fill", "!Fill", "Pre", "!Pre", "Nei", "!Nei", "1st", "!1st" };
@@ -310,6 +317,7 @@ static void trig_popup(const rfm_move_t *m, mr_canvas_t *cv)
             v2_L(cv, 5, 38, 13, 20), v2_L(cv, 13, 20, 29, 20), v2_L(cv, 29, 20, 37, 38);
             v2_L(cv, 33, 36, 37, 38), v2_L(cv, 37, 34, 37, 38);
             break;
+        case RFM_MOVE_FN_REPEAT: repeat_pic(cv, 3); break;
         default: break;
         }
         break;
@@ -324,6 +332,8 @@ static void trig_popup(const rfm_move_t *m, mr_canvas_t *cv)
             snprintf(l, sizeof l, "Leap"), snprintf(b, sizeof b, "%+d", v);
         else if (f == RFM_MOVE_FN_JUMP)
             snprintf(l, sizeof l, "Jump"), snprintf(b, sizeof b, "%d", v + 1);
+        else if (f == RFM_MOVE_FN_REPEAT)
+            snprintf(l, sizeof l, "Repeat"), snprintf(b, sizeof b, "x%d", v), repeat_pic(cv, v);
         else
             snprintf(l, sizeof l, "Amount"), snprintf(b, sizeof b, "--");
         break;

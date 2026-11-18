@@ -2753,6 +2753,69 @@ static void test_capture_playing(void)
     CHECK(nnotes_clip(m, 0) == 2 && rfmv_seq_trig(m, 0, 3, RFM_MOVE_TRIG_CHANCE) == 50);
 }
 
+/* REPEAT (the owner's): a step plays again on its next n steps, as if copied there (the steps under them skipped),
+ * its condition and chance decided once for all of them; it stops at the loop's end */
+static int on_at(int note, uint64_t t0, int step)      /* a note on of `note` at that step's frame */
+{
+    int i;
+    for (i = 0; i < nact; i++)
+        if (acts[i].a.kind == RFM_MOVE_ACT_MIDI && acts[i].a.bytes[0] == 0x90 && acts[i].a.bytes[1] == note &&
+            acts[i].at == t0 + (uint64_t)step * FPS)
+            return 1;
+    return 0;
+}
+static void test_repeat(void)
+{
+    rfm_move_t *m = &M;
+    int s;
+    uint64_t b0;
+    fresh(m);
+    rfmv_seq_note_put(m, 0, 2, 60, 100, 12, 0);
+    for (s = 3; s <= 5; s++)
+        rfmv_seq_note_put(m, 0, s, 62, 100, 12, 0);   /* (under the repeats: skipped) */
+    rfmv_seq_note_put(m, 0, 6, 64, 100, 12, 0);
+    rfmv_seq_note_put(m, 0, 0, 65, 100, 12, 0);
+    rfmv_seq_note_put(m, 0, 14, 67, 100, 12, 0);
+    rfmv_seq_lock_set(m, 0, 2, RFM_MOVE_TRIG_FUNC, RFM_MOVE_FN_REPEAT);
+    rfmv_seq_lock_set(m, 0, 2, RFM_MOVE_TRIG_REPEAT, 3);
+    rfmv_seq_lock_set(m, 0, 14, RFM_MOVE_TRIG_FUNC, RFM_MOVE_FN_REPEAT);
+    rfmv_seq_lock_set(m, 0, 14, RFM_MOVE_TRIG_REPEAT, 5);   /* (past the loop's end: it stops there) */
+    clear();
+    rfm_move_seq_play(m, 1), b0 = base;
+    adv(m, 16 * FPS + FPS / 2);
+    CHECK(on_at(60, b0, 2) && on_at(60, b0, 3) && on_at(60, b0, 4) && on_at(60, b0, 5) && !on_at(60, b0, 6));
+    CHECK(count_midi(0x90, 62) == 0 && on_at(64, b0, 6));
+    CHECK(on_at(67, b0, 14) && on_at(67, b0, 15) && on_at(65, b0, 16));   /* (14, 15, then the loop's start) */
+    rfm_move_seq_play(m, 0);
+    /* its condition: 1:2 (the first of two passes): the second pass plays neither it nor its copies, nor the steps
+     * under them */
+    rfmv_seq_lock_set(m, 0, 2, RFM_MOVE_TRIG_COND, 1);
+    clear();
+    rfm_move_seq_play(m, 1), b0 = base;
+    adv(m, 2 * 16 * FPS);
+    CHECK(on_at(60, b0, 2) && on_at(60, b0, 5) && !on_at(60, b0, 18) && !on_at(60, b0, 21) && count_midi(0x90, 62) == 0);
+    rfm_move_seq_play(m, 0);
+    /* the TRIG page: Function "Repeat", the amount its n (1..16), in the defaults too */
+    fresh(m);
+    rfmv_seq_note_put(m, 0, 0, 60, 100, 24, 0);
+    while (!m->seq.trig)
+        jog(m, -1);
+    step(m, 0, 1);
+    knob(m, 4, RFM_MOVE_FN_REPEAT * RFM_MOVE_LIST_TICKS), knob(m, 5, 2);
+    step(m, 0, 0);
+    CHECK(rfmv_seq_trig(m, 0, 0, RFM_MOVE_TRIG_FUNC) == RFM_MOVE_FN_REPEAT && rfmv_seq_trig(m, 0, 0, RFM_MOVE_TRIG_REPEAT) == 3);
+    knob(m, 4, RFM_MOVE_FN_REPEAT * RFM_MOVE_LIST_TICKS), knob(m, 5, 3);   /* (no step held: the defaults) */
+    CHECK(rfmv_seq_tdef_val(m, 4) == RFM_MOVE_FN_REPEAT && rfmv_seq_tdef_val(m, 5) == 4);
+    jog(m, 1);
+    tap_step(m, 7);
+    CHECK(rfmv_seq_trig(m, 0, 7, RFM_MOVE_TRIG_FUNC) == RFM_MOVE_FN_REPEAT && rfmv_seq_trig(m, 0, 7, RFM_MOVE_TRIG_REPEAT) == 4);
+    {                                                   /* (a project keeps it) */
+        static uint8_t blob[RFM_MOVE_PROJECT_MAX];
+        const int nb = rfm_move_project_save(m, blob, sizeof blob);
+        CHECK(rfm_move_project_check(blob, (uint32_t)nb) == 0);
+    }
+}
+
 int main(void)
 {
     test_model();
@@ -2764,6 +2827,7 @@ int main(void)
     test_only_play_starts();
     test_loop_page_leds();
     test_capture_playing();
+    test_repeat();
     test_edits();
     test_scale_root();
     test_blob();
