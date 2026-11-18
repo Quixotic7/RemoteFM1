@@ -1017,7 +1017,7 @@ static void wanted(const rfm_move_t *m, uint8_t w[RFM_MOVE_NLEDS][3])
     for (i = 0; i < RFM_MOVE_NSTEPS; i++) {
         rgb_t s = OFF;
         if (fm1 && track_held(m, 0)) {                  /* Track 1 held: the Shift layer's steps (the ones with a job) */
-            static const uint16_t JOBS = 0xE7F7;        /* steps 1 2 3 5 6 7 8 9 10 11 14 15 16 */
+            static const uint16_t JOBS = 0xF7F7;        /* steps 1 2 3 5 6 7 8 9 10 11 13 14 15 16 */
             s = JOBS >> i & 1 ? sc(WHITE, 96) : OFF;
         } else if (t2 && m->mmenu && !track_held(m, 1))
             s = i == 8 ? WHITE : OFF;                   /* (Keys & Scales: step 9) */

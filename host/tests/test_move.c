@@ -1105,7 +1105,7 @@ static void test_fm1_shift_layer(void)
         for (i = 0; i < n; i++)
             if (leds[i].cc && leds[i].number >= MR_CC_STEP_ICON0 && leds[i].number < MR_CC_STEP_ICON0 + 16)
                 k++, on += leds[i].r != 0;
-        CHECK(k == 13 && on == 0);
+        CHECK(k == 14 && on == 0);
     }
     CHECK(m.seq.smenu == RFM_MOVE_SM_GROOVE && m.s.mode == RFM_MOVE_MODE_FM1 && m.pop != POP_MODE);
     clear();

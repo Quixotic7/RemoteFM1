@@ -1732,6 +1732,28 @@ int rfm_move_sample_levels(rfm_move_t *m, const uint8_t *peaks, int n)
 /* Record in Capture mode, stopped (the owner's intentional capture): a press arms it (again: disarmed); the first
  * note played clears the selected clip and records into it from there (the transport starts with that note); a press
  * while recording ends the take at the nearest bar, the clip as long as the bars played */
+/* Capture mode, playing, the clip empty (the owner's): Rec records at once, as from stopped but with no first note to
+ * wait for: the take from the bar line at or before now (notes keep their place in the bar); the next Rec ends it at
+ * the nearest bar line, the clip that many pages from there */
+void rfmv_seq_srec_now(rfm_move_t *m)
+{
+    rfm_move_seq_t *q = &m->seq;
+    const int tr = q->sel_track;
+    rfm_move_track_t *t = &q->tr[tr];
+    const int clip = SEQ_CLIP(tr, t->sel);
+    const int32_t T = T_now(m);
+    if (!++q->take)
+        q->take = 1;
+    rfmv_seq_group(m);
+    q->rec_group = q->group;
+    rfmv_seq_release(m, tr);
+    rfmv_seq_clip_clear(m, clip);
+    rfmv_seq_clip_make(m, clip, 1);
+    q->rec = 1, q->srec = 2;
+    t->queued = SEQ_NONE, t->grow = 1, t->grow_stop = 0, t->active = t->sel, t->pos = -1, t->next = -1;
+    t->t0 = T - T % BAR;
+}
+
 void rfmv_seq_sample(rfm_move_t *m)
 {
     rfm_move_seq_t *q = &m->seq;

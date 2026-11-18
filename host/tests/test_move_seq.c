@@ -2694,6 +2694,65 @@ static void test_loop_page_leds(void)
     rfm_move_seq_play(m, 0);
 }
 
+/* the owner's: Capture mode, playing, the clip empty: Rec records at once from the bar line at or before it (notes
+ * keep their place); Rec again ends it at the nearest bar line, the clip that long. A clip with steps: as before */
+static void test_capture_playing(void)
+{
+    rfm_move_t *m = &M;
+    int lo, i;
+    fresh(m);
+    CHECK(m->seq.rec_mode == RFM_MOVE_RM_CAPTURE);
+    press(m, MR_CC_PLAY);
+    adv(m, 16 * FPS + 5 * FPS + FPS / 2);              /* bar 2, step 6 */
+    press(m, MR_CC_REC);
+    CHECK(m->seq.srec == 2 && m->seq.rec && m->seq.tr[0].t0 == RFM_MOVE_SEQ_BAR && m->seq.tr[0].grow == 1);
+    adv(m, 2 * FPS + FPS / 2);                         /* step 9 of the take's first bar */
+    pad(m, 0, 100), adv(m, FPS / 2), pad(m, 0, 0);
+    i = rfmv_seq_find(m, 0, 8, 48);
+    CHECKF(i >= 0, "the note at step 9 (where it was played in the bar)");
+    adv(m, 2 * 16 * FPS + 2 * FPS);                    /* the take's 3rd bar, step 4: the nearest bar line ends 3 bars */
+    press(m, MR_CC_REC);
+    adv(m, FPS);
+    CHECKF(!m->seq.srec && m->seq.len[0] == 48 && rfmv_seq_find(m, 0, 8, 48) >= 0, "len %d", m->seq.len[0]);
+    rfm_move_seq_play(m, 0);
+    /* a clip with steps, playing: Rec records into it as before */
+    fresh(m);
+    rfmv_seq_note_put(m, 0, 0, 60, 100, 24, 0);
+    press(m, MR_CC_PLAY), adv(m, 4 * FPS);
+    press(m, MR_CC_REC);
+    CHECK(!m->seq.srec && m->seq.len[0] == 16 && rfmv_seq_range(m, 0, 0, &lo) > lo);
+    rfm_move_seq_play(m, 0);
+    /* a step held: its notes heard when stopped; playing, nothing extra (the owner's) */
+    fresh(m);
+    rfmv_seq_note_put(m, 0, 9, 70, 100, 24, 0);
+    clear();
+    step(m, 9, 1), step(m, 9, 0);
+    CHECK(count_midi(0x90, 70) == 1);                   /* (stopped: previewed) */
+    rfmv_seq_note_put(m, 0, 9, 70, 100, 24, 0);        /* (the tap cleared it: again) */
+    rfmv_seq_loop_set(m, 0, 0, 32), m->seq.page = 1;    /* (playing page 1: step 9 of page 2 does not sound) */
+    rfmv_seq_note_del(m, 0, 9, 70), rfmv_seq_note_put(m, 0, 25, 70, 100, 24, 0);
+    press(m, MR_CC_PLAY);
+    clear();
+    step(m, 9, 1);
+    CHECK(rfmv_seq_range(m, 0, 25, &lo) > lo && count_midi(0x90, 70) == 0);   /* (playing: no preview) */
+    step(m, 9, 0);
+    rfm_move_seq_play(m, 0);
+    /* Shift + step 13: the clip cleared (steps, locks; the length kept), "Clip Cleared", one undo */
+    fresh(m);
+    rfmv_seq_loop_set(m, 0, 0, 32);
+    rfmv_seq_note_put(m, 0, 3, 60, 100, 24, 0), rfmv_seq_note_put(m, 0, 20, 62, 100, 24, 0);
+    rfmv_seq_lock_set(m, 0, 3, RFM_MOVE_TRIG_CHANCE, 50);
+    {
+        uint8_t ic[16];
+        button(m, MR_CC_SHIFT, 1), rfmv_shift_icons(m, ic), tap_step(m, 12), button(m, MR_CC_SHIFT, 0);
+        CHECK(ic[12] == 24);                            /* (its icon among the shortcuts) */
+    }
+    CHECK(nnotes_clip(m, 0) == 0 && rfmv_seq_trig(m, 0, 3, RFM_MOVE_TRIG_CHANCE) < 0 && m->seq.len[0] == 32);
+    CHECK(m->seq.msg == SEQ_MSG_CLIPCLEAR && !strcmp(rfmv_seq_msg_text(m), "Clip"));
+    press(m, MR_CC_UNDO);
+    CHECK(nnotes_clip(m, 0) == 2 && rfmv_seq_trig(m, 0, 3, RFM_MOVE_TRIG_CHANCE) == 50);
+}
+
 int main(void)
 {
     test_model();
@@ -2704,6 +2763,7 @@ int main(void)
     test_record();
     test_only_play_starts();
     test_loop_page_leds();
+    test_capture_playing();
     test_edits();
     test_scale_root();
     test_blob();

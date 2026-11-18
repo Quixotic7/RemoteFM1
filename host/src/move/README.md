@@ -151,7 +151,7 @@ its 8 columns through the 16 tracks.
 - **A tap** (a press shorter than `RFM_MOVE_SEQ_HOLD_MS`, 300 ms): on an empty step it puts the *last notes* (the
   last step entered or edited, the last pad chord, or the root) at the release; on a step with notes it clears them.
   A tap shows no popup.
-- **A hold** never clears a step. Holding a step with notes plays it once (a preview, on the track's channel); after
+- **A hold** never clears a step. Holding a step with notes plays it once (a preview, on the track's channel) when the transport is stopped (playing: nothing extra, the owner's); after
   300 ms its popup comes up. Holding an empty step leaves it empty: the pads pressed while it is held go into it.
   While a step is held: pads add or remove notes (up to 8); the volume knob sets the velocity; the jog wheel the
   length (2 ticks a detent; Shift: whole steps); Left / Right nudge (Shift: 1 tick); Up / Down transpose (Shift: an
@@ -227,7 +227,7 @@ the session grid and the LEDs). One clipboard for both:
 
 | Mode | Record |
 |---|---|
-| CAPTURE (default) | stopped: the owner's intentional capture. Record arms it (blinking); the first note played clears the selected clip, starts the transport and is its first step; the take records with micro timing; Record again ends it at the nearest bar line (just past one: there, at once; else the next), the clip as many pages as bars. Playing: Record records into the existing pages (as RECORD) |
+| CAPTURE (default) | playing, the clip empty (the owner's): Record records at once, from the bar line at or before the press (notes keep their place in the bar); Record again ends it at the nearest bar line, the clip that many pages long; a clip with steps records into it as before. Stopped: the owner's intentional capture. Record arms it (blinking); the first note played clears the selected clip, starts the transport and is its first step; the take records with micro timing; Record again ends it at the nearest bar line (just past one: there, at once; else the next), the clip as many pages as bars. Playing: Record records into the existing pages (as RECORD) |
 | RECORD | Move's: armed while stopped (no start); Play then gives a bar's count-in, then the transport; records into the selected track's clip |
 | STEP | Record toggles a cursor (a red step, a bar over it on screen): each note or chord played goes into the cursor's step, then the cursor moves a step on (the track's rate), round the loop |
 
@@ -296,6 +296,7 @@ Workflow 1-3, Tempo 1-2 (none while following), Groove 1-2, Layout 1, Keys & Sca
 | 9 Keys & Scales | menu: the jog or knob 1 the root, knob 2 the scale, knob 4 the layout. Knob 3: GLOBAL (the project's key and scale, the default; a new project starts with MIDI mode's) or TRACK (the track's own) |
 | 10 Velocity | menu, sticky (Back or Shift + step 10 closes it): the jog the option, DYNAMIC (as played), FIXED (every pad at the level; switching to it from another option sets the level to the last velocity played), SOFT (a light touch plays louder), LINEAR (the straight line: as played), HARD (it takes a firmer one); knob 1 the level 1..127 (FIXED's). The screen: the name big, the curve (played in, out), the level big with its bar (dotted while not FIXED). Every pad that plays goes through it, in every mode (MIDI notes, FM-1 keys, the sequencer's live notes, recordings and step entry). A setting (saved with the others), not the project's; its icon LED is full while FIXED |
 | 11 Repeat (arp) | menu: the track's arp, FIZZ's ARP (its defaults: 1/8, two octaves, QUANT 1/16). The jog turns its pages. Page 1: knobs PATTERN (UP .. AS PLAYED, 17), RATE (1/1 .. 1/64 of a bar, named as said: 1/16, triplets 1/16T, quintuplets 1/16Q), RANGE (octaves), CHANCE, MODE (OFF, ON, 1-ST, ONCE, HOLD), GATE, OCT DIST, QUANT (when a run starts: at once, or the next 1/n of the song's bars); the pattern's walk drawn. Pages 2 and 3: the MOD lane (x as played, . rest, - tie, R repeat, < lowest -oct, > highest +oct, " power chord, # every held note, 1..6 the n-th played) and the TRANSPOSE lane (-48..+48): knob 3 picks a lane step, knob 1 its value, knob 2 RESET (NORM, NOTE: a new note restarts it, MPAT / TPAT: as that lane comes round), knob 4 the lane's length. On, the track's pads play through it; recording, its notes go into the clip with their timing and length |
+| 13 Clear Clip | the clip cleared: its steps, locks and trigs (its length kept); "Clip Cleared"; one undo (the owner's; the Move's manual has nothing on step 13) |
 | 14 New Clip | the track's next empty slot gets a new clip, selected |
 | 15 Double Loop | double the loop |
 | 16 Quantize | the clip's micro timing quantized by the Workflow amount (100 %: on the grid) |

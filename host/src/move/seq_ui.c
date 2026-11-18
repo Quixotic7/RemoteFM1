@@ -26,7 +26,7 @@ static const rgb_t TRACK_RGB[RFM_MOVE_SEQ_TRACKS] = {
  * source), 3 Workflow Settings, 5 Tempo, 6 Metronome, 7 Groove, 8 Layout, 9 Keys & Scales, 10 Full Velocity (our Velocity menu),
  * 11 Repeat (our arp), 14 New Clip, 15 Double Loop, 16 Quantize */
 enum { SH_PROJECTS = 0, SH_CLOCK = 1, SH_WORKFLOW = 2, SH_TEMPO = 4, SH_METRO = 5, SH_GROOVE = 6, SH_LAYOUT = 7,
-       SH_KEYS = 8, SH_FIXVEL = 9, SH_ARP = 10, SH_NEWCLIP = 13, SH_DOUBLE = 14, SH_QUANT = 15 };
+       SH_KEYS = 8, SH_FIXVEL = 9, SH_ARP = 10, SH_CLEAR = 12, SH_NEWCLIP = 13, SH_DOUBLE = 14, SH_QUANT = 15 };
 static int sh_menu(int s)                               /* the menu a Shift + step opens, 0 none */
 {
     switch (s) {
@@ -52,7 +52,7 @@ void rfmv_shift_icons(const rfm_move_t *m, uint8_t icon[16])
         return;
     for (i = 0; i < RFM_MOVE_NSTEPS; i++) {
         const int job = i == SH_PROJECTS || i == SH_CLOCK || i == SH_FIXVEL || i == SH_DOUBLE || i == SH_QUANT ||
-                        i == SH_METRO || i == SH_NEWCLIP || sh_menu(i);
+                        i == SH_METRO || i == SH_NEWCLIP || i == SH_CLEAR || sh_menu(i);
         const int on = (i == SH_FIXVEL && m->s.vel_mode == RFM_MOVE_VEL_FIXED) || (i == SH_METRO && q->metro) || (i == SH_CLOCK && q->following) ||
                        (i == SH_PROJECTS && q->projects) || (sh_menu(i) && sh_menu(i) == q->smenu);
         icon[i] = (uint8_t)(!job ? 0 : on ? 127 : 24);
@@ -751,6 +751,21 @@ void rfmv_seq_step(rfm_move_t *m, int s, int down, uint32_t now)
                 rfmv_seq_msg(m, SEQ_MSG_NOCLIP);
             break;
         }
+        case SH_CLEAR: {                                /* Shift + step 13 (the owner's): the clip cleared (steps,
+                                                         * locks, trigs), its length kept; one undo */
+            int lo, hi;
+            rfmv_seq_group(m);
+            rfmv_seq_release(m, q->sel_track);
+            hi = rfmv_seq_clip_range(m, clip, &lo);
+            while (hi-- > lo)
+                rfmv_seq_note_del(m, clip, q->notes[hi].step, q->notes[hi].note);
+            hi = rfmv_seq_clip_lock_range(m, clip, &lo);
+            while (hi-- > lo)
+                rfmv_seq_lock_set(m, clip, q->locks[hi].step, q->locks[hi].cc, -1);
+            rfmv_seq_dirty(m);
+            rfmv_seq_msg(m, SEQ_MSG_CLIPCLEAR);
+            break;
+        }
         case SH_QUANT:
             rfmv_seq_group(m);
             rfmv_seq_clip_quantize(m, clip);
@@ -865,8 +880,9 @@ void rfmv_seq_step(rfm_move_t *m, int s, int down, uint32_t now)
                 rfmv_seq_tdef_apply(m, clip, abs, 1);
             if (put)
                 grow_to(m, clip, abs), entered(m, was);
-        } else if (hi > lo)
-            rfmv_seq_preview(m, clip, abs);             /* a step with notes: heard (a tap clears it at the release,
+        } else if (hi > lo && !running(q))
+            rfmv_seq_preview(m, clip, abs);             /* (stopped only, the owner's: playing, a held step adds
+                                                         * nothing) */             /* a step with notes: heard (a tap clears it at the release,
                                                          * an empty one is filled then: holding it leaves it for the
                                                          * pads) */
     }
@@ -1112,6 +1128,13 @@ int rfmv_seq_button(rfm_move_t *m, int cc, int down, uint32_t now)
                 q->steps_chord = 0;
             }
             return 1;
+        }
+        if (q->rec_mode == RFM_MOVE_RM_CAPTURE && !q->srec && !q->rec && running(q) && q->playing) {
+            int lo;
+            if (rfmv_seq_clip_range(m, edit_clip(m), &lo) == lo) {
+                rfmv_seq_srec_now(m);                   /* (playing, the clip empty: at once, from this bar) */
+                return 1;
+            }
         }
         if (q->rec_mode == RFM_MOVE_RM_CAPTURE && (q->srec || (!q->rec && !running(q)))) {
             rfmv_seq_sample(m);                         /* Capture, stopped: armed; recording: done at the bar */
@@ -1813,7 +1836,7 @@ void rfmv_seq_leds(const rfm_move_t *m, rgb_t c[L_WHITE0], uint8_t w[13])
                 v = rfmv_seq_src_page(m, clip, i) == 2 ? sc(RFMV_RED, bl ? 220 : 60) : sc(RFMV_WHITE, bl ? 256 : 30);
         } else if (q->mods & SEQ_M_SHIFT) {             /* the shortcuts */
             if (i == SH_PROJECTS || i == SH_CLOCK || i == SH_FIXVEL || i == SH_DOUBLE || i == SH_QUANT || sh_menu(i) ||
-                i == SH_METRO || i == SH_NEWCLIP)
+                i == SH_METRO || i == SH_NEWCLIP || i == SH_CLEAR)
                 v = sc(RFMV_WHITE, 96);
             if (sh_menu(i) && sh_menu(i) == q->smenu)
                 v = rfmv_mode_rgb[RFM_MOVE_MODE_SEQ];
@@ -1924,7 +1947,7 @@ static const struct { const char *a, *b; int8_t icon; } MSG[] = {
     { "Quantized", "", -1 }, { "Loop", "Doubled", -1 }, { "Ext Tempo", "", V2I_LOCK }, { "Duplicated", "", -1 },
     { "Cleared", "", -1 }, { "Capture", "Cleared", -1 }, { "Clock Auto", "", -1 }, { "Clock Int", "", -1 },
     { "Clock Ext", "", -1 }, { "Full Vel", "", V2I_VEL }, { "Pad Vel", "", V2I_VEL }, { "Click On", "", V2I_METRO },
-    { "Click Off", "", V2I_METRO }, { "New Clip", "", V2I_CLIP },
+    { "Click Off", "", V2I_METRO }, { "New Clip", "", V2I_CLIP }, { "Clip", "Cleared", -1 },
 };
 const char *rfmv_seq_msg_text(const rfm_move_t *m)
 {
