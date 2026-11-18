@@ -2,7 +2,7 @@
 // USE MY ABLETON MOVE: an Ableton Move running Move Remote (github.com/Quixotic7/abletonmoveremote) as the FM-1's
 // controller. Its pads, steps, buttons and knobs drive the page's panel (source SRC.MOVE) or the firmware's MIDI in,
 // and the page lights its pads and buttons from the FM-1's LEDs and draws its 128 x 64 screen. The mapping is the
-// portable C core rfm_move (host/src/move/README.md), in WebAssembly (js/move-core.js); this file is the protocol
+// portable C core rfm_move (rfm1cs-abletonmove, web/vendor/rfm1cs-abletonmove: its README.md), in WebAssembly (js/move-core.js); this file is the protocol
 // (Move Remote's docs/PROTOCOL.md: u16 len | u8 type | payload) and the page's side, modelled on js/omx-link.js.
 //
 // The link is a transport: { name, connect() -> Promise, send(Uint8Array) -> bool, onmessage(Uint8Array),
@@ -15,24 +15,28 @@
 // or stays unanswered offers the bridge on a button (a popup needs a click). ws:// from http and localhost pages, and
 // a wss:// address, go straight to the WebSocket as before.
 //
-// Session: HELLO (proto 1) -> the Move's HELLO; CONFIG audio clock off (no AUDIO messages: the page plays its own
-// sound); INPUT records -> the core -> actions; the core's changed LEDs out after each input and each LED change of
-// the FM-1 (LED_RGB / LED); the screen after a frame, an input or a label change, at most ~30 a second, and only when
-// it changed (DISPLAY). PING every second; nothing heard for 3 s (STATUS comes every 500 ms) and the link is lost.
+// Session (rfm1cs-abletonmove's session.h, in the core's WebAssembly module: the same C the native hosts run): HELLO
+// (proto 1) -> the Move's HELLO; CONFIG audio clock off (no AUDIO messages: the page plays its own sound); INPUT
+// records -> the core -> actions; the core's changed LEDs out after each input and each LED change of the FM-1
+// (LED_RGB / LED); the screen after a frame, an input or a label change, at most ~30 a second, and only when it
+// changed (DISPLAY). PING every second; nothing heard for 3 s (STATUS comes every 500 ms) and the link is lost.
 // Lost: everything the Move held is let go, and it connects again (1, 2, 4 s ...) while wanted. BYE: the exit
-// gesture or another host taking the Move ends it; a power off tries again.
+// gesture or another host taking the Move ends it; a power off tries again. This file moves the session's bytes
+// over the transport, keeps its timer, and shows its state; the framing helpers below (frame, Deframer, helloMsg,
+// parseHello, ledMsgs ..) are the protocol in JS for the tests' fake Move.
 //
-// The sequencer (Track 4; host/src/move/README.md): js/move-seq.js's SeqClock advances the core by the audio clock
+// The sequencer (Track 4; rfm1cs-abletonmove's README.md): js/move-seq.js's SeqClock advances the core by the audio clock
 // (site.audioNow()) every SEQ_MS and before each input, its MIDI timed into the worklet (site.midiIn(bytes, at)); the
 // firmware's MIDI out ("midiOut", with its frame) brings its MIDI clock in. When the sequencer stops, and on a
 // disconnect, a lost link or the page going, the timed queue is cut (site.midiCut()) and every note let go. Projects:
-// js/move-projects.js's store (IndexedDB), PROJECT_SAVE / LOAD / DELETE answered there; at start the store's slots
-// (projectDir) and the last project (prefs.moveProject) go to the core; the autosave flushed on disconnect and pagehide.
+// js/move-projects.js's store (IndexedDB) under the core's store (store.h: PROJECT_SAVE / LOAD / DELETE / CUT / COPY /
+// PASTE / COLOR as slot reads, writes and deletes); at start the store's slots (projectDir) and the last project
+// (prefs.moveProject) go to the core; the autosave flushed on disconnect and pagehide.
 import { h } from "./sheet.js";
 import { SRC, E, NB, labelToMatrix, roleToMatrix } from "./panel.js";
-import { lean, MODE_NAMES } from "./move-core.js";
+import { lean, MODE_NAMES, STATE, WHY, CH, STORE_PENDING } from "./move-core.js";
 import { SeqClock } from "./move-seq.js";
-import { MoveProjects, unpackFile, packFile, projectName, fileName, SET_NAME, firstFree, validSlot, dirBits, SLOTS, EXT_ONE, EXT_SET, MAX_FILE, withColor } from "./move-projects.js";
+import { MoveProjects, unpackFile, packFile, projectName, fileName, SET_NAME, firstFree, validSlot, dirBits, SLOTS, EXT_ONE, EXT_SET, MAX_FILE } from "./move-projects.js";
 
 // ---- the protocol (include/moveremote/proto.h)
 export const MR = {
@@ -270,6 +274,9 @@ export class MoveLink {
   //         Promise<MoveCore>, transport(url) -> transport (default MoveWebSocket), now(), timers, location, onActive,
   //         projects (a MoveProjects store; default IndexedDB's), WebSocket (the constructor), window (open(),
   //         message events: the bridge window) }
+  // The link's logic (HELLO, CONFIG, pings, silence, retries, BYE, the LEDs, the screen's pacing, letting go) is the
+  // core's session (rfm1cs-abletonmove's session.h, in the same WebAssembly module); this class moves its bytes over
+  // the transport, keeps its one timer (sessNextMs), and turns its events into the page's.
   constructor(opts) {
     this.o = opts;
     this.now = opts.now || (() => performance.now());
@@ -278,39 +285,82 @@ export class MoveLink {
     this.win = opts.window !== undefined ? opts.window : globalThis;
     this.makeTransport = opts.transport || ((url) => new MoveWebSocket(url, opts.WebSocket || globalThis.WebSocket));
     this.via = "direct"; this.bw = null; this.offer = false; this.gen = 0;   // (the bridge window, and its button)
-    this.core = null; this.t = null; this.hello = null; this.status = null;
-    this.want = false; this.live = false; this.everLive = false; this.retries = 0;
+    this.core = null; this.t = null; this.pre = null;
+    this.want = false; this.wasLive = false; this.why = ""; this.whyCode = 0; this.closeWhy = "";
     this.tone = "off"; this.detail = "Not connected."; this.subs = new Set();
-    this.deframer = new Deframer();
-    this.timers = { hello: 0, ping: 0, retry: 0, screen: 0, seq: 0 };
+    this.timers = { sess: 0, seq: 0 };
     this.store = opts.projects || new MoveProjects();
     this.seq = new SeqClock({ advance: (n, r) => this.core.seqAdvance(n, r), midiIn: (b) => this.core.seqMidiIn(b), emit: (a, at) => this.apply(a, at) });
     this.wasPlaying = false; this.seqKey = ""; this.projSubs = new Set(); this.projList = []; this.coreP = null;
-    this.lastRx = 0; this.token = 0;
-    this.px = null; this.dirty = false; this.lastShot = -1e9; this.shown = null;
+    this.px = null; this.sent = 0;
     this.labels = null; this.keymap = null;
-    this.stats = { ledWrites: 0, ledMsgs: 0, screens: 0, inputs: 0, pings: 0, pongs: 0, sent: 0 };
     const s = opts.site;
     s.on("leds", (levels, green) => this.onLeds(levels, green));
-    s.on("frame", (px) => { this.px = px; this.screenSoon(); });
+    s.on("frame", (px) => { this.px = px; if (this.core && this.want) this.sess((c, now) => c.sessFrame(now, px)); });
     s.on("info", (info) => this.onInfo(info));
-    s.on("firmware", () => { const sc = s.screen(); this.px = sc.pixels; this.onInfo(s.current().info); this.screenSoon(); });
-    s.on("loopLevels", (peaks) => { if (this.live && this.core && this.core.sampleLevels(peaks) > 0) this.screenSoon(); });   // (Sample's waveform)
-    s.on("midiOut", (bytes, frame) => { if (this.live && this.core) { this.seq.clock(bytes, frame); this.afterSeq(); } });
+    s.on("firmware", () => { const sc = s.screen(); this.px = sc.pixels; this.onInfo(s.current().info); if (this.core && this.want) this.sess((c, now) => c.sessFrame(now, this.px)); });
+    s.on("loopLevels", (peaks) => { if (this.live && this.core.sampleLevels(peaks) > 0) this.sess((c, now) => c.sessRedraw(now)); });   // (Sample's waveform)
+    s.on("midiOut", (bytes, frame) => { if (this.live) { this.seq.clock(bytes, frame); this.sess((c, now) => c.sessUpdate(now)); } });
     if (typeof addEventListener === "function") addEventListener("pagehide", () => { this.flush(); this.release(); if (this.t) this.t.close(); this.closeBridge(); });
   }
   on(cb) { this.subs.add(cb); return () => this.subs.delete(cb); }
   url() { return normalizeUrl(this.o.prefs.moveUrl || DEFAULT_URL); }
+  get st() { return this.core ? this.core.sessStatus() : null; }
+  get live() { return !!(this.core && this.core.sessStatus().live); }
+  // what the tests and the page read: the session's counters, the Move's STATUS, the last screen sent
+  get stats() {
+    const st = this.st;
+    return { ledWrites: st ? st.ledWrites : 0, ledMsgs: st ? st.ledMsgs : 0, screens: st ? st.screens : 0, inputs: st ? st.inputs : 0,
+      pings: st ? st.pings : 0, pongs: st ? st.pongs : 0, sent: this.sent };
+  }
+  get status() { const st = this.st; return st && st.battery >= 0 ? { battery: st.battery, power: st.power, jacks: st.jacks, ledPending: st.ledPending } : null; }
+  get shown() { return this.core ? this.core.sessShown() : null; }
+  moveName() { return this.core ? this.core.sessName() : ""; }
   view() {
-    return { tone: this.tone, detail: this.detail, want: this.want, active: this.live, url: this.url(),
-      link: this.t ? this.t.name : "", via: this.hello ? MR.VIA[this.hello.via] || "" : "", name: this.hello ? this.hello.name : "",
-      mode: this.core && this.live ? MODE_NAMES[this.core.state().mode] : "",
-      clock: this.core && this.live ? (this.core.following() ? "firmware" : "INT") : "", bpm10: this.core && this.live ? this.core.bpm10() : 0,
-      playing: !!(this.core && this.live && this.core.playing()), project: this.core ? this.core.projectSlot() : -1,
+    const st = this.st, live = !!(st && st.live);
+    return { tone: this.tone, detail: this.detail, want: this.want, active: live, url: this.url(),
+      link: this.t ? this.t.name : "", via: live ? MR.VIA[st.via] || "" : "", name: live ? this.moveName() : "",
+      mode: live ? MODE_NAMES[this.core.state().mode] : "",
+      clock: live ? (this.core.following() ? "firmware" : "INT") : "", bpm10: live ? this.core.bpm10() : 0,
+      playing: !!(live && this.core.playing()), project: this.core ? this.core.projectSlot() : -1,
       bridge: this.offer };                 // (show "Open the bridge window")
   }
   set(tone, detail) { this.tone = tone; this.detail = detail; for (const cb of this.subs) cb(this.view()); }
   changed() { if (this.o.onActive) this.o.onActive(this.live); }
+
+  // ---- the session: a call into it, its events handled in order, its timer armed again
+  sess(fn) {
+    if (!this.core) return 0;
+    const now = Math.max(0, Math.floor(this.now()));
+    const r = fn(this.core, now);
+    for (const ev of r.evs) this.event(ev);
+    this.arm();
+    return r.res;
+  }
+  arm() {
+    if (!this.core) return;
+    this.T.clearTimeout(this.timers.sess); this.timers.sess = 0;
+    const ms = this.core.sessNextMs(Math.max(0, Math.floor(this.now())));
+    if (ms >= 0) this.timers.sess = this.T.setTimeout(() => { this.timers.sess = 0; this.sess((c, now) => c.sessTick(now)); }, ms);
+  }
+  event(ev) {
+    switch (ev.type) {
+      case "send": this.send(ev.bytes); return;
+      case "open": this.openTransport(ev.attempt); return;
+      case "close": { const t = this.t; this.t = null; if (t) { t.onmessage = null; t.onclose = null; t.close(); } return; }
+      case "action": this.apply([ev.act]); return;
+      case "released":
+        if (this.o.site.midiCut) this.o.site.midiCut();
+        this.wasPlaying = false;
+        this.seq.reset();
+        this.o.controls.releaseSrc(SRC.MOVE);
+        return;
+      case "lost": this.onLost(ev.why, ev.wasLive); return;
+      case "bye": this.onBye(ev.reason, ev.wasLive); return;
+      case "status": this.onStatus(ev.changed); return;
+      case "loaded": if (!ev.ok) this.o.toast(`${projectName(ev.slot)} could not be read.`, "bad"); return;
+    }
+  }
 
   // from a click (url: the address field; how.click: called in the click, so the bridge window may open), or by itself
   // at load where it was connected before (auto). Everything up to window.open() runs synchronously, in the click.
@@ -320,7 +370,7 @@ export class MoveLink {
     this.want = true;                       // (before stop(): a bridge window still open is kept for this try)
     this.stop();
     const gen = ++this.gen;
-    this.everLive = false; this.retries = 0; this.offer = false; this.via = "direct";
+    this.offer = false; this.via = "direct";
     if (!this.o.prefs.moveAuto) this.o.prefs.moveAuto = true;
     this.o.save();
     let pre = null;
@@ -338,7 +388,7 @@ export class MoveLink {
       this.set("busy", `Connecting to ${hostOf(u)}...`);
     }
     if (!(await this.coreReady(gen))) { if (pre) pre.close(); return; }
-    this.open(u, pre);
+    this.begin(pre);
   }
   // from a click on "Open the bridge window"
   openBridge() {
@@ -346,7 +396,7 @@ export class MoveLink {
     this.want = true;
     this.stop();
     const gen = ++this.gen;
-    this.everLive = false; this.retries = 0; this.offer = false;
+    this.offer = false;
     if (!this.o.prefs.moveAuto) { this.o.prefs.moveAuto = true; this.o.save(); }
     return this.viaBridge(u, true, gen);
   }
@@ -359,7 +409,14 @@ export class MoveLink {
     }
     this.set("busy", `Connecting to ${hostOf(u)} through the bridge window (keep it open)...`);
     if (!(await this.coreReady(gen))) return;
-    this.open(u);
+    this.begin(null);
+  }
+  // the session started (its first try opens the transport: openTransport)
+  begin(pre) {
+    this.pre = pre;
+    // tries before the first connection: from https, direct, one (then the bridge is offered); else three
+    this.core.sessGiveUp(this.via === "direct" && this.mayBlock(this.url()) ? 0 : 2);
+    this.sess((c, now) => c.sessStart(now));
   }
   async coreReady(gen) {
     try { await this.ensureCore(); }
@@ -402,6 +459,9 @@ export class MoveLink {
     if (!this.coreP) {
       this.coreP = (async () => {
         const core = await this.o.core(fromB64(this.o.prefs.move));
+        core.sessHostName(HOST_NAME);
+        core.setStoreHost({ read: (slot) => this.storeRead(slot), write: (slot, bytes) => { this.projSave(slot, bytes); return 0; },
+          remove: (slot) => { this.projDelete(slot); return 0; } });
         this.core = core;
         this.applyLabels(); core.setKeymap(this.keymap);
         await this.initProjects();
@@ -411,13 +471,12 @@ export class MoveLink {
     return this.coreP;
   }
   async initProjects() {
-    const core = this.core, recs = await this.store.list();
-    core.projectDir(dirBits(recs));
+    const core = this.core, recs = await this.store.list(), bits = dirBits(recs);
+    core.projectDir(bits); core.storeInit(bits);
     for (const r of recs) core.projectInfo(r.slot, r.bytes);   // (what the project grid draws of each)
     const last = validSlot(this.o.prefs.moveProject) ? this.o.prefs.moveProject : 0, rec = recs.find((r) => r.slot === last);
-    let acts = core.projectLoad(last, rec ? rec.bytes : null);
-    if (acts === null) { acts = core.projectLoad(last, null); this.o.toast(`${projectName(last)} could not be read: it starts empty (the stored copy is kept until it is saved over).`, "bad"); }
-    this.apply(acts || []);
+    if (this.sess((c, now) => c.sessProjectsInit(now, bits, last, rec ? rec.bytes : null)) < 0)
+      this.o.toast(`${projectName(last)} could not be read: it starts empty (the stored copy is kept until it is saved over).`, "bad");
     this.projList = recs;
     this.projChanged();
   }
@@ -428,193 +487,134 @@ export class MoveLink {
     this.stop();
     this.set("off", "Not connected.");
   }
-  // the transport and timers gone, everything held let go (the project saved first, if it changed); no longer wanted:
-  // the bridge window closed too
+  // the session stopped (the project saved first, if it changed; the transport closed; everything held let go), the
+  // timers gone; no longer wanted: the bridge window closed too
   stop() {
-    this.flush();
+    const was = this.wasLive;
+    if (this.core) this.sess((c, now) => c.sessStop(now));
+    else if (this.t) { const t = this.t; this.t = null; t.onmessage = null; t.onclose = null; t.close(); }
+    this.pre = null;
     for (const k of Object.keys(this.timers)) { this.T.clearTimeout(this.timers[k]); this.T.clearInterval(this.timers[k]); this.timers[k] = 0; }
-    const t = this.t;
-    this.t = null;
-    if (t) { t.onmessage = null; t.onclose = null; t.close(); }
-    const was = this.live;
-    this.live = false; this.hello = null;
-    this.release();
+    this.wasLive = false;
     if (!this.want) this.closeBridge();
     if (was) this.changed();
   }
-  release() {
-    if (this.core) this.apply(this.core.releaseAll());
-    if (this.o.site.midiCut) this.o.site.midiCut();
-    this.wasPlaying = false;
-    this.seq.reset();
-    this.o.controls.releaseSrc(SRC.MOVE);
-  }
-  flush() { if (this.core) this.apply(this.core.projectFlush()); }
+  release() { if (this.core) this.sess((c, now) => c.sessRelease(now)); }
+  flush() { if (this.core) this.sess((c, now) => c.sessFlush(now)); }
 
-  // pre: the WebSocket transport connect() already started (https)
-  open(u, pre) {
+  // the session asks for the transport (a first try or a retry: attempt, its id, goes back with the transport's calls)
+  openTransport(attempt) {
+    const u = this.url();
     let t;
     if (this.via === "bridge") {
       const bw = this.bridgeWindow(u, false);
       if (!bw) { this.bridgeGone(); return; }
       t = new MoveBridge(bw, { window: this.win, timers: this.T });
-    } else t = pre || this.makeTransport(u);
+    } else t = this.pre || this.makeTransport(u);
+    this.pre = null;
     this.t = t;
-    this.deframer.reset();
-    t.onmessage = (b) => { if (this.t === t) this.rx(b); };
-    t.onclose = (why) => { if (this.t === t) this.lost(why); };
+    // the FM-1's LEDs, MASTER and screen as they are now (the session paints them on the Move's HELLO)
+    const lv = this.o.site.leds();
+    this.core.panel(lv.levels, lv.playGreen);
+    this.core.setMaster(this.o.controls.master);
+    this.px = this.o.site.screen().pixels;
+    this.sess((c, now) => c.sessFrame(now, this.px));
+    t.onmessage = (b) => { if (this.t === t) this.rx(b, attempt); };
+    t.onclose = (why) => { if (this.t === t) { this.closeWhy = why; this.sess((c, now) => c.sessClosed(now, attempt, 0)); } };
     // https, direct: a socket still opening may be the browser asking about local network devices; it is left to
-    // open, and the bridge offered meanwhile
+    // open (patient), and the bridge offered meanwhile
     const askable = this.via === "direct" && this.mayBlock(u);
-    let opened = false, waited = false;
-    const timeout = () => {
-      this.timers.hello = 0;
-      if (this.t !== t || this.live) return;
-      if (askable && !opened) {
-        waited = true; this.offer = true;
-        this.set("busy", `No answer from ${hostOf(u)} yet. Allow local network devices if the browser asks, or open the bridge window.`);
-        return;
-      }
-      this.lost(`no answer from ${hostOf(u)}`);
-    };
-    this.timers.hello = this.T.setTimeout(timeout, t.waitMs || HELLO_MS);
+    this.core.sessWait(Math.max(0, Math.floor(this.now())), t.waitMs || HELLO_MS, askable);
+    this.arm();
     Promise.resolve().then(() => t.connect()).then(() => {
       if (this.t !== t) { t.close(); return; }
-      opened = true;
-      if (waited) { this.offer = false; this.set("busy", `Connecting to ${hostOf(u)}...`); this.timers.hello = this.T.setTimeout(timeout, HELLO_MS); }
-      this.lastRx = this.now();
-      this.send(helloMsg());
+      this.sess((c, now) => c.sessOpened(now, attempt));
     }, (e) => {
       if (this.t !== t) return;
       if (e && e.final) { this.want = false; this.stop(); this.offer = this.via === "bridge"; this.set("bad", e.message); return; }
-      this.lost(e && e.message ? e.message : "no answer");
+      this.closeWhy = e && e.message ? e.message : "no answer";
+      this.sess((c, now) => c.sessClosed(now, attempt, 0));
     });
   }
-  send(bytes) { if (this.t && this.t.send(bytes)) { this.stats.sent++; return true; } return false; }
-
-  // the link went: let go, and try again while wanted
-  lost(why) {
-    const was = this.live, name = this.hello ? this.hello.name || "The Move" : "The Move";
-    this.stop();
-    if (was) this.o.toast(`${name}: link lost (${why}).`, "bad");
-    if (!this.want) return;
+  send(bytes) { if (this.t && this.t.send(bytes)) { this.sent++; return true; } return false; }
+  // the words the session's C gives every host (session.h rfm1cs_status_text ..): the address shown, the transport's
+  // own words for a close, its name
+  words() { return { host: hostOf(this.url()), closed: this.closeWhy, link: this.t ? this.t.name : "" }; }
+  whyText(why) { return this.core.whyText(why, this.words()); }
+  // the link went (the session let everything go and closed the transport); it tries again while wanted
+  onLost(why, wasLive) {
+    this.why = this.whyText(why); this.whyCode = why;
+    this.T.clearInterval(this.timers.seq); this.timers.seq = 0;
+    if (wasLive) this.o.toast(this.core.lostText(why, wasLive, this.words()), "bad");
+    if (this.wasLive) { this.wasLive = false; this.changed(); }
+    if (!this.want || why === WHY.PROTO) return;
     if (this.via === "bridge" && !this.bridgeOpen()) { this.bridgeGone(); return; }   // (only a click opens it again)
-    if (this.via === "direct" && !this.everLive && this.mayBlock(this.url())) {
-      this.want = false; this.offer = true;
-      this.set("bad", `${cap(why)}. From this https page, try the bridge window.`);
-      return;
-    }
-    if (!this.everLive && this.retries >= 2) {
-      this.want = false; this.closeBridge();
-      this.set("bad", `${cap(why)}. Is Move Remote running on the Move, and is ${hostOf(this.url())} its address? Over USB-C it is ${MR.USB_ADDR}.`);
-      return;
-    }
-    const ms = RETRY_MS[Math.min(this.retries, RETRY_MS.length - 1)];
-    this.retries++;
-    this.set("busy", `${cap(why)}: trying again in ${Math.round(ms / 1000)} s...`);
-    this.timers.retry = this.T.setTimeout(() => { this.timers.retry = 0; if (this.want && !this.t) this.open(this.url()); }, ms);
-  }
-
-  // ---- the Move's messages
-  rx(bytes) {
-    this.lastRx = this.now();
-    const msgs = this.deframer.push(bytes);
-    if (!msgs) { this.lost("a message the page doesn't understand"); return; }
-    for (const m of msgs) {
-      if (!this.t) return;
-      this.message(m.type, m.payload);
+    if (this.via === "direct" && !this.core.sessStatus().everLive && this.mayBlock(this.url())) {
+      this.want = false; this.offer = true; this.stop();
+      this.set("bad", `${cap(this.why)}. From this https page, try the bridge window.`);
     }
   }
-  message(type, p) {
-    if (type === MR.D_HELLO) return this.onHello(parseHello(p));
-    if (type === MR.D_BYE) return this.onBye(p.length ? p[0] : 0);
-    if (type === MR.D_PONG) { this.stats.pongs++; return; }
-    if (type === MR.D_STATUS) {
-      if (p.length < 32) return;
-      this.status = { battery: p[4], power: p[5], jacks: p[6], ledPending: u16(p, 24) };
-      if (this.core && this.core.setBattery(p[4], p[5])) this.screenSoon();   // (the Global Settings menu shows it)
-      return;
-    }
-    if (type !== MR.D_INPUT || !this.live) return;
-    this.pump();
-    const c = this.o.controls, now = this.now() >>> 0;
-    for (let i = 0; i + 8 <= p.length; i += 8) {
-      this.stats.inputs++;
-      this.core.setMaster(c.master);
-      this.apply(this.core.input(u32(p, i + 4), u32(p, i), now));
-    }
-    this.afterSeq();
-    this.flushLeds();
-    this.dirty = true;
-    this.screenSoon();
+  onBye(reason, wasLive) {
+    this.want = false;
+    this.stop();
+    const { tone, text } = this.core.byeText(reason, wasLive);
+    this.set(tone, text);
+    this.o.toast(text);
   }
-  // ---- the sequencer's clock: the core advanced to the audio clock (or the wall clock while no audio runs)
-  audioNow() { const a = this.o.site.audioNow ? this.o.site.audioNow() : null; return a || { ms: this.now() }; }
-  pump() {
-    if (!this.live || !this.core) return;
-    this.seq.pump(this.audioNow());
-    const lu = this.seq.rate ? Math.round((this.seq.lead / this.seq.rate) * 1e6) : 0;   // (recordings: where it was heard)
-    if (lu !== this.leadUs) { this.leadUs = lu; this.core.setLead(lu); }
-    this.afterSeq();
-    this.flushLeds();
-    if (this.wasPlaying || this.core.state().mode === 3 || this.timedScreen) this.screenSoon();   // (the playhead, blinks, popups)
-    this.timedScreen = this.core.screenTimed();         // (one more draw after a popup drops)
-  }
-  // after the core moved: a stop cuts the timed notes; the status follows the clock source and tempo; the open project
-  afterSeq() {
-    if (!this.core) return;
-    const playing = this.core.playing();
-    if (this.wasPlaying && !playing && this.o.site.midiCut) this.o.site.midiCut();
-    this.wasPlaying = playing;
-    const cur = this.core.projectSlot();
+  onStatus(changed) {
+    const st = this.core.sessStatus();
+    if (changed & CH.STATE) {
+      if (st.state === STATE.CONNECTED) this.onConnected();
+      else if (st.state === STATE.RETRYING && this.want) { const t = this.core.sessText(this.words()); this.set(t.tone, t.text); }
+      else if (st.state === STATE.FAILED && this.want) {
+        const t = this.core.sessText(this.words());     // (before stop(): the words are FAILED's)
+        this.want = false;
+        if (this.whyCode === WHY.PROTO) this.stop(); else this.closeBridge();
+        this.set(t.tone, t.text);
+      }
+    }
+    if ((changed & CH.WAITING) && st.state === STATE.CONNECTING) {
+      const t = this.core.sessText(this.words());
+      if (st.waiting) { this.offer = true; this.set(t.tone, `${t.text} Allow local network devices if the browser asks, or open the bridge window.`); }
+      else { this.offer = false; this.set(t.tone, t.text); }
+    }
+    // the sequencer: a stop cuts the timed notes; the open project kept; the status follows the clock and tempo
+    if (this.wasPlaying && !st.playing && this.o.site.midiCut) this.o.site.midiCut();
+    this.wasPlaying = st.playing;
+    const cur = st.project;
     if (validSlot(cur) && cur !== this.o.prefs.moveProject) { this.o.prefs.moveProject = cur; this.o.save(); this.projChanged(); }
     const v = this.view(), key = `${v.clock}|${v.bpm10}|${v.playing}`;
     if (key !== this.seqKey) { this.seqKey = key; for (const cb of this.subs) cb(v); }
   }
-  onHello(hl) {
-    if (!hl) return this.lost("not a Move Remote answer");
-    if (hl.proto !== MR.PROTO) { this.want = false; this.stop(); this.set("bad", `The Move speaks Move Remote protocol ${hl.proto}; this page speaks ${MR.PROTO}. Update one of them.`); return; }
-    this.T.clearTimeout(this.timers.hello); this.timers.hello = 0;
-    this.hello = hl;
-    const first = !this.live;
-    this.live = true; this.everLive = true; this.retries = 0;
-    this.send(configMsg(MR.CFG_AUDIO_CLOCK, 0));          // (no AUDIO every 6 ms: the page plays its own sound)
-    this.core.ledsInvalidate();
-    this.shown = null;
-    const lv = this.o.site.leds();
-    this.core.panel(lv.levels, lv.playGreen);
-    this.core.setMaster(this.o.controls.master);
-    this.flushLeds();
-    const sc = this.o.site.screen();
-    this.px = sc.pixels; this.dirty = true; this.lastShot = -1e9;
-    this.screenSoon();
-    this.T.clearInterval(this.timers.ping);
-    this.timers.ping = this.T.setInterval(() => this.heartbeat(), PING_MS);
+  onConnected() {
+    const first = !this.wasLive, name = this.moveName();
+    this.wasLive = true;
     this.T.clearInterval(this.timers.seq);
     this.seq.reset();
     this.timers.seq = this.T.setInterval(() => this.pump(), SEQ_MS);
-    this.set("on", `${hl.name || "Move"} connected${hl.via in MR.VIA ? " over " + MR.VIA[hl.via] : ""} (${this.t.name}): ${MODE_NAMES[this.core.state().mode]} mode. Track 1..4 pick the mode.`);
-    if (first) { this.o.toast(`${hl.name || "The Move"} is the FM-1's controller now.`, "ok"); this.changed(); }
+    const t = this.core.sessText(this.words());
+    this.set(t.tone, t.text);
+    if (first) { this.o.toast(`${name || "The Move"} is the FM-1's controller now.`, "ok"); this.changed(); }
   }
-  onBye(reason) {
-    const name = this.hello ? this.hello.name || "The Move" : "The Move";
-    if (reason === BYE.SHUTDOWN) { this.lost("the Move is powering off"); return; }
-    this.want = false;
-    this.stop();
-    const why = reason === BYE.EXIT ? `${name} left Move Remote (its exit gesture).` : reason === BYE.REPLACED ? `Another host took ${name} over.`
-      : reason === BYE.PROTOCOL ? `${name} closed the link: a protocol error.` : `${name} closed the link.`;
-    this.set(reason === BYE.PROTOCOL ? "bad" : "off", why);
-    this.o.toast(why);
+
+  // ---- the Move's bytes: the sequencer brought up to the audio clock first (its input lands in the core's timeline)
+  rx(bytes, attempt) {
+    this.pump();
+    if (this.core) this.core.setMaster(this.o.controls.master);
+    this.sess((c, now) => c.sessRx(now, attempt, bytes));
   }
-  heartbeat() {
+  // ---- the sequencer's clock: the core advanced to the audio clock (or the wall clock while no audio runs)
+  audioNow() { const a = this.o.site.audioNow ? this.o.site.audioNow() : null; return a || { ms: this.now() }; }
+  pump() {
     if (!this.live) return;
-    if (this.now() - this.lastRx > SILENT_MS) { this.lost("the Move went quiet"); return; }
-    this.stats.pings++;
-    this.send(pingMsg(++this.token, this.now()));
+    this.seq.pump(this.audioNow());
+    const lu = this.seq.rate ? Math.round((this.seq.lead / this.seq.rate) * 1e6) : 0;   // (recordings: where it was heard)
+    if (lu !== this.leadUs) { this.leadUs = lu; this.core.setLead(lu); }
+    this.sess((c, now) => c.sessPumped(now));           // (the status, the LEDs, the playhead / blinks / popups)
   }
 
   // ---- the core's actions onto the page; at: the absolute audio frame the sequencer's actions are due at (a.frame
-  // after it), or undefined / null: now
+  // after it), or undefined / null: now. The project actions go to the store (rfm1cs's store.h, IndexedDB's slots).
   apply(acts, at) {
     const c = this.o.controls;
     for (const a of acts) {
@@ -629,20 +629,7 @@ export class MoveLink {
       else if (a.kind === "turn") c.turn(MATRIX_TO_ROLE[a.enc], a.steps);
       else if (a.kind === "master") this.o.mapAct({ kind: "master", value: a.value });
       else if (a.kind === "settings") this.keep();
-      else if (a.kind === "projectSave") this.projSave(a.slot, a.bytes);
-      else if (a.kind === "projectLoad") this.projLoad(a.slot);
-      else if (a.kind === "projectDelete") this.projDelete(a.slot);
-      else if (a.kind === "projectCut" || a.kind === "projectCopy") {   // projects mode: into the page's buffer (a cut:
-        const slot = a.slot;                                              // then gone from the store; the store's queue keeps the order)
-        this.store.get(slot).then((r) => { if (r) this.projBuf = r.bytes; });
-        if (a.kind === "projectCut") this.projDelete(slot);
-      } else if (a.kind === "projectPaste") {
-        const slot = a.slot;                                              // (the buffer's get is queued before this put)
-        this.store.get(-1).then(() => this.projBuf ? this.projSave(slot, this.projBuf) : null);
-      } else if (a.kind === "projectColor") {
-        const { slot, color } = a;
-        this.store.get(slot).then((r) => (r ? this.projSave(slot, withColor(r.bytes, color)) : null));
-      }
+      else if (/^project/.test(a.kind)) this.sess((core, now) => core.storeAction(now, a));
       else if (a.kind === "click") { if (this.o.site.click) this.o.site.click(typeof at === "number" ? at + (a.frame || 0) : null, a.accent); }
       else if (a.kind === "audioRec") {   // Sample: a loop of whole bars, from a bar line to a bar line (worklet frames)
         if (this.o.site.loopRec) this.o.site.loopRec(a.on, typeof at === "number" ? at + (a.frame || 0) : null, a.bars, this.core.bpm10());
@@ -650,18 +637,13 @@ export class MoveLink {
     }
   }
 
-  // ---- projects (the core asks; the store answers)
+  // ---- projects: the store's slot I/O on IndexedDB (in order: its queue), the reads answered later
+  storeRead(slot) {
+    this.store.get(slot).then((r) => this.sess((c, now) => c.storeAnswer(now, slot, r ? r.bytes : null)));
+    return STORE_PENDING;
+  }
   projSave(slot, bytes) {
     return this.store.put(slot, bytes).then(() => this.refreshProjects(), (e) => { this.o.toast(`The Move's ${projectName(slot)} was not kept: ${e.message || e}.`, "bad"); });
-  }
-  projLoad(slot) {
-    return this.store.get(slot).then((rec) => {
-      if (!this.core) return;
-      let acts = this.core.projectLoad(slot, rec ? rec.bytes : null);
-      if (acts === null) { this.o.toast(`${projectName(slot)} could not be read.`, "bad"); acts = []; }
-      this.apply(acts);
-      this.afterSeq(); this.flushLeds(); this.screenSoon();
-    });
   }
   projDelete(slot) { return this.store.remove(slot).then(() => this.refreshProjects(), () => this.refreshProjects()); }
   onProjects(cb) { this.projSubs.add(cb); return () => this.projSubs.delete(cb); }
@@ -669,7 +651,8 @@ export class MoveLink {
   async refreshProjects() {
     this.projList = await this.store.list();
     if (this.core) {
-      this.core.projectDir(dirBits(this.projList));
+      const bits = dirBits(this.projList);
+      this.core.projectDir(bits); this.core.storeInit(bits);
       for (const r of this.projList) this.core.projectInfo(r.slot, r.bytes);
     }
     this.projChanged();
@@ -686,7 +669,7 @@ export class MoveLink {
     await this.store.chain;
     const recs = await this.store.list(), pick = slot === undefined ? recs : recs.filter((r) => r.slot === slot);
     if (!pick.length) return null;
-    return { name: slot === undefined ? SET_NAME : fileName(slot), bytes: packFile(pick, slot === undefined ? 2 : 1) };
+    return { name: slot === undefined ? SET_NAME : fileName(slot), bytes: packFile(await this.ensureCore(), pick, slot === undefined ? 2 : 1) };
   }
   // Import a file's bytes: a single project into `slot` (or the first free one; -1 / undefined), a set into its own
   // slots. Every project is checked by the core first; nothing is stored unless all are good. Returns the slots
@@ -694,7 +677,7 @@ export class MoveLink {
   async importFile(bytes, slot) {
     if (!bytes || bytes.length > MAX_FILE) throw new Error(`Not a Move project file: ${bytes ? `it is ${bytes.length} bytes, more than a full set` : "nothing to read"}.`);
     const core = await this.ensureCore();
-    const f = unpackFile(bytes, (b) => core.projectCheck(b));
+    const f = unpackFile(core, bytes);
     const recs = await this.store.list(), used = dirBits(recs);
     let todo = f.entries;
     if (f.kind === 1) {
@@ -704,13 +687,13 @@ export class MoveLink {
     }
     for (const e of todo) await this.store.put(e.slot, e.bytes, new Date().toISOString());
     const cur = core.projectSlot(), mine = todo.find((e) => e.slot === cur);
-    if (mine) { const acts = core.projectLoad(cur, mine.bytes); if (acts) this.apply(acts); this.afterSeq(); this.flushLeds(); this.screenSoon(); }
+    if (mine) this.sess((c, now) => c.sessProjectAnswer(now, cur, mine.bytes));
     await this.refreshProjects();
     return todo.map((e) => e.slot);
   }
   async deleteProject(slot) {
     await this.store.remove(slot);
-    if (this.core && this.core.projectSlot() === slot) { const acts = this.core.projectLoad(slot, null); if (acts) this.apply(acts); this.afterSeq(); this.flushLeds(); this.screenSoon(); }
+    if (this.core && this.core.projectSlot() === slot) this.sess((c, now) => c.sessProjectAnswer(now, slot, null));
     await this.refreshProjects();
   }
   keep() {
@@ -721,57 +704,26 @@ export class MoveLink {
     if (this.live) this.set(this.tone, this.detail.replace(/: [^:]* mode\./, `: ${MODE_NAMES[this.core.state().mode]} mode.`));
   }
 
-  // ---- what it shows
+  // ---- what it shows (the session sends only what changed: LEDs at once, the screen at most every SCREEN_MS)
   onLeds(levels, green) {
     if (!this.core) return;
-    this.core.panel(levels, green);
-    this.flushLeds();
+    this.sess((c, now) => c.sessPanel(now, levels, green));
   }
   onInfo(info) {
     this.keymap = info && Array.isArray(info.keymap) ? info.keymap : null;
     if (!this.core) return;
     this.core.setKeymap(this.keymap);
-    this.flushLeds();
-  }
-  flushLeds() {
-    if (!this.live) return;
-    for (let i = 0; i < 4; i++) {           // (rfm_move_leds gives every due one: one pass is enough, a few at most)
-      const leds = this.core.leds();
-      if (!leds.length) return;
-      this.stats.ledWrites += leds.length;
-      for (const m of ledMsgs(leds)) { this.stats.ledMsgs++; this.send(m); }
-    }
+    this.sess((c, now) => c.sessFlushLeds(now));
   }
   // the firmware's knob labels (panel.js panelLabels().knobs: by role, 8, null = the printed name)
   setLabels(knobs) {
     this.labels = Array.isArray(knobs) ? knobs.slice(0, 8) : null;
     if (!this.core) return;
     this.applyLabels();
-    this.dirty = true;
-    this.screenSoon();
+    this.sess((c, now) => c.sessRedraw(now));
   }
   applyLabels() {
     for (let r = 0; r < 8; r++) this.core.setLabel(r === E.MASTER ? 7 : roleToMatrix(r), this.labels && this.labels[r] ? this.labels[r] : "");
-  }
-  // the screen, at most every SCREEN_MS, only when it changed
-  screenSoon() {
-    if (!this.live) return;
-    this.dirty = true;
-    if (this.timers.screen) return;
-    const wait = SCREEN_MS - (this.now() - this.lastShot);
-    if (wait <= 0) this.draw();
-    else this.timers.screen = this.T.setTimeout(() => { this.timers.screen = 0; this.draw(); }, wait);
-  }
-  draw() {
-    if (!this.live || !this.dirty) return;
-    this.dirty = false;
-    this.lastShot = this.now();
-    const out = this.core.screen(this.px);
-    this.px = null;                         // (the core keeps the last FM-1 screen)
-    if (this.shown && this.shown.length === out.length && this.shown.every((b, i) => b === out[i])) return;
-    this.shown = out;
-    this.stats.screens++;
-    this.send(frame(MR.H_DISPLAY, out));
   }
 }
 const cap = (s) => String(s).charAt(0).toUpperCase() + String(s).slice(1);

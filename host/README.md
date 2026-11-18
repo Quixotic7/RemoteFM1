@@ -6,8 +6,7 @@ The computer half of RemoteFM1 (protocol v2: `docs/PROTOCOL.md`, `proto/rfm1.h`)
 | Path | What |
 |---|---|
 | `include/rfm/`, `src/*.c` | **libremotefm1**, portable C99 with no OS calls: `codec` (both framings, every v2 body, link parsers), `screen` (the tile encoder), `tiles_ref` (a reference TILES decoder from the spec), `panel` (MIDI panel events, PANEL_R resync), `session` (discovery, SESSION, LEDs, frame flow control, recovery), `fake` (a fake unit) |
-| `src/move/`, `include/rfm/move.h` | **rfm_move**, portable C99: an Ableton Move (Move Remote) as the panel: its pads, buttons and knobs to panel actions or MIDI, the FM-1's LEDs and screen back (`src/move/README.md`) |
-| `third_party/moveremote/` | libmoveremote's host side, vendored from abletonmoveremote `bf01bb9` (MPL-2.0) |
+| (rfm_move) | the Ableton Move as the panel moved to its own repository, [rfm1cs-abletonmove](https://github.com/Quixotic7/rfm1cs-abletonmove) (the `web/vendor/rfm1cs-abletonmove` submodule; its own tests and CMake library `rfm1cs_move`) |
 | `src/macos/` | back ends: CoreMIDI (`coremidi.c`), libusb vendor bulk (`usb.c`), the glue into a session (`host.c`) |
 | `tests/` | ctest suites (ASan + UBSan through `run_tests.sh`) |
 | `tools/fm1remote/` | runs a core with the unit as its panel (C++17; FM1VST's `engine/` compiled in, read-only) |

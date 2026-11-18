@@ -1660,7 +1660,7 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
 }
 
 // ---- the Ableton Move (js/move-link.js, js/move-core.js): Move Remote's framing, rfm_move in WebAssembly (web/move/
-// build.sh; the same answers as host/tests/test_move.c on a few spot checks), MoveLink against a fake transport
+// build.sh; the same answers as rfm1cs-abletonmove's tests/test_move.c on a few spot checks), MoveLink against a fake transport
 {
   const L = await import("./js/move-link.js"), MC = await import("./js/move-core.js");
   // framing: u16 len | u8 type | payload, any chunking
@@ -1917,9 +1917,9 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
       ok(ls.map((r) => r.slot).join() === "0,3,7" && (await st.dir()) === (1 | 8 | 128) && (await st.get(3)).saved === "2026-11-17T10:00:00.000Z" && (await st.get(5)) === null,
          "move projects: the store on a fake IndexedDB: put, get, remove in order, list by slot, the slot bits");
       ok((await new MP.MoveProjects(null).list()).length === 0 && (await new MP.MoveProjects(null).get(1)) === null, "move projects: no IndexedDB: an empty list, nothing thrown");
-      const chk = (b) => core.projectCheck(b);
-      const one = MP.packFile([ls[1]]), set = MP.packFile(ls, 2);
-      const u1 = MP.unpackFile(one, chk), us = MP.unpackFile(set, chk);
+      // (the file: rfm1cs-abletonmove store.h, in the core's module)
+      const one = MP.packFile(core, [ls[1]]), set = MP.packFile(core, ls, 2);
+      const u1 = MP.unpackFile(core, one), us = MP.unpackFile(core, set);
       ok(String.fromCharCode(...one.subarray(0, 4)) === "RMVP" && one[4] === 1 && one[5] === 1 && one.length === 8 + 10 + blob.length && u1.entries[0].slot === 3
          && u1.entries[0].saved === "2026-11-17T10:00:00.000Z" && u1.entries[0].bytes.every((b, i) => b === blob[i]),
          `move projects: a .rfmmove round trip (RMVP v1, one project, ${one.length} bytes, slot and date kept)`);
@@ -1931,18 +1931,84 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
         const bad = Uint8Array.from(c); bad[18] = 17;
         ok(core.projectCheck(MP.withColor(bad, 17)) !== 0, "move projects: ...a colour past 16 is refused");
       }
-      const refuse = (b) => { try { MP.unpackFile(b, chk); return ""; } catch (e) { return e.message; } };
+      const refuse = (b) => { try { MP.unpackFile(core, b); return ""; } catch (e) { return e.message; } };
       const bad = { truncated: one.slice(0, one.length - 1), "a byte after": Uint8Array.from([...one, 0]), magic: Uint8Array.from([0x58, ...one.subarray(1)]),
         "huge": new Uint8Array(MP.MAX_FILE + 1), "damaged blob": (() => { const x = one.slice(); x[40] ^= 0x55; return x; })(),
-        "slot twice": MP.packFile([ls[0], ls[0]], 2), "header only": one.slice(0, 8), empty: new Uint8Array(0), "kind 1 with two": MP.packFile(ls.slice(0, 2), 1),
+        "slot twice": MP.packFile(core, [ls[0], ls[0]], 2), "header only": one.slice(0, 8), empty: new Uint8Array(0), "kind 1 with two": MP.packFile(core, ls.slice(0, 2), 1),
         "random": Uint8Array.from({ length: 3000 }, (_, i) => (i * 7919) & 255) };
       const why = Object.entries(bad).map(([k, b]) => [k, refuse(b)]);
       ok(why.every(([, m]) => /^Not a Move project file: /.test(m)), `move projects: refused with a reason: ${why.map(([k, m]) => `${k} (${m.replace("Not a Move project file: ", "").slice(0, 28)})`).join("; ")}`);
       let crashed = 0;
-      for (let i = 0; i <= one.length; i++) { try { MP.unpackFile(one.slice(0, i), chk); if (i !== one.length) crashed++; } catch (e) { if (!/^Not a Move/.test(e.message)) crashed++; } }
+      for (let i = 0; i <= one.length; i++) { try { MP.unpackFile(core, one.slice(0, i)); if (i !== one.length) crashed++; } catch (e) { if (!/^Not a Move/.test(e.message)) crashed++; } }
       ok(crashed === 0, `move projects: every truncation of a file refused cleanly (${one.length + 1} lengths)`);
       core.free();
       globalThis.__fakeIDB = fakeIDB;
+    }
+
+    // ---- the words: the session's C (rfm1cs_status_text & co) says what this page said itself up to 0.2.0
+    {
+      const c = await load(), WHY = MC.WHY, BYE = L.BYE;
+      const cap = (x) => String(x).charAt(0).toUpperCase() + String(x).slice(1);
+      // (move-link.js 1b8a351's own formulas, kept here as the reference)
+      const oldWhy = (why, host, closeWhy) => why === WHY.CLOSED ? closeWhy || "the link closed" : why === WHY.NO_ANSWER ? `no answer from ${host}`
+        : why === WHY.SILENT ? "the Move went quiet" : why === WHY.GARBLED ? "a message the page doesn't understand" : why === WHY.NOT_MOVE ? "not a Move Remote answer"
+        : why === WHY.SHUTDOWN ? "the Move is powering off"
+        : why === WHY.PROTO ? "the Move speaks another Move Remote protocol" : "the link closed";   // 0.3.1: PROTO has its own words
+      const oldBye = (reason, name) => reason === BYE.EXIT ? `${name} left Move Remote (its exit gesture).` : reason === BYE.REPLACED ? `Another host took ${name} over.`
+        : reason === BYE.PROTOCOL ? `${name} closed the link: a protocol error.` : `${name} closed the link.`;
+      const hosts = ["move.local", "172.16.254.1:7720", "[fe80::1]:7720"], closes = ["", "no answer", "the bridge window was closed"];
+      let n = 0, bad = [];
+      const same = (got, want, what) => { n++; if (got !== want) bad.push(`${what}: "${got}" != "${want}"`); };
+      for (const host of hosts) for (const closed of closes) for (let why = 0; why <= 8; why++) {
+        const w = { host, closed };
+        same(c.whyText(why, w), oldWhy(why, host, closed), `why ${why}`);
+        same(c.lostText(why, true, w), `The Move: link lost (${oldWhy(why, host, closed)}).`, `lost ${why}`);   // (no HELLO yet: no name)
+      }
+      for (let r = 0; r <= 6; r++) for (const live of [false, true]) {
+        const b = c.byeText(r, live);
+        same(b.text, oldBye(r, "The Move"), `bye ${r}`); same(b.tone, r === BYE.PROTOCOL ? "bad" : "off", `bye tone ${r}`);
+      }
+      // the status line through the states, against the page's 0.2.0 sentences
+      const now = 1000, words = { host: "move.local", link: "WebSocket" }, line = () => c.sessText(words);
+      c.sessGiveUp(-1);
+      const o1 = c.sessStart(now).evs.find((e) => e.type === "open");
+      same(line().text, "Connecting to move.local...", "connecting"); same(line().tone, "busy", "connecting tone");
+      c.sessWait(now, 100, 1); c.sessTick(now + 100);
+      same(`${line().text} Allow local network devices if the browser asks, or open the bridge window.`, `No answer from move.local yet. Allow local network devices if the browser asks, or open the bridge window.`, "waiting");
+      c.sessOpened(now + 100, o1.attempt);
+      for (const [via, mode] of [[0, 0], [1, 1], [2, 3], [7, 2]]) {
+        c.setMode(mode);
+        c.sessRx(now + 100, c.sessAttempt(), devHello("Move sim", 1, via));
+        const st = c.sessStatus();
+        same(line().text, `${"Move sim" || "Move"} connected${st.via in L.MR.VIA ? " over " + L.MR.VIA[st.via] : ""} (WebSocket): ${MC.MODE_NAMES[c.state().mode]} mode. Track 1..4 pick the mode.`, `connected via ${via} mode ${mode}`);
+        same(line().tone, "on", "connected tone");
+        c.sessStop(now); c.sessStart(now); c.sessOpened(now + 100, c.sessAttempt());
+      }
+      c.sessRx(now + 100, c.sessAttempt(), devHello());
+      const lostEv = c.sessTick(now + 5000).evs.find((e) => e.type === "lost");
+      same(c.lostText(lostEv.why, lostEv.wasLive, words), `Move sim: link lost (the Move went quiet).`, "lost toast, live");
+      same(line().text, `${cap(oldWhy(WHY.SILENT, "move.local", ""))}: trying again in ${Math.round(c.sessStatus().retryMs / 1000)} s...`, "retrying");
+      let t = now + 5000;
+      for (const closed of closes) {
+        t += c.sessStatus().retryMs;
+        c.sessTick(t);
+        same(c.sessStatus().state, MC.STATE.CONNECTING, "the retry's try");
+        c.sessClosed(t, c.sessAttempt(), 0);
+        same(c.sessText({ ...words, closed }).text, `${cap(oldWhy(WHY.CLOSED, "move.local", closed))}: trying again in ${Math.round(c.sessStatus().retryMs / 1000)} s...`, `retrying "${closed}"`);
+      }
+      c.sessStop(now); c.sessGiveUp(0); c.sessStart(now); c.sessTick(now + 4000);
+      same(line().text, `${cap(oldWhy(WHY.NO_ANSWER, "move.local", ""))}. Is Move Remote running on the Move, and is move.local its address? Over USB-C it is ${L.MR.USB_ADDR}.`, "failed");
+      same(line().tone, "bad", "failed tone");
+      c.sessStop(now); c.sessGiveUp(-1); c.sessStart(now); c.sessOpened(now, c.sessAttempt()); c.sessRx(now, c.sessAttempt(), devHello("Future", 2));
+      same(line().text, `The Move speaks Move Remote protocol 2; this page speaks ${L.MR.PROTO}. Update one of them.`, "protocol");
+      c.sessStop(now); c.sessStart(now); c.sessOpened(now, c.sessAttempt()); c.sessRx(now, c.sessAttempt(), devHello());
+      const byeEv = c.sessRx(now, c.sessAttempt(), L.frame(L.MR.D_BYE, Uint8Array.of(BYE.REPLACED))).evs.find((e) => e.type === "bye");
+      c.sessStop(now);
+      same(line().text, oldBye(BYE.REPLACED, byeEv.wasLive ? "Move sim" : "The Move"), "bye, live: the status line"); same(line().tone, "off", "bye tone");
+      c.sessStart(now); c.sessStop(now);
+      same(line().text, "Not connected.", "off");
+      ok(bad.length === 0, `move: the session's words (C) = the page's own 0.2.0 sentences, ${n} cases${bad.length ? ": " + bad.slice(0, 3).join("; ") : ""}`);
+      c.free();
     }
 
     // ---- MoveLink against a fake transport and a fake clock

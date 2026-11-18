@@ -185,7 +185,8 @@ jobs:
           mkdir -p _site/remote _site/build/remote
           cp web/remote/remote.js _site/remote/
           cp web/build/remote/remotefm1.mjs _site/build/remote/
-          # Use my Ableton Move: rfm_move (host/src/move) in WebAssembly, the module js/move-core.js loads (catalog paths.move)
+          # Use my Ableton Move: rfm_move in WebAssembly (rfm1cs-abletonmove, the web/vendor/rfm1cs-abletonmove submodule:
+          # web/move/build.sh runs its web/build.sh), the module js/move-core.js loads (catalog paths.move)
           .github/scripts/logged.sh move bash web/move/build.sh
           mkdir -p _site/build/move
           cp web/build/move/rfm_move.mjs _site/build/move/
@@ -209,6 +210,9 @@ jobs:
           fwcat=()
           if node web/site/tools/fetch_fw_catalog.mjs; then fwcat=(--fw-catalog web/site/fw/rfm1); else echo "::warning title=RemoteFM1FW::the .rfm1 catalog was not fetched; the site lists the Hub's and its own"; fi
           cp -R web/site/index.html web/site/css web/site/js web/site/worklet web/site/mock web/site/fonts web/site/native web/site/fw _site/
+          # the Ableton Move's wasm wrapper and sequencer clock: rfm1cs-abletonmove's own files over js/'s re-exports
+          # (those point into web/vendor/, which is not published)
+          cp web/vendor/rfm1cs-abletonmove/web/move-core.js web/vendor/rfm1cs-abletonmove/web/move-seq.js _site/js/
           # the site's own .rfm1 files (FIZZ), as committed; the deploy guard also checks each against the catalog
           (cd _site/fw && sha256sum -c SHA256SUMS)
           if [ -f _site/fw/rfm1/SHA256SUMS ]; then (cd _site/fw/rfm1 && sha256sum -c SHA256SUMS); fi

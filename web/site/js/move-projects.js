@@ -1,23 +1,18 @@
 // SPDX-License-Identifier: MPL-2.0
-// The Ableton Move sequencer's 32 projects in this browser (host/src/move/README.md, "Projects"), kept apart from the
+// The Ableton Move sequencer's 32 projects in this browser (rfm1cs-abletonmove's README.md, "Projects"), kept apart from the
 // firmwares' saves (js/saves.js): IndexedDB "remotefm1-move", store "projects", one record a slot
 // { slot 0..31, bytes: the core's blob ("RMSQ"), saved: ISO date }. Not per firmware or device: a project is MIDI.
 // Every write goes through one queue, so a save, a load and a delete of the same slot happen in the order asked.
 // No DOM: Node runs it against a fake IndexedDB (web/site/test.mjs).
 //
-// THE FILE (Backup / Import): a small container, little-endian,
-//   "RMVP"  magic (4 bytes)
-//   u8      version (1)
-//   u8      kind: 1 one project (.rfmmove), 2 a set (.rfmmoveset)
-//   u16     count: 1..32 entries
-//   then each entry: u8 slot (0..31, unique), u8 flags (0), u32 saved (Unix seconds, 0 unknown), u32 len, len bytes:
-//   the core's project blob as rfm_move_project_save writes it (checked with rfm_move_project_check on import)
-// and nothing after the last entry. A file over MAX_FILE bytes is not read.
+// THE FILE (Backup / Import): rfm1cs-abletonmove's project file (store.h, "The project file": "RMVP", version 1, kind 1 one
+// project .rfmmove / 2 a set .rfmmoveset, u16 count, then per entry u8 slot, u8 flags, u32 saved (Unix s), u32 len,
+// the blob), packed and read by its C in the core's module (MoveCore filePack / fileUnpack), as the iOS and Android
+// apps do: one file format, one reader. A file over MAX_FILE bytes is not read.
+import { PROJECTS, PROJECT_MAX, FILE_MAX, FILE_ONE, FILE_SET } from "./move-core.js";
 export const DB = "remotefm1-move", STORE = "projects", VERSION = 1;
-export const SLOTS = 32, BLOB_MAX = 39072;   // (RFM_MOVE_PROJECT_MAX)
-export const MAGIC = [0x52, 0x4d, 0x56, 0x50], FILE_VERSION = 1, KIND_ONE = 1, KIND_SET = 2;
-export const HEAD = 8, ENTRY = 10;
-export const MAX_FILE = HEAD + SLOTS * (ENTRY + BLOB_MAX);
+export const SLOTS = PROJECTS, BLOB_MAX = PROJECT_MAX;   // (RFM_MOVE_PROJECT_MAX)
+export const KIND_ONE = FILE_ONE, KIND_SET = FILE_SET, MAX_FILE = FILE_MAX;
 export const EXT_ONE = ".rfmmove", EXT_SET = ".rfmmoveset";
 
 export class MoveProjects {
@@ -71,48 +66,17 @@ export const fileName = (slot) => `move-project-${String(slot + 1).padStart(2, "
 export const SET_NAME = `move-projects${EXT_SET}`;
 export const firstFree = (bits) => { for (let s = 0; s < SLOTS; s++) if (!(bits >>> s & 1)) return s; return -1; };
 
-// the file's bytes for these records ({ slot, bytes, saved })
-export function packFile(recs, kind = recs.length === 1 ? KIND_ONE : KIND_SET) {
-  const n = recs.reduce((a, r) => a + ENTRY + r.bytes.length, HEAD), out = new Uint8Array(n), dv = new DataView(out.buffer);
-  out.set(MAGIC, 0); out[4] = FILE_VERSION; out[5] = kind; dv.setUint16(6, recs.length, true);
-  let o = HEAD;
-  for (const r of recs) {
+// the file's bytes for these records ({ slot, bytes, saved }); core: a MoveCore (its module packs it)
+export function packFile(core, recs, kind = recs.length === 1 ? KIND_ONE : KIND_SET) {
+  return core.filePack(recs.map((r) => {
     const t = Date.parse(r.saved || "");
-    out[o] = r.slot; out[o + 1] = 0;
-    dv.setUint32(o + 2, Number.isFinite(t) ? Math.max(0, Math.floor(t / 1000)) : 0, true);
-    dv.setUint32(o + 6, r.bytes.length, true);
-    out.set(r.bytes, o + ENTRY);
-    o += ENTRY + r.bytes.length;
-  }
-  return out;
+    return { slot: r.slot, bytes: r.bytes, saved: Number.isFinite(t) ? Math.max(0, Math.floor(t / 1000)) : 0 };
+  }), kind);
 }
-// a file's bytes -> { kind, entries: [{ slot, bytes, saved }] }; throws an Error that says what is wrong.
-// check(blob) -> 0 for a valid project (the core's rfm_move_project_check)
-export function unpackFile(bytes, check) {
-  const bad = (why) => { throw new Error(`Not a Move project file: ${why}.`); };
-  if (!bytes || !(bytes instanceof Uint8Array)) bad("nothing to read");
-  if (bytes.length > MAX_FILE) bad(`it is ${bytes.length} bytes, more than a full set (${MAX_FILE})`);
-  if (bytes.length < HEAD || MAGIC.some((b, i) => bytes[i] !== b)) bad("it does not start with RMVP");
-  if (bytes[4] !== FILE_VERSION) bad(`version ${bytes[4]}; this page reads version ${FILE_VERSION}`);
-  const kind = bytes[5], dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), count = dv.getUint16(6, true);
-  if (kind !== KIND_ONE && kind !== KIND_SET) bad(`kind ${kind}`);
-  if (count < 1 || count > SLOTS || (kind === KIND_ONE && count !== 1)) bad(`${count} projects`);
-  const entries = [], seen = new Set();
-  let o = HEAD;
-  for (let i = 0; i < count; i++) {
-    if (o + ENTRY > bytes.length) bad(`project ${i + 1} is cut off`);
-    const slot = bytes[o], t = dv.getUint32(o + 2, true), len = dv.getUint32(o + 6, true);
-    if (!validSlot(slot) || seen.has(slot)) bad(`slot ${slot + 1} ${seen.has(slot) ? "twice" : "out of range"}`);
-    if (len < 1 || len > BLOB_MAX) bad(`project ${i + 1} is ${len} bytes`);
-    if (o + ENTRY + len > bytes.length) bad(`project ${i + 1} is cut off`);
-    const blob = bytes.slice(o + ENTRY, o + ENTRY + len);
-    let r;
-    try { r = check(blob); } catch (_) { r = -1; }
-    if (r !== 0) bad(`project ${i + 1} (slot ${slot + 1}) is damaged`);
-    seen.add(slot);
-    entries.push({ slot, bytes: blob, saved: t ? new Date(t * 1000).toISOString() : new Date().toISOString() });
-    o += ENTRY + len;
-  }
-  if (o !== bytes.length) bad(`${bytes.length - o} bytes after the last project`);
-  return { kind, entries };
+// a file's bytes -> { kind, entries: [{ slot, bytes, saved }] }, every blob checked by the core; throws an Error that
+// says what is wrong ("Not a Move project file: ...")
+export function unpackFile(core, bytes) {
+  const f = core.fileUnpack(bytes instanceof Uint8Array ? bytes : null, "page");
+  if (f.error) throw new Error(f.error);
+  return { kind: f.kind, entries: f.entries.map((e) => ({ slot: e.slot, bytes: e.bytes, saved: e.saved ? new Date(e.saved * 1000).toISOString() : new Date().toISOString() })) };
 }
