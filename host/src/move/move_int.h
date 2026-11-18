@@ -1,0 +1,117 @@
+/* SPDX-License-Identifier: MPL-2.0
+ * Copyright (C) 2026 RemoteFM1 contributors */
+/* rfm_move's insides, shared by move.c (the mapping, the MIDI modes), seq.c (the sequencer's data, clock and
+ * engine), seq_ui.c (Sequencer mode's controls, LEDs and screen) and project.c (the project blob). Not an API:
+ * the tests include it to look at the data model. */
+#ifndef RFM_MOVE_INT_H
+#define RFM_MOVE_INT_H
+#include "moveremote/gfx.h"
+#include "rfm/move.h"
+
+typedef struct { uint8_t r, g, b; } rfmv_rgb_t;
+
+enum { H_NONE = 0, H_KEY, H_BTN, H_NOTE, H_MENU, H_SEQ };
+/* the LED list (rfm_move_leds): pads, steps, the RGB CC LEDs, then the 13 white ones (WHITE_CC order) */
+enum { L_PAD0 = 0, L_STEP0 = 32, L_PLAY = 48, L_REC, L_SAMPLE, L_TRACK0, L_RING0 = 55, L_WHITE0 = 63 };
+enum { W_SHIFT, W_MENU, W_BACK, W_CAPTURE, W_DOWN, W_UP, W_UNDO, W_LOOP, W_COPY, W_LEFT, W_RIGHT, W_MUTE, W_DELETE };
+
+extern const uint8_t rfmv_scales[RFM_MOVE_NSCALES][8];   /* [0] = length */
+extern const char *const rfmv_note_names[12];
+extern const char *const rfmv_scale_names[RFM_MOVE_NSCALES];
+extern const rfmv_rgb_t rfmv_mode_rgb[4], rfmv_bank_rgb[4];
+extern const rfmv_rgb_t RFMV_WHITE, RFMV_RED, RFMV_GREEN, RFMV_OFF;
+
+int rfmv_clampi(int v, int lo, int hi);
+rfmv_rgb_t rfmv_sc(rfmv_rgb_t c, int f);               /* c x f / 256 */
+rfmv_rgb_t rfmv_add(rfmv_rgb_t a, rfmv_rgb_t b);
+rfmv_rgb_t rfmv_midi_pad(const rfm_move_t *m, int p, rfmv_rgb_t mode);
+int rfmv_track_held(const rfm_move_t *m, int t);
+
+/* actions (stamped with m->seq.frame) */
+void rfmv_emit(rfm_move_t *m, uint8_t kind, int index, int down, int vel, int value);
+void rfmv_emit_midi(rfm_move_t *m, int status, int d1, int d2);
+void rfmv_changed(rfm_move_t *m);
+void rfmv_note_hold(rfm_move_t *m, int ch, int n, int vel);
+void rfmv_note_let(rfm_move_t *m, int ch, int n);
+void rfmv_let_go(rfm_move_t *m, rfm_move_hold_t *h);
+
+/* the screen */
+void rfmv_text(mr_canvas_t *cv, int x, int y, const char *s, int maxch);
+void rfmv_title(mr_canvas_t *cv, int w, const char *s);
+const char *rfmv_note_name(int n, char *b, int cap);
+
+/* ---- seq.c: the data model (sorted arrays), the journal, the clock, the engine */
+#define SEQ_CLIP(track, scene) ((track) * RFM_MOVE_SEQ_SCENES + (scene))
+enum { SEQ_NONE = -2, SEQ_STOP = -1 };
+enum { OP_NOTE_ADD = 1, OP_NOTE_DEL, OP_LOCK, OP_LEN };
+#define SEQ_NOLOCK 0xFF
+
+void rfmv_seq_init(rfm_move_t *m);                     /* an empty project, the clock reset */
+void rfmv_seq_project_clear(rfm_move_t *m);            /* the project's data only */
+int rfmv_seq_range(const rfm_move_t *m, int clip, int step, int *lo);   /* notes at (clip, step): [lo, ret) */
+int rfmv_seq_clip_range(const rfm_move_t *m, int clip, int *lo);       /* notes of the clip */
+int rfmv_seq_lock_range(const rfm_move_t *m, int clip, int step, int *lo);
+int rfmv_seq_clip_lock_range(const rfm_move_t *m, int clip, int *lo);
+int rfmv_seq_find(const rfm_move_t *m, int clip, int step, int note);  /* index, -1 */
+int rfmv_seq_lock_get(const rfm_move_t *m, int clip, int step, int cc); /* value, -1 */
+int rfmv_seq_clip_used(const rfm_move_t *m, int clip);                 /* notes or locks */
+int rfmv_seq_track_used(const rfm_move_t *m, int track);
+/* edits (journaled into the current undo group, the project marked changed) */
+void rfmv_seq_group(rfm_move_t *m);                    /* a new undo group: one gesture */
+int rfmv_seq_note_put(rfm_move_t *m, int clip, int step, int note, int vel, int len, int micro);   /* add/replace */
+int rfmv_seq_note_del(rfm_move_t *m, int clip, int step, int note);
+void rfmv_seq_step_clear(rfm_move_t *m, int clip, int step);
+int rfmv_seq_lock_set(rfm_move_t *m, int clip, int step, int cc, int val);   /* val -1: remove */
+void rfmv_seq_len_set(rfm_move_t *m, int clip, int len);
+void rfmv_seq_clip_clear(rfm_move_t *m, int clip);
+void rfmv_seq_clip_quantize(rfm_move_t *m, int clip);
+int rfmv_seq_clip_double(rfm_move_t *m, int clip);
+void rfmv_seq_note_remove_all(rfm_move_t *m, int clip, int note);
+int rfmv_seq_undo(rfm_move_t *m);                      /* 1 something undone */
+int rfmv_seq_redo(rfm_move_t *m);
+/* the clipboard: copy (kind 1 step, 2 clip) into it, paste from it */
+void rfmv_seq_copy_step(rfm_move_t *m, int clip, int step);
+void rfmv_seq_copy_clip(rfm_move_t *m, int clip);
+void rfmv_seq_paste_step(rfm_move_t *m, int clip, int step);
+void rfmv_seq_paste_clip(rfm_move_t *m, int clip);
+void rfmv_seq_track_copy(rfm_move_t *m, int from, int to);
+void rfmv_seq_track_clear(rfm_move_t *m, int track);
+/* the transport */
+void rfmv_seq_start(rfm_move_t *m);                    /* Play: now, or at the external clock's next bar */
+void rfmv_seq_stop(rfm_move_t *m);                     /* everything sounding let go, recordings finished */
+void rfmv_seq_release(rfm_move_t *m, int track);       /* the track's sounding notes off (-1 all) */
+void rfmv_seq_launch(rfm_move_t *m, int track, int scene);   /* scene -1: stop the track */
+void rfmv_seq_launch_scene(rfm_move_t *m, int scene);
+void rfmv_seq_mute(rfm_move_t *m, int track, int on);
+int rfmv_seq_now_tick(const rfm_move_t *m);            /* the song tick now (rounded to the nearest) */
+int rfmv_seq_clip_pos(const rfm_move_t *m, int track); /* the active clip's step now, -1 not playing */
+/* live pad notes in Sequencer mode: recording and capture */
+void rfmv_seq_pad_on(rfm_move_t *m, int pad, int note, int vel);
+void rfmv_seq_pad_off(rfm_move_t *m, int pad, int note);
+int rfmv_seq_capture(rfm_move_t *m);                   /* the clip's scene, -1 nothing captured */
+void rfmv_seq_tap(rfm_move_t *m, uint32_t now_ms);
+void rfmv_seq_dirty(rfm_move_t *m);
+
+/* ---- project.c */
+void rfmv_proj_open(rfm_move_t *m, int slot);          /* grid: load (current saved first) or a new empty one */
+void rfmv_proj_delete(rfm_move_t *m, int slot);
+void rfmv_proj_save_now(rfm_move_t *m);                /* PROJECT_SAVE for the current slot */
+void rfmv_proj_poll(rfm_move_t *m);                    /* the autosave's debounce (from advance) */
+
+/* ---- seq_ui.c: Sequencer mode */
+enum { SEQ_M_SHIFT = 1, SEQ_M_COPY = 2, SEQ_M_DELETE = 4, SEQ_M_MUTE = 8, SEQ_M_LOOP = 16 };
+enum { SEQ_MSG_NONE = 0, SEQ_MSG_NOCLIP, SEQ_MSG_FULL, SEQ_MSG_LOADFAIL, SEQ_MSG_CAPTURED, SEQ_MSG_UNDO,
+       SEQ_MSG_REDO, SEQ_MSG_COPIED, SEQ_MSG_PASTED, SEQ_MSG_CUT, SEQ_MSG_QUANT, SEQ_MSG_DOUBLE, SEQ_MSG_EXTTAP };
+void rfmv_seq_ui_release(rfm_move_t *m);               /* leaving the mode / release-all: held things let go */
+void rfmv_seq_pad(rfm_move_t *m, int p, int vel, uint32_t now);
+void rfmv_seq_step(rfm_move_t *m, int s, int down, uint32_t now);
+int rfmv_seq_button(rfm_move_t *m, int cc, int down, uint32_t now);   /* 1 taken */
+void rfmv_seq_knob(rfm_move_t *m, int k, int d, uint32_t now);
+void rfmv_seq_jog(rfm_move_t *m, int d, uint32_t now);
+void rfmv_seq_leds(const rfm_move_t *m, rfmv_rgb_t c[L_WHITE0], uint8_t white[13]);
+void rfmv_seq_screen(const rfm_move_t *m, mr_canvas_t *cv);
+void rfmv_seq_track_menu(const rfm_move_t *m, mr_canvas_t *cv);   /* Track 4 held */
+void rfmv_seq_badge(const rfm_move_t *m, mr_canvas_t *cv);       /* other modes: the sequencer is playing */
+void rfmv_seq_msg(rfm_move_t *m, int msg);
+
+#endif

@@ -207,6 +207,61 @@ int main(int argc, char **argv)
     mr_display(c, frame);
     CHECK(shot_matches(dir, fifo, c, frame), "the MIDI mode's screen shown");
 
+    /* Track 4: the sequencer. Pad 1 picks C3, steps 1 and 5 get it, Play; the internal clock (driven here as an
+     * audio callback would, 48 kHz in blocks of 128) plays them as MIDI actions and the step LEDs show them */
+    {
+        rfm_move_led_t out[RFM_MOVE_NLEDS];
+        const int before = g_inputs;
+        int ons = 0, offs = 0, lit1 = 0, lit5 = 0, lit2 = 1, frames;
+        uint32_t at5 = 0;
+        g_nact = 0;
+        inject(fifo, "cc 40 127\ncc 40 0\nnote 68 100\nnote 68 0\nnote 16 127\nnote 16 0\nnote 20 127\nnote 20 0\n"
+                     "cc 85 127\ncc 85 0\n");
+        for (tries = 0; tries < 300 && g_inputs < before + 10; tries++)
+            pump(c, -1, 10);
+        CHECK(g_m.s.mode == RFM_MOVE_MODE_SEQ && g_m.seq.nnotes == 2 && g_m.seq.start_pending == 1,
+              "Track 4: two steps set, Play pressed (%d notes)", g_m.seq.nnotes);
+        g_nact = 0;
+        for (frames = 0; frames < 48000; frames += 128) {
+            const int n0 = g_nact;
+            rfm_move_seq_advance(&g_m, 128, 48000);
+            for (i = n0; i < g_nact; i++)
+                if (g_acts[i].kind == RFM_MOVE_ACT_MIDI && g_acts[i].bytes[1] == 48) {
+                    if (g_acts[i].bytes[0] == 0x90) {
+                        ons++;
+                        if (ons == 2)
+                            at5 = (uint32_t)frames + g_acts[i].frame;
+                    } else if (g_acts[i].bytes[0] == 0x80)
+                        offs++;
+                }
+        }
+        CHECK(ons == 2 && offs == 2, "one second at 120 BPM: C3 on steps 1 and 5 (%d ons, %d offs)", ons, offs);
+        CHECK(at5 == 4 * 6000, "step 5 at frame %u (24000 expected)", at5);
+        rfm_move_leds_invalidate(&g_m);
+        n = rfm_move_leds(&g_m, out, RFM_MOVE_NLEDS);
+        for (i = 0; i < n; i++)
+            if (!out[i].cc && out[i].number == MR_NOTE_STEP0 + 0)
+                lit1 = out[i].r > 100;
+            else if (!out[i].cc && out[i].number == MR_NOTE_STEP0 + 4)
+                lit5 = out[i].r > 100;
+            else if (!out[i].cc && out[i].number == MR_NOTE_STEP0 + 1)
+                lit2 = out[i].r > 100;
+        CHECK(lit1 && lit5 && !lit2, "step LEDs: 1 and 5 lit in the track's colour, 2 not");
+        rfm_move_leds_invalidate(&g_m);
+        n = send_leds(c);
+        CHECK(n == RFM_MOVE_NLEDS, "the sequencer's LEDs written (%d)", n);
+        rfm_move_screen(&g_m, NULL, frame);
+        mr_display(c, frame);
+        CHECK(shot_matches(dir, fifo, c, frame), "the sequencer's screen shown");
+        for (tries = 0; tries < 40 && !state_has(dir, "led_pending=0 "); tries++)
+            pump(c, -1, 25);
+        CHECK(state_has(dir, "led_pending=0 "), "every LED write taken");
+        g_nact = 0;
+        rfm_move_seq_play(&g_m, 0);
+        inject(fifo, "cc 42 127\ncc 42 0\n");          /* back to MIDI mode for the last part */
+        pump(c, 1, 3000);
+    }
+
     /* a held pad, then the link goes: everything let go */
     g_nact = 0;
     inject(fifo, "note 70 100\n");

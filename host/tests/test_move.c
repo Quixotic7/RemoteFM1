@@ -177,8 +177,9 @@ static void test_buttons_knobs(void)
     rfm_move_t m;
     int i, mode, covered = 0;
     rfm_move_init(&m, NULL, on_act, NULL);
-    /* the buttons: the same in every mode (only pads, steps, Up / Down and the knobs change) */
-    for (mode = 0; mode < 4; mode++) {
+    /* the buttons: the same in modes 1..3 (only pads, steps, Up / Down and the knobs change); Sequencer mode takes
+     * them over (test_move_seq.c) */
+    for (mode = 0; mode < 3; mode++) {
         rfm_move_set_mode(&m, mode);
         for (i = 0; i < 14; i++) {
             clear();

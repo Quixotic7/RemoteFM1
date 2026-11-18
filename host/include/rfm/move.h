@@ -51,7 +51,8 @@ enum { RFM_MOVE_MODE_FM1 = 0, RFM_MOVE_MODE_MIDI = 1, RFM_MOVE_MODE_CONTROL = 2,
 enum { RFM_MOVE_LAYOUT_SCALE = 0, RFM_MOVE_LAYOUT_CHROMATIC = 1, RFM_MOVE_LAYOUT_DRUM = 2, RFM_MOVE_LAYOUT_OCTAVE = 3 };
 enum {
     RFM_MOVE_SCALE_MAJOR = 0, RFM_MOVE_SCALE_MINOR, RFM_MOVE_SCALE_DORIAN, RFM_MOVE_SCALE_MIXOLYDIAN,
-    RFM_MOVE_SCALE_PENTA_MAJOR, RFM_MOVE_SCALE_PENTA_MINOR, RFM_MOVE_NSCALES
+    RFM_MOVE_SCALE_PENTA_MAJOR, RFM_MOVE_SCALE_PENTA_MINOR, RFM_MOVE_SCALE_HARM_MINOR, RFM_MOVE_SCALE_BLUES,
+    RFM_MOVE_NSCALES                                    /* 8: Track 2 held, row 2's pads */
 };
 #define RFM_MOVE_OCT_MIN (-4)                           /* the octave: the lowest pad of layouts 1, 2, 4 is */
 #define RFM_MOVE_OCT_MAX 4                              /* 48 + root + 12 * octave (C3 = 48 at octave 0) */
@@ -68,12 +69,21 @@ enum {
     RFM_MOVE_ACT_MASTER = 5,                            /* value 0..1023 */
     RFM_MOVE_ACT_MIDI = 6,                              /* n bytes: one whole message into the firmware's MIDI in */
     RFM_MOVE_ACT_SETTINGS = 7,                          /* the settings changed: save them when convenient */
+    /* the sequencer's projects (32 slots the host stores; host/src/move/README.md, "Projects") */
+    RFM_MOVE_ACT_PROJECT_SAVE = 8,                      /* index slot 0..31: store data/len (a project blob) */
+    RFM_MOVE_ACT_PROJECT_LOAD = 9,                      /* index slot: answer with rfm_move_project_load(m, slot, ..) */
+    RFM_MOVE_ACT_PROJECT_DELETE = 10,                   /* index slot: forget it */
 };
 typedef struct {
     uint8_t kind;                                       /* RFM_MOVE_ACT_* */
     uint8_t index, down, vel;
     int16_t value;
     uint8_t n, bytes[3];
+    /* when: actions from rfm_move_seq_advance carry the frame (in that call's units, 0..frames-1, from the start
+     * of the call) the event is due at; every other action has 0 = now */
+    uint32_t frame;
+    const uint8_t *data;                                /* PROJECT_SAVE: the blob, valid during the callback only */
+    uint32_t len;
 } rfm_move_act_t;
 typedef void (*rfm_move_act_fn)(void *ctx, const rfm_move_act_t *a);
 /* pressure 0..127 as emu_hal_t / fm1panel_t key_lean 0..100 (as rfm_panel_lean) */
@@ -110,6 +120,119 @@ typedef struct {
  * Delete) */
 #define RFM_MOVE_NLEDS 76
 
+/* ---- the sequencer (Track 4; host/src/move/README.md, "Sequencer") */
+#define RFM_MOVE_SEQ_TRACKS 16                          /* track n plays MIDI channel n by default */
+#define RFM_MOVE_SEQ_SCENES 16
+#define RFM_MOVE_SEQ_CLIPS (RFM_MOVE_SEQ_TRACKS * RFM_MOVE_SEQ_SCENES)   /* clip id = track * 16 + scene */
+#define RFM_MOVE_SEQ_PAGE 16                            /* steps a page: a bar of 16ths */
+#define RFM_MOVE_SEQ_PAGES 16
+#define RFM_MOVE_SEQ_MAXLEN (RFM_MOVE_SEQ_PAGE * RFM_MOVE_SEQ_PAGES)     /* 256 steps */
+#define RFM_MOVE_SEQ_TPS 24                             /* ticks a step (96 PPQN); a MIDI clock = 4 ticks */
+#define RFM_MOVE_SEQ_BAR (RFM_MOVE_SEQ_TPS * RFM_MOVE_SEQ_PAGE)          /* 384 ticks, 4/4 */
+#define RFM_MOVE_SEQ_POLY 8                             /* notes a step */
+#define RFM_MOVE_SEQ_NOTES 4096                         /* notes a project */
+#define RFM_MOVE_SEQ_LOCKS 2048                         /* CC locks a project */
+#define RFM_MOVE_SEQ_UNDO 2048                          /* undo journal entries */
+#define RFM_MOVE_SEQ_SOUNDING 64                        /* sequencer notes sounding at once */
+#define RFM_MOVE_SEQ_CAPTURE 256                        /* Capture: pad events kept */
+#define RFM_MOVE_SEQ_CAPTURE_BARS 8                     /* .. from the last 8 bars */
+#define RFM_MOVE_SEQ_BPM10_MIN 200                      /* 20.0 .. 300.0 BPM */
+#define RFM_MOVE_SEQ_BPM10_MAX 3000
+#define RFM_MOVE_PROJECTS 32
+#define RFM_MOVE_PROJECT_VERSION 1
+#define RFM_MOVE_AUTOSAVE_MS 2000                       /* an edited project is saved this long after the last edit */
+/* the blob: header 24, tracks 16 x 4, clip lengths 256 x 2, notes 2 + n x 7, locks 2 + n x 4, FNV-1a 4 */
+#define RFM_MOVE_PROJECT_FIXED (24 + RFM_MOVE_SEQ_TRACKS * 4 + RFM_MOVE_SEQ_CLIPS * 2 + 2 + 2 + 4)
+#define RFM_MOVE_PROJECT_MAX (RFM_MOVE_PROJECT_FIXED + RFM_MOVE_SEQ_NOTES * 7 + RFM_MOVE_SEQ_LOCKS * 4)
+enum { RFM_MOVE_CLOCK_AUTO = 0, RFM_MOVE_CLOCK_INTERNAL = 1, RFM_MOVE_CLOCK_EXTERNAL = 2 };
+
+typedef struct {                                        /* a note in a clip; sorted by (clip, step, note) */
+    uint8_t clip, step, note, vel;
+    int8_t micro;                                       /* ticks off the step, -12..+11 */
+    uint8_t rsv;
+    uint16_t len;                                       /* ticks, 1..256 x 24 */
+} rfm_move_note_t;
+typedef struct { uint8_t clip, step, cc, val; } rfm_move_lock_t;   /* a CC lock; sorted by (clip, step, cc) */
+typedef struct {                                        /* an undo journal entry */
+    uint16_t group;
+    uint8_t type, rsv;
+    uint16_t old, nu;
+    rfm_move_note_t n;
+} rfm_move_op_t;
+typedef struct {
+    uint8_t ch, mute;                                   /* (saved) */
+    int8_t active, sel;                                 /* (saved) the clip that plays (-1 none), the one edited */
+    int8_t queued;                                      /* -2 nothing, -1 stop, 0..15: launch at the next bar */
+    uint8_t grow, grow_stop;                            /* recording into an empty clip: it grows a bar at a time */
+    uint8_t rsv;
+    int32_t t0;                                         /* the song tick the active clip started at */
+} rfm_move_track_t;
+typedef struct { uint8_t ch, note, track, rsv; int32_t off; } rfm_move_sounding_t;
+typedef struct { int32_t t; uint8_t note, vel, rsv[2]; } rfm_move_cap_t;   /* t: timeline tick, vel 0 = off */
+typedef struct { int32_t t; uint8_t clip, note, vel, on; } rfm_move_recnote_t;
+
+typedef struct {
+    /* ---- the project (what a blob holds) */
+    uint16_t bpm10;                                     /* the internal clock, BPM x 10 */
+    uint8_t clock_mode, fixed_vel, sel_track;
+    rfm_move_track_t tr[RFM_MOVE_SEQ_TRACKS];
+    uint16_t len[RFM_MOVE_SEQ_CLIPS];                   /* clip lengths, steps 1..256 */
+    uint16_t nnotes, nlocks;
+    rfm_move_note_t notes[RFM_MOVE_SEQ_NOTES];
+    rfm_move_lock_t locks[RFM_MOVE_SEQ_LOCKS];
+    /* ---- the clock */
+    uint64_t now_us, us_rem;                            /* time advanced so far */
+    uint64_t ph;                                        /* progress to the next tick, of den */
+    uint32_t den_rate;                                  /* the rate den was made for */
+    int32_t tl;                                         /* timeline tick (counts every tick; the clock's position) */
+    int32_t T;                                          /* song tick while playing */
+    uint8_t playing, start_pending, following, ext_run;   /* start_pending 1 now, 2 at the timeline's next bar */
+    int32_t ext_clocks;                                 /* MIDI clocks since the reference (-1 before the first) */
+    uint64_t ext_last_us, ext_win_us;
+    int32_t ext_win_n;
+    uint32_t ext_period_us;                             /* one MIDI clock, measured (0 unknown) */
+    uint16_t spp;                                       /* the last song position (16ths) */
+    uint32_t frame;                                     /* the frame actions are stamped with now */
+    rfm_move_sounding_t snd[RFM_MOVE_SEQ_SOUNDING];
+    uint8_t nsnd;
+    /* ---- recording, capture */
+    uint8_t rec;                                        /* armed */
+    uint16_t rec_group;
+    rfm_move_recnote_t recn[RFM_MOVE_NPADS];            /* notes being recorded, by pad */
+    rfm_move_cap_t cap[RFM_MOVE_SEQ_CAPTURE];
+    uint16_t ncap, cap_head;
+    /* ---- undo */
+    rfm_move_op_t ops[RFM_MOVE_SEQ_UNDO];
+    uint16_t un, utop, group, broken;
+    /* ---- the clipboard */
+    uint8_t clip_kind, cut;                             /* 0 empty, 1 a step, 2 a clip, 3 a track; cut: Delete made it */
+    uint8_t clip_src, clip_step;
+    uint16_t clip_len, clip_nn, clip_nl;
+    rfm_move_note_t clip_notes[RFM_MOVE_SEQ_POLY * RFM_MOVE_SEQ_MAXLEN];
+    rfm_move_lock_t clip_locks[RFM_MOVE_SEQ_LOCKS];
+    /* ---- projects */
+    int8_t proj_cur, proj_pending;
+    uint32_t proj_used;
+    uint8_t dirty;
+    uint64_t dirty_us;
+    uint8_t blob[RFM_MOVE_PROJECT_MAX];
+    /* ---- the controls */
+    uint8_t view;                                       /* 0 track, 1 session */
+    uint8_t projects;                                   /* the project grid is up */
+    uint8_t mods;                                       /* SEQ_M_* held */
+    uint8_t mods_used;                                  /* .. and used with something (no release action) */
+    uint8_t copy_src;                                   /* this Copy hold has a source */
+    uint8_t page, track_page, scene_off;
+    uint8_t cur_note, last_vel;
+    uint16_t step_held;                                 /* bits: steps held (track view) */
+    uint16_t step_add, step_edit;                       /* .. pressed onto an empty note / edited while held */
+    int8_t step_first;                                  /* the first step held, -1 none */
+    uint32_t tap_ms[4];
+    uint8_t ntap;
+    uint8_t msg;                                        /* a short message on the screen (SEQ_MSG_*) */
+    uint32_t msg_ms, ui_ms;
+} rfm_move_seq_t;
+
 /* ---- the state */
 typedef struct {
     uint8_t kind;                                       /* what a pressed control did, for its release */
@@ -144,6 +267,8 @@ typedef struct {
     uint8_t sent_ok[RFM_MOVE_NLEDS];
     /* the screen */
     uint8_t thumb[64][64];                              /* the last FM-1 screen, 1 bit a pixel (thresholded) */
+    /* the sequencer (about 150 KB: keep rfm_move_t static or on the heap, not on a small stack) */
+    rfm_move_seq_t seq;
 } rfm_move_t;
 
 /* settings NULL: the defaults. fn gets every action (it may be NULL). */
@@ -166,6 +291,34 @@ void rfm_move_leds_invalidate(rfm_move_t *m);          /* a new connection: ever
 /* the Move's 128 x 64 screen, packed (MR_SCREEN_BYTES). rgb565: the FM-1's 240 x 240 screen, or NULL to keep the
  * last one */
 void rfm_move_screen(rfm_move_t *m, const uint16_t *rgb565, uint8_t out[MR_SCREEN_BYTES]);
+
+/* ---- the sequencer's clock and transport
+ * The clock: call rfm_move_seq_advance for every block of time, at the start of the block (playing or not; it
+ * also runs blinking, tap tempo's display and autosave). Actions it gives carry `frame`: the offset in this call's
+ * units at which the host plays them (sample accurate when frames are audio frames). rate 1000000 = microseconds.
+ * The external clock: the firmware's MIDI out realtime bytes, one message a call: F8 clock (24 PPQN), FA start,
+ * FB continue, FC stop, F2 lsb msb song position. In RFM_MOVE_CLOCK_AUTO the external clock wins while clocks
+ * arrive (and for 500 ms after the last); its events are stamped frame 0 (now). */
+void rfm_move_seq_advance(rfm_move_t *m, uint32_t frames, uint32_t rate);
+void rfm_move_seq_midi_in(rfm_move_t *m, const uint8_t *msg, int n);
+void rfm_move_seq_play(rfm_move_t *m, int on);         /* as Play in Sequencer mode (1 start, 0 stop) */
+void rfm_move_seq_set_bpm(rfm_move_t *m, int bpm10);   /* the internal clock, BPM x 10 (200..3000) */
+int rfm_move_seq_bpm10(const rfm_move_t *m);           /* the tempo in use (measured when following) */
+void rfm_move_seq_set_clock(rfm_move_t *m, int mode);  /* RFM_MOVE_CLOCK_* */
+int rfm_move_seq_following(const rfm_move_t *m);       /* 1: the external clock drives the sequencer now */
+
+/* ---- projects: 32 slots the host stores (the core never does IO)
+ * A blob: "RMSQ", version, then the project; little-endian, every field checked on load, an FNV-1a check at the
+ * end; at most RFM_MOVE_PROJECT_MAX bytes. */
+int rfm_move_project_save(rfm_move_t *m, uint8_t *out, uint32_t cap);   /* bytes, or -1 (cap too small) */
+int rfm_move_project_check(const uint8_t *b, uint32_t n);                /* 0 a valid blob, else < 0 */
+/* the host's answer to PROJECT_LOAD (or at start, the last project): slot 0..31 becomes the current project; b NULL
+ * or n 0: an empty project. 0 ok; < 0 an invalid blob: nothing changes. Stops the sequencer (notes released).
+ * May be called from inside the action callback. */
+int rfm_move_project_load(rfm_move_t *m, int slot, const uint8_t *b, uint32_t n);
+void rfm_move_project_dir(rfm_move_t *m, uint32_t used);   /* bit n: slot n holds a project */
+void rfm_move_project_flush(rfm_move_t *m);            /* the autosave now, if the project changed */
+int rfm_move_project_slot(const rfm_move_t *m);        /* the current slot */
 
 /* ---- the mapping, for hosts' help pages and the tests */
 int rfm_move_pad_key(int pad);                          /* FM-1 mode: the key a pad plays, -1 none */
