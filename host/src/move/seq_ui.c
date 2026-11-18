@@ -383,9 +383,11 @@ void rfmv_seq_pad(rfm_move_t *m, int p, int vel, uint32_t now)
         if (q->mods & SEQ_M_SHIFT) {                    /* Shift + a clip: its whole row, a scene across the 16 */
             q->mods_used |= SEQ_M_SHIFT;
             rfmv_seq_launch_scene(m, scene);            /* (stopped: launched, it plays with Play) */
-        } else if (dbl && rfmv_seq_clip_used(m, clip) && !t->grow && !(q->mods & (SEQ_M_MUTE | SEQ_M_COPY | SEQ_M_DELETE))) {
-            rfmv_seq_select(m, track);                  /* a double tap: launched now, in phase with the bar */
-            rfmv_seq_launch_now(m, track, scene);       /* (stopped: launched, it plays with Play) */
+        } else if (dbl && t->active == scene && t->queued == SEQ_NONE && running(q) && rfmv_seq_clip_used(m, clip) &&
+                   !t->grow && !(q->mods & (SEQ_M_MUTE | SEQ_M_COPY | SEQ_M_DELETE))) {
+            rfmv_seq_launch(m, track, -1);              /* a double tap on the playing clip: it stops at the next bar
+                                                         * (the owner's; on any other clip a double tap is a tap:
+                                                         * everything launches at the next bar) */
             q->pad_tap = -1;
         } else if (q->mods & SEQ_M_MUTE) {
             q->mods_used |= SEQ_M_MUTE;

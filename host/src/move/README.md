@@ -205,9 +205,9 @@ chosen half way through a step (functions, conditions and chance decided then), 
 sound in time.
 
 **Clips (session view)**: a press on a clip launches it at the next bar (queued, blinking; stopped: at once, playing
-with Play); on the playing clip it stays. **A double tap** (300 ms) launches it now, not at the bar: in phase
-with the bar the song is in (the Move's manual has no double press, so in phase rather than from the clip's start;
-stopped: at once, playing with Play). **A press on an empty slot makes a new empty clip there** (drawn as a clip),
+with Play); on the playing clip it stays. Everything launches at the next bar (the owner's): **a double tap**
+(300 ms) on a clip that is not playing is a tap; **on the playing clip it stops it** at the next bar (as the
+track's stop step). **A press on an empty slot makes a new empty clip there** (drawn as a clip),
 selects it and launches it (with Rec armed: records into it, growing a bar at a time). **Shift + a clip** launches its
 whole row, that scene across the 16 tracks; **Shift + Play** stops every clip (at the bar). Cut, copy and paste as
 below.

@@ -548,6 +548,7 @@ static void test_launch(void)
     CHECK(m->seq.tr[0].active == 1 && find_midi(0x90, 62, 100, &at) && at == 16 * FPS && !find_midi(0x90, 60, -1, NULL));
     /* press the playing clip: it plays on (Move); an empty slot in the track: a new (empty) clip there, selected
      * and launched at the next bar (the owner) */
+    now_ms += 1000;
     pad(m, 16, 100), pad(m, 16, 0);
     CHECK(m->seq.tr[0].queued == SEQ_NONE && m->seq.tr[0].active == 1);
     pad(m, 8, 100), pad(m, 8, 0);                       /* track 1, scene 3: empty */
@@ -2474,17 +2475,26 @@ static void test_session2(void)
     knob(m, 2, 5);
     CHECK(count_midi(0xB2, -1) == 0 && count_midi(0xB0, -1) == 0);
     raw(m, 0x80, 2, 0);
-    /* a tap: at the next bar (queued); a double tap: now, in phase with the bar */
+    /* a tap: at the next bar (queued); a double tap on a clip not playing: the same (the owner's: everything
+     * launches at the next bar) */
     adv(m, FPS);
     now_ms += 1000;
     pad(m, 16, 100), pad(m, 16, 0);                     /* track 1, scene 2 */
     CHECK(m->seq.tr[0].queued == 1 && m->seq.tr[0].active == 0);
     pad(m, 16, 100), pad(m, 16, 0);                     /* (again, at once: a double tap) */
-    CHECK(m->seq.tr[0].queued == SEQ_NONE && m->seq.tr[0].active == 1);
-    CHECK(rfmv_seq_clip_pos(m, 0) == m->seq.T % RFM_MOVE_SEQ_BAR / 24);   /* (in phase: step 6 of its bar) */
+    CHECK(m->seq.tr[0].queued == 1 && m->seq.tr[0].active == 0);
     clear();
     adv(m, 16 * FPS);
-    CHECK(find_midi(0x90, 62, 100, NULL) && !find_midi(0x90, 60, -1, NULL));
+    CHECK(m->seq.tr[0].active == 1 && find_midi(0x90, 62, 100, NULL) && !find_midi(0x90, 60, -1, NULL));
+    /* a double tap on the playing clip: it stops at the next bar */
+    now_ms += 1000;
+    pad(m, 16, 100), pad(m, 16, 0), pad(m, 16, 100), pad(m, 16, 0);
+    CHECK(m->seq.tr[0].queued == SEQ_STOP && m->seq.tr[0].active == 1);
+    adv(m, 16 * FPS);
+    CHECK(m->seq.tr[0].active == -1);
+    pad(m, 16, 100), pad(m, 16, 0);                     /* (again: playing at the next bar, for what follows) */
+    adv(m, 16 * FPS);
+    CHECK(m->seq.tr[0].active == 1);
     /* Shift + Play (session): every clip stops at the bar */
     button(m, MR_CC_SHIFT, 1), press(m, MR_CC_PLAY), button(m, MR_CC_SHIFT, 0);
     CHECK(m->seq.playing && m->seq.tr[0].queued == SEQ_STOP);
