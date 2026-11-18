@@ -75,7 +75,9 @@ screen, LEDs and flash go to the page by `postMessage` at up to 30 Hz.
   portable C core every host shares, [rfm1cs-abletonmove](https://github.com/Quixotic7/rfm1cs-abletonmove) (the
   `web/vendor/rfm1cs-abletonmove` submodule, pinned to a tag; its README has the tables: Track 1..4 = FM-1, MIDI,
   Control, Sequencer modes; `js/move-core.js` and `js/move-seq.js` re-export its `web/` files), built by `web/move/build.sh` (its `web/build.sh`) into `web/build/move/rfm_move.mjs` (a single-file ES module,
-  ~45 KB, never committed; the Pages workflow builds it with the remote module; catalog `paths.move`). HELLO (proto 1),
+  ~45 KB, never committed; the Pages workflow builds it with the remote module; catalog `paths.move`). The link's
+  logic is rfm1cs-abletonmove's session (`session.h`, in the same module, the C the iOS and Android apps run too);
+  `move-link.js` moves its bytes over the transport, keeps its one timer and shows its state. HELLO (proto 1),
   then CONFIG audio clock off (the page plays its own sound); INPUT records go through the core into actions on the
   panel (source `SRC.MOVE`, bit 256: the holds are 16-bit), MASTER through `mapAct`, MIDI into the firmware's MIDI in;
   the FM-1's LEDs go out as the core's changed LED writes only (`LED_RGB` / `LED`), the screen (the mode, the last
