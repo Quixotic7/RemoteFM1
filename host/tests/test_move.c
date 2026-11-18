@@ -1021,8 +1021,11 @@ static void test_midi_round(void)
     /* the settings keep the screen; a version 1 image (77 bytes) still loads */
     rfm_move_save(&m.s, img);
     CHECK(rfm_move_load(&st, img, sizeof img) == 0 && st.midi_view == RFM_MOVE_MV_NOTES);
-    img[3] = 1, img[4] = (uint8_t)(RFM_MOVE_SETTINGS_BYTES - 1);
-    CHECK(rfm_move_load(&st, img, RFM_MOVE_SETTINGS_BYTES - 1) == 0 && st.midi_view == RFM_MOVE_MV_PADS &&
+    img[3] = 2, img[4] = (uint8_t)(RFM_MOVE_SETTINGS_BYTES - 2);   /* (version 2: no velocity setting) */
+    CHECK(rfm_move_load(&st, img, RFM_MOVE_SETTINGS_BYTES - 2) == 0 && st.midi_view == RFM_MOVE_MV_NOTES &&
+          st.vel_mode == RFM_MOVE_VEL_DYNAMIC && st.vel_level == 127);
+    img[3] = 1, img[4] = (uint8_t)(RFM_MOVE_SETTINGS_BYTES - 3);
+    CHECK(rfm_move_load(&st, img, RFM_MOVE_SETTINGS_BYTES - 3) == 0 && st.midi_view == RFM_MOVE_MV_PADS &&
           st.mode == RFM_MOVE_MODE_MIDI);
     track(&m, 1, 1), track(&m, 1, 0);                   /* (round: PADS again) */
     CHECK(m.s.midi_view == RFM_MOVE_MV_PADS && m.pop_i == 10);
@@ -1239,6 +1242,39 @@ static void test_track1_anywhere(void)
     CHECK(m.s.mode == RFM_MOVE_MODE_SEQ && !m.seq.metro && m.seq.nnotes == 0);
 }
 
+/* the Velocity menu (Track 1 held + step 10 in FM-1 / MIDI mode, Shift + step 10 in the sequencer): sticky; the jog
+ * the option, knob 1 the level; every pad that plays goes through it */
+static void test_velocity(void)
+{
+    static rfm_move_t m;
+    rfm_move_settings_t s;
+    uint8_t img[RFM_MOVE_SETTINGS_BYTES];
+    rfm_move_settings_default(&s);
+    CHECK(rfm_move_vel(&s, 40) == 40 && rfm_move_vel(&s, 0) == 1);
+    s.vel_mode = RFM_MOVE_VEL_SOFT;
+    CHECK(rfm_move_vel(&s, 40) > 40 && rfm_move_vel(&s, 127) == 127 && rfm_move_vel(&s, 1) >= 1);
+    s.vel_mode = RFM_MOVE_VEL_HARD;
+    CHECK(rfm_move_vel(&s, 40) < 40 && rfm_move_vel(&s, 127) == 127 && rfm_move_vel(&s, 1) == 1);
+    s.vel_mode = RFM_MOVE_VEL_FIXED, s.vel_level = 77;
+    CHECK(rfm_move_vel(&s, 5) == 77 && !strcmp(rfm_move_vel_name(s.vel_mode), "FIXED"));
+    rfm_move_save(&s, img);
+    rfm_move_settings_default(&s);
+    CHECK(rfm_move_load(&s, img, sizeof img) == 0 && s.vel_mode == RFM_MOVE_VEL_FIXED && s.vel_level == 77);
+
+    rfm_move_init(&m, NULL, on_act, NULL);
+    track(&m, 0, 1), step(&m, 9, 1), step(&m, 9, 0), track(&m, 0, 0);   /* FM-1 mode: the menu, over FM-1 mode */
+    CHECK(m.seq.smenu == RFM_MOVE_SM_VEL && m.s.mode == RFM_MOVE_MODE_FM1);
+    jog(&m, 1), knob(&m, 0, -27);                       /* FIXED, 100 */
+    CHECK(m.s.vel_mode == RFM_MOVE_VEL_FIXED && m.s.vel_level == 100 && m.seq.smenu == RFM_MOVE_SM_VEL);
+    button(&m, MR_CC_BACK, 1), button(&m, MR_CC_BACK, 0);
+    CHECK(!m.seq.smenu);
+    track(&m, 1, 1), track(&m, 1, 0);                   /* MIDI mode: a pad at the level */
+    clear();
+    pad(&m, 0, 20);
+    CHECK(has_midi(0x90, 48, 100));
+    pad(&m, 0, 0);
+}
+
 int main(void)
 {
     test_fm1_pads();
@@ -1255,5 +1291,6 @@ int main(void)
     test_fm1_shift_layer();
     test_mode_name_first();
     test_track1_anywhere();
+    test_velocity();
     return check_done("move");
 }

@@ -106,6 +106,24 @@ const char *rfm_move_enc_name(int e) { return e >= 0 && e < 8 ? ENC_NAMES[e] : "
 
 int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 
+const char *rfm_move_vel_name(int v)
+{
+    static const char *const N[RFM_MOVE_VEL_N] = { "DYNAMIC", "FIXED", "SOFT", "HARD" };
+    return v >= 0 && v < RFM_MOVE_VEL_N ? N[v] : "?";
+}
+
+/* SOFT: a lighter touch plays louder (v^0.5-ish); HARD: it takes a firmer one (v^2-ish) */
+int rfm_move_vel(const rfm_move_settings_t *s, int v)
+{
+    v = clampi(v, 1, 127);
+    switch (s->vel_mode) {
+    case RFM_MOVE_VEL_FIXED: return clampi(s->vel_level, 1, 127);
+    case RFM_MOVE_VEL_SOFT: return clampi(v + (v * (127 - v)) / 127, 1, 127);
+    case RFM_MOVE_VEL_HARD: return clampi((v * v + 126) / 127, 1, 127);
+    default: return v;
+    }
+}
+
 /* scale degree d (0 = the root) in semitones above the root */
 static int degree(int scale, int d)
 {
@@ -136,6 +154,7 @@ void rfm_move_settings_default(rfm_move_settings_t *s)
     s->mode = RFM_MOVE_MODE_FM1;
     s->layout = RFM_MOVE_LAYOUT_SCALE;
     s->scale = RFM_MOVE_SCALE_MAJOR;
+    s->vel_mode = RFM_MOVE_VEL_DYNAMIC, s->vel_level = 127;
     for (b = 0; b < RFM_MOVE_NBANKS; b++)
         for (k = 0; k < RFM_MOVE_NKNOBS; k++)
             s->cc[b][k] = (uint8_t)(DEFAULT_CC[b] + k);
@@ -152,7 +171,7 @@ uint32_t rfm_move_save(const rfm_move_settings_t *s, uint8_t *o)
     *p++ = s->scale, *p++ = s->root, *p++ = s->bank;
     memcpy(p, s->cc, sizeof s->cc), p += sizeof s->cc;
     memcpy(p, s->drum, sizeof s->drum), p += sizeof s->drum;
-    *p++ = s->midi_view;
+    *p++ = s->midi_view, *p++ = s->vel_mode, *p++ = s->vel_level;
     return (uint32_t)(p - o);
 }
 
@@ -164,7 +183,8 @@ int rfm_move_load(rfm_move_settings_t *s, const uint8_t *b, uint32_t n)
     rfm_move_settings_default(s);
     if (!b || n < 6 || b[0] != 'R' || b[1] != 'M' || b[2] != 'V' ||
         !((b[3] == RFM_MOVE_SETTINGS_VERSION && (b[4] | b[5] << 8) == RFM_MOVE_SETTINGS_BYTES && n >= RFM_MOVE_SETTINGS_BYTES) ||
-          (b[3] == 1 && (b[4] | b[5] << 8) == RFM_MOVE_SETTINGS_BYTES - 1 && n >= RFM_MOVE_SETTINGS_BYTES - 1)))
+          (b[3] == 2 && (b[4] | b[5] << 8) == RFM_MOVE_SETTINGS_BYTES - 2 && n >= RFM_MOVE_SETTINGS_BYTES - 2) ||
+          (b[3] == 1 && (b[4] | b[5] << 8) == RFM_MOVE_SETTINGS_BYTES - 3 && n >= RFM_MOVE_SETTINGS_BYTES - 3)))
         return -1;
     d = *s;
     p = b + 6;
@@ -186,6 +206,10 @@ int rfm_move_load(rfm_move_settings_t *s, const uint8_t *b, uint32_t n)
             s->drum[i] = p[i];
     p += RFM_MOVE_NPADS;
     s->midi_view = b[3] >= 2 && p[0] < RFM_MOVE_MV_N ? p[0] : RFM_MOVE_MV_PADS;
+    if (b[3] >= 3) {
+        s->vel_mode = p[1] < RFM_MOVE_VEL_N ? p[1] : d.vel_mode;
+        s->vel_level = p[2] >= 1 && p[2] <= 127 ? p[2] : d.vel_level;
+    }
     return 0;
 }
 
@@ -442,6 +466,7 @@ static void on_pad(rfm_move_t *m, int p, int vel, uint32_t now)
     if (m->pad_down[p])
         return;
     m->pad_down[p] = 1;
+    vel = rfm_move_vel(&m->s, vel);                     /* (the velocity setting: every pad that plays, any mode) */
     h->kind = H_NONE;
     if (fm1_seq_layer(m) && (m->seq.projects || m->seq.smenu == RFM_MOVE_SM_LAYOUT || m->seq.smenu == RFM_MOVE_SM_KEYS)) {
         h->kind = H_MENU;                               /* (FM-1 mode, a sequencer menu opened with Track 1: its pads) */

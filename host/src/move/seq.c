@@ -514,7 +514,7 @@ void rfmv_seq_project_clear(rfm_move_t *m)
 {
     rfm_move_seq_t *q = &m->seq;
     int t, c;
-    q->bpm10 = 1200, q->clock_mode = RFM_MOVE_CLOCK_AUTO, q->fixed_vel = 0, q->sel_track = 0;
+    q->bpm10 = 1200, q->clock_mode = RFM_MOVE_CLOCK_AUTO, q->sel_track = 0;
     q->rec_mode = RFM_MOVE_RM_CAPTURE, q->rec_style = RFM_MOVE_RS_OVERDUB;
     q->groove = 0, q->color = 0;
     q->root = q->in_seq ? m->seq.stash_root : m->s.root;   /* (a new project: MIDI mode's key and scale) */
@@ -1155,7 +1155,7 @@ static void arp_step(rfm_move_t *m)
         return;
     {
         const int steplen = BAR / rfmv_seq_arp_rate_of(a->rate);
-        const int len = steplen * clampi(a->gate, 2, 200) / 100 * (1 + ties), vel = q->fixed_vel ? 127 : q->arp_vel[0];
+        const int len = steplen * clampi(a->gate, 2, 200) / 100 * (1 + ties), vel = q->arp_vel[0];
         if (mod != RFM_MOVE_AL_REPEAT)
             q->arp_lastn = 0;
         for (i = 0; i < np; i++) {
@@ -1602,7 +1602,7 @@ static void rec_start_note(rfm_move_t *m, int pad, int clip, int step, int micro
     rfm_move_recnote_t *r = &q->recn[pad];
     const uint16_t g = q->group;
     q->group = q->rec_group;
-    rfmv_seq_note_put(m, clip, step, note, q->fixed_vel ? 127 : vel, TPS, micro);   /* (its length at the release) */
+    rfmv_seq_note_put(m, clip, step, note, vel, TPS, micro);   /* (its length at the release) */
     q->group = g;
     {
         const int i = rfmv_seq_find(m, clip, step, note);
@@ -1869,7 +1869,7 @@ int rfmv_seq_capture(rfm_move_t *m)
             s -= L;                                     /* (early for the loop's first step) */
         if (s >= L)
             continue;
-        rfmv_seq_note_put(m, clip, s, c[i].note, q->fixed_vel ? 127 : c[i].vel,
+        rfmv_seq_note_put(m, clip, s, c[i].note, c[i].vel,
                           clampi((c[i].off - c[i].on) * TPS / tps, 1, L * TPS), micro);
     }
     rfmv_seq_release(m, tr);

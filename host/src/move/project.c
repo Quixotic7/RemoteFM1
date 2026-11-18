@@ -51,7 +51,8 @@ int rfm_move_project_save(rfm_move_t *m, uint8_t *out, uint32_t cap)
     memcpy(p, "RMSQ", 4);
     p[4] = RFM_MOVE_PROJECT_VERSION, p[5] = 0;
     w16(p + 6, q->bpm10);
-    p[8] = q->clock_mode, p[9] = q->fixed_vel, p[10] = q->sel_track;
+    p[8] = q->clock_mode, p[9] = m->s.vel_mode == RFM_MOVE_VEL_FIXED,   /* (was the project's Full Velocity; now a setting) */
+    p[10] = q->sel_track;
     p[13] = q->rec_mode, p[14] = q->rec_style;          /* (version 2) */
     p[15] = q->groove, p[16] = q->root, p[17] = q->scale;   /* (version 3: the Global groove, key and scale) */
     p[18] = q->color;                                   /* (its colour: any version may carry it, 0 the slot's) */
@@ -211,7 +212,7 @@ static int parse(const uint8_t *b, uint32_t n, rfm_move_seq_t *q)
     }
     if (!q)
         return 0;
-    q->bpm10 = (uint16_t)r16(b + 6), q->clock_mode = b[8], q->fixed_vel = b[9], q->sel_track = b[10];
+    q->bpm10 = (uint16_t)r16(b + 6), q->clock_mode = b[8], q->sel_track = b[10];
     q->rec_mode = b[13], q->rec_style = b[14], q->color = b[18];
     if (ver >= 3)                                       /* (older: the key and scale MIDI mode has now) */
         q->groove = b[15], q->root = b[16], q->scale = b[17];

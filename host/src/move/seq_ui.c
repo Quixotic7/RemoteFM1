@@ -22,7 +22,7 @@ static const rgb_t TRACK_RGB[RFM_MOVE_SEQ_TRACKS] = {
     { 255, 170, 110 }, { 180, 255, 160 }, { 140, 220, 255 }, { 220, 200, 255 },
 };
 /* Shift + step n (0-based), as printed on the Move (its manual): 1 Set Overview (our projects), 2 Setup (our clock
- * source), 3 Workflow Settings, 5 Tempo, 6 Metronome, 7 Groove, 8 Layout, 9 Keys & Scales, 10 Full Velocity,
+ * source), 3 Workflow Settings, 5 Tempo, 6 Metronome, 7 Groove, 8 Layout, 9 Keys & Scales, 10 Full Velocity (our Velocity menu),
  * 11 Repeat (our arp), 14 New Clip, 15 Double Loop, 16 Quantize */
 enum { SH_PROJECTS = 0, SH_CLOCK = 1, SH_WORKFLOW = 2, SH_TEMPO = 4, SH_METRO = 5, SH_GROOVE = 6, SH_LAYOUT = 7,
        SH_KEYS = 8, SH_FIXVEL = 9, SH_ARP = 10, SH_NEWCLIP = 13, SH_DOUBLE = 14, SH_QUANT = 15 };
@@ -35,6 +35,7 @@ static int sh_menu(int s)                               /* the menu a Shift + st
     case SH_LAYOUT: return RFM_MOVE_SM_LAYOUT;
     case SH_KEYS: return RFM_MOVE_SM_KEYS;
     case SH_ARP: return RFM_MOVE_SM_ARP;
+    case SH_FIXVEL: return RFM_MOVE_SM_VEL;
     default: return 0;
     }
 }
@@ -50,7 +51,7 @@ void rfmv_shift_icons(const rfm_move_t *m, uint8_t icon[16])
     for (i = 0; i < RFM_MOVE_NSTEPS; i++) {
         const int job = i == SH_PROJECTS || i == SH_CLOCK || i == SH_FIXVEL || i == SH_DOUBLE || i == SH_QUANT ||
                         i == SH_METRO || i == SH_NEWCLIP || sh_menu(i);
-        const int on = (i == SH_FIXVEL && q->fixed_vel) || (i == SH_METRO && q->metro) || (i == SH_CLOCK && q->following) ||
+        const int on = (i == SH_FIXVEL && m->s.vel_mode == RFM_MOVE_VEL_FIXED) || (i == SH_METRO && q->metro) || (i == SH_CLOCK && q->following) ||
                        (i == SH_PROJECTS && q->projects) || (sh_menu(i) && sh_menu(i) == q->smenu);
         icon[i] = (uint8_t)(!job ? 0 : on ? 127 : 24);
     }
@@ -58,7 +59,7 @@ void rfmv_shift_icons(const rfm_move_t *m, uint8_t icon[16])
 
 static int sh_step(int menu)
 {
-    static const int8_t S[] = { -1, SH_WORKFLOW, SH_TEMPO, SH_GROOVE, SH_LAYOUT, SH_KEYS, SH_ARP };
+    static const int8_t S[] = { -1, SH_WORKFLOW, SH_TEMPO, SH_GROOVE, SH_LAYOUT, SH_KEYS, SH_ARP, -1, SH_FIXVEL };
     return menu > 0 && menu < (int)sizeof S ? S[menu] : -1;
 }
 
@@ -69,7 +70,8 @@ static int edit_clip(const rfm_move_t *m)
     return SEQ_CLIP(q->sel_track, q->tr[q->sel_track].sel);
 }
 static int clip_len(const rfm_move_t *m) { return m->seq.len[edit_clip(m)]; }
-static int vel_of(const rfm_move_t *m, int v) { return m->seq.fixed_vel ? 127 : clampi(v, 1, 127); }
+static int vel_of(const rfm_move_t *m, int v) { (void)m; return clampi(v, 1, 127); }   /* (the pads' already through the
+                                                         * velocity setting) */
 static int running(const rfm_move_seq_t *q) { return q->playing || q->start_pending; }
 static int root_note(const rfm_move_t *m) { return clampi(48 + m->s.root + 12 * m->s.octave, 0, 127); }
 
@@ -738,10 +740,6 @@ void rfmv_seq_step(rfm_move_t *m, int s, int down, uint32_t now)
                 rfmv_seq_msg(m, SEQ_MSG_NOCLIP);
             break;
         }
-        case SH_FIXVEL:
-            q->fixed_vel = (uint8_t)!q->fixed_vel, rfmv_seq_dirty(m);
-            rfmv_seq_msg(m, q->fixed_vel ? SEQ_MSG_FULLVEL_ON : SEQ_MSG_FULLVEL_OFF);
-            break;
         case SH_QUANT:
             rfmv_seq_group(m);
             rfmv_seq_clip_quantize(m, clip);
@@ -1393,6 +1391,13 @@ static void smenu_turn(rfm_move_t *m, int k, int d)
         default: break;
         }
         break;
+    case RFM_MOVE_SM_VEL:                               /* the jog: the option (1:1, four); knob 1: the level */
+        if (k < 0)
+            m->s.vel_mode = (uint8_t)clampi(m->s.vel_mode + d, 0, RFM_MOVE_VEL_N - 1);
+        else if (k == 0)
+            m->s.vel_level = (uint8_t)clampi(m->s.vel_level + d, 1, 127);
+        rfmv_changed(m);
+        break;
     case RFM_MOVE_SM_REC:                               /* mode, style */
         if (k <= 0)
             q->rec_mode = (uint8_t)clampi(q->rec_mode + d, 0, RFM_MOVE_RM_N - 1), q->steprec = 0;
@@ -1674,7 +1679,7 @@ void rfmv_seq_leds(const rfm_move_t *m, rgb_t c[L_WHITE0], uint8_t w[13])
                 v = rfmv_mode_rgb[RFM_MOVE_MODE_SEQ];
             if (i == SH_METRO && q->metro)
                 v = RFMV_WHITE;
-            if (i == SH_FIXVEL && q->fixed_vel)
+            if (i == SH_FIXVEL && m->s.vel_mode == RFM_MOVE_VEL_FIXED)
                 v = RFMV_WHITE;
             if (i == SH_CLOCK && q->following)
                 v = RFMV_GREEN;
@@ -2124,6 +2129,27 @@ static void smenu_screen(const rfm_move_t *m, mr_canvas_t *cv)
         snprintf(b, sizeof b, "%s x%d", AM_NAMES[a->mode % RFM_MOVE_AM_N], a->range), row2(cv, 40, b);
         if (a->quant)
             snprintf(b, sizeof b, "Q1/%d", rfmv_seq_arp_rate_of(a->quant - 1)), mr_gfx_text(cv, 92, 56, b, 1);
+        break;
+    }
+    case RFM_MOVE_SM_VEL: {                             /* the curve (played in, out: FIXED a flat line), the
+                                                         * option's name, the level with its bar */
+        const int fixed = m->s.vel_mode == RFM_MOVE_VEL_FIXED;
+        const char *nm = rfm_move_vel_name(m->s.vel_mode);
+        int w = rfmv_big_w(nm, 3) <= 124 ? 3 : 2;
+        rfmv_big(cv, 64 - rfmv_big_w(nm, w) / 2, 2, nm, w, 1);
+        mr_gfx_rect(cv, 2, 26, 34, 34, 1, 0);
+        for (i = 0; i < 32; i++) {
+            const int v = rfm_move_vel(&m->s, 1 + i * 126 / 31);
+            mr_gfx_rect(cv, 3 + i, 59 - v * 32 / 127, 1, 1, 1, 1);
+        }
+        snprintf(b, sizeof b, "%d", m->s.vel_level);
+        rfmv_big(cv, 44, 28, b, 3, 1);
+        mr_gfx_rect(cv, 44, 52, 82, 8, 1, 0);
+        if (fixed)
+            mr_gfx_rect(cv, 46, 54, m->s.vel_level * 78 / 127, 4, 1, 1);
+        else
+            for (i = 0; i < m->s.vel_level * 78 / 127; i += 2)
+                mr_gfx_pixel(cv, 46 + i, 55, 1);       /* (not in use: dotted) */
         break;
     }
     case RFM_MOVE_SM_REC: {                             /* the mode's picture, its name, the style */

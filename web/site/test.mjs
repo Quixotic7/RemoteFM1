@@ -1717,8 +1717,14 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
     ok(a.length === 1 && a[0].kind === "midi" && Array.from(a[0].bytes).join() === "144,48,100", "move core: MIDI mode: pad 0 sends C3 note on, channel 1");
     ok(core.releaseAll().some((x) => x.kind === "midi" && x.bytes[0] === 0x80 && x.bytes[1] === 48), "move core: releaseAll lets the note go");
     const saved = core.save(), back = await load(saved);
-    ok(saved.length === 78 && saved[3] === 2 && String.fromCharCode(...saved.subarray(0, 3)) === "RMV" && back.state().mode === 1 && back.state().layout === 1,
-       "move core: save() is 78 bytes (RMV v2); a core loaded from it has the same mode and layout");
+    ok(saved.length === 80 && saved[3] === 3 && String.fromCharCode(...saved.subarray(0, 3)) === "RMV" && back.state().mode === 1 && back.state().layout === 1,
+       "move core: save() is 80 bytes (RMV v3); a core loaded from it has the same mode and layout");
+    {   // an RMV v2 image (78 bytes: no velocity setting) still loads
+      const v2 = saved.slice(0, 78); v2[3] = 2; v2[4] = 78;
+      const old = await load(v2);
+      ok(old.state().mode === 1 && old.state().layout === 1, "move core: an RMV v2 (78-byte) image still loads");
+      old.free();
+    }
     {   // an RMV v1 image (77 bytes: no MIDI screen) a visitor's browser kept still loads
       const v1 = saved.slice(0, 77); v1[3] = 1; v1[4] = 77;
       const old = await load(v1);

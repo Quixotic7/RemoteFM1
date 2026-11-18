@@ -115,11 +115,16 @@ typedef struct {
     uint8_t cc[RFM_MOVE_NBANKS][RFM_MOVE_NKNOBS];       /* each bank's CC numbers, knob 1..8 */
     uint8_t drum[RFM_MOVE_NPADS];                       /* the drum layout's notes, by pad (0 = bottom-left) */
     uint8_t midi_view;                                  /* MIDI mode's screen: RFM_MOVE_MV_* */
+    uint8_t vel_mode, vel_level;                        /* the pads' velocity: RFM_MOVE_VEL_*; FIXED's level 1..127 */
 } rfm_move_settings_t;
+enum { RFM_MOVE_VEL_DYNAMIC, RFM_MOVE_VEL_FIXED, RFM_MOVE_VEL_SOFT, RFM_MOVE_VEL_HARD, RFM_MOVE_VEL_N };
+const char *rfm_move_vel_name(int v);                   /* "DYNAMIC", "FIXED", "SOFT", "HARD" */
+int rfm_move_vel(const rfm_move_settings_t *s, int v);  /* a pad's velocity 1..127 through the setting */
 #define RFM_MOVE_LIST_TICKS 5                           /* a list-type menu knob (scale, root, layout ..): ticks an item */
 #define RFM_MOVE_KNOB_TICKS 2                           /* the Move's knob ticks an FM-1 encoder detent (the jog: 1) */
-#define RFM_MOVE_SETTINGS_VERSION 2                     /* (version 1, 77 bytes, loads too: no MIDI screen) */
-#define RFM_MOVE_SETTINGS_BYTES (6 + 7 + RFM_MOVE_NBANKS * RFM_MOVE_NKNOBS + RFM_MOVE_NPADS + 1)
+#define RFM_MOVE_SETTINGS_VERSION 3                     /* (versions 1 and 2, 77 and 78 bytes, load too: no MIDI
+                                                         * screen, no velocity setting) */
+#define RFM_MOVE_SETTINGS_BYTES (6 + 7 + RFM_MOVE_NBANKS * RFM_MOVE_NKNOBS + RFM_MOVE_NPADS + 3)
 enum { RFM_MOVE_MV_PADS, RFM_MOVE_MV_NOTES, RFM_MOVE_MV_N };   /* MIDI mode's screens (a tap on Track 2 turns them) */
 void rfm_move_settings_default(rfm_move_settings_t *s);
 /* "RMV" version8 len16, then the fields; returns RFM_MOVE_SETTINGS_BYTES */
@@ -191,10 +196,10 @@ typedef struct {
     int8_t lane[2][RFM_MOVE_ARP_LANE];                  /* 0 MOD (RFM_MOVE_AL_*), 1 TRANSPOSE (-48..48) */
 } rfm_move_arp_t;
 /* Shift + step (Ableton Move's printed functions, Move manual: step 1 Set Overview, 2 Setup, 3 Workflow Settings,
- * 5 Tempo, 6 Metronome, 7 Groove, 8 Layout (16 Pitches), 9 Keys & Scales, 10 Full Velocity, 11 Repeat (Arp),
+ * 5 Tempo, 6 Metronome, 7 Groove, 8 Layout (16 Pitches), 9 Keys & Scales, 10 Velocity (a menu), 11 Repeat (Arp),
  * 14 New Clip, 15 Double Loop, 16 Quantize); the menus they open (rfm_move_seq_t.smenu) */
 enum { RFM_MOVE_SM_NONE, RFM_MOVE_SM_WORKFLOW, RFM_MOVE_SM_TEMPO, RFM_MOVE_SM_GROOVE, RFM_MOVE_SM_LAYOUT,
-       RFM_MOVE_SM_KEYS, RFM_MOVE_SM_ARP, RFM_MOVE_SM_REC };
+       RFM_MOVE_SM_KEYS, RFM_MOVE_SM_ARP, RFM_MOVE_SM_REC, RFM_MOVE_SM_VEL };
 /* the record settings (Shift + Record; saved): what Record does, and how a live take meets what is there */
 enum { RFM_MOVE_RM_CAPTURE, RFM_MOVE_RM_RECORD, RFM_MOVE_RM_STEP, RFM_MOVE_RM_N };
 enum { RFM_MOVE_RS_OVERDUB, RFM_MOVE_RS_REPLACE, RFM_MOVE_RS_N };
@@ -269,7 +274,7 @@ typedef struct {                                        /* a stored project in b
 typedef struct {
     /* ---- the project (what a blob holds) */
     uint16_t bpm10;                                     /* the internal clock, BPM x 10 */
-    uint8_t clock_mode, fixed_vel, sel_track;
+    uint8_t clock_mode, sel_track;
     rfm_move_track_t tr[RFM_MOVE_SEQ_TRACKS];
     uint16_t len[RFM_MOVE_SEQ_CLIPS];                   /* clip loop lengths, steps 1..256 */
     uint8_t lstart[RFM_MOVE_SEQ_CLIPS];                 /* .. the loop's first step (lstart + len <= 256) */

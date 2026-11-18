@@ -274,7 +274,7 @@ step or Back closes it):
 | 7 Groove | menu: the groove, 5 % a detent (Shift: 1 %), 0..150 %: the off 16ths late, 100 % a triplet swing (Move's). Knob 2: GLOBAL (the project's groove, the default) or TRACK (the track's own, starting from the global one) |
 | 8 Layout | menu: the pads' top row picks the layout (the jog too) |
 | 9 Keys & Scales | menu: row 2's pads the scale (knob 2 too), the top row the layout, the jog the root. Knob 3: GLOBAL (the project's key and scale, the default; a new project starts with MIDI mode's) or TRACK (the track's own) |
-| 10 Full Velocity | on / off |
+| 10 Velocity | menu, sticky (Back or Shift + step 10 closes it): the jog the option, DYNAMIC (as played), FIXED (every pad at the level), SOFT (a light touch plays louder), HARD (it takes a firmer one); knob 1 the level 1..127 (FIXED's). The screen: the name big, the curve (played in, out), the level big with its bar (dotted while not FIXED). Every pad that plays goes through it, in every mode (MIDI notes, FM-1 keys, the sequencer's live notes, recordings and step entry). A setting (saved with the others), not the project's; its icon LED is full while FIXED |
 | 11 Repeat (arp) | menu: the track's arp, FIZZ's ARP (its defaults: 1/8, two octaves, QUANT 1/16). The jog turns its pages. Page 1: knobs PATTERN (UP .. AS PLAYED, 17), RATE (1/1 .. 1/64 of a bar), RANGE (octaves), CHANCE, MODE (OFF, ON, 1-ST, ONCE, HOLD), GATE, OCT DIST, QUANT (when a run starts: at once, or the next 1/n of the song's bars); the pattern's walk drawn. Pages 2 and 3: the MOD lane (x as played, . rest, - tie, R repeat, < lowest -oct, > highest +oct, " power chord, # every held note, 1..6 the n-th played) and the TRANSPOSE lane (-48..+48): the steps pick a lane step, knob 1 its value, knob 2 RESET (NORM, NOTE: a new note restarts it, MPAT / TPAT: as that lane comes round), knob 4 the lane's length. On, the track's pads play through it; recording, its notes go into the clip with their timing and length |
 | 14 New Clip | the track's next empty slot gets a new clip, selected |
 | 15 Double Loop | double the loop |
@@ -390,7 +390,7 @@ rfm_move_screen_timed(&m);                        /* 1: draw again as the clock 
 rfm_move_release_all(&m);                         /* the link dropped, or the host leaves Move control */
 rfm_move_leds_invalidate(&m);                     /* a new connection: repaint */
 rfm_move_set_master(&m, v); rfm_move_set_label(&m, enc, "CUTOFF"); rfm_move_set_keymap(&m, km);
-rfm_move_save(&m.s, bytes); rfm_move_load(&s, bytes, n);   /* "RMV" + version 2, 78 bytes (version 1, 77 bytes, loads) */
+rfm_move_save(&m.s, bytes); rfm_move_load(&s, bytes, n);   /* "RMV" + version 3, 80 bytes (versions 2 and 1, 78 and 77 bytes, load) */
 ```
 
 `rfm_move_t` is about 150 KB with the sequencer: keep it static or on the heap. The sequencer:

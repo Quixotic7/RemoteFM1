@@ -93,6 +93,7 @@ static void pad(rfm_move_t *m, int p, int vel) { raw(m, vel ? 0x90 : 0x80, (uint
 static void step(rfm_move_t *m, int s, int down) { raw(m, down ? 0x90 : 0x80, (uint8_t)(MR_NOTE_STEP0 + s), down ? 127 : 0); }
 static void tap_step(rfm_move_t *m, int s) { step(m, s, 1), step(m, s, 0); }
 static void button(rfm_move_t *m, int cc, int down) { raw(m, 0xB0, (uint8_t)cc, down ? 127 : 0); }
+static void write_pbm(const char *path, const uint8_t *packed);
 static void press(rfm_move_t *m, int cc) { button(m, cc, 1), button(m, cc, 0); }
 static void knob(rfm_move_t *m, int k, int d) { raw(m, 0xB0, (uint8_t)(MR_CC_KNOB1 + k), (uint8_t)(d & 127)); }
 static void jog(rfm_move_t *m, int d) { raw(m, 0xB0, MR_CC_JOG, (uint8_t)(d & 127)); }
@@ -677,12 +678,27 @@ static void test_record(void)
     CHECK(!m->seq.playing && !m->seq.rec && nnotes_clip(m, 0) == 3);
     pad(m, 5, 0);
     CHECK(stuck() == 0);
-    /* fixed velocity (Shift + step 10, Move's Full Velocity): steps and recordings at 127 */
+    /* the Velocity menu (Shift + step 10, Move's Full Velocity): sticky; the jog the option, knob 1 the level;
+     * FIXED: steps and recordings at the level */
     button(m, MR_CC_SHIFT, 1), tap_step(m, 9), button(m, MR_CC_SHIFT, 0);
-    CHECK(m->seq.fixed_vel);
+    CHECK(m->seq.smenu == RFM_MOVE_SM_VEL && m->s.vel_mode == RFM_MOVE_VEL_DYNAMIC);
+    jog(m, 1);
+    knob(m, 0, -27);
+    CHECK(m->seq.smenu == RFM_MOVE_SM_VEL && m->s.vel_mode == RFM_MOVE_VEL_FIXED && m->s.vel_level == 100);
+    {
+        uint8_t ic[16];
+        button(m, MR_CC_SHIFT, 1), rfmv_shift_icons(m, ic), button(m, MR_CC_SHIFT, 0);
+        CHECK(ic[9] == 127);                            /* (its icon full while FIXED) */
+        uint8_t vo[MR_SCREEN_BYTES];
+        m->seq.msg = 0, rfm_move_screen(m, NULL, vo);
+        write_pbm("move_seq_vel.pbm", vo);
+    }
+    press(m, MR_CC_BACK);
+    CHECK(!m->seq.smenu);
     pad(m, 7, 20), pad(m, 7, 0);
     tap_step(m, 12);
-    CHECK(m->seq.notes[rfmv_seq_find(m, 0, 12, 60)].vel == 127);
+    CHECK(m->seq.notes[rfmv_seq_find(m, 0, 12, 60)].vel == 100);
+    m->s.vel_mode = RFM_MOVE_VEL_DYNAMIC;
     /* session: an empty clip with Rec armed records into it, growing a bar at a time until pressed again */
     fresh(m);
     m->seq.rec_mode = RFM_MOVE_RM_RECORD;
@@ -961,12 +977,12 @@ static void rich_project(rfm_move_t *m, uint32_t seed)
         m->seq.tr[i].active = (int8_t)(i % 3 == 0 ? -1 : i), m->seq.tr[i].sel = (int8_t)(i / 2);
         m->seq.len[i * 16 + 3] = (uint16_t)(i * 16 + 7);
     }
-    m->seq.bpm10 = 1375, m->seq.clock_mode = RFM_MOVE_CLOCK_EXTERNAL, m->seq.fixed_vel = 1, m->seq.sel_track = 9;
+    m->seq.bpm10 = 1375, m->seq.clock_mode = RFM_MOVE_CLOCK_EXTERNAL, m->seq.sel_track = 9;
 }
 static int same_project(const rfm_move_seq_t *a, const rfm_move_seq_t *b)
 {
     int i;
-    if (a->bpm10 != b->bpm10 || a->clock_mode != b->clock_mode || a->fixed_vel != b->fixed_vel ||
+    if (a->bpm10 != b->bpm10 || a->clock_mode != b->clock_mode ||
         a->sel_track != b->sel_track || a->nnotes != b->nnotes || a->nlocks != b->nlocks ||
         memcmp(a->len, b->len, sizeof a->len) || memcmp(a->notes, b->notes, a->nnotes * sizeof a->notes[0]) ||
         memcmp(a->locks, b->locks, a->nlocks * sizeof a->locks[0]))
@@ -1248,7 +1264,7 @@ static void write_pbm(const char *path, const uint8_t *packed)
 #define GOLD_PROJECT 0x2b200224u
 #define GOLD_TRACKS 0xc171edf0u
 #define GOLD_COUNT 0xb117a7b1u
-#define GOLD_MSG 0xffb67057u
+#define GOLD_MSG 0x443f4127u
 static int px_at(const uint8_t *packed, int x, int y) { return packed[(y >> 3) * 128 + x] >> (y & 7) & 1; }
 static void gold(const char *name, const uint8_t *out, uint32_t want)
 {
@@ -1426,10 +1442,10 @@ static void test_screens_leds(void)
     CHECK(m->seq.start_pending == 3 && px_at(out, 2, 2));
     gold("count", out, GOLD_COUNT);
     press(m, MR_CC_REC);
-    /* a message (Shift + step 10: full velocity) at 2x, a second */
-    button(m, MR_CC_SHIFT, 1), tap_step(m, 9), button(m, MR_CC_SHIFT, 0);
+    /* a message (Shift + step 6: the metronome) at 2x, a second */
+    button(m, MR_CC_SHIFT, 1), tap_step(m, 5), button(m, MR_CC_SHIFT, 0);
     rfm_move_screen(m, NULL, out);
-    CHECK(m->seq.msg == SEQ_MSG_FULLVEL_ON && m->seq.fixed_vel && px_at(out, 2, 2));
+    CHECK((m->seq.msg == SEQ_MSG_METRO_ON || m->seq.msg == SEQ_MSG_METRO_OFF) && px_at(out, 2, 2));
     gold("msg", out, GOLD_MSG);
     adv(m, RATE * RFM_MOVE_POPUP_MS / 1000);
     rfm_move_screen(m, NULL, out);
@@ -1522,7 +1538,7 @@ static void test_popups(void)
     /* a message over a popup that came first; a popup over an older message */
     knob(m, 3, 1);
     adv(m, 128);
-    button(m, MR_CC_SHIFT, 1), tap_step(m, 9), button(m, MR_CC_SHIFT, 0);
+    button(m, MR_CC_SHIFT, 1), tap_step(m, 5), button(m, MR_CC_SHIFT, 0);
     rfm_move_screen(m, NULL, out);
     CHECK(rfmv_seq_msg_text(m) && !px_at(out, 66, 0));  /* the message (no hatching) */
     adv(m, 128);
