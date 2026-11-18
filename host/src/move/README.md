@@ -514,13 +514,14 @@ and named), the style with its icon. Global Settings: the Move's battery (outlin
 **Held Track buttons**: Track 2 the key / scale screen with the channels (midi.hold2, midi.scale); Track 3 the knob
 legend (the turned one filled), "CC" and the number it sends at 4x, which knob (ctl.hold3); Track 4 (and Mute held)
 the 16 tracks on one row as the 16 step keys: the selected one filled, muted crossed, soloed a square inside, with
-notes outlined, empty a dot; the selected track (or what changed last: "Ch 5", "K3 CC 20", "Rate 1/16") on top
-(sess.hold4).
+notes outlined, empty a dot; "Track n" on top (sess.hold4). A value changed while it is held (the channel, a knob's
+CC, the rate, the layout, the scale) shows as its edit popup ("Channel 5", "Knob 3 CC 20", "Rate 1/16") for a second,
+then the tracks again.
 
 **Where it differs from the mockups** (behaviour kept, looks as close as the data allows): the arp's page 1 keeps all 8 knobs (the legend shows
 8 rings, the mockup 4); the arp's lanes have 16 steps (the mockup draws 8); the audio loop has no waveform (the core
 does not see the audio), only the bar lines and the strip; there is no charging screen (no STATUS power bit is known
-to mean charging); Track 4 held keeps saying what changed last; the play triangle in FM-1 mode stays; the FM-1
+to mean charging); the play triangle in FM-1 mode stays; the FM-1
 drawing's touch marks follow our drawing's cells (the mockup's examples sit one pixel off).
 
 ## Tests

@@ -2386,20 +2386,30 @@ void rfmv_seq_screen(const rfm_move_t *m, mr_canvas_t *cv)
         track_screen(m, cv);
 }
 
-/* Track 4 held (V2Session sess.hold4): the 16 tracks on one row, the selected one named on top (or what changed last:
- * the channel, a knob's CC, the rate, the layout, the scale) */
+/* Track 4 held (V2Session sess.hold4): the 16 tracks on one row, "Track n" on top; a value changed (the channel, a
+ * knob's CC, the rate, the layout, the scale): its edit popup over it for a second, then the tracks again */
 void rfmv_seq_track_menu(const rfm_move_t *m, mr_canvas_t *cv)
 {
     const rfm_move_seq_t *q = &m->seq;
     const rfm_move_track_t *t = &q->tr[q->sel_track];
-    char b[24], c[24];
-    switch (m->menu_what) {
-    case MENU_TCH: snprintf(b, sizeof b, "Ch %d", t->ch + 1); break;
-    case MENU_CC: snprintf(b, sizeof b, "K%d CC %d", (m->menu_i & 7) + 1, m->s.cc[m->s.bank][m->menu_i & 7]); break;
-    case MENU_RATE: snprintf(b, sizeof b, "Rate %s", rfm_move_seq_rate_name(t->rate)); break;
-    case MENU_LAYOUT: rfmv_tcase(rfm_move_layout_name(m->s.layout), b, sizeof b); break;
-    case MENU_SCALE: rfmv_tcase(rfm_move_scale_name(m->s.scale), c, sizeof c), snprintf(b, sizeof b, "%s", c); break;
-    default: snprintf(b, sizeof b, "Track %d", q->sel_track + 1); break;
+    char l[24], b[24];
+    l[0] = 0;
+    if (rfmv_now_ms(m) - m->menu_ms < RFM_MOVE_POPUP_MS)
+        switch (m->menu_what) {
+        case MENU_TCH: snprintf(l, sizeof l, "Channel"), snprintf(b, sizeof b, "%d", t->ch + 1); break;
+        case MENU_CC:
+            snprintf(l, sizeof l, "Knob %d CC", (m->menu_i & 7) + 1);
+            snprintf(b, sizeof b, "%d", m->s.cc[m->s.bank][m->menu_i & 7]);
+            break;
+        case MENU_RATE: snprintf(l, sizeof l, "Rate"), snprintf(b, sizeof b, "%s", rfm_move_seq_rate_name(t->rate)); break;
+        case MENU_LAYOUT: snprintf(l, sizeof l, "Layout"), rfmv_tcase(rfm_move_layout_name(m->s.layout), b, sizeof b); break;
+        case MENU_SCALE: snprintf(l, sizeof l, "Scale"), rfmv_tcase(rfm_move_scale_name(m->s.scale), b, sizeof b); break;
+        default: break;
+        }
+    if (l[0]) {
+        v2_titleBox(cv, l, b, 64, 124);
+        return;
     }
+    snprintf(b, sizeof b, "Track %d", q->sel_track + 1);
     tracks_row(m, cv, b);
 }

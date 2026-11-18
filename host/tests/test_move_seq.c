@@ -94,6 +94,7 @@ static void step(rfm_move_t *m, int s, int down) { raw(m, down ? 0x90 : 0x80, (u
 static void tap_step(rfm_move_t *m, int s) { step(m, s, 1), step(m, s, 0); }
 static void button(rfm_move_t *m, int cc, int down) { raw(m, 0xB0, (uint8_t)cc, down ? 127 : 0); }
 static void write_pbm(const char *path, const uint8_t *packed);
+static void rest(rfm_move_t *m);
 static int px_at(const uint8_t *packed, int x, int y);
 static int lit(const uint8_t *packed)                   /* the pixels on */
 {
@@ -1493,6 +1494,17 @@ static void test_screens_leds(void)
     tap_step(m, 2);
     rfm_move_screen(m, NULL, out);
     CHECK(m->menu_what == MENU_TRACK && m->seq.sel_track == 2 && px_at(out, 16, 28) && px_at(out, 22, 53) && !px_at(out, 16, 55));
+    {                                                   /* a value changed (the jog: the channel): its popup over the
+                                                         * tracks for a second, then "Track 3" again */
+        uint8_t o2[MR_SCREEN_BYTES];
+        jog(m, 1);
+        rfm_move_screen(m, NULL, o2);
+        CHECK(m->menu_what == MENU_TCH && !px_at(o2, 16, 28) && lit(o2) > 100 && rfm_move_screen_timed(m));
+        rest(m);
+        rfm_move_screen(m, NULL, o2);
+        CHECK(px_at(o2, 16, 28) && px_at(o2, 22, 53));
+        jog(m, -1), rest(m);
+    }
     gold("tracks", out, GOLD_TRACKS);
     tap_step(m, 0);
     track(m, 3, 0);

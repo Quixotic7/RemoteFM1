@@ -48,7 +48,7 @@ void rfmv_pop_let(rfm_move_t *m, int kind, int i)
         m->pop_ms = rfmv_now_ms(m);
 }
 
-void rfmv_menu(rfm_move_t *m, int what, int i) { m->menu_what = (uint8_t)what, m->menu_i = (uint8_t)i; }
+void rfmv_menu(rfm_move_t *m, int what, int i) { m->menu_what = (uint8_t)what, m->menu_i = (uint8_t)i, m->menu_ms = rfmv_now_ms(m); }
 
 static int pad_of_slot(int slot) { return (3 - slot / 8) * 8 + slot % 8; }
 
@@ -813,6 +813,7 @@ int rfm_move_screen_timed(const rfm_move_t *m)
         if (rfmv_track_held(m, t) && !rfmv_hold_shown(m, t))
             return 1;
     return q->playing || q->start_pending || rfmv_seq_msg_text(m) != NULL || (m->pop && rfmv_pop_up(m, m->pop)) ||
+           (m->menu_what && rfmv_now_ms(m) - m->menu_ms < RFM_MOVE_POPUP_MS) ||
            (q->projects && q->proj_pending >= 0);
 }
 

@@ -439,6 +439,7 @@ typedef struct {
     int16_t pop_val;                                    /* an FM-1 encoder's detents in this gesture */
     uint32_t pop_ms;                                    /* the sequencer clock (ms) at its last touch, turn or release */
     uint8_t menu_what, menu_i;                          /* a held Track button's menu: the setting changed last */
+    uint32_t menu_ms;                                   /* when it changed last (the sequencer clock's ms) */
     int8_t touched;                                     /* the knob (0..7, 8 volume, 9 jog) touched now, -1 none */
     char label[RFM_MOVE_NENC + 1][RFM_MOVE_LABEL_MAX + 1];   /* the firmware's knob labels ("" = the default) */
     /* the FM-1's LEDs */
