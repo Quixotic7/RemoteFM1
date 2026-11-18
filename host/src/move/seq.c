@@ -551,7 +551,7 @@ void rfmv_seq_init(rfm_move_t *m)
     q->proj_cur = 0, q->proj_pending = -1;
     q->nlast = 0;
     q->step_first = -1;
-    q->loop_first = -1, q->loop_tap = -1, q->tstep_tap = -1;
+    q->loop_first = -1, q->loop_tap = -1, q->tstep_tap = -1, q->pad_tap = -1;
     q->rng = 0x9E3779B9u;
     q->qstrength = 100;
     q->group = 1;
@@ -1279,6 +1279,21 @@ void rfmv_seq_launch(rfm_move_t *m, int track, int scene)
         return;
     }
     t->queued = (int8_t)(scene < 0 ? SEQ_STOP : scene);
+}
+/* a clip launched now, not at the bar: in phase with the bar the song is in (stopped: as a launch) */
+void rfmv_seq_launch_now(rfm_move_t *m, int track, int scene)
+{
+    rfm_move_seq_t *q = &m->seq;
+    rfm_move_track_t *t = &q->tr[track];
+    if (!q->playing) {
+        rfmv_seq_launch(m, track, scene);
+        return;
+    }
+    rfmv_seq_release(m, track);
+    t->queued = SEQ_NONE, t->grow = 0;
+    t->active = (int8_t)scene, t->sel = (int8_t)scene;
+    t->t0 = q->T - q->T % BAR, t->pos = -1;
+    seek(m, track, q->T);
 }
 void rfmv_seq_launch_scene(rfm_move_t *m, int scene)
 {

@@ -366,13 +366,24 @@ void rfmv_seq_pad(rfm_move_t *m, int p, int vel, uint32_t now)
         }
         return;
     }
-    if (q->view) {                                      /* session: 8 tracks x 4 scenes */
-        const int track = q->bank * 4 + (3 - p / 8), scene = q->scene_off + p % 8;   /* (Move's: rows the tracks) */
+    if (q->view) {                                      /* session (the owner's mockup): a column a track (8 in view,
+                                                         * Left / Right one track), a row a clip slot (4, Up / Down) */
+        const int track = q->track_page + p % 8, scene = q->scene_off + (3 - p / 8);
         const int clip = SEQ_CLIP(track, scene);
         rfm_move_track_t *t = &q->tr[track];
-        if (q->mods & SEQ_M_SHIFT) {
+        const int dbl = q->pad_tap == p && now - q->pad_tap_ms < 300;
+        q->pad_tap = (int8_t)p, q->pad_tap_ms = now;
+        if (q->mods & SEQ_M_SHIFT) {                    /* Shift + a clip: its whole row, a scene across the 16 */
             q->mods_used |= SEQ_M_SHIFT;
-            rfmv_seq_select(m, track), t->sel = (int8_t)scene;
+            rfmv_seq_launch_scene(m, scene);
+            if (!running(q))
+                rfmv_seq_start(m);
+        } else if (dbl && rfmv_seq_clip_used(m, clip) && !t->grow && !(q->mods & (SEQ_M_MUTE | SEQ_M_COPY | SEQ_M_DELETE))) {
+            rfmv_seq_select(m, track);                  /* a double tap: launched now, in phase with the bar */
+            rfmv_seq_launch_now(m, track, scene);
+            if (!running(q))
+                rfmv_seq_start(m);
+            q->pad_tap = -1;
         } else if (q->mods & SEQ_M_MUTE) {
             q->mods_used |= SEQ_M_MUTE;
             rfmv_seq_mute(m, track, !t->mute);
@@ -779,8 +790,13 @@ void rfmv_seq_step(rfm_move_t *m, int s, int down, uint32_t now)
         rfmv_pop(m, POP_LOOP, 0);
         return;
     }
-    if (q->view) {                                      /* session: step n launches scene n */
-        rfmv_seq_launch_scene(m, s);
+    if (q->view) {                                      /* session: the 2 steps under a track's column: stop its
+                                                         * clips, mute it */
+        const int track = q->track_page + s / 2;
+        if (s & 1)
+            rfmv_seq_mute(m, track, !q->tr[track].mute);
+        else if (q->tr[track].active >= 0 || q->tr[track].queued >= 0)
+            rfmv_seq_launch(m, track, -1);              /* (at the next bar; stopped: at once) */
         rfmv_seq_dirty(m);
         return;
     }
@@ -1048,7 +1064,13 @@ int rfmv_seq_button(rfm_move_t *m, int cc, int down, uint32_t now)
         return 1;
     case MR_CC_PLAY:
         q->ncap = 0;                                    /* (Move: the transport clears the capture) */
-        if (q->mods & SEQ_M_SHIFT) {                    /* Shift + Play: every clip from its start (Move) */
+        if ((q->mods & SEQ_M_SHIFT) && q->view) {       /* session: Shift + Play: every clip stops (at the bar) */
+            int t;
+            q->mods_used |= SEQ_M_SHIFT;
+            for (t = 0; t < RFM_MOVE_SEQ_TRACKS; t++)
+                if (q->tr[t].active >= 0 || q->tr[t].queued >= 0)
+                    rfmv_seq_launch(m, t, -1);
+        } else if (q->mods & SEQ_M_SHIFT) {             /* Shift + Play: every clip from its start (Move) */
             q->mods_used |= SEQ_M_SHIFT;
             rfmv_seq_restart(m);
         } else if (running(q))
@@ -1125,8 +1147,8 @@ int rfmv_seq_button(rfm_move_t *m, int cc, int down, uint32_t now)
     case MR_CC_LEFT:
     case MR_CC_RIGHT: {
         const int d = cc == MR_CC_RIGHT ? 1 : -1;
-        if (q->view)                                    /* the scenes (8 of 16 on the pads) */
-            q->scene_off = (uint8_t)clampi(q->scene_off + d, 0, RFM_MOVE_SEQ_SCENES - 8);
+        if (q->view)                                    /* the tracks, one a press (8 of 16 in view) */
+            q->track_page = (uint8_t)clampi(q->track_page + d, 0, RFM_MOVE_SEQ_TRACKS - 8);
         else {                                          /* the loop's pages; Right past the last: a pending page
                                                          * (+1, +2 ..: the clip grows to it when a step goes in there;
                                                          * Left steps back) */
@@ -1141,11 +1163,8 @@ int rfmv_seq_button(rfm_move_t *m, int cc, int down, uint32_t now)
     case MR_CC_UP:
     case MR_CC_DOWN: {
         const int d = cc == MR_CC_UP ? 1 : -1;
-        if (q->view) {                                  /* the bank (Up: the tracks before) */
-            const int b = clampi(q->bank - d, 0, RFM_MOVE_SEQ_TRACKS / 4 - 1);
-            if (b != q->bank)
-                q->bank = (uint8_t)b, rfmv_seq_select(m, b * 4 + q->sel_track % 4), rfmv_pop(m, POP_TRACK, q->sel_track);
-        }
+        if (q->view)                                    /* the clip slots (4 of 16 in view; Up: the ones above) */
+            q->scene_off = (uint8_t)clampi(q->scene_off - d, 0, RFM_MOVE_SEQ_SCENES - 4);
         else {
             const int o = clampi(m->s.octave + d, RFM_MOVE_OCT_MIN, RFM_MOVE_OCT_MAX);
             if (o != m->s.octave) {
@@ -1370,6 +1389,8 @@ void rfmv_seq_knob(rfm_move_t *m, int k, int d, uint32_t now)
     rfm_move_seq_t *q = Q(m);
     const int b = m->s.bank, cc = m->s.cc[b][k];
     (void)now;
+    if (q->view && !rfmv_seq_trk_held(m))
+        return;                                         /* (session: the knobs do nothing; a touch selects a track) */
     if (rfmv_seq_trk_held(m)) {                         /* a Track button held: the knob's CC number (this bank) */
         const int c = clampi(cc + d, 0, 127);
         rfmv_menu(m, MENU_CC, k);
@@ -1522,21 +1543,6 @@ static int pulse(const rfm_move_seq_t *q)                                  /* a 
     return q->playing && q->T >= 0 ? 256 - (int)(q->T % 96) * 160 / 96 : 256;
 }
 
-static int scene_state(const rfm_move_t *m, int scene, int *used)   /* 2 playing, 1 queued, 0 */
-{
-    const rfm_move_seq_t *q = &m->seq;
-    int t, st = 0;
-    *used = 0;
-    for (t = 0; t < RFM_MOVE_SEQ_TRACKS; t++) {
-        if (rfmv_seq_clip_used(m, SEQ_CLIP(t, scene)))
-            *used = 1;
-        if (q->tr[t].queued == scene)
-            st = st ? st : 1;
-        if (q->tr[t].active == scene && q->playing && rfmv_seq_clip_used(m, SEQ_CLIP(t, scene)))
-            st = 2;
-    }
-    return st;
-}
 
 /* a clip's state in session view (the LEDs and the screen's grid) */
 enum { CS_EMPTY, CS_CONTENT, CS_PLAYING, CS_QUEUED, CS_STOPPING, CS_REC, CS_REC_WAIT };
@@ -1577,7 +1583,7 @@ void rfmv_seq_leds(const rfm_move_t *m, rgb_t c[L_WHITE0], uint8_t w[13])
             else
                 v = sc(RFMV_WHITE, 8);
         } else if (q->view) {                           /* Move's session colours */
-            const int track = q->bank * 4 + (3 - i / 8), scene = q->scene_off + i % 8;
+            const int track = q->track_page + i % 8, scene = q->scene_off + (3 - i / 8);
             const rfm_move_track_t *t = &q->tr[track];
             const int col = t->mute ? 96 : 256, sel = track == q->sel_track && t->sel == scene;
             const int src = rfmv_seq_src_clip(m, SEQ_CLIP(track, scene));
@@ -1650,10 +1656,18 @@ void rfmv_seq_leds(const rfm_move_t *m, rgb_t c[L_WHITE0], uint8_t w[13])
                 v = RFMV_WHITE;
             if (i == SH_CLOCK && q->following)
                 v = RFMV_GREEN;
-        } else if (q->view) {                           /* the scenes */
-            int used;
-            const int st = scene_state(m, i, &used);
-            v = st == 2 ? sc(RFMV_GREEN, pu) : st == 1 ? sc(RFMV_GREEN, bl ? 256 : 24) : used ? sc(RFMV_WHITE, 48) : RFMV_OFF;
+        } else if (q->view) {                           /* the 2 steps under each track's column: stop (lit while it
+                                                         * plays something to stop), mute (the track's colour; muted:
+                                                         * red, dim) */
+            const int tr = q->track_page + i / 2;
+            const rfm_move_track_t *t = &q->tr[tr];
+            if (i & 1)
+                v = t->mute ? sc(RFMV_RED, 60) : sc(TRACK_RGB[tr], 160);
+            else
+                v = (t->active >= 0 && running(q) && rfmv_seq_clip_has(m, SEQ_CLIP(tr, t->active))) || t->queued >= 0
+                        ? (t->queued == SEQ_STOP ? sc(RFMV_WHITE, bl ? 256 : 30)
+                                                                                                : RFMV_WHITE)
+                                                                     : sc(RFMV_WHITE, 8);
         } else {                                        /* Move's step colours */
             const int abs = q->page * RFM_MOVE_SEQ_PAGE + i, src = rfmv_seq_src_step(m, clip, abs);
             int lo, hi = rfmv_seq_range(m, clip, abs, &lo);
@@ -1711,10 +1725,10 @@ void rfmv_seq_leds(const rfm_move_t *m, rgb_t c[L_WHITE0], uint8_t w[13])
     w[W_BACK] = 40;
     w[W_CAPTURE] = q->ncap ? 100 : 16;
     if (q->view) {
-        w[W_UP] = q->bank > 0 ? 100 : 8;                /* (the banks) */
-        w[W_DOWN] = q->bank < RFM_MOVE_SEQ_TRACKS / 4 - 1 ? 100 : 8;
-        w[W_LEFT] = q->scene_off > 0 ? 100 : 8;
-        w[W_RIGHT] = q->scene_off < RFM_MOVE_SEQ_SCENES - 8 ? 100 : 8;
+        w[W_UP] = q->scene_off > 0 ? 100 : 8;           /* (the clip slots, the tracks) */
+        w[W_DOWN] = q->scene_off < RFM_MOVE_SEQ_SCENES - 4 ? 100 : 8;
+        w[W_LEFT] = q->track_page > 0 ? 100 : 8;
+        w[W_RIGHT] = q->track_page < RFM_MOVE_SEQ_TRACKS - 8 ? 100 : 8;
     } else if (q->step_held) {
         w[W_UP] = w[W_DOWN] = w[W_LEFT] = w[W_RIGHT] = 100;   /* (transpose, nudge) */
     } else {
@@ -1805,35 +1819,34 @@ void rfmv_seq_track_glyph(const rfm_move_t *m, mr_canvas_t *cv, int x, int y, in
         }
 }
 
-/* Session view (Move's: a row a track): all 16 tracks x 16 scenes (7 x 4 cells): a clip empty (a dot), with content
- * (an outline), playing (filled), queued (blinking outline), stopping (blinking), recording (filled, blinking while it
- * waits); the clipboard's source dashed (copied) or crossed (cut). On the left the pads' bank (a bar over its 4
- * rows) and the selected track (an arrow), a muted track's row dotted there; the pads' 8 scenes between dotted
- * lines */
+/* Session.dc.html (the owner's mockup): the 8 tracks in view across, their 4 clip slots down (14 x 13 cells, 16 px
+ * apart, from y 4); a 14 x 2 bar over the selected track (muted: a dotted line there); a clip empty (a 2 x 2 dot), with
+ * content (an outline), playing (filled, a black play triangle), queued (a blinking outline), stopping (blinking
+ * between playing and an outline), recording (filled, a black dot; blinking while it waits); the clipboard's source
+ * dashed (copied) or crossed (cut) */
 static void session_screen(const rfm_move_t *m, mr_canvas_t *cv)
 {
     const rfm_move_seq_t *q = &m->seq;
     const int bl = blink(q);
-    int r, c, i;
-    mr_gfx_rect(cv, 0, q->bank * 16, 2, 15, 1, 1);
-    for (r = 0; r < RFM_MOVE_SEQ_TRACKS; r++) {
-        const int y = r * 4;
-        if (r == q->sel_track)
-            mr_gfx_rect(cv, 3, y, 1, 3, 1, 1), mr_gfx_rect(cv, 4, y + 1, 2, 1, 1, 1);
-        if (q->tr[r].mute)
-            for (i = 0; i < 112; i += 3)
-                mr_gfx_pixel(cv, 8 + i, y + 3, 1);
-        for (c = 0; c < RFM_MOVE_SEQ_SCENES; c++) {
-            const int x = 8 + c * 7, src = rfmv_seq_src_clip(m, SEQ_CLIP(r, c));
-            int st = clip_state(m, r, c);
-            if (src == 2) {
-                for (i = 0; i < 3; i++)
-                    mr_gfx_pixel(cv, x + i * 2, y + i, 1), mr_gfx_pixel(cv, x + 5 - i * 2, y + i, 1);
-                continue;
-            }
-            if (src == 1) {
-                for (i = 0; i < 6; i += 2)
-                    mr_gfx_pixel(cv, x + i, y, 1), mr_gfx_pixel(cv, x + i + 1, y + 2, 1);
+    int c, r, i;
+    for (c = 0; c < 8; c++) {
+        const int track = q->track_page + c, x = c * 16 + 1;
+        if (track == q->sel_track)
+            mr_gfx_rect(cv, x, 0, 14, q->tr[track].mute ? 1 : 2, 1, 1);
+        if (q->tr[track].mute)
+            for (i = 0; i < 14; i += 2)
+                mr_gfx_pixel(cv, x + i, 1, 1);
+    }
+    for (r = 0; r < 4; r++)
+        for (c = 0; c < 8; c++) {
+            const int track = q->track_page + c, scene = q->scene_off + r, x = c * 16 + 1, y = 4 + r * 15;
+            int st = clip_state(m, track, scene);
+            const int src = rfmv_seq_src_clip(m, SEQ_CLIP(track, scene));
+            if (src) {
+                if (src == 2)
+                    rfmv_xbox(cv, x, y, 14, 13);
+                else
+                    rfmv_dotted(cv, x, y, 14, 13);
                 continue;
             }
             if (st == CS_STOPPING)
@@ -1841,26 +1854,22 @@ static void session_screen(const rfm_move_t *m, mr_canvas_t *cv)
             if (st == CS_REC_WAIT)
                 st = bl ? CS_CONTENT : CS_REC;
             switch (st) {
-            case CS_EMPTY: mr_gfx_pixel(cv, x + 3, y + 1, 1); break;
+            case CS_EMPTY: mr_gfx_rect(cv, x + 6, y + 5, 2, 2, 1, 1); break;
             case CS_QUEUED:
                 if (!bl)
-                    mr_gfx_rect(cv, x, y, 6, 3, 1, 0);
+                    mr_gfx_rect(cv, x, y, 14, 13, 1, 0);
                 break;
-            case CS_PLAYING: mr_gfx_rect(cv, x, y, 6, 3, 1, 1); break;
+            case CS_PLAYING:
+                mr_gfx_rect(cv, x, y, 14, 13, 1, 1);
+                rfmv_tri(cv, x + 4, y + 3, 6, 8, 0);
+                break;
             case CS_REC:
-                if (bl || q->playing)
-                    mr_gfx_rect(cv, x, y, 6, 3, 1, 1);
-                mr_gfx_pixel(cv, x + 3, y + 1, 0);
+                mr_gfx_rect(cv, x, y, 14, 13, 1, 1);
+                rfmv_disc(cv, x + 4, y + 3, 7, 0);
                 break;
-            default: mr_gfx_rect(cv, x, y, 6, 3, 1, 0); break;
+            default: mr_gfx_rect(cv, x, y, 14, 13, 1, 0); break;
             }
-            if (r == q->sel_track && c == q->tr[r].sel && bl)   /* (the selected clip blinks a mark under it) */
-                mr_gfx_rect(cv, x + 1, y + 3, 4, 1, 1, 1);
         }
-    }
-    for (i = q->bank * 16; i < q->bank * 16 + 16; i += 2)   /* the pads' scenes */
-        mr_gfx_pixel(cv, 7 + q->scene_off * 7, i, 1), mr_gfx_pixel(cv, 7 + (q->scene_off + 8) * 7, i, 1);
-    rfmv_seq_track_glyph(m, cv, 121, 1, 1);
 }
 
 /* the 16 steps of the page at the bottom (7 x 10, 8 px apart): notes or the playhead filled, empty outlined, past the

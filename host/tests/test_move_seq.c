@@ -477,26 +477,26 @@ static void test_launch(void)
     CHECK(sounding[2][67] == 1);
     /* track 1, scene 2 (pad: column 1, the second row from the top = 16): queued for the next bar */
     clear();
-    pad(m, 25, 100), pad(m, 25, 0);
+    pad(m, 16, 100), pad(m, 16, 0);
     CHECK(m->seq.tr[0].queued == 1 && m->seq.tr[0].active == 0 && nact == 0);
     adv(m, 12 * FPS);
     CHECK(m->seq.tr[0].active == 1 && find_midi(0x90, 62, 100, &at) && at == 16 * FPS && !find_midi(0x90, 60, -1, NULL));
     /* press the playing clip: it plays on (Move); an empty slot in the track: a new (empty) clip there, selected
      * and launched at the next bar (the owner) */
-    pad(m, 25, 100), pad(m, 25, 0);
+    pad(m, 16, 100), pad(m, 16, 0);
     CHECK(m->seq.tr[0].queued == SEQ_NONE && m->seq.tr[0].active == 1);
-    pad(m, 26, 100), pad(m, 26, 0);                       /* track 1, scene 3: empty */
+    pad(m, 8, 100), pad(m, 8, 0);                       /* track 1, scene 3: empty */
     CHECK(m->seq.tr[0].queued == 2 && m->seq.tr[0].sel == 2 && rfmv_seq_clip_has(m, SEQ_CLIP(0, 2)));
     CHECK(!rfmv_seq_clip_used(m, SEQ_CLIP(0, 2)));
-    button(m, MR_CC_DELETE, 1), pad(m, 26, 100), pad(m, 26, 0), button(m, MR_CC_DELETE, 0);   /* (the new clip cut: the
+    button(m, MR_CC_DELETE, 1), pad(m, 8, 100), pad(m, 8, 0), button(m, MR_CC_DELETE, 0);   /* (the new clip cut: the
                                                          * track stops at the bar instead) */
     CHECK(!rfmv_seq_clip_has(m, SEQ_CLIP(0, 2)) && m->seq.tr[0].queued == SEQ_STOP);
     m->seq.clip_kind = 0, m->seq.cut = 0;
     adv(m, 16 * FPS);
     CHECK(m->seq.tr[0].active == -1);
-    /* a scene: step 2 launches scene 2 (tracks without a clip there stop: track 3's long note ends) */
+    /* a scene: Shift + a clip launches its row, scene 2 (tracks without a clip there stop: track 3's long note ends) */
     clear();
-    tap_step(m, 1);
+    button(m, MR_CC_SHIFT, 1), pad(m, 16, 100), pad(m, 16, 0), button(m, MR_CC_SHIFT, 0);
     adv(m, 16 * FPS);
     CHECK(m->seq.tr[0].active == 1 && m->seq.tr[1].active == 1 && m->seq.tr[2].active == -1);
     CHECK(find_midi(0x82, 67, 0, &at) && at == 48 * FPS && sounding[2][67] == 0);   /* (the clip change let it go) */
@@ -523,23 +523,26 @@ static void test_launch(void)
     pad(m, 24, 100), pad(m, 24, 0);                     /* track 1, scene 1 */
     CHECK(m->seq.tr[0].active == 0 && m->seq.start_pending == 1);
     rfm_move_seq_play(m, 0);
-    pad(m, 27, 100), pad(m, 27, 0);                       /* track 1, scene 4: empty: a new clip, no start */
+    pad(m, 0, 100), pad(m, 0, 0);                       /* track 1, scene 4: empty: a new clip, no start */
     CHECK(m->seq.tr[0].active == 3 && m->seq.tr[0].sel == 3 && !m->seq.start_pending);
     CHECK(rfmv_seq_clip_has(m, SEQ_CLIP(0, 3)));
-    button(m, MR_CC_SHIFT, 1), pad(m, 17, 100), pad(m, 17, 0), button(m, MR_CC_SHIFT, 0);   /* track 2 scene 2 */
+    rfm_move_seq_play(m, 0);
+    button(m, MR_CC_SHIFT, 1), pad(m, 17, 100), pad(m, 17, 0), button(m, MR_CC_SHIFT, 0);   /* Shift + track 2 scene
+                                                         * 2: scene 2 across the tracks (stopped: at once, the
+                                                         * transport starts) */
+    CHECK(m->seq.tr[1].active == 1 && m->seq.tr[0].active == 1 && m->seq.tr[2].active == -1 && m->seq.start_pending == 1);
+    rfm_move_seq_play(m, 0);
+    /* the owner's session: a column a track (Left / Right one track at a time), a row a clip slot (Up / Down) */
+    press(m, MR_CC_RIGHT), press(m, MR_CC_DOWN);
+    CHECK(m->seq.track_page == 1 && m->seq.scene_off == 1);
+    pad(m, 24, 100), pad(m, 24, 0);                     /* (top-left: track 2, scene 2) */
     CHECK(m->seq.sel_track == 1 && m->seq.tr[1].sel == 1);
-    /* Move's session: a row a track (the bank's 4, Track 1 on top), a column a scene; Down = the next bank (tracks
-     * 5-8), Right = the scenes one on */
-    press(m, MR_CC_DOWN), press(m, MR_CC_RIGHT);
-    CHECK(m->seq.bank == 1 && m->seq.scene_off == 1 && m->seq.sel_track == 5);
-    pad(m, 24, 100), pad(m, 24, 0);
-    CHECK(m->seq.sel_track == 4 && m->seq.tr[4].sel == 1);
     for (i = 0; i < 20; i++)
         press(m, MR_CC_RIGHT), press(m, MR_CC_DOWN);
-    CHECK(m->seq.scene_off == 8 && m->seq.bank == 3);
+    CHECK(m->seq.track_page == 8 && m->seq.scene_off == 12);
     for (i = 0; i < 20; i++)
         press(m, MR_CC_LEFT), press(m, MR_CC_UP);
-    CHECK(m->seq.scene_off == 0 && m->seq.bank == 0);
+    CHECK(m->seq.track_page == 0 && m->seq.scene_off == 0);
 }
 
 /* every path that ends the sequencer's notes */
@@ -812,12 +815,12 @@ static void test_edits(void)
     press(m, MR_CC_MENU);
     button(m, MR_CC_COPY, 1), pad(m, 24, 100), pad(m, 24, 0);
     CHECK(rfmv_seq_src_clip(m, 0) == 1);
-    pad(m, 8, 100), pad(m, 8, 0), button(m, MR_CC_COPY, 0);
+    pad(m, 26, 100), pad(m, 26, 0), button(m, MR_CC_COPY, 0);
     CHECK(nnotes_clip(m, SEQ_CLIP(2, 0)) == nnotes_clip(m, 0) && rfmv_seq_lock_get(m, SEQ_CLIP(2, 0), 8, 16) == 67);
     CHECK(rfmv_seq_src_clip(m, 0) == 0);
-    button(m, MR_CC_DELETE, 1), pad(m, 8, 100), pad(m, 8, 0), button(m, MR_CC_DELETE, 0);
+    button(m, MR_CC_DELETE, 1), pad(m, 26, 100), pad(m, 26, 0), button(m, MR_CC_DELETE, 0);
     CHECK(!rfmv_seq_clip_has(m, SEQ_CLIP(2, 0)) && rfmv_seq_src_clip(m, SEQ_CLIP(2, 0)) == 2);
-    button(m, MR_CC_DELETE, 1), pad(m, 1, 100), pad(m, 1, 0), button(m, MR_CC_DELETE, 0);   /* track 4, scene 2 */
+    button(m, MR_CC_DELETE, 1), pad(m, 19, 100), pad(m, 19, 0), button(m, MR_CC_DELETE, 0);   /* track 4, scene 2 */
     CHECK(nnotes_clip(m, SEQ_CLIP(3, 1)) == nnotes_clip(m, 0) && !m->seq.cut);
     /* Track 4 held: Copy + steps = a track copy; Delete + step = the track cleared */
     track(m, 3, 1);
@@ -869,7 +872,7 @@ static void test_edits(void)
     press(m, MR_CC_MENU);
     button(m, MR_CC_COPY, 1), pad(m, 24, 100), pad(m, 24, 0), button(m, MR_CC_COPY, 0);
     CHECK(m->seq.paste && m->seq.clip_kind == 2);
-    pad(m, 8, 100), pad(m, 8, 0);
+    pad(m, 26, 100), pad(m, 26, 0);
     CHECK(nnotes_clip(m, SEQ_CLIP(2, 0)) == 4 && !m->seq.paste && m->seq.tr[2].queued == SEQ_NONE);
     /* Delete alone (Move): the selected track's clip deleted (undoable) */
     press(m, MR_CC_MENU);
@@ -1198,12 +1201,12 @@ static void write_pbm(const char *path, const uint8_t *packed)
 
 #define GOLD_TRACK 0x8085c9edu
 #define GOLD_STEP 0xcbab8d53u
-#define GOLD_SESSION 0x05524496u
+#define GOLD_SESSION 0xef220383u
 #define GOLD_PROJECTS 0x5204a535u
 #define GOLD_PROJECT 0x25ca21a2u
 #define GOLD_TRACKS 0x32878560u
-#define GOLD_COUNT 0xc387a502u
-#define GOLD_MSG 0x1ad29fd4u
+#define GOLD_COUNT 0xb117a7b1u
+#define GOLD_MSG 0xffb67057u
 static int px_at(const uint8_t *packed, int x, int y) { return packed[(y >> 3) * 128 + x] >> (y & 7) & 1; }
 static void gold(const char *name, const uint8_t *out, uint32_t want)
 {
@@ -1306,11 +1309,11 @@ static void test_screens_leds(void)
     m->seq.tr[5].grow = 2, rfmv_seq_launch(m, 5, 1);    /* track 6: to record into scene 2 at the bar */
     press(m, MR_CC_MENU);
     rfm_move_screen(m, NULL, out);
-    CHECK(px_at(out, 0, 0) && px_at(out, 3, 1) && !px_at(out, 3, 5));        /* bank 1, track 1 selected (an arrow) */
-    CHECK(px_at(out, 8, 19) && !px_at(out, 9, 19));                          /* track 5 muted: its row dotted */
-    CHECK(px_at(out, 10, 1));                                                /* track 1 scene 1: playing, filled */
-    CHECK(px_at(out, 15, 4) && !px_at(out, 17, 5));                          /* track 2 scene 2: content, outlined */
-    CHECK(px_at(out, 11, 13) && !px_at(out, 10, 13));                        /* track 4 scene 1: empty, a dot */
+    CHECK(px_at(out, 1, 0) && px_at(out, 14, 1) && !px_at(out, 17, 0));      /* track 1 selected */
+    CHECK(px_at(out, 65, 1) && !px_at(out, 66, 1) && !px_at(out, 65, 0));    /* track 5 muted: dotted */
+    CHECK(px_at(out, 1, 4) && !px_at(out, 5, 7) && px_at(out, 4, 7));        /* track 1 scene 1: playing, a black triangle */
+    CHECK(px_at(out, 17, 19) && !px_at(out, 20, 23));                        /* track 2 scene 2: content, outlined */
+    CHECK(px_at(out, 55, 9) && !px_at(out, 54, 9));                          /* track 4 scene 1: empty, a dot */
     gold("session", out, GOLD_SESSION);
     rfm_move_leds_invalidate(m);
     n = rfm_move_leds(m, leds, RFM_MOVE_NLEDS);
@@ -1321,7 +1324,7 @@ static void test_screens_leds(void)
             CHECK(leds[i].r > 100 && leds[i].r == leds[i].g && leds[i].g == leds[i].b);
         if (!leds[i].cc && leds[i].number == MR_NOTE_PAD0 + 10)       /* track 3 scene 3: queued: green (blinking) */
             CHECK(leds[i].r == 0 && leds[i].g > 0);
-        if (!leds[i].cc && leds[i].number == MR_NOTE_PAD0 + 16)       /* track 2 scene 1: playing: its colour */
+        if (!leds[i].cc && leds[i].number == MR_NOTE_PAD0 + 25)       /* track 2 scene 1: playing: its colour */
             CHECK(leds[i].r > leds[i].b && leds[i].g > 0);
         if (leds[i].cc && leds[i].number == MR_CC_PLAY)
             CHECK(leds[i].g == 255 && leds[i].r == 0);
@@ -2274,6 +2277,65 @@ static void test_round2(void)
     }
 }
 
+/* the owner's session view: a column a track; the 2 steps under a column stop / mute its track; a knob touched
+ * selects its column's track (turning does nothing); Shift + Play stops every clip; a double tap launches at once */
+static void test_session2(void)
+{
+    rfm_move_t *m = &M;
+    rfm_move_led_t leds[RFM_MOVE_NLEDS];
+    int i, n;
+    fresh(m);
+    rfmv_seq_note_put(m, SEQ_CLIP(0, 0), 0, 60, 100, 24, 0);
+    rfmv_seq_note_put(m, SEQ_CLIP(0, 1), 0, 62, 100, 24, 0);
+    rfmv_seq_note_put(m, SEQ_CLIP(2, 0), 0, 64, 100, 24, 0);
+    press(m, MR_CC_MENU);
+    rfm_move_seq_play(m, 1), b0 = base;
+    adv(m, 4 * FPS);
+    /* steps 5 / 6 (column 3): stop track 3 (at the bar), mute it */
+    tap_step(m, 4);
+    CHECK(m->seq.tr[2].queued == SEQ_STOP);
+    tap_step(m, 5);
+    CHECK(m->seq.tr[2].mute);
+    rfm_move_leds_invalidate(m);
+    n = rfm_move_leds(m, leds, RFM_MOVE_NLEDS);
+    for (i = 0; i < n; i++) {
+        if (!leds[i].cc && leds[i].number == MR_NOTE_STEP0 + 5)
+            CHECK(leds[i].r > leds[i].g && leds[i].r < 100);   /* (muted: red, dim) */
+        if (!leds[i].cc && leds[i].number == MR_NOTE_STEP0 + 0)
+            CHECK(leds[i].r == 255 && leds[i].g == 255);       /* (track 1 plays: its stop lit) */
+        if (!leds[i].cc && leds[i].number == MR_NOTE_STEP0 + 2)
+            CHECK(leds[i].r < 20);                             /* (track 2: nothing to stop) */
+    }
+    tap_step(m, 5);
+    CHECK(!m->seq.tr[2].mute);
+    /* a knob touched: its column's track; turning: nothing */
+    clear();
+    raw(m, 0x90, 2, 127);                               /* (knob 3 touched) */
+    CHECK(m->seq.sel_track == 2);
+    knob(m, 2, 5);
+    CHECK(count_midi(0xB2, -1) == 0 && count_midi(0xB0, -1) == 0);
+    raw(m, 0x80, 2, 0);
+    /* a tap: at the next bar (queued); a double tap: now, in phase with the bar */
+    adv(m, FPS);
+    now_ms += 1000;
+    pad(m, 16, 100), pad(m, 16, 0);                     /* track 1, scene 2 */
+    CHECK(m->seq.tr[0].queued == 1 && m->seq.tr[0].active == 0);
+    pad(m, 16, 100), pad(m, 16, 0);                     /* (again, at once: a double tap) */
+    CHECK(m->seq.tr[0].queued == SEQ_NONE && m->seq.tr[0].active == 1);
+    CHECK(rfmv_seq_clip_pos(m, 0) == m->seq.T % RFM_MOVE_SEQ_BAR / 24);   /* (in phase: step 6 of its bar) */
+    clear();
+    adv(m, 16 * FPS);
+    CHECK(find_midi(0x90, 62, 100, NULL) && !find_midi(0x90, 60, -1, NULL));
+    /* Shift + Play (session): every clip stops at the bar */
+    button(m, MR_CC_SHIFT, 1), press(m, MR_CC_PLAY), button(m, MR_CC_SHIFT, 0);
+    CHECK(m->seq.playing && m->seq.tr[0].queued == SEQ_STOP);
+    adv(m, 16 * FPS);
+    CHECK(m->seq.tr[0].active == -1 && m->seq.tr[2].active == -1);
+    rfm_move_seq_play(m, 0);
+    adv(m, 2 * FPS);
+    CHECK(stuck() == 0);
+}
+
 int main(void)
 {
     test_model();
@@ -2296,5 +2358,6 @@ int main(void)
     test_blob_v2();
     test_tracks16();
     test_round2();
+    test_session2();
     return check_done("move_seq");
 }

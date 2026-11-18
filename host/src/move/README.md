@@ -118,18 +118,18 @@ it (on / off), **a hold mutes** it (on / off, 300 ms). LEDs: the selected track 
 soloed blue. Solo: while any track is soloed only the soloed tracks sound. While Track 4 is held the knobs set the
 bank's CC numbers ("K3 CC74"), the pads the layout (top row) and scale (row 2), Up / Down the rate, the jog the MIDI
 channel; Copy / Delete + a step copy / clear a track; Mute + step mutes. The track view shows which of the 16 (a 4 x
-4 in the top-right corner: tracks 1-4 the first column, the selected one filled). Session view's Up / Down move its
-4 rows through the 16 tracks.
+4 in the top-right corner: tracks 1-4 the first column, the selected one filled). Session view's Left / Right move
+its 8 columns through the 16 tracks.
 
 **Two views** (Menu toggles; Track view first):
 
 | Control | Track view | Session view |
 |---|---|---|
-| pads | the track's layout, the scale and octave (shared with MIDI mode), on the track's channel; what they play is what an empty step gets | clips, Move's way: a row a track (the bank's 4, Track 1 on top), a column a scene (8 of 16) |
-| steps | the 16 steps of the page | launch scene 1..16 |
-| Left / Right | page; Right past the clip's last page: a ghost page (below); a step held: micro timing (the MICRO popup) | the scenes, one a press |
-| Up / Down | octave (MIDI mode's); a step held: transpose | the bank (the tracks above / below) |
-| knobs | the knob page: TRIG (below), then Control mode's CC banks 1..4, live on the track's channel; a step held: its CC locks | the same, live |
+| pads | the track's layout, the scale and octave (shared with MIDI mode), on the track's channel; what they play is what an empty step gets | clips (the owner's mockup): a column a track (8 in view), a row a clip slot (4 in view, the top row first) |
+| steps | the 16 steps of the page | the 2 under each column: the first stops that track's clips (at the bar; lit while it plays something, blinking while it stops), the second mutes it (the track's colour; muted: red, dim) |
+| Left / Right | page; Right past the clip's last page: a ghost page (below); a step held: micro timing (the MICRO popup) | the tracks, one at a time (1..16) |
+| Up / Down | octave (MIDI mode's); a step held: transpose | the clip slots, one at a time |
+| knobs | the knob page: TRIG (below), then Control mode's CC banks 1..4, live on the track's channel; a step held: its CC locks | nothing; a touch selects the track in that knob's column |
 | volume knob | MASTER; a step held: its notes' velocity (a VELO popup) | MASTER |
 | jog | the knob page (TRIG, banks 1..4); a step held: its notes' length (the LENGTH popup); Loop held or latched: the loop's length; a Shift menu: its value; a drum pad held: its note | the knob page |
 | jog pressed | FILL while held (the FILL / !FILL conditions) | the same |
@@ -186,9 +186,13 @@ double and the blob carry them. The engine walks each track with a playhead (`po
 chosen half way through a step (functions, conditions and chance decided then), so early notes of the next step
 sound in time.
 
-**Clips (session view)**: a press on a clip launches it at the next bar (stopped: at once, and the transport
-starts); on the playing clip it stays. **A press on an empty slot makes a new empty clip there** (drawn as a clip),
-selects it and launches it (with Rec armed: records into it, growing a bar at a time). Shift + clip selects only.
+**Clips (session view)**: a press on a clip launches it at the next bar (queued, blinking; stopped: at once, and the
+transport starts); on the playing clip it stays. **A double tap** (300 ms) launches it now, not at the bar: in phase
+with the bar the song is in (the Move's manual has no double press, so in phase rather than from the clip's start;
+stopped: at once, the transport starts). **A press on an empty slot makes a new empty clip there** (drawn as a clip),
+selects it and launches it (with Rec armed: records into it, growing a bar at a time). **Shift + a clip** launches its
+whole row, that scene across the 16 tracks; **Shift + Play** stops every clip (at the bar). Cut, copy and paste as
+below.
 
 **Copy and cut** (the owner's; no popups: the source is marked, dashed when copied, an X when cut, on the steps row,
 the session grid and the LEDs). One clipboard for both:
@@ -233,7 +237,7 @@ the screen's corner while it records. (Tap tempo: Shift + step 5.)
 
 | Move | Sequencer |
 |---|---|
-| Play | start / stop (following an external clock: at its next bar). Shift + Play: every clip from its start |
+| Play | start / stop (following an external clock: at its next bar). Shift + Play: every clip from its start (session view: every clip stops) |
 | Record | the record mode's (above). Shift + Record: the record settings |
 | Capture | Capture (above) |
 | Sample | the audio loop (above) |
@@ -405,7 +409,7 @@ the clock alone (a popup up, playing), so the host draws it again then.
 | MIDI mode | the 8 × 4 pad map (14 × 14 cells, 16 px apart): the root filled, in the scale outlined, out of it a 2 × 2 dot, a pressed pad filled with a 6 × 6 black square |
 | Control mode | the 4 banks as tabs (the current one filled), the 8 values as full-height bars |
 | Track view | the clip's pages on top (the shown one filled, in the loop outlined, past it dotted; 4 segments, 8 or 16 thinner ones past 4 or 8 pages), the page's notes as a piano roll (8 px a step, 3 px a semitone up from the page's lowest note, squeezed past 13 semitones; the beats dotted; the playhead a 1 px line), the 16 steps at the bottom (notes or the playhead filled, empty outlined, past the clip's end dotted) |
-| Session view | all 16 tracks × 16 scenes (a row a track, 7 × 4 cells): a clip empty (a dot), with content (an outline), playing (filled), queued (a blinking outline), stopping (blinking), recording (filled, blinking while it waits); copied dashed, cut crossed; on the left a bar over the pads' bank and an arrow at the selected track, a muted track's row dotted; the pads' 8 scenes between dotted lines; the 4 × 4 track glyph top right |
+| Session view | the owner's mockup (Session.dc.html): the 8 tracks in view across, their 4 clip slots down (14 × 13 cells, 16 px apart, from y 4), as the pads are; a 14 × 2 bar over the selected track (muted: a dotted line); a clip empty (a 2 × 2 dot), with content (an outline), playing (filled, a black ▶), queued (a blinking outline), stopping (blinking), recording (filled, a black ●; blinking while it waits); copied dashed, cut crossed |
 | Project grid | the 32 slots as the pads are: the current one filled, a saved one outlined, each with three bars (its tracks with notes in three groups, a bar's height the bits of their note count, at most 8), an empty slot a dot; a project loading blinks |
 
 **FM-1 mode's drawing, live.** The drawing stays as drawn (its mini screen too) but for:

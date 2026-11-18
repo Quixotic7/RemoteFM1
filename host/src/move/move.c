@@ -700,6 +700,10 @@ static void on_touch(rfm_move_t *m, int k, int on)
         return;
     }
     m->touched = (int8_t)k;
+    if (m->s.mode == RFM_MOVE_MODE_SEQ && m->seq.view && !m->seq.projects && k < 8) {
+        rfmv_seq_select(m, m->seq.track_page + k);     /* (session: a knob touched selects the track in its column) */
+        return;
+    }
     if (rfmv_half(m) || rfmv_track_held(m, 2))         /* (FM-1 mode, MIDI's NOTES: a touch alone shows the drawing's
                                                          * highlight; the popup comes with turning) */
         return;

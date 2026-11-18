@@ -117,6 +117,7 @@ void rfmv_seq_restart(rfm_move_t *m);                  /* Shift + Play: every cl
 void rfmv_seq_release(rfm_move_t *m, int track);       /* the track's sounding notes off (-1 all) */
 void rfmv_seq_launch(rfm_move_t *m, int track, int scene);   /* scene -1: stop the track */
 void rfmv_seq_launch_scene(rfm_move_t *m, int scene);
+void rfmv_seq_launch_now(rfm_move_t *m, int track, int scene);   /* a double tap: now, in phase with the bar */
 void rfmv_seq_mute(rfm_move_t *m, int track, int on);
 void rfmv_seq_solo(rfm_move_t *m, int track, int on);
 int rfmv_seq_groove_of(const rfm_move_t *m, int track);   /* Global (the project's) or the track's own */

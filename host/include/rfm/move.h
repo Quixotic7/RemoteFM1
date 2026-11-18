@@ -311,6 +311,8 @@ typedef struct {
     uint8_t smenu;                                      /* a Shift + step menu open (RFM_MOVE_SM_*) */
     uint8_t shift_lock;                                 /* Shift latched (a double tap) */
     uint8_t bank;                                       /* the Track buttons' bank: tracks bank*4+1 .. +4 */
+    int8_t pad_tap;                                     /* session: the clip pad tapped last (a double tap launches now) */
+    uint32_t pad_tap_ms;
     uint8_t layer[8], nlayer;                           /* what Back closes, the latest last (a Shift menu, the grid,
                                                          * Loop's latch, Shift's lock, the clipboard's marks) */
     uint8_t in_seq;                                     /* the settings hold the selected track's layout / CCs */
