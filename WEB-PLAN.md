@@ -83,10 +83,14 @@ screen, LEDs and flash go to the page by `postMessage` at up to 30 Hz.
   held is let go and it connects again (1, 2, 4 s); `BYE` for the exit gesture or another host ends it. The settings
   (mode, layout, channel, octave, CC banks, drum notes: `rfm_move_save`) and the address are kept in the page's prefs;
   connected once, it connects by itself on the next visit. The link is a transport interface (`connect`, `send`,
-  `onmessage`, `onclose`, `close`, `name`); `MoveWebSocket` is the one there is. **https:** browsers block `ws://` from
-  an https page (mixed content) except to localhost, so on the published site the link says so instead of failing;
-  until an https-capable transport exists (Web MIDI SysEx over the Move's USB-C, or a localhost bridge), it works from
-  the page served over http (`web/serve.sh`). Tests: `web/site/test.mjs` (framing, the wasm core against
+  `onmessage`, `onclose`, `close`, `name`): `MoveWebSocket` and `MoveBridge`. **https:** from the published site the
+  `ws://` is still tried first, in the Connect click: Chrome's Local Network Access lets it through to `.local` names and
+  private addresses (it may ask once to allow local network devices; the socket waits for the answer, and after 4 s
+  the bridge is offered beside it). Browsers that refuse it (Safari, Firefox, Edge) throw `SecurityError` there, and the
+  same click opens Move Remote 0.1.1's bridge window (`http://<move>:7720/bridge`, a popup that opens the `ws://`
+  itself and relays it over postMessage, bridge protocol v1); a failed or unanswered direct try offers it on an "Open
+  the bridge window" button (popups only from a click). The window is reused on reconnects, closing it is a link close,
+  Disconnect closes it; no hello in 5 s means a Move Remote older than 0.1.1. Tests: `web/site/test.mjs` (framing, the wasm core against
   `host/tests/test_move.c`'s answers, `MoveLink` on a fake transport and clock) and `web/site/tools/move-e2e.mjs`
   (headless Chromium against Move Remote's own simulator, `moveremote-sim`, driven through its test FIFO).
   **The sequencer (Track 4)** runs in the page's core and is timed by the audio clock (`js/move-seq.js` SeqClock): every

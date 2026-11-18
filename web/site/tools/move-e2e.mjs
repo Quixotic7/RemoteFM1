@@ -8,7 +8,9 @@
 // firmware's MIDI in; Track 1 back; Track 4, the sequencer: 16 steps, Play, 8 bars at 120 BPM, each note's arrival in
 // the engine (the worklet's timed-MIDI log) against its ideal frame (the jitter and the drift), Shift + step 1's project
 // grid, a new project and back to the first (the store answers PROJECT_LOAD); a reload connects by itself and brings the
-// project back; Backup downloads its .rfmmove, Import puts it in another slot; Disconnect lets the Move go.
+// project back; Backup downloads its .rfmmove, Import puts it in another slot; Disconnect lets the Move go. Then the
+// bridge window (Move Remote 0.1.1's /bridge popup, the https fallback): connected through it, a pad, the screen; closed
+// by hand (said so); Disconnect closes it.
 //   node web/site/tools/move-e2e.mjs [--shots=web/build/test] [--sim=.../moveremote-sim]
 // Needs web/build/native/felucca.wasm (web/engines/native/build.sh felucca) and the simulator ($MOVEREMOTE_SIM, --sim,
 // or an abletonmoveremote checkout beside the repository): without either it says so and skips. Builds
@@ -103,8 +105,8 @@ process.on("SIGTERM", () => process.exit(143));
 let ws, id = 0;
 const waiting = new Map();
 const cdp = (method, params = {}) => new Promise((r) => { const i = ++id; waiting.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
-async function js(expression, timeout = 60000) {
-  const r = await cdp("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true, timeout });
+async function js(expression, timeout = 60000, userGesture = false) {
+  const r = await cdp("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true, timeout, userGesture });
   if (r.result?.exceptionDetails) throw new Error(`page: ${JSON.stringify(r.result.exceptionDetails).slice(0, 500)}`);
   return r.result?.result?.value;
 }
@@ -327,6 +329,39 @@ try {
   ok(!bit((await panel()).keys, 0) && !(await js("FM1Move.view().want")), "Disconnect: the key the Move held is let go");
   ok(await untilNode(() => simState().includes("host=-"), 3000), "Disconnect: the simulator has no host any more");
   inject("note 84 0");
+
+  // 6. the bridge window (what an https page uses where ws:// is refused): Move Remote's /bridge as a popup opened in
+  // a click, relaying over postMessage; here the page is on http, so it is opened by its button's call, with a gesture
+  const bridgeTargets = async () => (await (await fetch(`http://127.0.0.1:${DEBUG}/json/list`)).json()).filter((t) => t.type === "page" && /\/bridge\?origin=/.test(t.url));
+  await js(DISPLAYS);
+  await js(`(FM1Move.openBridge(), true)`, 60000, true);
+  await until(`FM1Move.view().active`, 10000, "the Move through the bridge window");
+  const bt = await bridgeTargets();
+  ok(bt.length === 1 && bt[0].url === `http://127.0.0.1:${SIM_PORT}/bridge?origin=${encodeURIComponent(`http://127.0.0.1:${PORT}`)}`, `the bridge window: one popup at ${bt[0] && bt[0].url}`);
+  const bst = await js(`document.querySelector(".move-slot .remote-status").textContent`);
+  ok(/\(bridge window\): FM-1 mode/.test(bst) && (await js("FM1Move.view().link")) === "bridge window", `through it: "${bst}"`);
+  ok(await untilNode(() => /host=RemoteFM1 web .*drew=1/.test(simState()), 3000), "through it: the simulator has our host, the screen drawn");
+  await js(`(document.querySelector(".sheet .icon-btn[aria-label=Close]").click(), true)`);
+  await sleep(300);
+  await js(HOOK);
+  await press("note 84 100");
+  ok(bit((await panel()).keys, 0), "through it: a pad holds key 0");
+  await press("note 84 0");
+  ok(!bit((await panel()).keys, 0), "through it: ...and lets it go");
+  const shotB = await shotMatches();
+  ok(shotB.same, `through it: the simulator's screen is a frame the page sent (${shotB.tries} tries)`);
+  // closed by the user: a link close, said plainly
+  await fetch(`http://127.0.0.1:${DEBUG}/json/close/${bt[0].id}`);
+  await until(`!FM1Move.view().active && FM1Move.view().tone === "bad"`, 5000, "the link closed with the bridge window");
+  const cst = await js("FM1Move.view()");
+  ok(/bridge window was closed/.test(cst.detail) && cst.bridge && !cst.want, `the bridge window closed: "${cst.detail}", its button offered`);
+  ok(await untilNode(() => simState().includes("host=-"), 3000), "the bridge window closed: the simulator has no host");
+  // again, then Disconnect closes the bridge window too
+  await js(`(FM1Move.openBridge(), true)`, 60000, true);
+  await until(`FM1Move.view().active`, 10000, "the Move through a new bridge window");
+  await js(`(FM1Move.disconnect(), true)`);
+  ok(await untilNode(async () => (await bridgeTargets()).length === 0, 4000) && await untilNode(() => simState().includes("host=-"), 3000),
+     "Disconnect: the bridge window closes itself, the simulator has no host");
   ok(!errors.length, `no page exceptions (${errors.length})`);
 } catch (e) {
   console.error(e); fails++;

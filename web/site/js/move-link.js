@@ -6,10 +6,14 @@
 // (Move Remote's docs/PROTOCOL.md: u16 len | u8 type | payload) and the page's side, modelled on js/omx-link.js.
 //
 // The link is a transport: { name, connect() -> Promise, send(Uint8Array) -> bool, onmessage(Uint8Array),
-// onclose(why), close() }. One now: MoveWebSocket (ws://<move>:7720/ws, move.local over Wi-Fi or 172.16.254.1 over
-// USB-C). A page served over https can't open a ws:// to the Move (mixed content): the link says so instead of
-// failing silently (a localhost address is allowed). Another transport (Web MIDI over the Move's USB-C, a local
-// bridge) drops in through opts.transport.
+// onclose(why), close() }. Two: MoveWebSocket (ws://<move>:7720/ws, move.local over Wi-Fi or 172.16.254.1 over
+// USB-C) and MoveBridge. From an https page (remotefm1.com) the ws:// is tried first, in the click: Chrome lets it
+// through to a .local name or a private address (Local Network Access; it may ask once to allow local network devices,
+// and the socket waits until that is answered). Browsers that refuse it throw SecurityError there, and the click opens
+// Move Remote's bridge window instead (http://<move>/bridge, Move Remote 0.1.1+): a plain-http popup that opens the
+// ws:// itself and relays it over postMessage (Move Remote's docs/PROTOCOL.md, "The bridge"). A direct try that fails
+// or stays unanswered offers the bridge on a button (a popup needs a click). ws:// from http and localhost pages, and
+// a wss:// address, go straight to the WebSocket as before.
 //
 // Session: HELLO (proto 1) -> the Move's HELLO; CONFIG audio clock off (no AUDIO messages: the page plays its own
 // sound); INPUT records -> the core -> actions; the core's changed LEDs out after each input and each LED change of
@@ -42,6 +46,8 @@ export const DEFAULT_URL = "ws://move.local:7720/ws";
 export const HOST_NAME = "RemoteFM1 web";
 export const SEQ_MS = 10;
 export const SCREEN_MS = 33, PING_MS = 1000, SILENT_MS = 3000, HELLO_MS = 4000, RETRY_MS = [1000, 2000, 4000];
+// the bridge window (Move Remote 0.1.1+): its hello within BRIDGE_HELLO_MS, its .closed polled every BRIDGE_POLL_MS
+export const BRIDGE_HELLO_MS = 5000, BRIDGE_POLL_MS = 500, BRIDGE_NAME = "moveremote-bridge", BRIDGE_FEATURES = "popup,width=360,height=240";
 
 // one message: u16 len (type + payload) | u8 type | payload
 export function frame(type, payload = new Uint8Array(0)) {
@@ -127,29 +133,38 @@ export function normalizeUrl(addr) {
 }
 export const hostOf = (url) => { try { return new URL(url).host; } catch (_) { return String(url); } };
 const loopback = (host) => host === "localhost" || host.endsWith(".localhost") || /^127\./.test(host) || host === "[::1]" || host === "::1";
-// a page on https can't open ws:// (mixed content), except to this computer
+// a ws:// from an https page to anything but this computer: some browsers refuse it (mixed content), Chrome lets it
+// through to local network addresses; the link tries it, then the bridge
 export function mixedContentBlocked(url, pageProtocol) {
   if (pageProtocol !== "https:") return false;
   let u;
   try { u = new URL(url); } catch (_) { return false; }
   return u.protocol === "ws:" && !loopback(u.hostname);
 }
-export const MIXED_TEXT = "This page is on https, and browsers don't let an https page open a plain ws:// link to the Move. Open the player from http://localhost (web/serve.sh), or use a link over USB when there is one.";
+export const MIXED_TEXT = "On https, Chrome may ask to allow local network devices; other browsers use a small bridge window that must stay open.";
+export const LNA_TEXT = "The browser may ask to allow local network devices.";
+export const BLOCKED_TEXT = "The browser blocked the bridge window. Allow pop-ups for this site, then open it again.";
+export const isSecurityError = (e) => !!e && (e.name === "SecurityError" || e.code === 18);
+// the bridge page for a ws:// address, and the origin its messages come from
+export const bridgeOrigin = (url) => "http://" + hostOf(url);
+export const bridgeUrl = (url, pageOrigin) => `${bridgeOrigin(url)}/bridge?origin=${encodeURIComponent(pageOrigin || "")}`;
 
-// ---- the WebSocket transport
+// ---- the WebSocket transport. start() makes the socket now (a browser that refuses ws:// throws SecurityError
+// there, synchronously); connect() starts it if not yet and resolves when it opens.
 export class MoveWebSocket {
   constructor(url, WS = globalThis.WebSocket) {
-    this.url = url; this.WS = WS; this.ws = null;
+    this.url = url; this.WS = WS; this.ws = null; this.p = null;
     this.name = "WebSocket";
     this.onmessage = null; this.onclose = null;
   }
-  connect() {
-    return new Promise((resolve, reject) => {
-      if (!this.WS) { reject(new Error("this browser has no WebSocket")); return; }
-      let ws, open = false;
-      try { ws = new this.WS(this.url); } catch (e) { reject(e); return; }
-      ws.binaryType = "arraybuffer";
-      this.ws = ws;
+  start() {
+    if (this.p) return;
+    if (!this.WS) throw new Error("this browser has no WebSocket");
+    const ws = new this.WS(this.url);
+    ws.binaryType = "arraybuffer";
+    this.ws = ws;
+    this.p = new Promise((resolve, reject) => {
+      let open = false;
       ws.onopen = () => { open = true; resolve(); };
       ws.onerror = () => { if (!open) reject(new Error(`no answer at ${hostOf(this.url)}`)); };
       ws.onclose = (e) => {
@@ -162,12 +177,86 @@ export class MoveWebSocket {
         else if (ArrayBuffer.isView(e.data)) this.onmessage(new Uint8Array(e.data.buffer, e.data.byteOffset, e.data.byteLength));
       };
     });
+    this.p.catch(() => {});                   // (a socket closed before connect() was asked for)
+  }
+  connect() {
+    try { this.start(); } catch (e) { return Promise.reject(e); }
+    return this.p;
   }
   send(bytes) {
     if (!this.ws || this.ws.readyState !== 1) return false;
     try { this.ws.send(bytes); return true; } catch (_) { return false; }
   }
   close() { const ws = this.ws; this.ws = null; if (ws) { try { ws.close(); } catch (_) { /* (gone) */ } } }
+}
+
+// ---- the bridge transport: Move Remote's bridge window (bridge protocol v1). bw: { w (the window), origin
+// ("http://<move host:port>"), hello (it said hello once) }, shared by the transports of one window, so a reconnect
+// reuses it. Messages only from bw.w at bw.origin; posted to that origin only. close() lets go of the window without
+// closing it (MoveLink closes it when the link is done).
+export class MoveBridge {
+  constructor(bw, opts = {}) {
+    this.bw = bw; this.win = opts.window || globalThis; this.T = opts.timers || globalThis;
+    this.name = "bridge window";
+    this.waitMs = HELLO_MS + BRIDGE_HELLO_MS;   // (MoveLink's wait for the Move's HELLO: the bridge's hello first)
+    this.isOpen = false; this.onmessage = null; this.onclose = null;
+    this.listener = null; this.poll = 0; this.helloTimer = 0;
+  }
+  post(msg, transfer) { try { this.bw.w.postMessage(msg, this.bw.origin, transfer || []); return true; } catch (_) { return false; } }
+  connect() {
+    return new Promise((resolve, reject) => {
+      const bw = this.bw, host = bw.origin.replace(/^http:\/\//, "");
+      let settled = false;
+      const fail = (msg, final) => {
+        if (settled) return;
+        settled = true; this.detach();
+        const e = new Error(msg); e.final = !!final; reject(e);
+      };
+      const ended = (why) => { this.detach(); if (this.onclose) this.onclose(why); };
+      this.listener = (e) => {
+        if (e.source !== bw.w || e.origin !== bw.origin) return;
+        const m = e.data;
+        if (!m || typeof m !== "object") return;
+        if (m.mr === "hello") {
+          bw.hello = true;
+          this.T.clearTimeout(this.helloTimer); this.helloTimer = 0;
+          this.post({ mr: "open" });
+        } else if (m.mr === "open") {
+          if (!settled) { settled = true; this.isOpen = true; resolve(); }
+        } else if (m.mr === "data") {
+          if (!this.isOpen || !this.onmessage) return;
+          const d = m.data;
+          if (d instanceof ArrayBuffer) this.onmessage(new Uint8Array(d));
+          else if (ArrayBuffer.isView(d)) this.onmessage(new Uint8Array(d.buffer, d.byteOffset, d.byteLength));
+        } else if (m.mr === "close") {
+          if (this.isOpen) ended(m.reason || "the link closed");
+          else fail(`no answer at ${host}${m.reason ? ` (${m.reason})` : ""}`);
+        } else if (m.mr === "error") {
+          if (!this.isOpen) fail(`no answer at ${host}`);  // (after it opened, its close follows)
+        }
+      };
+      this.win.addEventListener("message", this.listener);
+      this.poll = this.T.setInterval(() => {
+        if (!bw.w.closed) return;
+        if (this.isOpen) ended("the bridge window was closed");
+        else fail("The bridge window was closed.", true);
+      }, BRIDGE_POLL_MS);
+      if (bw.hello) this.post({ mr: "open" });
+      else this.helloTimer = this.T.setTimeout(() => fail(`The bridge window did not answer. Is the Move at ${host}? Its Move Remote may be older than 0.1.1 (no bridge): update it.`, true), BRIDGE_HELLO_MS);
+    });
+  }
+  detach() {
+    this.isOpen = false;
+    if (this.listener) { this.win.removeEventListener("message", this.listener); this.listener = null; }
+    this.T.clearInterval(this.poll); this.poll = 0;
+    this.T.clearTimeout(this.helloTimer); this.helloTimer = 0;
+  }
+  send(bytes) {
+    if (!this.isOpen || this.bw.w.closed) return false;
+    const buf = bytes.slice().buffer;
+    return this.post({ mr: "send", data: buf }, [buf]);
+  }
+  close() { this.detach(); }
 }
 
 // matrix order (the core's) -> the panel's label / role order
@@ -179,13 +268,16 @@ const fromB64 = (s) => { try { return Uint8Array.from(atob(String(s)), (c) => c.
 export class MoveLink {
   // opts: { controls, site, prefs, save(), toast(text, kind, ms), mapAct(action) (MASTER), core(settingsBytes) ->
   //         Promise<MoveCore>, transport(url) -> transport (default MoveWebSocket), now(), timers, location, onActive,
-  //         projects (a MoveProjects store; default IndexedDB's) }
+  //         projects (a MoveProjects store; default IndexedDB's), WebSocket (the constructor), window (open(),
+  //         message events: the bridge window) }
   constructor(opts) {
     this.o = opts;
     this.now = opts.now || (() => performance.now());
     this.T = opts.timers || globalThis;
     this.loc = opts.location !== undefined ? opts.location : globalThis.location;
-    this.makeTransport = opts.transport || ((url) => new MoveWebSocket(url));
+    this.win = opts.window !== undefined ? opts.window : globalThis;
+    this.makeTransport = opts.transport || ((url) => new MoveWebSocket(url, opts.WebSocket || globalThis.WebSocket));
+    this.via = "direct"; this.bw = null; this.offer = false; this.gen = 0;   // (the bridge window, and its button)
     this.core = null; this.t = null; this.hello = null; this.status = null;
     this.want = false; this.live = false; this.everLive = false; this.retries = 0;
     this.tone = "off"; this.detail = "Not connected."; this.subs = new Set();
@@ -205,7 +297,7 @@ export class MoveLink {
     s.on("firmware", () => { const sc = s.screen(); this.px = sc.pixels; this.onInfo(s.current().info); this.screenSoon(); });
     s.on("loopLevels", (peaks) => { if (this.live && this.core && this.core.sampleLevels(peaks) > 0) this.screenSoon(); });   // (Sample's waveform)
     s.on("midiOut", (bytes, frame) => { if (this.live && this.core) { this.seq.clock(bytes, frame); this.afterSeq(); } });
-    if (typeof addEventListener === "function") addEventListener("pagehide", () => { this.flush(); this.release(); if (this.t) this.t.close(); });
+    if (typeof addEventListener === "function") addEventListener("pagehide", () => { this.flush(); this.release(); if (this.t) this.t.close(); this.closeBridge(); });
   }
   on(cb) { this.subs.add(cb); return () => this.subs.delete(cb); }
   url() { return normalizeUrl(this.o.prefs.moveUrl || DEFAULT_URL); }
@@ -214,25 +306,95 @@ export class MoveLink {
       link: this.t ? this.t.name : "", via: this.hello ? MR.VIA[this.hello.via] || "" : "", name: this.hello ? this.hello.name : "",
       mode: this.core && this.live ? MODE_NAMES[this.core.state().mode] : "",
       clock: this.core && this.live ? (this.core.following() ? "firmware" : "INT") : "", bpm10: this.core && this.live ? this.core.bpm10() : 0,
-      playing: !!(this.core && this.live && this.core.playing()), project: this.core ? this.core.projectSlot() : -1 };
+      playing: !!(this.core && this.live && this.core.playing()), project: this.core ? this.core.projectSlot() : -1,
+      bridge: this.offer };                 // (show "Open the bridge window")
   }
   set(tone, detail) { this.tone = tone; this.detail = detail; for (const cb of this.subs) cb(this.view()); }
   changed() { if (this.o.onActive) this.o.onActive(this.live); }
 
-  // from a click (url: the address field), or by itself at load where it was connected before (auto)
-  async connect(url) {
+  // from a click (url: the address field; how.click: called in the click, so the bridge window may open), or by itself
+  // at load where it was connected before (auto). Everything up to window.open() runs synchronously, in the click.
+  async connect(url, how = {}) {
     if (url !== undefined) this.o.prefs.moveUrl = normalizeUrl(url);
     const u = this.url();
+    this.want = true;                       // (before stop(): a bridge window still open is kept for this try)
     this.stop();
-    this.want = true; this.everLive = false; this.retries = 0;
+    const gen = ++this.gen;
+    this.everLive = false; this.retries = 0; this.offer = false; this.via = "direct";
     if (!this.o.prefs.moveAuto) this.o.prefs.moveAuto = true;
     this.o.save();
-    if (mixedContentBlocked(u, this.loc && this.loc.protocol)) { this.want = false; this.set("bad", MIXED_TEXT); return; }
-    this.set("busy", `Connecting to ${hostOf(u)}...`);
-    try { await this.ensureCore(); }
-    catch (e) { this.want = false; this.set("bad", "The Move's module did not load (web/move/build.sh builds it)."); return; }
-    if (!this.want) return;
+    let pre = null;
+    if (this.mayBlock(u)) {                 // https: the ws:// made now; a browser that refuses it throws here
+      pre = this.makeTransport(u);
+      try { if (pre.start) pre.start(); }
+      catch (e) {
+        if (isSecurityError(e)) return this.viaBridge(u, !!how.click, gen);
+        this.want = false; this.set("bad", `${cap(e && e.message ? e.message : String(e))}.`); return;
+      }
+      this.closeBridge();
+      this.set("busy", `Connecting to ${hostOf(u)}... ${LNA_TEXT}`);
+    } else {
+      this.closeBridge();
+      this.set("busy", `Connecting to ${hostOf(u)}...`);
+    }
+    if (!(await this.coreReady(gen))) { if (pre) pre.close(); return; }
+    this.open(u, pre);
+  }
+  // from a click on "Open the bridge window"
+  openBridge() {
+    const u = this.url();
+    this.want = true;
+    this.stop();
+    const gen = ++this.gen;
+    this.everLive = false; this.retries = 0; this.offer = false;
+    if (!this.o.prefs.moveAuto) { this.o.prefs.moveAuto = true; this.o.save(); }
+    return this.viaBridge(u, true, gen);
+  }
+  async viaBridge(u, click, gen) {
+    this.via = "bridge";
+    if (!this.bridgeWindow(u, click)) {
+      this.want = false; this.offer = true;
+      this.set("bad", click ? BLOCKED_TEXT : "This browser reaches the Move through a small bridge window: open it.");
+      return;
+    }
+    this.set("busy", `Connecting to ${hostOf(u)} through the bridge window (keep it open)...`);
+    if (!(await this.coreReady(gen))) return;
     this.open(u);
+  }
+  async coreReady(gen) {
+    try { await this.ensureCore(); }
+    catch (e) {
+      if (gen === this.gen && this.want) { this.want = false; this.stop(); this.set("bad", "The Move's module did not load (web/move/build.sh builds it)."); }
+      return false;
+    }
+    return this.want && gen === this.gen;
+  }
+  mayBlock(u) { return mixedContentBlocked(u, this.loc && this.loc.protocol); }
+  // the bridge window for the address: the open one, or (in a click only) a new one; null when there is none
+  bridgeWindow(u, click) {
+    const origin = bridgeOrigin(u);
+    if (this.bw && this.bw.origin === origin && !this.bw.w.closed) return this.bw;
+    this.closeBridge();
+    if (!click || !this.win || typeof this.win.open !== "function") return null;
+    let w = null;
+    try { w = this.win.open(bridgeUrl(u, this.loc && this.loc.origin), BRIDGE_NAME, BRIDGE_FEATURES); } catch (_) { w = null; }
+    if (!w) return null;
+    this.bw = { w, origin, hello: false };
+    return this.bw;
+  }
+  bridgeOpen() { return !!(this.bw && !this.bw.w.closed); }
+  // the bridge window told to close its socket and itself (closed from here a second later if it never answered)
+  closeBridge() {
+    const bw = this.bw;
+    this.bw = null;
+    if (!bw || bw.w.closed) return;
+    try { bw.w.postMessage({ mr: "close" }, bw.origin); } catch (_) { /* (gone) */ }
+    this.T.setTimeout(() => { try { if (!bw.w.closed) bw.w.close(); } catch (_) { /* (gone) */ } }, 1000);
+  }
+  bridgeGone() {
+    this.want = false; this.stop();
+    this.offer = true;
+    this.set("bad", "The bridge window was closed. Open it again to reconnect.");
   }
   // the core (once): the settings from prefs, the labels and keymap, the store's projects and the last one opened
   ensureCore() {
@@ -261,12 +423,13 @@ export class MoveLink {
   }
   auto() { if (this.o.prefs.moveAuto && !this.want) return this.connect(); return Promise.resolve(); }
   disconnect() {
-    this.want = false;
+    this.want = false; this.offer = false;
     this.o.prefs.moveAuto = false; this.o.save();
     this.stop();
     this.set("off", "Not connected.");
   }
-  // the transport and timers gone, everything held let go (the project saved first, if it changed)
+  // the transport and timers gone, everything held let go (the project saved first, if it changed); no longer wanted:
+  // the bridge window closed too
   stop() {
     this.flush();
     for (const k of Object.keys(this.timers)) { this.T.clearTimeout(this.timers[k]); this.T.clearInterval(this.timers[k]); this.timers[k] = 0; }
@@ -276,6 +439,7 @@ export class MoveLink {
     const was = this.live;
     this.live = false; this.hello = null;
     this.release();
+    if (!this.want) this.closeBridge();
     if (was) this.changed();
   }
   release() {
@@ -287,18 +451,44 @@ export class MoveLink {
   }
   flush() { if (this.core) this.apply(this.core.projectFlush()); }
 
-  open(u) {
-    const t = this.makeTransport(u);
+  // pre: the WebSocket transport connect() already started (https)
+  open(u, pre) {
+    let t;
+    if (this.via === "bridge") {
+      const bw = this.bridgeWindow(u, false);
+      if (!bw) { this.bridgeGone(); return; }
+      t = new MoveBridge(bw, { window: this.win, timers: this.T });
+    } else t = pre || this.makeTransport(u);
     this.t = t;
     this.deframer.reset();
     t.onmessage = (b) => { if (this.t === t) this.rx(b); };
     t.onclose = (why) => { if (this.t === t) this.lost(why); };
-    this.timers.hello = this.T.setTimeout(() => { if (this.t === t && !this.live) this.lost(`no answer from ${hostOf(u)}`); }, HELLO_MS);
+    // https, direct: a socket still opening may be the browser asking about local network devices; it is left to
+    // open, and the bridge offered meanwhile
+    const askable = this.via === "direct" && this.mayBlock(u);
+    let opened = false, waited = false;
+    const timeout = () => {
+      this.timers.hello = 0;
+      if (this.t !== t || this.live) return;
+      if (askable && !opened) {
+        waited = true; this.offer = true;
+        this.set("busy", `No answer from ${hostOf(u)} yet. Allow local network devices if the browser asks, or open the bridge window.`);
+        return;
+      }
+      this.lost(`no answer from ${hostOf(u)}`);
+    };
+    this.timers.hello = this.T.setTimeout(timeout, t.waitMs || HELLO_MS);
     Promise.resolve().then(() => t.connect()).then(() => {
       if (this.t !== t) { t.close(); return; }
+      opened = true;
+      if (waited) { this.offer = false; this.set("busy", `Connecting to ${hostOf(u)}...`); this.timers.hello = this.T.setTimeout(timeout, HELLO_MS); }
       this.lastRx = this.now();
       this.send(helloMsg());
-    }, (e) => { if (this.t === t) this.lost(e && e.message ? e.message : "no answer"); });
+    }, (e) => {
+      if (this.t !== t) return;
+      if (e && e.final) { this.want = false; this.stop(); this.offer = this.via === "bridge"; this.set("bad", e.message); return; }
+      this.lost(e && e.message ? e.message : "no answer");
+    });
   }
   send(bytes) { if (this.t && this.t.send(bytes)) { this.stats.sent++; return true; } return false; }
 
@@ -308,8 +498,14 @@ export class MoveLink {
     this.stop();
     if (was) this.o.toast(`${name}: link lost (${why}).`, "bad");
     if (!this.want) return;
+    if (this.via === "bridge" && !this.bridgeOpen()) { this.bridgeGone(); return; }   // (only a click opens it again)
+    if (this.via === "direct" && !this.everLive && this.mayBlock(this.url())) {
+      this.want = false; this.offer = true;
+      this.set("bad", `${cap(why)}. From this https page, try the bridge window.`);
+      return;
+    }
     if (!this.everLive && this.retries >= 2) {
-      this.want = false;
+      this.want = false; this.closeBridge();
       this.set("bad", `${cap(why)}. Is Move Remote running on the Move, and is ${hostOf(this.url())} its address? Over USB-C it is ${MR.USB_ADDR}.`);
       return;
     }
@@ -588,13 +784,17 @@ export function mountMove(slot, link) {
   const line = h("p", { class: "remote-status small" });
   const usb = h("button", { class: "pill", title: `The Move's address over its USB-C cable: ${MR.USB_ADDR}` }, "USB-C");
   usb.addEventListener("click", () => { addr.value = MR.USB_ADDR; });
-  const go = () => { const v = link.view(); if (v.want && v.tone !== "bad") link.disconnect(); else link.connect(addr.value); };
+  // (connect() and openBridge() run in the click: the bridge window is a popup)
+  const bridge = h("button", { class: "pill primary", hidden: true }, "Open the bridge window");
+  bridge.addEventListener("click", () => link.openBridge());
+  const go = () => { const v = link.view(); if (v.want && v.tone !== "bad") link.disconnect(); else link.connect(addr.value, { click: true }); };
   btn.addEventListener("click", go);
-  addr.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); if (!link.view().want || link.view().tone === "bad") link.connect(addr.value); } });
+  addr.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); if (!link.view().want || link.view().tone === "bad") link.connect(addr.value, { click: true }); } });
   const show = (v) => {
     const on = v.want && v.tone !== "bad";
     btn.textContent = on ? "Disconnect" : v.tone === "bad" ? "Try again" : "Connect my Move";
-    btn.className = "pill " + (on ? "" : "primary");
+    btn.className = "pill " + (on || v.bridge ? "" : "primary");
+    bridge.hidden = !v.bridge;
     addr.disabled = on;
     line.replaceChildren(h("span", { class: "fm1-dot " + v.tone + (v.tone === "busy" ? " live" : "") }), v.detail);
     line.className = "remote-status small " + (v.tone === "on" ? "ok" : v.tone === "bad" ? "bad" : "muted");
@@ -647,13 +847,13 @@ export function mountMove(slot, link) {
   slot.replaceChildren(
     h("p", { class: "row-sub", style: { margin: "0 0 10px" } }, "An Ableton Move running Move Remote becomes this FM-1's controller: its pads play the keys (or MIDI), its buttons and knobs are the FM-1's, and the page lights its pads and draws its screen. Track 1..4: FM-1, MIDI, Control, Sequencer."),
     h("div", { class: "move-row" }, addr, usb),
-    h("div", { class: "pills two" }, btn),
+    h("div", { class: "pills two" }, btn, bridge),
     line,
     clock,
     h("p", { class: "row-sub", style: { margin: "12px 0 6px" } }, "The sequencer's projects, in this browser (not in the firmware's saves):"),
     list,
     h("div", { class: "move-row move-import" }, into, importBtn, allBtn, file),
-    h("p", { class: "note" }, `Wi-Fi: move.local (or the Move's address); USB-C: ${MR.USB_ADDR}. The page must be on http (web/serve.sh) or localhost: browsers block ws:// from an https page. Shift + touch the volume knob + click the jog wheel on the Move to leave Move Remote.`));
+    h("p", { class: "note" }, `Wi-Fi: move.local (or the Move's address); USB-C: ${MR.USB_ADDR}.${link.loc && link.loc.protocol === "https:" ? " " + MIXED_TEXT : ""} Shift + touch the volume knob + click the jog wheel on the Move to leave Move Remote.`));
 }
 // a file to the visitor's downloads
 function download(name, bytes) {

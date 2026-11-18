@@ -466,6 +466,7 @@ body.learning #device { cursor: crosshair; }
 .move-addr:focus { border-color: var(--accent); }
 .move-addr:disabled { opacity: .6; }
 .move-row .pill { flex: none; }
+.move-slot .pill[hidden] { display: none; }   /* (Open the bridge window, while not offered) */
 .move-clock { margin: 6px 0 0; }
 .move-projects { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
 .move-proj { display: flex; align-items: center; gap: 8px; padding: 4px 10px; border-radius: 10px; background: var(--surface); }
