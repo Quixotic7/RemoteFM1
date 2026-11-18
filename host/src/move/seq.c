@@ -1650,8 +1650,6 @@ void rfmv_seq_pad_on(rfm_move_t *m, int pad, int note, int vel)
     cap_push(m, note, vel);
     if (pad < 0 || pad >= RFM_MOVE_NPADS)
         return;
-    if (q->arec == 1 && !q->playing && !q->start_pending)
-        rfmv_seq_start(m);                              /* (Sample armed, stopped: the first note starts the loop) */
     if (q->srec == 1) {
         srec_start(m, pad, note, vel);
         return;

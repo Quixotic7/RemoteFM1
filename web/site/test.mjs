@@ -1825,7 +1825,7 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
         run(10);
         gc.emit(ginp(cc(118, 127), cc(118, 0)), null);               // armed
         run(37);
-        gc.emit(ginp(P(0x90, 68, 100), P(0x80, 68, 0)), null);       // stopped: the first note starts the transport
+        gc.emit(ginp(cc(85, 127), cc(85, 0)), null);                // stopped: Play starts the transport (only Play, the owner's)
         const barF = (4 * 60 * rate * 10) / bpm10;
         run(Math.ceil((barF * bars - barF / 3) / 128));                // into the take's last bar ..
         gc.emit(ginp(cc(118, 127), cc(118, 0)), null);               // .. its end: the next bar line
@@ -2092,7 +2092,6 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
       ok(w6.link.projects().length === 1 && w6.link.projects()[0].name === "Project 4" && w6.link.projects()[0].current, "MoveLink: the project list: Project 4, open");
       w6.input(cc(40, 127), cc(40, 0));
       for (let st = 0; st < 16; st++) w6.input(P(0x90, 16 + st, 127), P(0x80, 16 + st, 0));
-      w6.input(cc(85, 127), cc(85, 0));                 // (the first step started the transport, as on the Move: stop it)
       w6.timed.length = 0; w6.midi.length = 0; w6.cuts.length = 0;
       w6.input(cc(85, 127), cc(85, 0));
       w6.clock.advance(1000);

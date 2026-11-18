@@ -230,8 +230,7 @@ try {
   ok((await js("FM1Move.core.state().mode")) === 3 && (await js("FM1Move.view().clock")) === "INT", "Track 4: the sequencer, on its own clock (INT: Felucca sends no MIDI clock)");
   for (let st = 0; st < 16; st++) await press(`note ${16 + st} 127\nnote ${16 + st} 0`, 40);
   await sleep(300);
-  ok(await js("FM1Move.view().playing"), "the first step into the empty clip started the transport (as on the Move)");
-  await press("cc 85 127\ncc 85 0", 300);             // stop it: the timing run starts from Play
+  ok(!(await js("FM1Move.view().playing")), "the steps started nothing (only Play starts the transport, the owner's)");
   ok(!(await js("FM1Move.view().playing")), "Play: stopped");
   const rate = await js("FM1Rec.o.getPlayer().sampleRate");
   await js("(FM1Rec.o.getPlayer().midiLog(true), true)");

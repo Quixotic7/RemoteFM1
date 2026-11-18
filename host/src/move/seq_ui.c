@@ -143,12 +143,11 @@ static void ensure_active(rfm_move_t *m)
     if (t->active < 0 && t->queued == SEQ_NONE && rfmv_seq_clip_used(m, edit_clip(m)))
         rfmv_seq_launch(m, q->sel_track, t->sel);
 }
-/* notes went into the edited clip: it plays; and (Move) the first note into an empty clip starts the transport */
+/* notes went into the edited clip: it plays (when the transport does: only Play starts it, the owner's) */
 static void entered(rfm_move_t *m, int was_used)
 {
+    (void)was_used;
     ensure_active(m);
-    if (!was_used && !running(Q(m)) && rfmv_seq_clip_used(m, edit_clip(m)))
-        rfmv_seq_start(m);
 }
 
 /* step entry's memory: the last notes (a step entered, a held step edited, a chord played), else the root */
@@ -376,14 +375,10 @@ void rfmv_seq_pad(rfm_move_t *m, int p, int vel, uint32_t now)
         q->pad_tap = (int8_t)p, q->pad_tap_ms = now;
         if (q->mods & SEQ_M_SHIFT) {                    /* Shift + a clip: its whole row, a scene across the 16 */
             q->mods_used |= SEQ_M_SHIFT;
-            rfmv_seq_launch_scene(m, scene);
-            if (!running(q))
-                rfmv_seq_start(m);
+            rfmv_seq_launch_scene(m, scene);            /* (stopped: launched, it plays with Play) */
         } else if (dbl && rfmv_seq_clip_used(m, clip) && !t->grow && !(q->mods & (SEQ_M_MUTE | SEQ_M_COPY | SEQ_M_DELETE))) {
             rfmv_seq_select(m, track);                  /* a double tap: launched now, in phase with the bar */
-            rfmv_seq_launch_now(m, track, scene);
-            if (!running(q))
-                rfmv_seq_start(m);
+            rfmv_seq_launch_now(m, track, scene);       /* (stopped: launched, it plays with Play) */
             q->pad_tap = -1;
         } else if (q->mods & SEQ_M_MUTE) {
             q->mods_used |= SEQ_M_MUTE;
@@ -418,11 +413,10 @@ void rfmv_seq_pad(rfm_move_t *m, int p, int vel, uint32_t now)
             else if (!used) {                           /* an empty slot: a new clip there, selected (and the track's) */
                 t->sel = (int8_t)scene;
                 rfmv_seq_clip_make(m, clip, 1);
-                if (q->rec) {                           /* armed: record into it */
+                if (q->rec) {                           /* armed: record into it (stopped: once Play starts it) */
                     if (!run) {
                         rfmv_seq_group(m);
                         q->rec_group = q->group;
-                        rfmv_seq_start(m);
                     }
                     t->grow = 2;                        /* (starts with the launch, at the bar) */
                 }
@@ -430,9 +424,7 @@ void rfmv_seq_pad(rfm_move_t *m, int p, int vel, uint32_t now)
             } else if (t->active == scene && t->queued == SEQ_NONE && run)
                 t->sel = (int8_t)scene;                 /* the playing clip: it plays on, selected */
             else {
-                rfmv_seq_launch(m, track, scene);       /* at the next bar; stopped: at once, and the transport starts */
-                if (!run)
-                    rfmv_seq_start(m);
+                rfmv_seq_launch(m, track, scene);       /* at the next bar; stopped: at once, playing with Play */
             }
             rfmv_seq_dirty(m);
         }
@@ -1073,6 +1065,8 @@ int rfmv_seq_button(rfm_move_t *m, int cc, int down, uint32_t now)
             rfmv_seq_restart(m);
         } else if (running(q))
             rfmv_seq_stop(m);
+        else if (q->rec && q->rec_mode == RFM_MOVE_RM_RECORD)
+            rfmv_seq_count_in(m);                       /* (Rec armed while stopped: Play gives the bar's count-in) */
         else
             rfmv_seq_start(m);
         return 1;
@@ -1104,8 +1098,7 @@ int rfmv_seq_button(rfm_move_t *m, int cc, int down, uint32_t now)
             q->rec = 1;
             rfmv_seq_group(m);
             q->rec_group = q->group;
-            if (!running(q))
-                rfmv_seq_count_in(m);                   /* stopped: a bar's count-in (Move) */
+            /* (stopped: armed; Play starts it with a bar's count-in. Only Play starts the transport, the owner's) */
         } else {
             int t;
             q->rec = 0;
@@ -1122,9 +1115,7 @@ int rfmv_seq_button(rfm_move_t *m, int cc, int down, uint32_t now)
             q->ncap = 0;
             rfmv_seq_msg(m, SEQ_MSG_CAPCLEAR);
         } else if (rfmv_seq_capture(m) >= 0) {
-            rfmv_seq_msg(m, SEQ_MSG_CAPTURED);
-            if (!running(q))
-                rfmv_seq_start(m);                      /* (Move: the transport starts with the new clip) */
+            rfmv_seq_msg(m, SEQ_MSG_CAPTURED);          /* (stopped: the new clip plays with Play) */
         } else
             rfmv_seq_msg(m, SEQ_MSG_NOCLIP);
         return 1;

@@ -337,6 +337,8 @@ int rfm_move_project_load(rfm_move_t *m, int slot, const uint8_t *b, uint32_t n)
         rfmv_seq_msg(m, SEQ_MSG_LOADFAIL);
         return -1;
     }
+    const int was = q->playing || q->start_pending;     /* (the transport stays as it was: only Play starts or
+                                                         * stops it, the owner's) */
     rfmv_seq_stop(m);
     rfmv_seq_ui_release(m);
     rfmv_seq_project_clear(m);
@@ -349,8 +351,8 @@ int rfm_move_project_load(rfm_move_t *m, int slot, const uint8_t *b, uint32_t n)
     q->bank = (uint8_t)(q->sel_track / 4);
     rfmv_seq_load_track(m);                             /* (the selected track's layout, CC numbers, key) */
     q->proj_cur = (int8_t)slot, q->proj_pending = -1;   /* (projects mode stays: the owner's, left with Back / Menu) */
-    if (q->play_after_load)
-        q->play_after_load = 0, rfmv_seq_start(m);      /* (Play pressed while it loaded) */
+    if (q->play_after_load || was)
+        q->play_after_load = 0, rfmv_seq_start(m);      /* (Play pressed while it loaded, or it was playing) */
     q->dirty = 0;
     info_live(q, &q->info[slot]);
     return 0;
@@ -419,10 +421,14 @@ void rfmv_proj_delete(rfm_move_t *m, int slot)
         return;
     q->proj_used &= ~(1u << slot);
     q->info[slot].ok = 0;
-    if (slot == q->proj_cur) {                          /* the open one: it empties (and is not saved again) */
+    if (slot == q->proj_cur) {                          /* the open one: it empties (and is not saved again; the
+                                                         * transport as it was) */
+        const int was = q->playing || q->start_pending;
         rfmv_seq_stop(m);
         rfmv_seq_ui_release(m);
         rfmv_seq_project_clear(m);
+        if (was)
+            rfmv_seq_start(m);
     }
     emit_slot(m, RFM_MOVE_ACT_PROJECT_DELETE, slot, NULL, 0);
 }

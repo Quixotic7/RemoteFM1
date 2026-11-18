@@ -168,10 +168,10 @@ static void test_model(void)
     for (i = 0; i < 16; i++)
         CHECK(m->seq.tr[i].ch == i && m->seq.tr[i].active == 0 && m->seq.tr[i].sel == 0);
     CHECK(SEQ_CLIP(3, 5) == 3 * 16 + 5 && m->seq.len[SEQ_CLIP(15, 15)] == 16);
-    /* nothing played yet: an empty step gets the root (C3); the first note into an empty clip starts the
-     * transport (Move); a tap on a step with notes clears it (Move) */
+    /* nothing played yet: an empty step gets the root (C3); no start (only Play starts the transport, the owner's);
+     * a tap on a step with notes clears it (Move) */
     tap_step(m, 2);
-    CHECK(m->seq.nnotes == 1 && rfmv_seq_find(m, 0, 2, 48) >= 0 && m->seq.start_pending == 1);
+    CHECK(m->seq.nnotes == 1 && rfmv_seq_find(m, 0, 2, 48) >= 0 && !m->seq.start_pending && !m->seq.playing);
     rfm_move_seq_play(m, 0);
     tap_step(m, 2);
     CHECK(m->seq.nnotes == 0 && !m->seq.start_pending);
@@ -179,8 +179,7 @@ static void test_model(void)
     pad(m, 2, 90), pad(m, 2, 0);
     CHECK(m->seq.nlast == 1 && m->seq.last_note[0] == 52 && m->seq.last_vel[0] == 90);
     tap_step(m, 0);
-    CHECK(m->seq.start_pending == 1);
-    rfm_move_seq_play(m, 0);
+    CHECK(!m->seq.start_pending);
     tap_step(m, 4), tap_step(m, 15);
     CHECK(m->seq.nnotes == 3 && rfmv_seq_find(m, 0, 0, 52) >= 0 && rfmv_seq_find(m, 0, 15, 52) >= 0);
     CHECK(m->seq.notes[0].vel == 90 && m->seq.notes[0].len == 24 && m->seq.notes[0].micro == 0);
@@ -342,7 +341,9 @@ static void test_playback(void)
     m->seq.notes[rfmv_seq_find(m, 0, 4, 52)].micro = 6;   /* a quarter step late */
     clear();
     CHECK(rfm_move_seq_bpm10(m) == 1200 && !rfm_move_seq_following(m));
-    CHECK(m->seq.start_pending == 1 && nact == 0);      /* (the first step started the transport, Move) */
+    CHECK(!m->seq.start_pending && nact == 0);          /* (no start: Play) */
+    press(m, MR_CC_PLAY);
+    CHECK(m->seq.start_pending == 1 && nact == 0);
     adv(m, 2 * 16 * FPS);                               /* two bars */
     CHECK(m->seq.playing);
     CHECK(find_midi(0x90, 48, 100, &at) && at == 0);
@@ -535,21 +536,21 @@ static void test_launch(void)
     press(m, MR_CC_MUTE);
     button(m, MR_CC_MUTE, 1), tap_step(m, 1), button(m, MR_CC_MUTE, 0);
     CHECK(!m->seq.tr[0].mute && !m->seq.tr[1].mute);
-    /* stopped, a clip press makes it the track's clip at once and starts the transport (Move); Shift + clip only
+    /* stopped, a clip press makes it the track's clip at once (no start: Play, the owner's); Shift + clip only
      * selects; an empty slot, stopped: the track plays nothing */
     rfm_move_seq_play(m, 0);
     CHECK(stuck() == 0);
     pad(m, 24, 100), pad(m, 24, 0);                     /* track 1, scene 1 */
-    CHECK(m->seq.tr[0].active == 0 && m->seq.start_pending == 1);
+    CHECK(m->seq.tr[0].active == 0 && !m->seq.start_pending && !m->seq.playing);
     rfm_move_seq_play(m, 0);
     pad(m, 0, 100), pad(m, 0, 0);                       /* track 1, scene 4: empty: a new clip, no start */
     CHECK(m->seq.tr[0].active == 3 && m->seq.tr[0].sel == 3 && !m->seq.start_pending);
     CHECK(rfmv_seq_clip_has(m, SEQ_CLIP(0, 3)));
     rfm_move_seq_play(m, 0);
     button(m, MR_CC_SHIFT, 1), pad(m, 17, 100), pad(m, 17, 0), button(m, MR_CC_SHIFT, 0);   /* Shift + track 2 scene
-                                                         * 2: scene 2 across the tracks (stopped: at once, the
-                                                         * transport starts) */
-    CHECK(m->seq.tr[1].active == 1 && m->seq.tr[0].active == 1 && m->seq.tr[2].active == -1 && m->seq.start_pending == 1);
+                                                         * 2: scene 2 across the tracks (stopped: at once, no
+                                                         * start) */
+    CHECK(m->seq.tr[1].active == 1 && m->seq.tr[0].active == 1 && m->seq.tr[2].active == -1 && !m->seq.start_pending);
     rfm_move_seq_play(m, 0);
     /* the owner's session: a column a track (Left / Right one track at a time), a row a clip slot (Up / Down) */
     press(m, MR_CC_RIGHT), press(m, MR_CC_DOWN);
@@ -643,7 +644,9 @@ static void test_record(void)
     int i, lo, hi;
     fresh(m);
     m->seq.rec_mode = RFM_MOVE_RM_RECORD;               /* (the record settings' Record: Move's own) */
-    press(m, MR_CC_REC);                                /* armed, a bar's count-in (Move), then the transport */
+    press(m, MR_CC_REC);                                /* armed: no start (only Play, the owner's) */
+    CHECK(m->seq.rec && !m->seq.start_pending && !m->seq.playing);
+    press(m, MR_CC_PLAY);                               /* Play, armed: a bar's count-in (Move), then the transport */
     CHECK(m->seq.rec && m->seq.start_pending == 3);
     adv(m, 16 * FPS);
     CHECK(!m->seq.playing && m->seq.start_pending == 3 && m->seq.count_in == 1);
@@ -708,7 +711,8 @@ static void test_record(void)
     CHECK(!m->seq.rec && !m->seq.start_pending);
     press(m, MR_CC_REC);
     pad(m, 17, 100), pad(m, 17, 0);                     /* track 2, scene 2: empty */
-    CHECK(m->seq.tr[1].queued == 1 && m->seq.tr[1].grow == 2);
+    CHECK(m->seq.tr[1].grow == 2 && !m->seq.start_pending);   /* (stopped: no start; Play) */
+    press(m, MR_CC_PLAY);
     adv(m, 16 * FPS + FPT);                             /* the count-in, then T 0: it starts */
     CHECK(m->seq.tr[1].active == 1 && m->seq.tr[1].grow == 1);
     press(m, MR_CC_MENU);                               /* track view, track 2 (selected by the press) */
@@ -736,7 +740,7 @@ static void test_record(void)
     pad(m, 8, 80), adv(m, FPS / 2), pad(m, 8, 0);       /* (pad 8 = F3) two steps after */
     press(m, MR_CC_CAPTURE);
     CHECK(m->seq.msg == SEQ_MSG_CAPTURED && m->seq.tr[0].active == 0 && m->seq.len[0] == 16);
-    CHECK(m->seq.start_pending == 1);                   /* (Move: the transport starts with it) */
+    CHECK(!m->seq.start_pending && !m->seq.playing);    /* (no start: only Play, the owner's) */
     CHECK(rfmv_seq_find(m, 0, 0, 60) >= 0 && rfmv_seq_find(m, 0, 2, 53) >= 0 && nnotes_clip(m, 0) == 2);
     CHECK(m->seq.notes[rfmv_seq_find(m, 0, 2, 53)].len == 12);
     press(m, MR_CC_CAPTURE);                            /* nothing new: nothing */
@@ -1437,7 +1441,7 @@ static void test_screens_leds(void)
     track(m, 3, 0);
     /* the count-in (Rec from stopped, Record mode): its beats at 4x */
     m->seq.rec_mode = RFM_MOVE_RM_RECORD;
-    press(m, MR_CC_REC);
+    press(m, MR_CC_REC), press(m, MR_CC_PLAY);
     rfm_move_screen(m, NULL, out);
     CHECK(m->seq.start_pending == 3 && px_at(out, 2, 2));
     gold("count", out, GOLD_COUNT);
@@ -2007,7 +2011,9 @@ static void test_audio_loop(void)
     CHECK(m->seq.arec == 1 && !m->seq.start_pending);
     adv(m, FPS);
     clear();
-    pad(m, 0, 100), pad(m, 0, 0);                       /* stopped: the first note starts the transport */
+    pad(m, 0, 100), pad(m, 0, 0);                       /* stopped: a note starts nothing (only Play, the owner's) */
+    CHECK(!m->seq.start_pending && !m->seq.playing);
+    press(m, MR_CC_PLAY);
     CHECK(m->seq.start_pending == 1);
     adv(m, 16 * FPS + 5 * FPS);
     CHECK(m->seq.arec == 2);
@@ -2453,6 +2459,61 @@ static void test_round4(void)
     answer_m = NULL, answer_sync = 0;
 }
 
+/* the owner's: only Play starts or stops the transport. Every other input, stopped, leaves it stopped (the one
+ * exception, Rec armed in Capture mode's first note, is not swept here) */
+static void stopped_chk(rfm_move_t *m, const char *what, int i, int *ok)
+{
+    if (m->seq.playing || m->seq.start_pending) {
+        CHECKF(0, "started by %s %d", what, i);
+        *ok = 0;
+        rfm_move_seq_play(m, 0);
+    }
+}
+static void test_only_play_starts(void)
+{
+    rfm_move_t *m = &M;
+    int i, k, v, ok = 1;
+#define STOPPED(what) stopped_chk(m, what, i, &ok)
+    for (v = 0; v < 2; v++) {                           /* track view, session view */
+        fresh(m);
+        m->seq.rec_mode = RFM_MOVE_RM_RECORD;
+        if (v)
+            press(m, MR_CC_MENU);
+        for (i = 0; i < 16; i++) {
+            tap_step(m, i), STOPPED("step tap");
+            tap_step(m, i), tap_step(m, i), STOPPED("step double tap");
+            step(m, i, 1), adv(m, FPS * 4), step(m, i, 0), STOPPED("step hold");
+        }
+        for (i = 0; i < RFM_MOVE_NPADS; i++) {
+            pad(m, i, 100), pad(m, i, 0), STOPPED("pad");
+            pad(m, i, 100), pad(m, i, 0), STOPPED("pad double tap");
+            pad(m, i, 90), adv(m, FPS * 4), pad(m, i, 0), STOPPED("pad hold");
+            button(m, MR_CC_SHIFT, 1), pad(m, i, 100), pad(m, i, 0), button(m, MR_CC_SHIFT, 0), STOPPED("Shift + pad");
+        }
+        for (i = 0; i < 16; i++) {                      /* the Shift shortcuts and their menus */
+            if (i == 0)
+                continue;                               /* (projects: their own test) */
+            button(m, MR_CC_SHIFT, 1), tap_step(m, i), button(m, MR_CC_SHIFT, 0), STOPPED("Shift + step");
+            jog(m, 1), STOPPED("menu jog");
+            for (k = 0; k < 8; k++)
+                knob(m, k, 3);
+            STOPPED("menu knobs");
+            pad(m, 3, 100), pad(m, 3, 0), STOPPED("menu pad");
+            press(m, MR_CC_BACK), STOPPED("Back");
+        }
+        press(m, MR_CC_CAPTURE), STOPPED("Capture");
+        press(m, MR_CC_SAMPLE), pad(m, 0, 100), pad(m, 0, 0), press(m, MR_CC_SAMPLE), STOPPED("Sample");
+        press(m, MR_CC_REC), pad(m, 2, 100), pad(m, 2, 0), STOPPED("Rec armed (Record)");
+        press(m, MR_CC_REC);
+        i = 0;
+        for (k = 0; k < 4; k++)
+            track(m, 3, 1), tap_step(m, k), track(m, 3, 0), STOPPED("Track 4 + step");
+        rfm_move_seq_play(m, 0);
+    }
+    CHECK(ok);
+#undef STOPPED
+}
+
 int main(void)
 {
     test_model();
@@ -2461,6 +2522,7 @@ int main(void)
     test_launch();
     test_note_offs();
     test_record();
+    test_only_play_starts();
     test_edits();
     test_scale_root();
     test_blob();

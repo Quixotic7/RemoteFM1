@@ -157,7 +157,10 @@ its 8 columns through the 16 tracks.
   length (2 ticks a detent; Shift: whole steps); Left / Right nudge (Shift: 1 tick); Up / Down transpose (Shift: an
   octave); the knobs set CC locks or (TRIG page) its trig parameters; a later step pressed stretches the notes to it.
 - **Any page can be edited**, in the loop or not (outside it: dimmer LEDs, the screen's steps row a line).
-- **The first note into an empty clip starts the transport** when it is stopped (the Move does the same).
+- **Only Play starts or stops the transport** (the owner's; the Move starts it with the first note into an empty clip,
+  this does not). Steps, held steps (their notes heard), pads, double taps, menus, Capture, Sample, Rec and project
+  loads leave it as it was. The one exception: Rec armed in CAPTURE mode, whose first note starts playback and the
+  recording (the owner's earlier request). A project loaded while playing keeps playing (from its first bar).
 - **Step LEDs** (Move's): notes white, an empty step the track's colour dimly (all the same: the Move's LED shapes
   mark the beats), the playhead green, a held step the track's colour, steps outside the loop dim; a copied step
   blinking white, a cut one red; Step record's cursor red.
@@ -196,10 +199,10 @@ double and the blob carry them. The engine walks each track with a playhead (`po
 chosen half way through a step (functions, conditions and chance decided then), so early notes of the next step
 sound in time.
 
-**Clips (session view)**: a press on a clip launches it at the next bar (queued, blinking; stopped: at once, and the
-transport starts); on the playing clip it stays. **A double tap** (300 ms) launches it now, not at the bar: in phase
+**Clips (session view)**: a press on a clip launches it at the next bar (queued, blinking; stopped: at once, playing
+with Play); on the playing clip it stays. **A double tap** (300 ms) launches it now, not at the bar: in phase
 with the bar the song is in (the Move's manual has no double press, so in phase rather than from the clip's start;
-stopped: at once, the transport starts). **A press on an empty slot makes a new empty clip there** (drawn as a clip),
+stopped: at once, playing with Play). **A press on an empty slot makes a new empty clip there** (drawn as a clip),
 selects it and launches it (with Rec armed: records into it, growing a bar at a time). **Shift + a clip** launches its
 whole row, that scene across the 16 tracks; **Shift + Play** stops every clip (at the bar). Cut, copy and paste as
 below.
@@ -220,7 +223,7 @@ the session grid and the LEDs). One clipboard for both:
 | Mode | Record |
 |---|---|
 | CAPTURE (default) | stopped: the owner's intentional capture. Record arms it (blinking); the first note played clears the selected clip, starts the transport and is its first step; the take records with micro timing; Record again ends it at the nearest bar line (just past one: there, at once; else the next), the clip as many pages as bars. Playing: Record records into the existing pages (as RECORD) |
-| RECORD | Move's: armed while stopped, a bar's count-in, then the transport; records into the selected track's clip |
+| RECORD | Move's: armed while stopped (no start); Play then gives a bar's count-in, then the transport; records into the selected track's clip |
 | STEP | Record toggles a cursor (a red step, a bar over it on screen): each note or chord played goes into the cursor's step, then the cursor moves a step on (the track's rate), round the loop |
 
 | Style | |
@@ -238,7 +241,7 @@ bars. In an empty project (no clips) and stopped, the phrase's own tempo is foun
 whole bars, 70..180 BPM) and set. Playing: aligned to the song's bars. Shift + Capture: the capture forgotten.
 
 **Sample** (the audio loop): a press arms it (blinking); it records the firmware's audio from the next bar line
-(stopped: the first note played starts the transport, the loop from its first bar); a press while recording ends it
+(stopped: from the first bar once Play starts the transport); a press while recording ends it
 at the next bar line, so the take is exactly N bars (`RFM_MOVE_ACT_AUDIO_REC`, frame-stamped; the web player's
 worklet cuts at those frames). The take goes to the recorder's Takes, named with its tempo and bars. A waveform in
 the screen's corner while it records. (Tap tempo: Shift + step 5.)
@@ -336,7 +339,7 @@ The sequencer's (the design gives labels only):
   the position's next bar; Play on the Move starts at the external clock's next bar (counted from its last Start or
   Song Position, else from the first clock seen). Play on the Move never sends transport to the firmware.
 - **Every clip plays from the song's bar it launched on**; launches and stops are quantized to the next bar; while
-  stopped a clip press changes the track's clip at once (and starts the transport). Each track has one playing clip (`active`, default scene 1
+  stopped a clip press changes the track's clip at once (playing with Play). Each track has one playing clip (`active`, default scene 1
   for all, so Play plays scene 1) and one edited (`sel`, follows launches). Programming a track with no playing clip
   starts its edited clip.
 - **Recording** quantizes to the nearest step and keeps the offset (micro), so Shift + Capture (or Shift + step 3)
@@ -344,7 +347,7 @@ The sequencer's (the design gives labels only):
   Rec on) is one undo. Recording into a track with no playing clip starts its edited clip at the current bar.
 - **The last notes** (step entry's memory) are not saved with the project; a new chord starts when a pad is
   pressed with no other pad held (pads pressed while a step is held edit the step instead).
-- **The count-in** is a bar of the internal clock's ticks from the Rec press (T 0 exactly a bar later); following an
+- **The count-in** is a bar of the internal clock's ticks from the Play press (Rec armed) (T 0 exactly a bar later); following an
   external clock there is none (the start waits for its next bar, as Play does).
 - **Capture** keeps the last 256 pad events (track view). Stopped: the first note lands on step 1; playing: the
   clip starts on the bar of the first note and plays on in phase. 1..8 bars; into the edited clip if empty, else
@@ -467,7 +470,7 @@ the clock alone (a popup up, playing), so the host draws it again then.
 | mute | Mute held | the 16 tracks, muted crossed out |
 | project | a project pad held in the grid (also once that project is open: the grid closes on the load) | its number at 4x, a bar a track (its notes; 16 thinner bars when tracks 9..16 have notes), ▶ the tempo, the clip symbol and the clips |
 | message | an action's result (UNDO, CLOCK AUTO, FULL VEL, CLICK ON ..; not copy / cut / paste), 1 s | the words at 2x, a line or two |
-| count-in | Rec from stopped | the beats to go at 4x, a recording dot |
+| count-in | Play with Rec armed (Record mode), from stopped | the beats to go at 4x, a recording dot |
 
 The newer of a control's popup and a message shows; the count-in shows under both. The core knows the current
 project's content; for the others the host passes each stored blob once (`rfm_move_project_info`: at start and after
