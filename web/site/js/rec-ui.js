@@ -14,6 +14,8 @@
 //     nameParts()      { id, version } of the running firmware, for the file name
 //     settings()       { bits: 24 | 16, countIn: bool }
 //   rec.toggle(); rec.onRec(m) (the Player's rec event); rec.beforeLoad() (its beforeLoad event)
+//   rec.loopStart(frame); rec.loopStop(frame, bars, bpm10)   the Move's Sample loop: a take from one audio frame to another
+//     (the sequencer's bar lines: whole bars, sample-exact), named with its tempo and bars, in Takes
 import { TakeWriter, chunkFrames, MAX_TAKE_S, WARN_TAKE_S, takeFileName, clock, sizeText } from "./recorder.js";
 
 const $ = (id) => document.getElementById(id);
@@ -101,13 +103,14 @@ export class RecUI {
     } else this.begin();
   }
   cancelCount() { clearInterval(this.countTimer); this.countTimer = 0; this.phase = "idle"; this.render(); this.say("Recording cancelled"); this.idle(); }
-  begin() {
+  begin(startAt) {
     const p = this.o.getPlayer(), sr = p.sampleRate, s = this.o.settings(), np = this.o.nameParts();
     const id = ++this.seq;
     this.cur = { id, writer: new TakeWriter({ sampleRate: sr, bits: s.bits === 16 ? 16 : 24 }), why: null, frames: 0, warned: false,
-                 name: takeFileName(np.id, np.version).replace(/\.wav$/, ""), startFrame: -1, endFrame: -1, ctxStart: p.ctx.currentTime };
+                 name: takeFileName(np.id, np.version).replace(/\.wav$/, ""), startFrame: -1, endFrame: -1, ctxStart: p.ctx.currentTime,
+                 loop: typeof startAt === "number" };
     this.meter = [0, 0];
-    p.recStart({ id, chunkFrames: chunkFrames(sr), maxFrames: Math.round(MAX_TAKE_S * sr) });
+    p.recStart({ id, chunkFrames: chunkFrames(sr), maxFrames: Math.round(MAX_TAKE_S * sr), ...(typeof startAt === "number" ? { startAt } : {}) });
     this.phase = "rec";
     this.render();
     this.say("Recording");
@@ -125,6 +128,29 @@ export class RecUI {
     clearTimeout(this.stopTimer);   // (a worklet that never answers: the take ends with what came)
     this.stopTimer = setTimeout(() => { if (this.cur && this.cur.id === id) this.finish("lost"); }, 2500);
   }
+  // the Move's Sample loop: from a frame (null: now) ..
+  loopStart(frame) {
+    const p = this.o.getPlayer();
+    if (!p || !p.sampleRate || this.phase !== "idle") { this.o.toast("The Move's loop could not start: the recorder is busy or the sound is off.", "bad"); return false; }
+    this.begin(typeof frame === "number" ? frame : Math.round(p.ctx.currentTime * p.sampleRate));
+    return true;
+  }
+  // .. to a frame: exactly there (the worklet ends it), named "<take>-<bpm>bpm-<bars>bars"
+  loopStop(frame, bars, bpm10) {
+    const p = this.o.getPlayer(), cur = this.cur;
+    if (!p || !cur || !cur.loop || this.phase !== "rec") return;
+    const bpm = bpm10 % 10 ? (bpm10 / 10).toFixed(1) : String(bpm10 / 10);
+    cur.name += `-${bpm}bpm-${bars}${bars === 1 ? "bar" : "bars"}`;
+    cur.why = "stop";
+    cur.ctxStop = p.ctx.currentTime;
+    this.phase = "stopping";
+    const at = typeof frame === "number" ? frame : Math.round(p.ctx.currentTime * p.sampleRate);
+    p.recStopAt(at);
+    this.render();
+    const id = cur.id, waitMs = Math.max(0, ((at - p.ctx.currentTime * p.sampleRate) / p.sampleRate) * 1000) + 2500;
+    clearTimeout(this.stopTimer);
+    this.stopTimer = setTimeout(() => { if (this.cur && this.cur.id === id) this.finish("lost"); }, waitMs);
+  }
   beforeLoad() { if (this.phase === "rec") this.stop("switch"); else if (this.phase === "count") this.cancelCount(); }
 
   onRec(m) {
@@ -141,6 +167,7 @@ export class RecUI {
     }
     if (m.type === "recLevel" && cur && m.id === cur.id && this.phase === "rec") {
       cur.frames = m.frames;
+      if (cur.loop && m.wins && m.wins.length && this.o.loopLevels) this.o.loopLevels(m.wins);   // (the Move's waveform)
       // the meter: the peak, falling back at about 24 dB a second
       for (let c = 0; c < 2; c++) this.meter[c] = Math.max(m.peak[c], this.meter[c] * 0.82);
       if (!cur.warned && cur.frames >= WARN_TAKE_S * cur.writer.sampleRate) {

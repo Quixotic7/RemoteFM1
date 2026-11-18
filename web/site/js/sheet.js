@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // The settings sheet: FM1VST plugin/Sheet.cpp's Graphite sheet, as DOM. It slides in from the right over a dimmed
 // scrim (180 ms, eased); a click on the scrim or Esc closes it. Pages:
-//   main      FIRMWARE, SAVES, USE MY FM-1, USE MY OMX-27, PLAYING (volume, sound output, MIDI), RECORDING, LOOK, VIEW, ENGINE, ABOUT
+//   main      FIRMWARE, SAVES, USE MY FM-1, USE MY OMX-27, USE MY ABLETON MOVE, PLAYING (volume, sound output, MIDI), RECORDING, LOOK, VIEW, ENGINE, ABOUT
 //   firmware  the browser: a search field, category chips, a card per firmware (the loaded one outlined); Your firmware
 //             (the visitor's .rfm1 files, kept in this browser: js/library.js) above them
 //   about     the loaded firmware (author, licence, its source at the version that runs), the engine, the credits
@@ -78,6 +78,7 @@ export class Sheet {
     document.body.append(this.scrim, this.el);
     this.remoteSlot = h("div", { class: "remote-slot" });
     this.omxSlot = h("div", { class: "remote-slot omx-slot" });   // (js/omx-link.js mountOmx fills it)
+    this.moveSlot = h("div", { class: "remote-slot move-slot" }); // (js/move-link.js mountMove fills it)
   }
   get isOpen() { return this.el.classList.contains("open"); }
   open(page = "main") {
@@ -146,6 +147,8 @@ export class Sheet {
 
     // USE MY OMX-27 (js/omx-link.js)
     if (this.omxSlot.childNodes.length) { out.push(heading("Use my OMX-27")); out.push(this.omxSlot); }
+    // USE MY ABLETON MOVE (js/move-link.js)
+    if (this.moveSlot.childNodes.length) { out.push(heading("Use my Ableton Move")); out.push(this.moveSlot); }
 
     // PLAYING
     out.push(heading("Playing"));

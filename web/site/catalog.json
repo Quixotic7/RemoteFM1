@@ -25,6 +25,7 @@
    }
   },
   "remote": "../remote/remote.js",
+  "move": "../build/move/rfm_move.mjs",
   "installer": "../installer/",
   "managers": "../build/managers/"
  },

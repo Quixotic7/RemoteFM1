@@ -17,6 +17,16 @@
 // The tap (Bluetooth audio, web/remote README "Bluetooth audio"): {type: "tap", on, n}: while on, the engine's sound
 // as rendered (before the page's volume), mono ((L + R) / 2), goes to the page in chunks of n frames (1024: ~21 ms)
 // as {type: "tap", pcm}, the buffer transferred; the page sends it back ({type: "tapBuf", pcm}) for a later chunk.
+//
+// Timed MIDI (the Ableton Move's sequencer, js/move-seq.js): {type: "midi", bytes, at} with `at` an absolute context
+// frame (currentFrame's count) waits in a queue (TimedMidi) and goes to the engine's midiIn before the render of the
+// quantum nearest to it (|error| <= half a quantum; a late one at once); no `at`: at once, as before. {cancel: true}
+// on an untimed message: each note off in it drops the queued note ons of the same channel and note (a sequencer note
+// ended early must not start again). {type: "midiCut"}: the queue's note offs at once, everything else in it dropped
+// (the sequencer stopped). {type: "midiLog", on}: the delivered timed note ons logged ([at, frame] pairs), and
+// {type: "midiLogTake"} posts {type: "midiLog", log, late, cut} (tests: web/site/tools/move-e2e.mjs measures with it).
+// "midiOut" carries `frame`: the currentFrame of the quantum whose render made the bytes (the Move's sequencer
+// follows the firmware's MIDI clock by it).
 
 const ENGINES = (globalThis.FM1_ENGINES = globalThis.FM1_ENGINES || {});
 export const registerEngine = (name, mod) => { ENGINES[name] = mod; };
@@ -61,6 +71,62 @@ export class LabelWatch {
   }
 }
 
+// the timed MIDI queue (above): entries kept in order of `at` (equal ones in arrival order)
+// a loop take's window peaks (the Move's Sampling waveform): over frames off..n of a quantum, the louder channel's peak
+// in each window of r.win frames, 0..255 (full scale 255), into r.wins (up to its length until the next publish)
+export function winPeaks(r, L, R, off, n) {
+  let wp = r.wp, wf = r.wf;
+  for (let i = off; i < n; i++) {
+    const a = L[i] < 0 ? -L[i] : L[i], b = R[i] < 0 ? -R[i] : R[i], v = a > b ? a : b;
+    if (v > wp) wp = v;
+    if (++wf === r.win) {
+      if (r.wn < r.wins.length) r.wins[r.wn++] = Math.round((wp > 1 ? 1 : wp) * 255);
+      wp = 0; wf = 0;
+    }
+  }
+  r.wp = wp; r.wf = wf;
+}
+export const TIMED_MAX = 8192;
+const isOff = (b, i) => (b[i] & 0xf0) === 0x80 || ((b[i] & 0xf0) === 0x90 && b[i + 2] === 0);
+export class TimedMidi {
+  constructor() { this.q = []; this.log = null; this.late = 0; this.cuts = 0; }
+  add(bytes, at, now) {
+    if (this.q.length >= TIMED_MAX) this.q.shift();
+    const q = this.q;
+    let i = q.length;
+    while (i > 0 && q[i - 1].at > at) i--;
+    q.splice(i, 0, { at, bytes });
+    if (at < now) this.late++;
+  }
+  // the entries due in the quantum [frame, frame + n): those nearer to it than to the next -> deliver(bytes, at)
+  due(frame, n, deliver) {
+    const q = this.q, edge = frame + n / 2;
+    let k = 0;
+    while (k < q.length && q[k].at < edge) {
+      const e = q[k++];
+      if (this.log && (e.bytes[0] & 0xf0) === 0x90 && e.bytes[2] > 0 && this.log.length < 20000) this.log.push(e.at, frame);
+      deliver(e.bytes, e.at);
+    }
+    if (k) q.splice(0, k);
+  }
+  // an untimed note off: the queued note ons of that channel and note go
+  cancel(bytes) {
+    for (let i = 0; i + 2 < bytes.length; i++) {
+      if (!isOff(bytes, i)) continue;
+      const ch = bytes[i] & 15, note = bytes[i + 1];
+      this.q = this.q.filter((e) => !((e.bytes[0] & 0xf0) === 0x90 && e.bytes[2] > 0 && (e.bytes[0] & 15) === ch && e.bytes[1] === note));
+    }
+  }
+  // the sequencer stopped: its queued note offs now, the rest dropped
+  cut(deliver) {
+    const offs = this.q.filter((e) => isOff(e.bytes, 0));
+    this.q = [];
+    this.cuts++;
+    for (const e of offs) deliver(e.bytes, e.at);
+  }
+  clear() { this.q = []; }
+}
+
 // the wall clock in ms (an AudioWorkletGlobalScope may have no performance object)
 const clock = () => (globalThis.performance && typeof globalThis.performance.now === "function" ? globalThis.performance.now() : Date.now());
 if (typeof AudioWorkletProcessor !== "undefined") {
@@ -73,6 +139,7 @@ if (typeof AudioWorkletProcessor !== "undefined") {
       this.rec = null; this.recFree = [];   // the recorder's take, and its spare chunk buffers (see recStart)
       this.ain = { on: false, latency: 0, peak: 0 };   // live audio input (above)
       this.tap = null; this.tapFree = [];   // the tap (above): { n, at, pcm }
+      this.timed = new TimedMidi();          // timed MIDI (above)
       this.port.onmessage = (e) => this.onMessage(e.data);
     }
     post(m, transfer) { try { this.port.postMessage(m, transfer || []); } catch (_) { /* (the page went away) */ } }
@@ -102,9 +169,10 @@ if (typeof AudioWorkletProcessor !== "undefined") {
     onMessage(m) {
       if (!m || !m.type) return;
       if (m.type === "load") return this.load(m);
-      if (m.type === "unload") { this.loading++; this.recStop("engine"); this.drop(); return; }
+      if (m.type === "unload") { this.loading++; this.recStop("engine"); this.drop(); this.timed.clear(); return; }
       if (m.type === "panel") return this.panel.add(m);
       if (m.type === "rec") return m.on ? this.recStart(m) : this.recStop("stop");
+      if (m.type === "recStopAt") { if (this.rec) this.rec.stopAt = Math.max(0, +m.frame || 0); return; }
       if (m.type === "ain") {
         this.ain.on = !!m.on; this.ain.latency = +m.latency || 0; this.ain.peak = 0;
         if (this.engine && typeof this.engine.audioIn === "function") { try { this.engine.audioIn(this.ain.on, this.ain.latency); } catch (e) { this.fail("ain", e); } }
@@ -117,6 +185,14 @@ if (typeof AudioWorkletProcessor !== "undefined") {
         return;
       }
       if (m.type === "tapBuf") { if (m.pcm && this.tapFree.length < 4) this.tapFree.push(m.pcm); return; }
+      if (m.type === "midi" && typeof m.at === "number" && m.at > currentFrame) {
+        this.timed.add(m.bytes instanceof Uint8Array ? m.bytes : Uint8Array.from(m.bytes), m.at, currentFrame);
+        return;
+      }
+      if (m.type === "midi" && m.cancel) this.timed.cancel(m.bytes);
+      if (m.type === "midiCut") { this.timed.cut((b) => this.midiTo(b)); return; }
+      if (m.type === "midiLog") { this.timed.log = m.on ? [] : null; this.timed.late = 0; return; }
+      if (m.type === "midiLogTake") { const t = this.timed; this.post({ type: "midiLog", log: t.log ? t.log.slice() : [], late: t.late, cut: t.cuts }); return; }
       if (m.type === "recBuf") { if (this.rec && m.l && m.l.length === this.rec.n) this.recFree.push([m.l, m.r]); return; }
       if (!this.engine) return;
       try {
@@ -129,12 +205,14 @@ if (typeof AudioWorkletProcessor !== "undefined") {
         }
       } catch (e) { this.fail(m.type, e); }
     }
+    midiTo(bytes) { if (this.engine) { try { this.engine.midiIn(bytes); } catch (e) { this.fail("midi", e); } } }
     process(inputs, outputs) {
       const out = outputs[0], L = out[0], R = out[1] || out[0];
       const eng = this.engine;
       if (!eng) { if (L) L.fill(0); if (R) R.fill(0); return true; }
       try {
         if (this.panel.dirty) eng.setPanel(this.panel.take());
+        if (this.timed.q.length) this.timed.due(currentFrame, L.length, (b) => eng.midiIn(b));
         if (this.ain.on && eng.audioInput) this.input(eng, inputs[0]);
         const t0 = clock();
         eng.render(L, R);
@@ -144,7 +222,7 @@ if (typeof AudioWorkletProcessor !== "undefined") {
         // the firmware's MIDI out every quantum, posted at once: a manager's reply (SysEx) waits ~3 ms, not a screen
         // frame, and the core's own out queue never has to hold more than a quantum's worth
         const mo = eng.midiOut();
-        if (mo && mo.length) this.post({ type: "midiOut", bytes: Uint8Array.from(mo) });
+        if (mo && mo.length) this.post({ type: "midiOut", bytes: Uint8Array.from(mo), frame: currentFrame });
         this.since += L.length / sampleRate;
         if (this.since >= FRAME_EVERY_S) { this.since = 0; this.publish(eng); }
       } catch (e) {
@@ -175,7 +253,11 @@ if (typeof AudioWorkletProcessor !== "undefined") {
       this.recFree = this.recFree.filter((p) => p[0].length === n);
       while (this.recFree.length < 2) this.recFree.push([new Float32Array(n), new Float32Array(n)]);
       const [l, r] = this.recFree.pop();
-      this.rec = { id: m.id, n, max: m.maxFrames > 0 ? m.maxFrames : Infinity, frames: 0, at: 0, l, r, start: -1, pl: 0, pr: 0 };
+      this.rec = { id: m.id, n, max: m.maxFrames > 0 ? m.maxFrames : Infinity, frames: 0, at: 0, l, r, start: -1, pl: 0, pr: 0,
+                   startAt: typeof m.startAt === "number" ? m.startAt : -1, stopAt: -1,
+                   // a loop take (the Move's Sample): its peak over each ~16 ms window, 0..255, posted with recLevel
+                   win: typeof m.startAt === "number" ? Math.max(1, Math.round(sampleRate * 0.016)) : 0, wp: 0, wf: 0,
+                   wins: new Uint8Array(64), wn: 0 };
     }
     recChunk(final, reason) {
       const r = this.rec;
@@ -198,12 +280,17 @@ if (typeof AudioWorkletProcessor !== "undefined") {
         }
       }
     }
+    // startAt / stopAt (the Move's loops): the take from / to those frames exactly, wherever they fall in a quantum
     capture(L, R) {
-      const r = this.rec, n = L.length;
-      if (r.start < 0) r.start = currentFrame;
-      let off = 0, pl = r.pl, pr = r.pr;
-      for (let i = 0; i < n; i++) { const a = L[i] < 0 ? -L[i] : L[i], b = R[i] < 0 ? -R[i] : R[i]; if (a > pl) pl = a; if (b > pr) pr = b; }
+      const r = this.rec, f0 = currentFrame;
+      let off = 0, n = L.length;
+      if (r.startAt > f0) { if (r.startAt >= f0 + n) return; off = r.startAt - f0; }
+      if (r.stopAt >= 0) { n = Math.min(n, r.stopAt - f0); if (n <= off) return this.recStop("loop"); }
+      if (r.start < 0) r.start = f0 + off;
+      let pl = r.pl, pr = r.pr;
+      for (let i = off; i < n; i++) { const a = L[i] < 0 ? -L[i] : L[i], b = R[i] < 0 ? -R[i] : R[i]; if (a > pl) pl = a; if (b > pr) pr = b; }
       r.pl = pl; r.pr = pr;
+      if (r.win) winPeaks(r, L, R, off, n);
       while (off < n) {
         const k = Math.min(n - off, r.n - r.at, r.max - r.frames);
         if (k === n) { r.l.set(L, r.at); r.r.set(R, r.at); }
@@ -212,6 +299,7 @@ if (typeof AudioWorkletProcessor !== "undefined") {
         if (r.frames >= r.max) return this.recStop("cap");
         if (r.at === r.n) this.recChunk(false);
       }
+      if (r.stopAt >= 0 && f0 + L.length >= r.stopAt) this.recStop("loop");
     }
     // the share of the audio time spent rendering, and how far the wall clock ran ahead of the audio clock (late
     // quanta: dropouts). A window whose wall time is over twice its audio time is a pause (a sleeping machine), not load.
@@ -237,7 +325,10 @@ if (typeof AudioWorkletProcessor !== "undefined") {
     }
     publish(eng) {
       const rc = this.rec;
-      if (rc && rc.start >= 0) { this.post({ type: "recLevel", id: rc.id, peak: [rc.pl, rc.pr], frames: rc.frames }); rc.pl = 0; rc.pr = 0; }
+      if (rc && rc.start >= 0) {
+        this.post({ type: "recLevel", id: rc.id, peak: [rc.pl, rc.pr], frames: rc.frames, ...(rc.win ? { wins: Array.from(rc.wins.subarray(0, rc.wn)) } : {}) });
+        rc.pl = 0; rc.pr = 0; rc.wn = 0;
+      }
       if (this.ain.on && typeof eng.audioInStats === "function") {
         const st = eng.audioInStats();
         this.post({ type: "ainLevel", peak: this.ain.peak, latency: st.latency, missing: st.missing });

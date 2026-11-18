@@ -28,6 +28,8 @@ export function enginePaths(catalog) {
     add(emu.wasm, "the emulator (every .fwsc firmware)");
   if (catalog.paths && catalog.paths.remote)            /* (remote.js is a source; its module is built: web/remote/build.sh) */
     add("build/remote/remotefm1.mjs", "Use my FM-1 (libremotefm1 in WebAssembly)");
+  if (catalog.paths && catalog.paths.move)              /* (web/move/build.sh) */
+    add(catalog.paths.move, "Use my Ableton Move (rfm_move in WebAssembly)");
   return out;
 }
 
@@ -57,7 +59,7 @@ async function main(argv) {
   console.log(`engines: ${miss.length} of ${all.length} missing in ${where}: the page plays its mock engine ("TEST SCREEN") instead`);
   for (const m of miss.slice(0, 12)) console.log(`  ${m.path}  (${m.why})`);
   if (miss.length > 12) console.log(`  ... and ${miss.length - 12} more`);
-  console.log("build them: web/engines/native/build.sh (FM1VST_DIR=web/vendor/FM1VST), web/engines/emu/build.sh, web/remote/build.sh");
+  console.log("build them: web/engines/native/build.sh (FM1VST_DIR=web/vendor/FM1VST), web/engines/emu/build.sh, web/remote/build.sh, web/move/build.sh");
   return 1;
 }
 

@@ -457,6 +457,24 @@ body.learning #device { cursor: crosshair; }
 .search input { flex: 1; min-width: 0; background: none; border: 0; outline: none; color: var(--text); font: 500 15px var(--ui); }
 .search input::placeholder { color: var(--muted); }
 .search:focus-within { border-color: var(--accent); }
+/* USE MY ABLETON MOVE (js/move-link.js): the address field and the USB-C shortcut */
+.move-row { display: flex; gap: 8px; align-items: center; }
+.move-addr {
+  flex: 1; min-width: 0; height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface);
+  color: var(--text); font: 500 14px var(--ui); outline: none;
+}
+.move-addr:focus { border-color: var(--accent); }
+.move-addr:disabled { opacity: .6; }
+.move-row .pill { flex: none; }
+.move-clock { margin: 6px 0 0; }
+.move-projects { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.move-proj { display: flex; align-items: center; gap: 8px; padding: 4px 10px; border-radius: 10px; background: var(--surface); }
+.move-proj.current { outline: 1px solid var(--accent); }
+.move-proj-name { font-weight: 600; flex: none; }
+.move-proj-meta { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.move-proj .pill { flex: none; height: 28px; padding: 0 10px; }
+.move-import { flex-wrap: wrap; }
+.move-into { flex: 1; min-width: 160px; height: 36px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text); padding: 0 10px; font: 500 13px var(--ui); }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 10px; }
 .chip { height: 30px; padding: 0 12px; border: 0; border-radius: 999px; background: var(--surface); color: var(--knob-off); font-weight: 600; font-size: 12.5px; cursor: pointer; }
 .chip:hover:not(.on) { background: var(--raised-hover); color: var(--text); }

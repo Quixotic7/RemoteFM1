@@ -49,6 +49,7 @@ const PATHS = {
       mock: { module: "mock/engine.js" },
     },
     remote: "../remote/remote.js",
+    move: "../build/move/rfm_move.mjs",                       // (Use my Ableton Move: web/move/build.sh)
     installer: "../installer/",
     managers: "../build/managers/",
   },
@@ -60,6 +61,7 @@ const PATHS = {
       mock: { module: "mock/engine.js" },
     },
     remote: "remote/remote.js",
+    move: "build/move/rfm_move.mjs",
     installer: "installer/",
     managers: "managers/",
   },

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // The site's logic in Node: the catalog, following the Hub's releases (live merge, versions, newest wins, saves
 // carried to a new version), the emulated CPU clock, the browser's engine filter, the panel's orders (label / role -> matrix), the worklet host's panel merge
-// (taps), the computer-key map, the mock engine against web/engine/API.md, and the OMX-27's REMOTE mode.
+// (taps), the computer-key map, the mock engine against web/engine/API.md, the OMX-27's REMOTE mode and the Ableton Move.
 //   node web/site/test.mjs
 import { readFileSync, existsSync, unlinkSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -1657,6 +1657,514 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   ok(dv.L.film === null && dv.anchor("film") === null, "protector: a phone upright has no film");
   dv.setFilm(false); dv.layout(1280, 748, 1);
   ok(dv.anchor("film") === null && (dv.hit(dv.L.film.tab.x + 5, dv.L.film.tab.y + 5) || {}).kind !== "film", "protector: peeled, the tab takes nothing");
+}
+
+// ---- the Ableton Move (js/move-link.js, js/move-core.js): Move Remote's framing, rfm_move in WebAssembly (web/move/
+// build.sh; the same answers as host/tests/test_move.c on a few spot checks), MoveLink against a fake transport
+{
+  const L = await import("./js/move-link.js"), MC = await import("./js/move-core.js");
+  // framing: u16 len | u8 type | payload, any chunking
+  const big = L.frame(L.MR.H_DISPLAY, new Uint8Array(1024).fill(7));
+  ok(big.length === 1027 && big[0] === 0x01 && big[1] === 0x04 && big[2] === 0x84, "move: a DISPLAY is 1027 bytes, len 1025 little-endian, type 0x84");
+  {
+    const d = new L.Deframer(), two = new Uint8Array([...L.frame(4, new Uint8Array(32)), ...L.frame(5, new Uint8Array([1, 2]))]);
+    const a = d.push(two.subarray(0, 1)), b = d.push(two.subarray(1, 20)), c = d.push(two.subarray(20));
+    ok(a.length === 0 && b.length === 0 && c.length === 2 && c[0].type === 4 && c[0].payload.length === 32 && c[1].type === 5 && c[1].payload.join() === "1,2",
+       "move: the deframer takes messages split anywhere and two in one chunk");
+    ok(new L.Deframer().push(new Uint8Array([0, 0, 1])) === null, "move: a zero length is a protocol error");
+  }
+  const hello = L.helloMsg("RemoteFM1 web");
+  ok(hello.length === 37 && hello[0] === 35 && hello[2] === 0x81 && hello[3] === 1 && hello[4] === 0 && new TextDecoder().decode(hello.subarray(5, 18)) === "RemoteFM1 web",
+     "move: HELLO is proto 1 and a 32-byte name");
+  const devHello = (name = "Move sim", proto = 1, via = 2) => {
+    const p = new Uint8Array(46); p.set([77, 79, 86, 82], 0);
+    const dv = new DataView(p.buffer); dv.setUint16(4, proto, true); dv.setUint16(6, 0x8004, true); dv.setUint32(8, 44100, true); dv.setUint16(12, 128, true);
+    p[14] = 128; p[15] = 64; p[16] = via; p.set(new TextEncoder().encode(name), 22);
+    return L.frame(L.MR.D_HELLO, p);
+  };
+  {
+    const hl = L.parseHello(devHello().subarray(3));
+    ok(hl && hl.proto === 1 && hl.caps === 0x8004 && hl.rate === 44100 && hl.w === 128 && hl.h === 64 && hl.via === 2 && hl.name === "Move sim" && L.parseHello(new Uint8Array(46)) === null,
+       "move: the Move's HELLO parses (MOVR, proto, caps, rate, screen, via, name)");
+    const lm = L.ledMsgs([{ rgb: 1, cc: 0, number: 68, r: 1, g: 2, b: 3 }, { rgb: 0, cc: 1, number: 49, r: 200 }]);
+    ok(lm.length === 2 && lm[0][2] === 0x83 && Array.from(lm[0].subarray(3)).join() === "0,68,1,2,3" && lm[1][2] === 0x82 && Array.from(lm[1].subarray(3)).join() === "176,49,72",
+       "move: LED writes: RGB ones in one LED_RGB, palette ones in one LED (0xB0 for a CC)");
+    ok(L.normalizeUrl("") === L.DEFAULT_URL && L.normalizeUrl("move.local") === L.DEFAULT_URL && L.normalizeUrl("172.16.254.1") === "ws://172.16.254.1:7720/ws"
+       && L.normalizeUrl("127.0.0.1:9000") === "ws://127.0.0.1:9000/ws" && L.normalizeUrl("http://move.local/") === L.DEFAULT_URL,
+       "move: addresses: a host, host:port or http URL becomes ws://host:7720/ws");
+    ok(L.mixedContentBlocked("ws://move.local:7720/ws", "https:") && L.mixedContentBlocked("ws://172.16.254.1:7720/ws", "https:")
+       && !L.mixedContentBlocked("ws://127.0.0.1:7720/ws", "https:") && !L.mixedContentBlocked("ws://localhost:7720/ws", "https:")
+       && !L.mixedContentBlocked("ws://move.local:7720/ws", "http:") && !L.mixedContentBlocked("wss://move.local/ws", "https:"),
+       "move: the mixed-content guard: ws:// from https blocked, except to this computer");
+  }
+
+  const wasm = fileURLToPath(new URL("../build/move/rfm_move.mjs", import.meta.url));
+  if (!existsSync(wasm)) console.log("move: web/build/move/rfm_move.mjs not built (web/move/build.sh): the core and MoveLink checks skipped");
+  else {
+    const load = (s) => MC.MoveCore.load(s, new URL("../build/move/rfm_move.mjs", import.meta.url).href);
+    const P = MC.packet, pad = (p, v) => P(v ? 0x90 : 0x80, 68 + p, v), cc = (n, v) => P(0xB0, n, v);
+    const core = await load();
+    // host/tests/test_move.c's answers
+    ok(core.padKey(16) === 0 && core.padKey(7) === 26 && core.padKey(8) === 13 && core.padKey(15) === 25 && core.padKey(24) === -1 && core.padKey(25) === 1,
+       "move core: pads -> keys as test_move.c (row 2 col 1 F3 = 0, bottom-right G5 = 26, row 3 F# 13 / 25, row 1 col 1 off)");
+    ok(core.stepKey(0) === 0 && core.stepKey(15) === 26 && core.buttonOf(85) === 12 && core.buttonOf(51) === 11 && core.buttonOf(55) < 0 && core.buttonOf(43) < 0,
+       "move core: steps 1/16 = keys 0/26; Play = PLAY (12), Back = SEQ (11); Up and Track 1 none");
+    ok([0, 1, 2, 3, 4, 5, 6, 7].map((k) => core.knobEnc(k)).join() === "6,1,-1,-1,2,3,4,5", "move core: knobs 1..8 = PRESETS ALGO - - K1..K4 (matrix)");
+    ok([0, 1, 2, 3, 7, 8, 16, 24, 31].map((p) => core.padNote(p)).join() === "48,50,52,53,60,53,59,64,76", "move core: the in-scale layout's notes (C major from C3), as test_move.c");
+    const dec = core.decode(pad(0, 100));
+    ok(dec.type === 1 && dec.index === 0 && dec.value === 100, "move core: mr_decode: note 68 on = pad 0 at 100");
+    let a = core.input(pad(16, 90));
+    ok(a.length === 1 && a[0].kind === "key" && a[0].k === 0 && a[0].down && a[0].vel === 90, "move core: pad 16 down = key 0 at 90");
+    a = core.input(P(0xA0, 84, 64));
+    ok(a.length === 1 && a[0].kind === "press" && a[0].k === 0 && a[0].value === 64 && MC.lean(127) === 100 && MC.lean(64) === 50, "move core: its aftertouch = pressure (lean 0..100)");
+    core.input(pad(16, 0));
+    core.setMaster(500);
+    a = core.input(cc(79, 2));
+    ok(a.length === 1 && a[0].kind === "master" && a[0].value === 532, "move core: the volume knob +2 detents = MASTER 500 -> 532");
+    a = core.input(cc(75, 6)).concat(core.input(cc(75, 124)));
+    ok(a.length === 2 && a[0].kind === "turn" && a[0].enc === 2 && a[0].steps === 3 && a[1].steps === -2, "move core: knob 5 = K1 (matrix 2), +3 and -2 (6 and -4 ticks: a detent every 2)");
+    a = core.input(cc(42, 127)).concat(core.input(cc(42, 0)));
+    ok(core.state().mode === 1 && a.some((x) => x.kind === "settings"), "move core: a Track 2 tap = MIDI mode (a settings action)");
+    core.input(cc(42, 127)); core.input(pad(25, 100)); core.input(pad(25, 0)); core.input(cc(42, 0));
+    ok(core.state().layout === 1 && core.padNote(0) === 48 && core.padNote(8) === 53, "move core: Track 2 held + top pad 2 = the chromatic layout (+5 a row)");
+    a = core.input(pad(0, 100));
+    ok(a.length === 1 && a[0].kind === "midi" && Array.from(a[0].bytes).join() === "144,48,100", "move core: MIDI mode: pad 0 sends C3 note on, channel 1");
+    ok(core.releaseAll().some((x) => x.kind === "midi" && x.bytes[0] === 0x80 && x.bytes[1] === 48), "move core: releaseAll lets the note go");
+    const saved = core.save(), back = await load(saved);
+    ok(saved.length === 80 && saved[3] === 3 && String.fromCharCode(...saved.subarray(0, 3)) === "RMV" && back.state().mode === 1 && back.state().layout === 1,
+       "move core: save() is 80 bytes (RMV v3); a core loaded from it has the same mode and layout");
+    {   // an RMV v2 image (78 bytes: no velocity setting) still loads
+      const v2 = saved.slice(0, 78); v2[3] = 2; v2[4] = 78;
+      const old = await load(v2);
+      ok(old.state().mode === 1 && old.state().layout === 1, "move core: an RMV v2 (78-byte) image still loads");
+      old.free();
+    }
+    {   // an RMV v1 image (77 bytes: no MIDI screen) a visitor's browser kept still loads
+      const v1 = saved.slice(0, 77); v1[3] = 1; v1[4] = 77;
+      const old = await load(v1);
+      ok(old.state().mode === 1 && old.state().layout === 1, "move core: an RMV v1 (77-byte) image still loads");
+      old.free();
+    }
+    ok(core.screen(null).length === 1024 && core.screen(new Uint16Array(240 * 240).fill(0xFFFF)).some((b) => b), "move core: the screen packs to 1024 bytes and shows something");
+    core.free(); back.free();
+
+    // ---- the sequencer (js/move-seq.js, the core's kinds 8..10 and frames) and the projects (js/move-projects.js)
+    const S = await import("./js/move-seq.js"), MP = await import("./js/move-projects.js");
+    const { TimedMidi } = await import("./worklet/host.js");
+    {
+      const c = await load(), inp = (...pk) => pk.flatMap((p) => c.input(p)), kinds = (a) => a.map((x) => x.kind + (x.slot !== undefined ? ":" + x.slot : "")).join(" ");
+      inp(cc(40, 127), cc(40, 0));
+      for (let s = 0; s < 16; s++) inp(P(0x90, 16 + s, 127), P(0x80, 16 + s, 0));
+      ok(c.state().mode === 3 && c.bpm10() === 1200 && !c.following() && c.projectSlot() === 0, "move seq: Track 4 = Sequencer, 120.0 BPM on its own clock, project 1");
+      // the scheduler on a fake audio clock: pumps at uneven times, 10 000 blocks at 48 kHz; every note at exactly n x 6000
+      const ons = [], saves = [];
+      let late = 0, nowF = 0;
+      const clk = new S.SeqClock({ advance: (n, r) => c.seqAdvance(n, r), midiIn: (b) => c.seqMidiIn(b), emit: (acts, at) => {
+        for (const a of acts) {
+          if (a.kind === "midi" && (a.bytes[0] & 0xf0) === 0x90) { ons.push(at + a.frame); if (at + a.frame < nowF) late++; }
+          if (a.kind === "projectSave") saves.push(a);
+          if (a.frame >= 128 || a.frame < 0) late += 1000;
+        } } });
+      c.seqPlay(1);
+      let rnd = 7;
+      for (let i = 1; i <= 10000; i++) { nowF = i * 128; rnd = (rnd * 1103515245 + 12345) & 0x7fffffff; if (rnd % 4 === 0) clk.pump({ frame: nowF, rate: 48000 }); }
+      ok(ons.length === 214 && ons.slice(1).every((x, i) => x - ons[i] === 6000) && late === 0 && clk.pos - nowF <= Math.round(S.LEAD_S * 48000) && clk.pos > nowF,
+         `move seq: 10 000 blocks on a fake audio clock: ${ons.length} 16ths each exactly 6000 frames apart (no drift), none late, the core ${clk.pos - nowF} frames ahead`);
+      ok(saves.length === 1 && saves[0].bytes.length > 608 && c.projectCheck(saves[0].bytes) === 0 && saves[0].slot === 0,
+         `move seq: the autosave: a PROJECT_SAVE (kind 8) of slot 1 with a valid blob (${saves[0] && saves[0].bytes.length} bytes)`);
+      // actions land at block start + frame: a fake core with a note at frame 37 of every call
+      const got = [];
+      const fake = new S.SeqClock({ advance: () => [{ kind: "midi", bytes: Uint8Array.of(0x90, 60, 1), frame: 37 }], midiIn: () => [], emit: (a, at) => got.push(at + a[0].frame) });
+      fake.pump({ frame: 1000, rate: 44100 }); fake.pump({ frame: 1700, rate: 44100 });
+      ok(got.length > 4 && got.every((x, i) => x === 1000 + 37 + 128 * i), `move seq: the scheduler: each block's actions at its start + frame (${got.slice(0, 3).join(", ")} ...)`);
+      // a gap (a frozen tab): not caught up, the core goes on from the audio clock
+      const before = fake.stats.blocks;
+      fake.pump({ frame: 1700 + 44100, rate: 44100 });
+      ok(fake.stats.gaps === 1 && fake.stats.blocks - before === Math.floor(Math.round(S.LEAD_S * 44100) / 128), "move seq: a second's gap is skipped, not caught up in a burst");
+      // the firmware's MIDI clock: F8 at 24 PPQN from frame 0 (100 BPM: 1200 frames a clock at 48 kHz), FA first;
+      // the clock bytes inside SysEx and around other messages; the sequencer follows its tempo and its start
+      const f = await load(), finp = (...pk) => pk.flatMap((p) => f.input(p));
+      finp(cc(40, 127), cc(40, 0));
+      for (let s = 0; s < 16; s += 4) finp(P(0x90, 16 + s, 127), P(0x80, 16 + s, 0));
+      f.seqPlay(0);                                     // (the first step started the transport, as on the Move)
+      const fon = [];
+      const fc = new S.SeqClock({ advance: (n, r) => f.seqAdvance(n, r), midiIn: (b) => f.seqMidiIn(b), emit: (acts, at) => { for (const a of acts) if (a.kind === "midi" && (a.bytes[0] & 0xf0) === 0x90) fon.push(at + a.frame); } });
+      let next = 0, clocks = 0;
+      fc.pump({ frame: 0, rate: 48000 });
+      for (let q = 0; q < 2500; q++) {
+        const qf = q * 128;
+        const out = [];
+        while (next < qf + 128) { if (clocks === 0) out.push(0xF0, 0x7D, 0xF8, 0x01, 0xF7, 0xFA, 0xB0, 1); out.push(0xF8); clocks++; next = Math.round(clocks * 1200); if (clocks === 1) out.push(64); }
+        if (out.length) fc.clock(Uint8Array.from(out), qf);
+        if (q % 3 === 0) fc.pump({ frame: qf, rate: 48000 });
+      }
+      const lead = Math.round(S.LEAD_S * 48000), d = fon.slice(1).map((x, i) => x - fon[i]);
+      ok(f.following() && f.bpm10() === 1000 && fon.length >= 8 && d.every((x) => Math.abs(x - 4 * 6 * 1200) <= 128),
+         `move seq: following a fed F8 stream (with FA, inside SysEx and around a CC): 100.0 BPM (${f.bpm10() / 10}), beats ${d[0]} frames apart (28 800 at 100 BPM)`);
+      ok(fon[0] >= lead && fon[0] - lead <= 2 * 1200 + 128, `move seq: ...the first note on the clock's start, the lead (${lead} frames) after it (at ${fon[0]})`);
+      fc.clock(Uint8Array.of(0xFC), 2500 * 128);
+      fc.pump({ frame: 2502 * 128, rate: 48000 });
+      ok(!f.playing(), "move seq: the firmware's STOP stops it");
+      ok(new S.RealtimeParser() && (() => { const m = []; const r = new S.RealtimeParser(); r.push(Uint8Array.of(0xF2, 5), (x) => m.push(Array.from(x).join())); r.push(Uint8Array.of(1, 0xFE, 0xFB), (x) => m.push(Array.from(x).join())); return m.join("|") === "242,5,1|251"; })(),
+         "move seq: song position split across chunks, active sensing ignored, CONTINUE");
+      // kinds 8..10: Shift + step 1 opens the grid; an empty pad: the current saved, the new one made (two PROJECT_SAVEs)
+      c.seqPlay(0);
+      inp(cc(49, 127), P(0x90, 16, 127), P(0x80, 16, 0), cc(49, 0));
+      let a = inp(P(0x90, 93, 100), P(0x80, 93, 0));
+      ok(kinds(a) === "projectSave:0 projectSave:1" && c.projectSlot() === 1 && a.every((x) => x.frame === 0 && c.projectCheck(x.bytes) === 0),
+         `move seq: the grid, project 2's pad: ${kinds(a)} (both valid blobs, frame 0)`);
+      const p1 = saves[0].bytes;
+      inp(cc(49, 127), P(0x90, 16, 127), P(0x80, 16, 0), cc(49, 0));
+      a = inp(P(0x90, 92, 100), P(0x80, 92, 0));
+      ok(kinds(a) === "projectSave:1 projectLoad:0" && c.projectSlot() === 1, `move seq: project 1's pad: ${kinds(a)} (PROJECT_LOAD, kind 9)`);
+      ok(c.projectLoad(0, p1.slice(0, 100)) === null && c.projectLoad(0, p1) !== null && c.projectSlot() === 0, "move seq: a bad answer refused, the good one loads project 1");
+      inp(cc(49, 127), P(0x90, 16, 127), P(0x80, 16, 0), cc(49, 0));
+      a = inp(cc(119, 127), P(0x90, 93, 100), P(0x80, 93, 0), cc(119, 0));
+      ok(kinds(a) === "projectCut:1", `move seq: projects mode, Delete + project 2's pad: ${kinds(a)} (a cut, kind 13)`);
+      a = inp(cc(60, 127), P(0x90, 95, 100), P(0x80, 95, 0), cc(60, 0));
+      ok(kinds(a) === "projectPaste:3", `move seq: ...Copy + an empty pad: ${kinds(a)} (the cut pasted, kind 15)`);
+      c.free(); f.free();
+      // Sample's audio loop (kind 12): from a bar line to a bar line of the sequencer's audio clock: frames = bars x 4 x
+      // 60 / bpm x rate (to the frame: the tick grid rounds); the metronome's clicks (kind 11) on the beats
+      for (const [rate, bpm10, bars] of [[48000, 1200, 2], [44100, 1000, 1], [44100, 1330, 3], [48000, 873, 4]]) {
+        const g = await load(), ginp = (...pk) => pk.flatMap((p) => g.input(p));
+        ginp(cc(40, 127), cc(40, 0));
+        g.setBpm(bpm10);
+        ginp(cc(49, 127), P(0x90, 21, 127), P(0x80, 21, 0), cc(49, 0));   // (Shift + step 6: the metronome)
+        const recs = [], clicks = [];
+        const gc = new S.SeqClock({ advance: (n, r) => g.seqAdvance(n, r), midiIn: (b) => g.seqMidiIn(b), emit: (acts, at) => {
+          for (const x of acts) { if (x.kind === "audioRec") recs.push({ ...x, at: at + x.frame }); if (x.kind === "click") clicks.push(at + x.frame); } } });
+        let fr = 0;
+        const run = (n) => { for (let i = 0; i < n; i++) { fr += 128; gc.pump({ frame: fr, rate }); } };
+        run(10);
+        gc.emit(ginp(cc(118, 127), cc(118, 0)), null);               // armed
+        run(37);
+        gc.emit(ginp(cc(85, 127), cc(85, 0)), null);                // stopped: Play starts the transport (only Play, the owner's)
+        const barF = (4 * 60 * rate * 10) / bpm10;
+        run(Math.ceil((barF * bars - barF / 3) / 128));                // into the take's last bar ..
+        gc.emit(ginp(cc(118, 127), cc(118, 0)), null);               // .. its end: the next bar line
+        run(Math.ceil(barF / 128) + 20);
+        const on = recs.find((x) => x.on), off = recs.find((x) => !x.on);
+        const want = (bars * 4 * 60 * rate * 10) / bpm10;
+        ok(on && off && off.bars === bars && Math.abs(off.at - on.at - want) <= 1,
+           `move seq: Sample's loop at ${bpm10 / 10} BPM, ${rate} Hz: ${off ? off.at - on.at : "?"} frames = ${bars} bars (${want.toFixed(1)})`);
+        ok(clicks.length >= 4 * bars && Math.abs(clicks[4] - clicks[0] - barF) <= 1, `move seq: ...the metronome: a click a beat (${clicks.length})`);
+        g.free();
+      }
+
+      // the Sampling waveform: the worklet's window peaks of a loop take, into the core while it records
+      {
+        const { winPeaks } = await import("./worklet/host.js");
+        const r = { win: 4, wp: 0, wf: 0, wins: new Uint8Array(4), wn: 0 };
+        const L = Float32Array.of(0.1, -0.5, 0.2, 0, 0, 0.25, 0, 0, 1.5, 0), R = Float32Array.of(0, 0, 0, 0.3, 0, 0, -0.75, 0, 0, 0);
+        winPeaks(r, L, R, 0, 6), winPeaks(r, L, R, 6, 10);
+        ok(r.wn === 2 && r.wins[0] === 128 && r.wins[1] === 191 && r.wf === 2 && r.wp === 1.5,
+           `worklet: a loop take's ~16 ms window peaks, the louder channel, 0..255 (${Array.from(r.wins.subarray(0, r.wn))})`);
+        const g = await load(), ginp = (...pk) => pk.flatMap((p) => g.input(p));
+        ginp(cc(40, 127), cc(40, 0));
+        ginp(cc(118, 127), cc(118, 0));                // Sample: armed
+        const armed = g.sampleLevels([200, 200]);
+        ginp(cc(85, 127), cc(85, 0));                  // Play: it records from the first bar line
+        for (let i = 0; i < 20; i++) g.seqAdvance(128, 48000);
+        const took = g.sampleLevels([0, 128, 255]);
+        ok(armed === 0 && took === 3, `move core: Sample's levels taken only while the loop records (armed ${armed}, recording ${took})`);
+        g.free();
+      }
+
+      // the worklet's timed MIDI queue
+      const tm = new TimedMidi(), dl = [];
+      tm.add(Uint8Array.of(0x90, 60, 100), 1000, 0); tm.add(Uint8Array.of(0x80, 60, 0), 1200, 0); tm.add(Uint8Array.of(0x90, 62, 100), 1100, 0);
+      tm.due(896, 128, (b, at) => dl.push(at)); dl.push("|"); tm.due(1024, 128, (b, at) => dl.push(at));
+      ok(dl.join() === "|,1000", "worklet: timed MIDI goes in the quantum nearest to its frame (1000: at 1024, not 896), in order");
+      tm.add(Uint8Array.of(0x90, 64, 100), 5000, 1024); tm.cancel(Uint8Array.of(0x80, 64, 0));
+      ok(tm.q.length === 2 && tm.q.map((e) => e.at).join() === "1100,1200", "worklet: an untimed note off drops the queued note on of that note, the rest stay");
+      tm.add(Uint8Array.of(0x90, 65, 100), 6000, 1024);
+      const cut = []; tm.cut((b) => cut.push(b[0]));
+      ok(cut.join() === "128" && tm.q.length === 0, "worklet: a cut: the queued note offs at once, the note ons dropped");
+    }
+
+    // ---- the project store on a fake IndexedDB, the file format
+    {
+      const fakeIDB = () => {
+        const stores = new Map();
+        const later = (f) => setTimeout(f, 0);
+        return { stores, open() {
+          const r = {};
+          later(() => {
+            const db = { createObjectStore(name, o) { stores.set(name, { key: o.keyPath, m: new Map() }); },
+              transaction(name) {
+                const st = stores.get(name), t = {}, reqs = [];
+                const rq = (fn) => { const q = {}; reqs.push(() => { q.result = fn(); if (q.onsuccess) q.onsuccess(); }); return q; };
+                t.objectStore = () => ({ put: (v) => rq(() => { st.m.set(v[st.key], structuredClone(v)); return v[st.key]; }),
+                  get: (k) => rq(() => st.m.get(k)), delete: (k) => rq(() => { st.m.delete(k); }), getAll: () => rq(() => [...st.m.values()]) });
+                later(() => { reqs.forEach((f) => f()); if (t.oncomplete) t.oncomplete(); });
+                return t;
+              } };
+            r.result = db;
+            if (!stores.size && r.onupgradeneeded) r.onupgradeneeded();
+            r.onsuccess();
+          });
+          return r;
+        } };
+      };
+      const idb = fakeIDB(), st = new MP.MoveProjects(idb), core = await load();
+      const blob = core.projectSave();
+      await st.put(3, blob, "2026-11-17T10:00:00.000Z");
+      await st.put(0, blob);
+      const order = [st.put(5, blob), st.remove(5), st.put(7, blob)];
+      await Promise.all(order);
+      const ls = await st.list();
+      ok(ls.map((r) => r.slot).join() === "0,3,7" && (await st.dir()) === (1 | 8 | 128) && (await st.get(3)).saved === "2026-11-17T10:00:00.000Z" && (await st.get(5)) === null,
+         "move projects: the store on a fake IndexedDB: put, get, remove in order, list by slot, the slot bits");
+      ok((await new MP.MoveProjects(null).list()).length === 0 && (await new MP.MoveProjects(null).get(1)) === null, "move projects: no IndexedDB: an empty list, nothing thrown");
+      const chk = (b) => core.projectCheck(b);
+      const one = MP.packFile([ls[1]]), set = MP.packFile(ls, 2);
+      const u1 = MP.unpackFile(one, chk), us = MP.unpackFile(set, chk);
+      ok(String.fromCharCode(...one.subarray(0, 4)) === "RMVP" && one[4] === 1 && one[5] === 1 && one.length === 8 + 10 + blob.length && u1.entries[0].slot === 3
+         && u1.entries[0].saved === "2026-11-17T10:00:00.000Z" && u1.entries[0].bytes.every((b, i) => b === blob[i]),
+         `move projects: a .rfmmove round trip (RMVP v1, one project, ${one.length} bytes, slot and date kept)`);
+      ok(us.kind === 2 && us.entries.map((e) => e.slot).join() === "0,3,7", "move projects: a .rfmmoveset round trip (three projects)");
+      {   // projects mode's colour: byte 18 set in the stored blob, its check made again (the core still reads it)
+        const c = MP.withColor(blob, 7);
+        ok(c[18] === 7 && core.projectCheck(c) === 0 && core.projectCheck(blob) === 0 && c.length === blob.length,
+           "move projects: withColor sets a stored project's colour (byte 18) and its FNV-1a check");
+        const bad = Uint8Array.from(c); bad[18] = 17;
+        ok(core.projectCheck(MP.withColor(bad, 17)) !== 0, "move projects: ...a colour past 16 is refused");
+      }
+      const refuse = (b) => { try { MP.unpackFile(b, chk); return ""; } catch (e) { return e.message; } };
+      const bad = { truncated: one.slice(0, one.length - 1), "a byte after": Uint8Array.from([...one, 0]), magic: Uint8Array.from([0x58, ...one.subarray(1)]),
+        "huge": new Uint8Array(MP.MAX_FILE + 1), "damaged blob": (() => { const x = one.slice(); x[40] ^= 0x55; return x; })(),
+        "slot twice": MP.packFile([ls[0], ls[0]], 2), "header only": one.slice(0, 8), empty: new Uint8Array(0), "kind 1 with two": MP.packFile(ls.slice(0, 2), 1),
+        "random": Uint8Array.from({ length: 3000 }, (_, i) => (i * 7919) & 255) };
+      const why = Object.entries(bad).map(([k, b]) => [k, refuse(b)]);
+      ok(why.every(([, m]) => /^Not a Move project file: /.test(m)), `move projects: refused with a reason: ${why.map(([k, m]) => `${k} (${m.replace("Not a Move project file: ", "").slice(0, 28)})`).join("; ")}`);
+      let crashed = 0;
+      for (let i = 0; i <= one.length; i++) { try { MP.unpackFile(one.slice(0, i), chk); if (i !== one.length) crashed++; } catch (e) { if (!/^Not a Move/.test(e.message)) crashed++; } }
+      ok(crashed === 0, `move projects: every truncation of a file refused cleanly (${one.length + 1} lengths)`);
+      core.free();
+      globalThis.__fakeIDB = fakeIDB;
+    }
+
+    // ---- MoveLink against a fake transport and a fake clock
+    class Clock {
+      constructor() { this.t = 1000; this.q = []; this.n = 0; }
+      setTimeout(f, ms) { const id = ++this.n; this.q.push({ id, at: this.t + ms, f }); return id; }
+      setInterval(f, ms) { const id = ++this.n; this.q.push({ id, at: this.t + ms, f, every: ms }); return id; }
+      clearTimeout(id) { this.q = this.q.filter((x) => x.id !== id); }
+      clearInterval(id) { this.clearTimeout(id); }
+      advance(ms) {
+        const end = this.t + ms;
+        for (;;) {
+          this.q.sort((x, y) => x.at - y.at);
+          const e = this.q[0];
+          if (!e || e.at > end) break;
+          this.t = e.at;
+          if (e.every) e.at += e.every; else this.q.shift();
+          e.f();
+        }
+        this.t = end;
+      }
+    }
+    const tick = () => new Promise((r) => setImmediate(r));
+    const world = (prefs = {}, location = { protocol: "http:" }, extra = {}) => {
+      const clock = new Clock(), subs = {}, midi = [], masters = [], toasts = [], transports = [], encs = [0, 0, 0, 0, 0, 0, 0], timed = [], cuts = [];
+      let levels = new Uint8Array(44), px = new Uint16Array(240 * 240);
+      const controls = new Controls((p) => p.enc.forEach((v, i) => { encs[i] += v; }));
+      const site = {
+        on: (ev, cb) => { (subs[ev] = subs[ev] || []).push(cb); return () => {}; },
+        emit: (ev, ...x) => (subs[ev] || []).forEach((cb) => cb(...x)),
+        leds: () => ({ levels: levels.slice(), playGreen: 0 }),
+        screen: () => ({ seq: 1, pixels: px }),
+        current: () => ({ info: null }),
+        midiIn: (b, at) => { if (typeof at === "number") timed.push({ at, b: Array.from(b) }); else midi.push(Array.from(b)); },
+        midiCut: () => cuts.push(clock.t),
+        audioNow: extra.audioNow || (() => null),
+      };
+      let saves = 0;
+      const link = new L.MoveLink({ controls, site, prefs, save: () => { saves++; }, toast: (t) => toasts.push(t),
+        mapAct: (x) => { masters.push(x); if (x.kind === "master") controls.setMaster(x.value); },
+        core: (s) => load(s), now: () => clock.t, timers: clock, location, projects: extra.projects,
+        transport: (url) => {
+          const t = { name: "fake", url, out: [], closed: false, onmessage: null, onclose: null,
+            connect: async () => {}, send(b) { if (t.closed) return false; t.out.push(...(new L.Deframer().push(b) || [])); return true; }, close() { t.closed = true; } };
+          transports.push(t);
+          return t;
+        } });
+      const T = () => transports[transports.length - 1];
+      const dev = (bytes) => T().onmessage(bytes);
+      const input = (...pkts) => { const p = new Uint8Array(pkts.length * 8), dv = new DataView(p.buffer); pkts.forEach((k, i) => { dv.setUint32(i * 8, 1000 + i, true); dv.setUint32(i * 8 + 4, k, true); }); dev(L.frame(L.MR.D_INPUT, p)); };
+      const types = () => T().out.map((m) => m.type);
+      return { timed, cuts, clock, controls, site, link, midi, masters, toasts, transports, T, dev, input, types, encs, prefs, get saves() { return saves; },
+        setLevels: (l) => { levels = l; site.emit("leds", l, 0); }, setPx: (p) => { px = p; site.emit("frame", p, 2); } };
+    };
+
+    // the handshake
+    const w = world();
+    await w.link.connect("127.0.0.1:7999"); await tick();
+    ok(w.transports.length === 1 && w.T().url === "ws://127.0.0.1:7999/ws" && w.types().join() === "129" && w.link.view().tone === "busy" && w.prefs.moveUrl === "ws://127.0.0.1:7999/ws",
+       "MoveLink: Connect opens the transport at the address and says HELLO (0x81); the address kept");
+    w.T().out.length = 0;
+    w.dev(devHello());
+    const t0 = w.types();
+    ok(w.link.view().active && w.link.view().tone === "on" && t0[0] === 0x87 && t0.includes(0x83) && t0.filter((x) => x === 0x84).length === 1 && w.link.stats.ledWrites === MC.NLEDS,
+       `MoveLink: the Move's HELLO: active, audio clock off (CONFIG), every LED painted (${w.link.stats.ledWrites}), one DISPLAY`);
+    ok(/Move sim connected over this computer \(fake\): FM-1 mode/.test(w.link.view().detail) && w.toasts.length === 1, `MoveLink: the status says so: "${w.link.view().detail}"`);
+
+    // INPUT: a pad holds a key as SRC.MOVE, aftertouch leans it, a button, a knob, the volume knob
+    w.T().out.length = 0;
+    w.input(pad(16, 90));
+    ok(w.controls.keyHeld(0) && (w.controls.keySrc[0] & SRC.MOVE) && w.controls.keyVel[0] === 90 && SRC.MOVE === 256 && w.controls.keySrc instanceof Uint16Array,
+       "MoveLink: INPUT pad 16 holds key 0 (velocity 90) as SRC.MOVE (bit 256, 16-bit holds)");
+    const padLeds = w.link.stats.ledWrites;
+    ok(w.types().includes(0x83) && padLeds > MC.NLEDS && padLeds <= MC.NLEDS + 4, `MoveLink: the pressed pad repainted alone (${padLeds - MC.NLEDS} LED writes)`);
+    w.input(P(0xA0, 84, 127));
+    ok(w.controls.keyLean[0] === 100, "MoveLink: its aftertouch leans the key (100)");
+    w.controls.holdKey(0, SRC.KEY, true);
+    w.input(cc(85, 127));
+    ok(w.controls.btnHeld(B.PLAY), "MoveLink: Play holds PLAY");
+    w.input(cc(85, 0), cc(75, 4));
+    ok(!w.controls.btnHeld(B.PLAY) && w.encs[roleToMatrix(E.K1)] === 2, "MoveLink: ...lets it go; knob 5 turns K1 two detents");
+    const m0 = w.controls.master;
+    w.input(cc(79, 1));
+    ok(w.masters.length === 1 && w.masters[0].kind === "master" && w.controls.master === m0 + 16, `MoveLink: the volume knob moves MASTER through mapAct (${m0} -> ${w.controls.master})`);
+
+    // LED diffing: the same FM-1 LEDs nothing, a changed one a write
+    let n = w.link.stats.ledWrites;
+    w.setLevels(new Uint8Array(44));
+    ok(w.link.stats.ledWrites === n, "MoveLink: the FM-1's LEDs unchanged: no LED write");
+    const lv = new Uint8Array(44); lv[ledIndexOf(null)[14 + 26]] = 255;
+    w.setLevels(lv);
+    ok(w.link.stats.ledWrites - n === 2, `MoveLink: key 26's LED lit: its pad and its step written, nothing else (${w.link.stats.ledWrites - n})`);
+
+    // the screen: at most one DISPLAY per 33 ms, only when it changed (after the volume knob's popup has dropped)
+    w.clock.advance(100 + MC.POPUP_MS);
+    w.T().out.length = 0;
+    const white = new Uint16Array(240 * 240).fill(0xFFFF), grey = new Uint16Array(240 * 240).fill(0x2104);
+    w.setPx(white);
+    ok(w.types().filter((x) => x === 0x84).length === 1, "MoveLink: a new FM-1 frame: a DISPLAY at once (none for 33 ms before)");
+    w.clock.advance(5); w.setPx(grey); w.clock.advance(5); w.setPx(white);
+    ok(w.types().filter((x) => x === 0x84).length === 1, "MoveLink: two more frames within 10 ms: nothing yet (throttled)");
+    w.clock.advance(30);
+    ok(w.types().filter((x) => x === 0x84).length === 1, "MoveLink: after 33 ms the latest frame, which is the one shown: nothing sent");
+    w.setPx(grey); w.clock.advance(40);
+    ok(w.types().filter((x) => x === 0x84).length === 2, "MoveLink: a different frame later: one more DISPLAY");
+
+    // the heartbeat
+    w.T().out.length = 0;
+    w.clock.advance(1000);
+    ok(w.types().includes(0x88), "MoveLink: PING every second");
+    ok(w.link.core.battery === -1, "MoveLink: the Move's battery unknown before its first STATUS");
+    { const st = new Uint8Array(32); st[4] = 57; st[5] = 0; w.dev(L.frame(L.MR.D_STATUS, st)); }
+    ok(w.link.core.battery === 57 && w.link.status.battery === 57, "MoveLink: STATUS byte 4 (battery 57) into the core (the Global Settings menu)");
+
+    // settings: Track 2 (MIDI mode), its layout and a note to the firmware's MIDI in; kept in prefs
+    w.input(cc(42, 127), cc(42, 0));
+    ok(!w.controls.keyHeld(0) || (w.controls.keySrc[0] & SRC.MOVE) === 0, "MoveLink: a mode change lets the Move's key go");
+    ok(w.controls.keyHeld(0) && (w.controls.keySrc[0] & SRC.KEY), "MoveLink: ...the computer key's hold of the same key stays");
+    w.controls.holdKey(0, SRC.KEY, false);
+    w.input(cc(42, 127), pad(25, 100), pad(25, 0), cc(42, 0), pad(0, 80));
+    ok(w.midi.length === 1 && w.midi[0].join() === "144,48,80" && typeof w.prefs.move === "string" && w.saves > 1, `MoveLink: MIDI mode: pad 0 = C3 into site.midiIn; the settings saved (${w.prefs.move.length} base64 chars)`);
+    ok(/MIDI mode/.test(w.link.view().detail), `MoveLink: the status names the mode: "${w.link.view().detail}"`);
+
+    // the link lost: every note let go, and it connects again
+    w.T().onclose("gone");
+    ok(w.midi.length === 2 && w.midi[1].join() === "128,48,0" && !w.link.view().active && w.link.view().tone === "busy" && /trying again in 1 s/.test(w.link.view().detail),
+       `MoveLink: the link lost: the held note let go, "${w.link.view().detail}"`);
+    w.clock.advance(1000); await tick();
+    ok(w.transports.length === 2 && w.T().out[0].type === 0x81, "MoveLink: 1 s later it connects again (HELLO)");
+    w.dev(devHello());
+    ok(w.link.view().active && w.link.stats.ledWrites > 0 && w.T().out.filter((m) => m.type === 0x83).length >= 1, "MoveLink: ...and paints every LED again");
+    // silent for 3 s: lost
+    w.clock.advance(4100);
+    ok(!w.link.view().active && /went quiet/.test(w.link.view().detail), `MoveLink: nothing heard for 3 s: lost ("${w.link.view().detail}")`);
+    w.link.disconnect();
+    ok(w.link.view().tone === "off" && w.prefs.moveAuto === false && w.clock.q.length === 0, "MoveLink: Disconnect: off, not automatic next time, no timer left");
+
+    // a new page with the same prefs: the settings back
+    const w2 = world(w.prefs);
+    await w2.link.connect(); await tick();
+    w2.dev(devHello());
+    ok(w2.link.core.state().mode === 1 && w2.link.core.state().layout === 1 && w2.T().url === "ws://127.0.0.1:7999/ws", "MoveLink: the next visit: MIDI mode, chromatic layout and the address, from prefs");
+    // BYE: another host took the Move
+    w2.dev(L.frame(L.MR.D_BYE, new Uint8Array([L.BYE.REPLACED])));
+    ok(!w2.link.view().want && w2.link.view().tone === "off" && /Another host/.test(w2.link.view().detail) && w2.T().closed, "MoveLink: BYE(2): another host took over, no reconnect");
+    // no answer at all: tries three times, then says what to check
+    const w3 = world();
+    await w3.link.connect("192.0.2.1"); await tick();
+    for (let i = 0; i < 3; i++) { w3.clock.advance(L.HELLO_MS); w3.clock.advance(4000); await tick(); }
+    ok(w3.transports.length === 3 && w3.link.view().tone === "bad" && /Move Remote running/.test(w3.link.view().detail), `MoveLink: no answer three times: "${w3.link.view().detail.slice(0, 60)}..."`);
+    // https: a clear message, no socket
+    const w4 = world({}, { protocol: "https:" });
+    await w4.link.connect("move.local"); await tick();
+    ok(w4.transports.length === 0 && w4.link.view().tone === "bad" && w4.link.view().detail === L.MIXED_TEXT, "MoveLink: from an https page to ws://move.local: the mixed-content message, no socket");
+    await w4.link.connect("127.0.0.1:7720"); await tick();
+    ok(w4.transports.length === 1, "MoveLink: ...but ws://127.0.0.1 is allowed");
+    w4.link.disconnect();
+    // labels: the firmware's knob names reach the core (the screen changes)
+    const w5 = world();
+    await w5.link.connect(); await tick(); w5.dev(devHello());
+    w5.input(P(0x90, 4, 127), cc(75, 1));   // knob 5 (K1) touched and turned: its popup, with the label
+    w5.clock.advance(50);
+    const before = w5.link.shown.slice();
+    w5.link.setLabels([null, null, null, "CUTOFF", null, null, null, null]);
+    w5.clock.advance(50);
+    ok(before.some((b, i) => b !== w5.link.shown[i]), "MoveLink: a live label (K1 CUTOFF) redraws the Move's screen");
+    w5.link.disconnect();
+
+    // the sequencer and the projects through MoveLink: the audio clock (48 kHz, 1 ms of the fake clock = 48 frames),
+    // a fake IndexedDB with project 4 stored and last used
+    {
+      const MP = await import("./js/move-projects.js");
+      const idb = globalThis.__fakeIDB(), store = new MP.MoveProjects(idb), c0 = await load();
+      const blank = c0.projectSave(); c0.free();
+      await store.put(3, blank, "2026-11-01T12:00:00.000Z");
+      let w6;
+      const audio = () => ({ frame: Math.round((w6.clock.t - 1000) * 48), rate: 48000 });
+      w6 = world({ moveProject: 3 }, { protocol: "http:" }, { audioNow: () => audio(), projects: store });
+      await w6.link.connect(); await tick(); w6.dev(devHello()); await tick();
+      ok(w6.link.core.projectSlot() === 3 && w6.link.view().project === 3 && w6.link.view().clock === "INT" && w6.link.view().bpm10 === 1200,
+         "MoveLink: at start the store's last project (4) is the core's, the clock INT 120 BPM");
+      ok(w6.link.projects().length === 1 && w6.link.projects()[0].name === "Project 4" && w6.link.projects()[0].current, "MoveLink: the project list: Project 4, open");
+      w6.input(cc(40, 127), cc(40, 0));
+      for (let st = 0; st < 16; st++) w6.input(P(0x90, 16 + st, 127), P(0x80, 16 + st, 0));
+      w6.timed.length = 0; w6.midi.length = 0; w6.cuts.length = 0;
+      w6.input(cc(85, 127), cc(85, 0));
+      w6.clock.advance(1000);
+      const ons = w6.timed.filter((x) => x.b[0] === 0x90).map((x) => x.at);
+      ok(ons.length >= 8 && ons.slice(1).every((x, i) => x - ons[i] === 6000) && w6.link.view().playing,
+         `MoveLink: Play: the sequencer's notes timed into the worklet by the audio clock, 6000 frames apart (${ons.length} in 1 s)`);
+      ok(ons.every((x) => x >= 0) && Math.max(...w6.timed.map((x) => x.at)) <= audio().frame + Math.round(0.03 * 48000) + 128, "MoveLink: ...never more than the lead ahead of the audio clock");
+      w6.input(cc(85, 127), cc(85, 0));
+      w6.clock.advance(20);
+      ok(!w6.link.view().playing && w6.cuts.length === 1 && w6.midi.some((b) => b[0] === 0x80), "MoveLink: Play again stops it: the timed queue cut, its note let go at once");
+      // the firmware's clock: F8 every 1250 frames (96 BPM), as the worklet posts it with the quantum's frame
+      for (let k = 0; k < 120; k++) { w6.clock.advance(1250 / 48); w6.site.emit("midiOut", Uint8Array.of(0xF8), audio().frame); }
+      ok(w6.link.view().clock === "firmware" && Math.abs(w6.link.view().bpm10 - 960) <= 2, `MoveLink: the firmware's F8 stream: the clock from the firmware, ${w6.link.view().bpm10 / 10} BPM`);
+      w6.clock.advance(800);
+      ok(w6.link.view().clock === "INT", "MoveLink: ...and INT again 500 ms after the last clock");
+      // the autosave on disconnect, then Backup and Import
+      w6.link.disconnect();
+      await tick(); await store.chain; await tick();
+      const rec = await store.get(3);
+      ok(rec && rec.bytes.length > blank.length && w6.cuts.length >= 2, `MoveLink: Disconnect saves the edited project 4 (${rec && rec.bytes.length} bytes) and cuts the queue`);
+      const one = await w6.link.backup(3), all = await w6.link.backup();
+      ok(one.name === "move-project-04.rfmmove" && all.name === "move-projects.rfmmoveset" && one.bytes[5] === 1 && all.bytes[5] === 2, `MoveLink: Backup: ${one.name} and ${all.name}`);
+      const into = await w6.link.importFile(one.bytes, 9);
+      const again = await w6.link.importFile(one.bytes, -1);
+      ok(into.join() === "9" && again.join() === "0" && (await store.dir()) === ((1 << 3) | (1 << 9) | 1) && w6.link.projects().map((p) => p.slot).join() === "0,3,9",
+         "MoveLink: Import of the backup into project 10, then into the first free slot (1)");
+      const corrupt = one.bytes.slice(); corrupt[60] ^= 0xFF;
+      let msg = "";
+      try { await w6.link.importFile(corrupt, 12); } catch (e) { msg = e.message; }
+      let msg2 = "";
+      try { await w6.link.importFile(new Uint8Array(MP.MAX_FILE + 10), 12); } catch (e) { msg2 = e.message; }
+      ok(/damaged/.test(msg) && /more than a full set/.test(msg2) && !(await store.get(12)), `MoveLink: a damaged file and a huge one refused ("${msg}"), nothing stored`);
+      const s5 = await w6.link.importFile(all.bytes);
+      ok(s5.join() === "3", "MoveLink: Import of the set: its project back in slot 4");
+      await w6.link.deleteProject(9);
+      ok(w6.link.projects().map((p) => p.slot).join() === "0,3", "MoveLink: Delete takes project 10 out");
+    }
+  }
 }
 
 // ---- the engines a served web/ needs (tools/engines-check.mjs, web/serve.sh): a checkout without its engine builds
