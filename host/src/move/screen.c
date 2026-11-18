@@ -236,7 +236,8 @@ static void trig_popup(const rfm_move_t *m, mr_canvas_t *cv)
         int lo, hi = rfmv_seq_clip_range(m, clip, &lo);
         abs = hi > lo ? q->notes[lo].step : abs;
     }
-    v = rfmv_seq_trig_val(m, clip, abs, k);
+    v = q->trig && q->step_first < 0 ? rfmv_seq_tdef_val(m, k) : rfmv_seq_trig_val(m, clip, abs, k);   /* (none held:
+                                                         * the defaults for new steps) */
     mr_gfx_clear(cv, 0);
     g_full = 1;
     if (!q->trig) {                                     /* a held step's edit popup (V2Track's seq.micro / len / vel) */
@@ -313,7 +314,7 @@ static void trig_popup(const rfm_move_t *m, mr_canvas_t *cv)
         }
         break;
     case 5: {                                           /* the function's amount */
-        const int f = rfmv_seq_trig_val(m, clip, abs, 4);
+        const int f = q->step_first < 0 ? rfmv_seq_tdef_val(m, 4) : rfmv_seq_trig_val(m, clip, abs, 4);
         steps_base(cv);
         if (f == RFM_MOVE_FN_LEAP || f == RFM_MOVE_FN_JUMP) {
             v2_L(cv, 5, 38, 13, 20), v2_L(cv, 13, 20, 29, 20), v2_L(cv, 29, 20, 37, 38);

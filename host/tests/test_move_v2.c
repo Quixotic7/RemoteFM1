@@ -432,7 +432,7 @@ static void core_screens(void)
         C.seq.proj_cur = 6, C.seq.proj_used |= 1u << 6;
     }
     shift_step(0), shot("mode.proj"), rest(), shot("proj.grid");
-    C.seq.proj_cur = 30, pad(24 + 6, 100), adv_ms(10), shot("proj.held"), knob(0, 1), shot("proj.color"), pad(24 + 6, 0), rest();
+    C.seq.proj_cur = 30, pad(24 + 6, 100), adv_ms(10), shot("proj.held"), knob(0, RFM_MOVE_LIST_TICKS), shot("proj.color"), pad(24 + 6, 0), rest();
     button(MR_CC_DELETE, 1), pad(24 + 1, 100), pad(24 + 1, 0), button(MR_CC_DELETE, 0), rest(), shot("proj.marks");
     /* recording */
     reset(3), C.seq.rec_mode = RFM_MOVE_RM_RECORD, seq_notes(0), press(MR_CC_REC), press(MR_CC_PLAY), adv_ms(2000 + 500 * 23 / 2), shot("rec.capture");

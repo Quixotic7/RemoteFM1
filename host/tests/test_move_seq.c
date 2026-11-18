@@ -1106,7 +1106,7 @@ static void test_blob(void)
     /* invalid blobs: nothing changes */
     CHECK(rfm_move_project_load(m2, 5, a, (uint32_t)n - 1) < 0 && same_project(&m->seq, &m2->seq) &&
           rfm_move_project_slot(m2) == 4);
-    memcpy(b, a, (size_t)n), b[4] = 4;
+    memcpy(b, a, (size_t)n), b[4] = 5;
     CHECK(rfm_move_project_check(b, (uint32_t)n) == -2);
     memcpy(b, a, (size_t)n), b[100] ^= 1;
     CHECK(rfm_move_project_check(b, (uint32_t)n) == -5);
@@ -1791,10 +1791,32 @@ static void test_trig(void)
     n1 = count_on(0, 60);
     CHECKF(n1 > 16 && n1 < 48, "chance 50: %d of 64", n1);
     rfm_move_seq_play(m, 0);
-    /* no step held: the whole clip's steps with notes */
-    knob(m, 1, 1);
-    CHECK(rfmv_seq_trig(m, 0, 8, RFM_MOVE_TRIG_RATCHET) == 2 && rfmv_seq_trig(m, 0, 15, RFM_MOVE_TRIG_RATCHET) == 2);
-    CHECK(rfmv_seq_trig(m, 0, 3, RFM_MOVE_TRIG_RATCHET) < 0);
+    /* no step held (the owner's): the track's defaults for new steps; the steps there keep theirs */
+    knob(m, 1, 1), knob(m, 2, -25), knob(m, 6, -2);    /* ratchet 2, chance 75, length 1/2 step */
+    CHECK(rfmv_seq_trig(m, 0, 8, RFM_MOVE_TRIG_RATCHET) < 0 && rfmv_seq_trig(m, 0, 15, RFM_MOVE_TRIG_RATCHET) < 0);
+    CHECK(rfmv_seq_tdef_val(m, 1) == 2 && rfmv_seq_tdef_val(m, 2) == 75 && rfmv_seq_tdef_val(m, 6) == 12);
+    tap_step(m, 3);                                     /* a new step: the defaults */
+    CHECK(rfmv_seq_trig(m, 0, 3, RFM_MOVE_TRIG_RATCHET) == 2 && rfmv_seq_trig(m, 0, 3, RFM_MOVE_TRIG_CHANCE) == 75 &&
+          m->seq.notes[rfmv_seq_find(m, 0, 3, m->seq.notes[0].note)].len == 12);
+    {                                                   /* kept with the project (version 4) */
+        static uint8_t blob[RFM_MOVE_PROJECT_MAX];
+        const int nb = rfm_move_project_save(m, blob, sizeof blob);
+        rfm_move_init(&M2, NULL, on_act, NULL);
+        CHECK(rfm_move_project_load(&M2, 1, blob, (uint32_t)nb) == 0 && M2.seq.tr[0].tdef[1] == 2 && M2.seq.tr[0].tdef[2] == 75);
+        {                                               /* a version 3 blob (no defaults) still loads: the plain ones */
+            const int n3 = nb - RFM_MOVE_SEQ_TRACKS * 8;
+            uint32_t h = 2166136261u;
+            int k;
+            blob[4] = 3;
+            for (k = 0; k < n3 - 4; k++)
+                h = (h ^ blob[k]) * 16777619u;
+            for (k = 0; k < 4; k++)
+                blob[n3 - 4 + k] = (uint8_t)(h >> (8 * k));
+            CHECK(rfm_move_project_load(&M2, 1, blob, (uint32_t)n3) == 0 && M2.seq.tr[0].tdef[1] == 1 && M2.seq.tr[0].tdef[2] == 100);
+        }
+    }
+    tap_step(m, 3);
+    knob(m, 1, -1), knob(m, 2, 25), knob(m, 6, 2);     /* (the defaults back) */
     /* the popup: its picture and words */
     {
         uint8_t out[MR_SCREEN_BYTES];
@@ -2111,7 +2133,7 @@ static void test_blob_v2(void)
     m->seq.tr[3].rate = 7, m->seq.tr[3].groove = 33, m->seq.tr[3].arp.pat = RFM_MOVE_AP_CONDIV, m->seq.tr[3].arp.odist = -7;
     m->seq.rec_mode = RFM_MOVE_RM_STEP, m->seq.rec_style = RFM_MOVE_RS_REPLACE;
     n = rfm_move_project_save(m, a, sizeof a);
-    CHECK(n == RFM_MOVE_PROJECT_FIXED + 7 + 2 * 4 && a[4] == 3);
+    CHECK(n == RFM_MOVE_PROJECT_FIXED + 7 + 2 * 4 && a[4] == 4);
     rfm_move_init(m2, NULL, on_act, NULL);
     CHECK(rfm_move_project_load(m2, 1, a, (uint32_t)n) == 0);
     CHECK(m2->seq.lstart[0] == 16 && m2->seq.len[0] == 32 && rfmv_seq_clip_has(m2, SEQ_CLIP(2, 3)));

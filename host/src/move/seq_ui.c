@@ -61,6 +61,11 @@ void rfmv_shift_icons(const rfm_move_t *m, uint8_t icon[16])
 
 
 static rfm_move_seq_t *Q(rfm_move_t *m) { return &m->seq; }
+static int step_empty(const rfm_move_t *m, int clip, int abs)
+{
+    int lo;
+    return rfmv_seq_range(m, clip, abs, &lo) == lo;
+}
 static int edit_clip(const rfm_move_t *m)
 {
     const rfm_move_seq_t *q = &m->seq;
@@ -460,8 +465,12 @@ void rfmv_seq_pad(rfm_move_t *m, int p, int vel, uint32_t now)
                     const int abs = q->page * RFM_MOVE_SEQ_PAGE + s;
                     if (rfmv_seq_find(m, clip, abs, note) >= 0)
                         rfmv_seq_note_del(m, clip, abs, note);
-                    else
+                    else {
+                        const int e = step_empty(m, clip, abs);
                         rfmv_seq_note_put(m, clip, abs, note, vel, RFM_MOVE_SEQ_TPS, 0), grow_to(m, clip, abs);
+                        if (e)
+                            rfmv_seq_tdef_apply(m, clip, abs, 1);
+                    }
                     q->step_edit |= (uint16_t)(1u << s);
                 }
             entered(m, was);
@@ -479,7 +488,12 @@ void rfmv_seq_pad(rfm_move_t *m, int p, int vel, uint32_t now)
                 step_notes_clear(m, clip, q->step_cur);
             }
             q->steps_chord |= 1u << p;
-            rfmv_seq_note_put(m, clip, q->step_cur, note, vel, RFM_MOVE_SEQ_TPS, 0);
+            {
+                const int e = step_empty(m, clip, q->step_cur);
+                rfmv_seq_note_put(m, clip, q->step_cur, note, vel, RFM_MOVE_SEQ_TPS, 0);
+                if (e)
+                    rfmv_seq_tdef_apply(m, clip, q->step_cur, 1);
+            }
             entered(m, was);
             return;
         }
@@ -618,7 +632,7 @@ void rfmv_seq_step(rfm_move_t *m, int s, int down, uint32_t now)
                     for (i = 0; i < n; i++)
                         put |= rfmv_seq_note_put(m, clip, abs, nn[i], vel_of(m, vv[i]), RFM_MOVE_SEQ_TPS, 0) == 0;
                     if (put)
-                        grow_to(m, clip, abs), entered(m, was);
+                        rfmv_seq_tdef_apply(m, clip, abs, 1), grow_to(m, clip, abs), entered(m, was);
                 }
             } else if (has)
                 last_from_step(m, clip, abs);           /* entered or edited: its notes are the next empty step's */
@@ -829,6 +843,7 @@ void rfmv_seq_step(rfm_move_t *m, int s, int down, uint32_t now)
         const int was = rfmv_seq_clip_used(m, clip);
         int lo, hi = rfmv_seq_range(m, clip, abs, &lo), p, put = 0;
         if (q->chord) {                                 /* pads held: the step gets exactly those notes */
+            const int e = hi == lo;
             step_notes_clear(m, clip, abs);
             q->nlast = 0;
             for (p = 0; p < RFM_MOVE_NPADS; p++)
@@ -838,6 +853,8 @@ void rfmv_seq_step(rfm_move_t *m, int s, int down, uint32_t now)
                     last_add(q, m->pad[p].b, v);
                 }
             q->step_add |= bit;
+            if (put && e)
+                rfmv_seq_tdef_apply(m, clip, abs, 1);
             if (put)
                 grow_to(m, clip, abs), entered(m, was);
         } else if (hi > lo)
@@ -1218,6 +1235,79 @@ int rfmv_seq_len_index(int len)                         /* the nearest entry */
     return b;
 }
 int rfmv_seq_len_of(int i) { return LENS[clampi(i, 0, NLENS - 1)]; }
+typedef char lens_n_check[NLENS == RFM_MOVE_TRIG_NLENS ? 1 : -1];
+
+/* ---- the TRIG page's defaults (the owner's): with no step held its knobs set what new steps get, per track (saved
+ * with the project); steps already there keep theirs */
+void rfmv_seq_tdef_default(uint8_t d[8])
+{
+    d[0] = 12, d[1] = 1, d[2] = 100, d[3] = 0, d[4] = 0, d[5] = 15 + 2, d[6] = 0, d[7] = 4;   /* (length: 24, a step) */
+}
+int rfmv_seq_tdef_val(const rfm_move_t *m, int k)
+{
+    const uint8_t *d = m->seq.tr[m->seq.sel_track].tdef;
+    switch (k) {
+    case 0: return d[0] - 12;
+    case 1: return d[1];
+    case 2: return d[2];
+    case 3: return d[3];
+    case 4: return d[4];
+    case 5: return d[4] == RFM_MOVE_FN_LEAP ? d[5] - 15 : d[4] == RFM_MOVE_FN_JUMP ? d[6] : 0;
+    case 6: return LENS[d[7] < NLENS ? d[7] : 4];
+    default: return 0;
+    }
+}
+static void tdef_turn(rfm_move_t *m, int k, int d)
+{
+    uint8_t *t = m->seq.tr[m->seq.sel_track].tdef;
+    switch (k) {
+    case 0: t[0] = (uint8_t)(clampi(t[0] - 12 + d, -RFM_MOVE_SEQ_TPS / 2, RFM_MOVE_SEQ_TPS / 2 - 1) + 12); break;
+    case 1: t[1] = (uint8_t)clampi(t[1] + d, 1, 8); break;
+    case 2: t[2] = (uint8_t)clampi(t[2] + d, 1, 100); break;
+    case 3: t[3] = (uint8_t)clampi(t[3] + d, 0, RFM_MOVE_COND_N - 1); break;
+    case 4: t[4] = (uint8_t)clampi(t[4] + d, 0, RFM_MOVE_FN_N - 1); break;
+    case 5:
+        if (t[4] == RFM_MOVE_FN_LEAP) {
+            int n = clampi(t[5] - 15 + d, -15, 15);
+            if (!n)
+                n = d > 0 ? 1 : -1;                     /* (no LEAP 0) */
+            t[5] = (uint8_t)(n + 15);
+        } else if (t[4] == RFM_MOVE_FN_JUMP)
+            t[6] = (uint8_t)clampi(t[6] + d, 0, RFM_MOVE_SEQ_MAXLEN - 1);
+        break;
+    case 6: t[7] = (uint8_t)clampi(t[7] + d, 0, NLENS - 1); break;
+    default: break;
+    }
+    rfmv_seq_dirty(m);
+}
+/* a step that was empty got its first note: the track's default trigs as its locks (entry: its notes' micro and
+ * length too; a recording keeps the played ones) */
+void rfmv_seq_tdef_apply(rfm_move_t *m, int clip, int abs, int entry)
+{
+    const uint8_t *t = m->seq.tr[clip / RFM_MOVE_SEQ_SCENES].tdef;
+    if (t[1] > 1)
+        rfmv_seq_lock_set(m, clip, abs, RFM_MOVE_TRIG_RATCHET, t[1]);
+    if (t[2] < 100)
+        rfmv_seq_lock_set(m, clip, abs, RFM_MOVE_TRIG_CHANCE, t[2]);
+    if (t[3])
+        rfmv_seq_lock_set(m, clip, abs, RFM_MOVE_TRIG_COND, t[3]);
+    if (t[4]) {
+        rfmv_seq_lock_set(m, clip, abs, RFM_MOVE_TRIG_FUNC, t[4]);
+        if (t[4] == RFM_MOVE_FN_LEAP)
+            rfmv_seq_lock_set(m, clip, abs, RFM_MOVE_TRIG_LEAP, t[5]);
+        else if (t[4] == RFM_MOVE_FN_JUMP)
+            rfmv_seq_lock_set(m, clip, abs, RFM_MOVE_TRIG_JUMP, t[6]);
+    }
+    if (entry && (t[0] != 12 || t[7] != 4)) {
+        int lo, hi = rfmv_seq_range(m, clip, abs, &lo), i, n = hi - lo;
+        rfm_move_note_t nn[RFM_MOVE_SEQ_POLY];
+        for (i = 0; i < n && i < RFM_MOVE_SEQ_POLY; i++)
+            nn[i] = m->seq.notes[lo + i];
+        for (i = 0; i < n && i < RFM_MOVE_SEQ_POLY; i++)
+            rfmv_seq_note_put(m, clip, abs, nn[i].note, nn[i].vel, LENS[t[7] < NLENS ? t[7] : 4], t[0] - 12);
+    }
+}
+
 int rfmv_seq_len_inf(int len) { return len >= LENS[NLENS - 1]; }
 
 static void trig_turn(rfm_move_t *m, int clip, int abs, int k, int d)
@@ -1472,8 +1562,11 @@ void rfmv_seq_knob(rfm_move_t *m, int k, int d, uint32_t now)
             return;
         if ((k == 3 || k == 4) && !(d = rfmv_list_ticks(m, k, d)))
             return;                                     /* (COND, FUNC: lists, one item a few ticks) */
-        if (!q->step_held)
-            rfmv_seq_group(m);                          /* (held steps: the hold's group) */
+        if (!q->step_held) {                            /* none held: the track's defaults for new steps (the
+                                                         * owner's: steps already there keep theirs) */
+            tdef_turn(m, k, d);
+            return;
+        }
         if (q->step_held) {
             for (s = 0; s < RFM_MOVE_NSTEPS; s++)
                 if (q->step_held >> s & 1) {

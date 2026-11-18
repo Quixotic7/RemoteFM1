@@ -16,6 +16,8 @@
  *      (version 2) 256 loop starts (lstart + length <= 256), 32 bytes of clips-made bits, 16 track rates,
  *      16 grooves (0..150 %), 16 arps x { pattern, rate, range 1..8, chance 0..100, mode, gate 2..200, odist -24..24 },
  *      16 x { the pads' layout 0..3, 4 banks x 8 knobs' CC numbers 0..127 }
+ *      (version 3) 16 x { own, root, scale, solo }  (version 4) 16 x the TRIG defaults { micro + 12, ratchet,
+ *      chance, condition, function, leap + 15, jump, length index }
  *      FNV-1a (32 bit) of everything before it */
 #include <string.h>
 
@@ -88,6 +90,8 @@ int rfm_move_project_save(rfm_move_t *m, uint8_t *out, uint32_t cap)
         p[0] = q->tr[i].layout, memcpy(p + 1, q->tr[i].cc, sizeof q->tr[i].cc);
     for (i = 0; i < RFM_MOVE_SEQ_TRACKS; i++, p += 4)
         p[0] = q->tr[i].own, p[1] = q->tr[i].root, p[2] = q->tr[i].scale, p[3] = q->tr[i].solo;
+    for (i = 0; i < RFM_MOVE_SEQ_TRACKS; i++, p += 8)
+        memcpy(p, q->tr[i].tdef, 8);
     w32(p, fnv(out, (uint32_t)(p - out)));
     p += 4;
     return (int)(p - out);
@@ -120,7 +124,7 @@ static int parse(const uint8_t *b, uint32_t n, rfm_move_seq_t *q)
     ver = b[4];
     if (ver < 1 || ver > RFM_MOVE_PROJECT_VERSION)
         return -2;
-    ext = ver >= 3 ? RFM_MOVE_PROJECT_EXT : ver == 2 ? RFM_MOVE_PROJECT_EXT_V2 : 0;
+    ext = ver >= 4 ? RFM_MOVE_PROJECT_EXT : ver == 3 ? RFM_MOVE_PROJECT_EXT_V3 : ver == 2 ? RFM_MOVE_PROJECT_EXT_V2 : 0;
     ab = ver >= 3 ? RFM_MOVE_ARP_BYTES : RFM_MOVE_ARP_BYTES_V2;   /* (an arp's bytes) */
     fixed = RFM_MOVE_PROJECT_FIXED - RFM_MOVE_PROJECT_EXT + ext;
     if (n < fixed)
@@ -199,6 +203,13 @@ static int parse(const uint8_t *b, uint32_t n, rfm_move_seq_t *q)
                 if (o[0] > 3 || o[1] > 11 || o[2] >= RFM_MOVE_NSCALES || o[3] > 1)
                     return -9;
             }
+        if (ver >= 4)
+            for (i = 0; i < RFM_MOVE_SEQ_TRACKS; i++) { /* (the trig defaults) */
+                const uint8_t *d = x + RFM_MOVE_PROJECT_EXT_V3 + i * 8;
+                if (d[0] > 23 || d[1] < 1 || d[1] > 8 || d[2] < 1 || d[2] > 100 || d[3] >= RFM_MOVE_COND_N ||
+                    d[4] >= RFM_MOVE_FN_N || d[5] > 30 || d[7] >= RFM_MOVE_TRIG_NLENS)
+                    return -9;
+            }
         for (i = 0; i < RFM_MOVE_SEQ_TRACKS; i++) {      /* (each track's layout and CC numbers) */
             const uint8_t *l = x + RFM_MOVE_SEQ_CLIPS + RFM_MOVE_SEQ_CLIPS / 8 + RFM_MOVE_SEQ_TRACKS * (2 + ab) +
                                i * (1 + RFM_MOVE_NBANKS * RFM_MOVE_NKNOBS);
@@ -260,6 +271,9 @@ static int parse(const uint8_t *b, uint32_t n, rfm_move_seq_t *q)
                 const uint8_t *o = x + RFM_MOVE_PROJECT_EXT_V2 + (RFM_MOVE_ARP_BYTES - RFM_MOVE_ARP_BYTES_V2) * RFM_MOVE_SEQ_TRACKS + i * 4;
                 q->tr[i].own = o[0], q->tr[i].root = o[1], q->tr[i].scale = o[2], q->tr[i].solo = o[3];
             }
+        if (ver >= 4)
+            for (i = 0; i < RFM_MOVE_SEQ_TRACKS; i++)
+                memcpy(q->tr[i].tdef, x + RFM_MOVE_PROJECT_EXT_V3 + i * 8, 8);
     } else {                                            /* version 1: loops from step 1, clips with notes, 1/16 */
         memset(q->lstart, 0, sizeof q->lstart);
         memset(q->made, 0, sizeof q->made);
@@ -569,8 +583,11 @@ void rfmv_proj_input(rfm_move_t *m, const mr_event_t *ev, uint32_t now)
         if (ev->index == 0 && q->proj_held >= 0 && slot_full(m, q->proj_held)) {
             const int slot = q->proj_held, d = rfmv_list_ticks(m, 0, ev->value);
             int c;
-            if (!d)
+            if (!d) {                                   /* (not a whole colour yet: its screen at once) */
+                rfmv_pop(m, POP_PROJ, slot);
+                m->pop_val = 1;
                 return;
+            }
             c = ((proj_color(m, slot) - 1 + d) % RFM_MOVE_PROJ_COLORS + RFM_MOVE_PROJ_COLORS) % RFM_MOVE_PROJ_COLORS + 1;
             if (slot == q->proj_cur)
                 q->color = (uint8_t)c;

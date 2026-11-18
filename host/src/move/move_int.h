@@ -169,6 +169,10 @@ enum { SEQ_MSG_NONE = 0, SEQ_MSG_NOCLIP, SEQ_MSG_FULL, SEQ_MSG_LOADFAIL, SEQ_MSG
        SEQ_MSG_DUP, SEQ_MSG_CLEARED, SEQ_MSG_CAPCLEAR, SEQ_MSG_CLK_AUTO, SEQ_MSG_CLK_INT, SEQ_MSG_CLK_EXT,
        SEQ_MSG_FULLVEL_ON, SEQ_MSG_FULLVEL_OFF, SEQ_MSG_METRO_ON, SEQ_MSG_METRO_OFF, SEQ_MSG_NEWCLIP };
 void rfmv_seq_ui_release(rfm_move_t *m);
+#define RFM_MOVE_TRIG_NLENS 17                         /* the TRIG page's lengths (seq_ui.c LENS) */
+void rfmv_seq_tdef_default(uint8_t tdef[8]);           /* the TRIG page's defaults: as a step has none */
+int rfmv_seq_tdef_val(const rfm_move_t *m, int k);     /* the selected track's default for TRIG knob k (trig_val's units) */
+void rfmv_seq_tdef_apply(rfm_move_t *m, int clip, int abs, int entry);   /* a new step: the defaults (entry: micro, length too) */
 int rfmv_seq_src_step(const rfm_move_t *m, int clip, int abs);   /* the clipboard's source: 1 copied, 2 cut, 0 */
 int rfmv_seq_src_clip(const rfm_move_t *m, int clip);
 int rfmv_seq_src_page(const rfm_move_t *m, int clip, int pg);   /* Loop mode's page clipboard: 1 copied, 2 cut */

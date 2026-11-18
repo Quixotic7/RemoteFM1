@@ -209,7 +209,7 @@ enum { RFM_MOVE_FN_NONE, RFM_MOVE_FN_RESTART, RFM_MOVE_FN_REVERSE, RFM_MOVE_FN_F
 #define RFM_MOVE_SEQ_BPM10_MIN 200                      /* 20.0 .. 300.0 BPM */
 #define RFM_MOVE_SEQ_BPM10_MAX 3000
 #define RFM_MOVE_PROJECTS 32
-#define RFM_MOVE_PROJECT_VERSION 3                      /* (versions 1 and 2 load too) */
+#define RFM_MOVE_PROJECT_VERSION 4                      /* (versions 1, 2 and 3 load too) */
 #define RFM_MOVE_AUTOSAVE_MS 2000                       /* an edited project is saved this long after the last edit */
 /* the blob: header 24, tracks 16 x 4, clip lengths 256 x 2, notes 2 + n x 7, locks 2 + n x 4, (version 2) loop
  * starts 256, clips made 32, track rates 16, grooves 16, arps 16 x 7, FNV-1a 4 */
@@ -218,7 +218,8 @@ enum { RFM_MOVE_FN_NONE, RFM_MOVE_FN_RESTART, RFM_MOVE_FN_REVERSE, RFM_MOVE_FN_F
 #define RFM_MOVE_ARP_BYTES (RFM_MOVE_ARP_BYTES_V2 + 4 + 2 * RFM_MOVE_ARP_LANE)   /* + quant reset mlen tlen, the lanes */
 #define RFM_MOVE_PROJECT_EXT_V2 (RFM_MOVE_SEQ_CLIPS + RFM_MOVE_SEQ_CLIPS / 8 + \
                                  RFM_MOVE_SEQ_TRACKS * (2 + RFM_MOVE_ARP_BYTES_V2 + 1 + RFM_MOVE_NBANKS * RFM_MOVE_NKNOBS))
-#define RFM_MOVE_PROJECT_EXT (RFM_MOVE_PROJECT_EXT_V2 + RFM_MOVE_SEQ_TRACKS * (RFM_MOVE_ARP_BYTES - RFM_MOVE_ARP_BYTES_V2 + 4))
+#define RFM_MOVE_PROJECT_EXT_V3 (RFM_MOVE_PROJECT_EXT_V2 + RFM_MOVE_SEQ_TRACKS * (RFM_MOVE_ARP_BYTES - RFM_MOVE_ARP_BYTES_V2 + 4))
+#define RFM_MOVE_PROJECT_EXT (RFM_MOVE_PROJECT_EXT_V3 + RFM_MOVE_SEQ_TRACKS * 8)   /* + the trig defaults (version 4) */
 #define RFM_MOVE_PROJECT_FIXED (24 + RFM_MOVE_SEQ_TRACKS * 4 + RFM_MOVE_SEQ_CLIPS * 2 + 2 + 2 + RFM_MOVE_PROJECT_EXT + 4)
 #define RFM_MOVE_PROJECT_MAX (RFM_MOVE_PROJECT_FIXED + RFM_MOVE_SEQ_NOTES * 7 + RFM_MOVE_SEQ_LOCKS * 4)
 enum { RFM_MOVE_CLOCK_AUTO = 0, RFM_MOVE_CLOCK_INTERNAL = 1, RFM_MOVE_CLOCK_EXTERNAL = 2 };
@@ -249,6 +250,9 @@ typedef struct {
                                                          * (else the project's: Global) */
     uint8_t root, scale;                                /* (saved) its own key and scale */
     uint8_t solo;                                       /* (saved) */
+    uint8_t tdef[8];                                    /* (saved, version 4) the TRIG page's defaults for new steps:
+                                                         * micro + 12, ratchet 1..8, chance 1..100, condition, function,
+                                                         * leap + 15, jump step, length (an index of the TRIG lengths) */
     uint8_t cc[RFM_MOVE_NBANKS][RFM_MOVE_NKNOBS];       /* (saved) its knobs' CC numbers, bank by bank */
     int32_t t0;                                         /* the song tick the active clip started at */
     /* the playhead (the engine's) */

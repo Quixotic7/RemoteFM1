@@ -525,6 +525,7 @@ void rfmv_seq_project_clear(rfm_move_t *m)
         q->tr[t].rate = RFM_MOVE_SEQ_RATE_16, q->tr[t].pos = q->tr[t].next = -1, q->tr[t].dir = 1;
         rfmv_seq_arp_default(&q->tr[t].arp);
         q->tr[t].layout = RFM_MOVE_LAYOUT_SCALE;
+        rfmv_seq_tdef_default(q->tr[t].tdef);
         {
             rfm_move_settings_t d;
             rfm_move_settings_default(&d);
@@ -1602,7 +1603,13 @@ static void rec_start_note(rfm_move_t *m, int pad, int clip, int step, int micro
     rfm_move_recnote_t *r = &q->recn[pad];
     const uint16_t g = q->group;
     q->group = q->rec_group;
-    rfmv_seq_note_put(m, clip, step, note, vel, TPS, micro);   /* (its length at the release) */
+    {
+        int lo;
+        const int e = rfmv_seq_range(m, clip, step, &lo) == lo;
+        rfmv_seq_note_put(m, clip, step, note, vel, TPS, micro);   /* (its length at the release) */
+        if (e)
+            rfmv_seq_tdef_apply(m, clip, step, 0);     /* (a new step: the track's default trigs) */
+    }
     q->group = g;
     {
         const int i = rfmv_seq_find(m, clip, step, note);
@@ -1737,7 +1744,8 @@ void rfmv_seq_sample(rfm_move_t *m)
 /* ---- Capture (Move's): the last phrase played on the pads becomes a clip on the selected track */
 typedef struct { int32_t on, off; uint8_t note, vel; } cnote_t;
 
-/* the tempo a phrase was played at (BPM x 10, 70..180), from its onsets (timeline ticks at bpm10) */
+/* the tempo a phrase was played at (BPM x 10, 70..140: Move's range, so no octave errors), from its onsets
+ * (timeline ticks at bpm10) */
 static int detect_bpm10(const cnote_t *c, int n, int bpm10)
 {
     double ms[RFM_MOVE_SEQ_CAPTURE], best = 1e18, ioi = 0;
@@ -1759,7 +1767,7 @@ static int detect_bpm10(const cnote_t *c, int n, int bpm10)
             }
         ioi = k ? g[k / 2] : 0;
     }
-    for (b = 700; b <= 1800; b += 5) {
+    for (b = 700; b <= 1400; b += 5) {
         const double s16 = 150000.0 / b;
         double e = 0, nb, d;
         for (i = 0; i < n; i++) {
@@ -1784,7 +1792,9 @@ static int detect_bpm10(const cnote_t *c, int n, int bpm10)
         if (skk > 0 && sk > 0)
             best_b = (int)(150000.0 / (sk / skk) + 0.5);
     }
-    return clampi(best_b, 700, 1800);
+    while (best_b > 1400)
+        best_b /= 2;                                    /* (the least squares past 140: half) */
+    return clampi(best_b, 700, 1400);
 }
 
 int rfmv_seq_capture(rfm_move_t *m)
