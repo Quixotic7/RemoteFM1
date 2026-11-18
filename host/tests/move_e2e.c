@@ -190,7 +190,7 @@ int main(int argc, char **argv)
     rfm_move_screen(&g_m, lcd, frame);
     CHECK(mr_display(c, frame) == 0, "screen sent");
     CHECK(shot_matches(dir, fifo, c, frame), "the simulator shows our frame, pixel for pixel");
-    for (tries = 0; tries < 40 && !state_has(dir, "led_pending=0 "); tries++)
+    for (tries = 0; tries < 160 && !(state_has(dir, "led_pending=0 ") && state_has(dir, "drew=1")); tries++)
         pump(c, -1, 25);
     CHECK(state_has(dir, "drew=1") && state_has(dir, "led_pending=0 ") && state_has(dir, "host=rfm_move e2e"),
           "simulator state: our host, the screen drawn, every LED write taken");
@@ -253,7 +253,7 @@ int main(int argc, char **argv)
         rfm_move_screen(&g_m, NULL, frame);
         mr_display(c, frame);
         CHECK(shot_matches(dir, fifo, c, frame), "the sequencer's screen shown");
-        for (tries = 0; tries < 40 && !state_has(dir, "led_pending=0 "); tries++)
+        for (tries = 0; tries < 160 && !(state_has(dir, "led_pending=0 ") && state_has(dir, "drew=1")); tries++)
             pump(c, -1, 25);
         CHECK(state_has(dir, "led_pending=0 "), "every LED write taken");
         g_nact = 0;

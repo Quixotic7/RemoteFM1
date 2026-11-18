@@ -12,7 +12,7 @@ typedef struct { uint8_t r, g, b; } rfmv_rgb_t;
 
 enum { H_NONE = 0, H_KEY, H_BTN, H_NOTE, H_MENU, H_SEQ, H_ARP };
 /* the LED list (rfm_move_leds): pads, steps, the RGB CC LEDs, then the 13 white ones (WHITE_CC order) */
-enum { L_PAD0 = 0, L_STEP0 = 32, L_PLAY = 48, L_REC, L_SAMPLE, L_TRACK0, L_RING0 = 55, L_WHITE0 = 63 };
+enum { L_PAD0 = 0, L_STEP0 = 32, L_PLAY = 48, L_REC, L_SAMPLE, L_TRACK0, L_RING0 = 55, L_WHITE0 = 63, L_ICON0 = 76 };
 enum { W_SHIFT, W_MENU, W_BACK, W_CAPTURE, W_DOWN, W_UP, W_UNDO, W_LOOP, W_COPY, W_LEFT, W_RIGHT, W_MUTE, W_DELETE };
 
 extern const uint8_t rfmv_scales[RFM_MOVE_NSCALES][8];   /* [0] = length */
@@ -27,7 +27,8 @@ rfmv_rgb_t rfmv_add(rfmv_rgb_t a, rfmv_rgb_t b);
 rfmv_rgb_t rfmv_midi_pad(const rfm_move_t *m, int p, rfmv_rgb_t mode);
 rfmv_rgb_t rfmv_layout_pad(const rfm_move_t *m, int p, rfmv_rgb_t mode);   /* .. as if not pressed */
 int rfmv_track_held(const rfm_move_t *m, int t);
-int rfmv_half(const rfm_move_t *m);                    /* FM-1 mode, MIDI's NOTES: left-half popups, turn-only knob ones */
+int rfmv_half(const rfm_move_t *m);
+int rfmv_hold_shown(const rfm_move_t *m, int t);       /* Track t's hold screen is due (held long enough, or used) */                    /* FM-1 mode, MIDI's NOTES: left-half popups, turn-only knob ones */
 int rfmv_seq_trk_held(const rfm_move_t *m);            /* the sequencer: Track 4 held (the tracks, the track's settings) */
 
 /* actions (stamped with m->seq.frame) */
@@ -171,6 +172,7 @@ int rfmv_seq_button(rfm_move_t *m, int cc, int down, uint32_t now);   /* 1 taken
 int rfmv_seq_volume(rfm_move_t *m, int d);             /* the volume knob: 1 taken (a step held: velocity) */
 void rfmv_seq_knob(rfm_move_t *m, int k, int d, uint32_t now);
 void rfmv_seq_jog(rfm_move_t *m, int d, uint32_t now);
+void rfmv_shift_icons(const rfm_move_t *m, uint8_t icon[16]);   /* the Shift layer's icon LEDs (0 off) */
 void rfmv_seq_leds(const rfm_move_t *m, rfmv_rgb_t c[L_WHITE0], uint8_t white[13]);
 void rfmv_seq_screen(const rfm_move_t *m, mr_canvas_t *cv);
 void rfmv_seq_track_menu(const rfm_move_t *m, mr_canvas_t *cv);   /* Track 4 held */

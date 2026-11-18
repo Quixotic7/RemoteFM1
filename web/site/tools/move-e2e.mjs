@@ -216,7 +216,7 @@ try {
   await press("note 68 0", 250);
   const midi = await js("window.__midi");
   ok(midi.length === 2 && midi[0].join() === "144,48,100" && midi[1].join() === "128,48,0", `MIDI mode: pad 0 sends C3 on and off to the firmware's MIDI in (${JSON.stringify(midi)})`);
-  await sleep(200);
+  await sleep(500);                       // (the tap's full-screen "MIDI" name gone: 1 s)
   s = await shotMatches();
   const midiTop = s.bits.slice(0, 15).flat().reduce((a, b) => a + b, 0);   // (the top row of the pad map)
   ok(s.lit > 50 && s.same && midiTop > 0, `MIDI mode: the Move's screen shows it, as the page sent it (try ${s.tries})`);

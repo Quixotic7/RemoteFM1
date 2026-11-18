@@ -192,6 +192,7 @@ int rfmv_pop_up(const rfm_move_t *m, int kind)
  * frac 0..1000 fills the bar from the left; centred (an FM-1 encoder's relative turn): -1000..1000 from the middle */
 /* FM-1 mode: popups keep to the left half, so the FM-1's screen (the right half) stays in view */
 static int g_half;
+static int g_full;                                      /* (a popup over the whole screen: nothing drawn back) */
 
 /* the left-half knob popup: the label (2x when it fits, else 1x), the value at 2x, the bar */
 static void knob_popup_half(mr_canvas_t *cv, const char *label, const char *value, const char *unit, int frac,
@@ -652,10 +653,24 @@ static void popups(const rfm_move_t *m, mr_canvas_t *cv)
             rfmv_frame(cv, 2, 2, 124, 60);
             rfmv_seq_track_glyph(m, cv, 10, 12, 8);
             rfmv_big(cv, 56, 22, b, 2, 1);
-        } else if (m->pop == POP_MODE) {                /* a Track button tapped: the mode (or its screen) named */
+        } else if (m->pop == POP_MODE) {                /* a Track button tapped: the mode (or its screen) named, the
+                                                         * whole screen, no frame: as big as it fits, centred */
             static const char *const MODES[4] = { "FM-1", "MIDI", "CONTROL", "SEQUENCER" };
             static const char *const VIEWS[RFM_MOVE_MV_N] = { "PADS", "NOTES" };
-            message_popup(cv, m->pop_i < 4 ? MODES[m->pop_i] : VIEWS[(m->pop_i - 10) % RFM_MOVE_MV_N]);
+            const char *w = m->pop_i < 4 ? MODES[m->pop_i] : VIEWS[(m->pop_i - 10) % RFM_MOVE_MV_N];
+            int k;
+            mr_gfx_clear(cv, 0);
+            for (k = 4; k > 1 && rfmv_big_w(w, k) > 126; k--) {}
+            if (rfmv_big_w(w, k) <= 126)
+                rfmv_big(cv, 64 - rfmv_big_w(w, k) / 2, 32 - 7 * k / 2, w, k, 1);
+            else {                                      /* (two lines) */
+                char a[16];
+                const char *sp = strchr(w, ' ');
+                snprintf(a, sizeof a, "%.*s", sp ? (int)(sp - w) : (int)strlen(w) / 2, w);
+                big_mid(cv, 64, 14, a, 2, 1);
+                big_mid(cv, 64, 36, sp ? sp + 1 : w + strlen(a), 2, 1);
+            }
+            g_full = 1;
         } else if (m->pop == POP_BAR) {                   /* Move's "Bar 2" (a ghost page), over the page strip */
             char b[12];
             snprintf(b, sizeof b, "BAR %d", m->pop_i + 1);
@@ -958,6 +973,10 @@ static void thumb_from(rfm_move_t *m, const uint16_t *px)
 int rfm_move_screen_timed(const rfm_move_t *m)
 {
     const rfm_move_seq_t *q = &m->seq;
+    int t;
+    for (t = 0; t < 4; t++)                             /* (a Track button held, its screen not yet due) */
+        if (rfmv_track_held(m, t) && !rfmv_hold_shown(m, t))
+            return 1;
     return q->playing || q->start_pending || rfmv_seq_msg_text(m) != NULL || (m->pop && rfmv_pop_up(m, m->pop)) ||
            (q->projects && q->proj_pending >= 0);
 }
@@ -969,7 +988,8 @@ void rfm_move_screen(rfm_move_t *m, const uint16_t *rgb565, uint8_t out[MR_SCREE
     if (rgb565)
         thumb_from(m, rgb565);
     mr_gfx_clear(&cv, 0);
-    for (t = 1; t < 4 && !rfmv_track_held(m, t); t++) {}   /* (Track 1 has no menu: FM-1 mode stays in view) */
+    for (t = 1; t < 4 && !rfmv_hold_shown(m, t); t++) {}   /* (Track 1 has no menu: FM-1 mode stays in view; a tap:
+                                                         * nothing of a hold screen) */
     if (t < 4) {
         held_menu(m, &cv, t);
         mr_gfx_pack(&cv, out);
@@ -1001,7 +1021,7 @@ void rfm_move_screen(rfm_move_t *m, const uint16_t *rgb565, uint8_t out[MR_SCREE
         for (y = 0; y < 64; y++)
             for (x = 0; x < 64; x++)
                 cv.px[y][64 + x] = m->thumb[y][x];
-        if (rfmv_track_held(m, 0)) {                    /* Track 1 held: the Shift layer, a badge on the left */
+        if (rfmv_hold_shown(m, 0)) {                    /* Track 1 held: the Shift layer, a badge on the left */
             mr_gfx_rect(&cv, 0, 0, 40, 11, 1, 1);
             fill(&cv, 3, 6, 7, 1, 0), fill(&cv, 4, 5, 5, 1, 0), fill(&cv, 5, 4, 3, 1, 0), fill(&cv, 6, 3, 1, 1, 0);
             fill(&cv, 5, 7, 3, 2, 0);                   /* (an up arrow) */
@@ -1009,9 +1029,9 @@ void rfm_move_screen(rfm_move_t *m, const uint16_t *rgb565, uint8_t out[MR_SCREE
         }
         break;
     }
-    g_half = rfmv_half(m);
+    g_half = rfmv_half(m), g_full = 0;
     popups(m, &cv);
-    if (g_half) {                                       /* (any wider popup: the FM-1's screen drawn back over it) */
+    if (g_half && !g_full) {                                       /* (any wider popup: the FM-1's screen drawn back over it) */
         for (y = 0; y < 64; y++)
             for (x = 0; x < 64; x++)
                 cv.px[y][64 + x] = m->thumb[y][x];

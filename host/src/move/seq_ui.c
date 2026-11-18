@@ -38,6 +38,25 @@ static int sh_menu(int s)                               /* the menu a Shift + st
     default: return 0;
     }
 }
+/* the icons under the steps while the Shift layer is on (Shift held or locked in the sequencer, Track 1 held in
+ * FM-1 mode): every step with a shortcut dim, the ones on (a toggle, its menu open) full; off otherwise */
+void rfmv_shift_icons(const rfm_move_t *m, uint8_t icon[16])
+{
+    const rfm_move_seq_t *q = &m->seq;
+    int i;
+    memset(icon, 0, 16);
+    if (!((m->s.mode == RFM_MOVE_MODE_SEQ && (q->mods & SEQ_M_SHIFT)) ||
+          (m->s.mode == RFM_MOVE_MODE_FM1 && rfmv_track_held(m, 0))))
+        return;
+    for (i = 0; i < RFM_MOVE_NSTEPS; i++) {
+        const int job = i == SH_PROJECTS || i == SH_CLOCK || i == SH_FIXVEL || i == SH_DOUBLE || i == SH_QUANT ||
+                        i == SH_METRO || i == SH_NEWCLIP || sh_menu(i);
+        const int on = (i == SH_FIXVEL && q->fixed_vel) || (i == SH_METRO && q->metro) || (i == SH_CLOCK && q->following) ||
+                       (i == SH_PROJECTS && q->projects) || (sh_menu(i) && sh_menu(i) == q->smenu);
+        icon[i] = (uint8_t)(!job ? 0 : on ? 127 : 24);
+    }
+}
+
 static int sh_step(int menu)
 {
     static const int8_t S[] = { -1, SH_WORKFLOW, SH_TEMPO, SH_GROOVE, SH_LAYOUT, SH_KEYS, SH_ARP };

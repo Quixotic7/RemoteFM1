@@ -184,12 +184,6 @@ static void test_buttons_knobs(void)
         rfm_move_set_mode(&m, mode);
         for (i = 0; i < 14; i++) {
             clear();
-            if (mode == RFM_MOVE_MODE_MIDI && B[i].cc == MR_CC_SHIFT) {   /* (MIDI mode: Shift is the Move's own:
-                                                         * Shift + step 9) */
-                button(&m, B[i].cc, 1), button(&m, B[i].cc, 0);
-                CHECK(nact == 0);
-                continue;
-            }
             button(&m, B[i].cc, 1);
             CHECKF(nact == 1 && has(RFM_MOVE_ACT_BTN, B[i].b, 1, 0), "mode %d cc %d", mode, B[i].cc);
             button(&m, B[i].cc, 1);                     /* (a repeat: nothing) */
@@ -905,23 +899,38 @@ static void test_midi_round(void)
     track(&m, 1, 1), track(&m, 1, 0);
     CHECK(m.s.mode == RFM_MOVE_MODE_MIDI && m.pop == POP_MODE && m.pop_i == RFM_MOVE_MODE_MIDI);
     rfm_move_screen(&m, NULL, out);
-    CHECK(px_at(out, 2, 2));                            /* (the full-width message) */
+    write_pbm("move_mode_midi.pbm", out);
+    for (d = 0, y = 0; y < 64; y++)
+        for (x = 0; x < 128; x++)
+            d += px_at(out, x, y) && (y < 14 || y > 50);
+    CHECK(!px_at(out, 2, 2) && !px_at(out, 0, 0) && d == 0 && px_at(out, 64 - 46, 18 + 1));   /* (the whole screen, no
+                                                         * frame: "MIDI" at 4x, centred) */
     ms(&m, RFM_MOVE_POPUP_MS);
     track(&m, 2, 1), now_ms += 500, track(&m, 2, 0);    /* Track 3 held: Control mode, no popup */
     CHECK(m.s.mode == RFM_MOVE_MODE_CONTROL && m.pop != POP_MODE);
-    track(&m, 0, 1), track(&m, 0, 0);                   /* FM-1: "FM-1" on the left half, the FM-1's screen right */
+    m.thumb[10][10] = 1;                                /* (a lit pixel on the FM-1's screen: covered by the popup) */
+    track(&m, 0, 1), track(&m, 0, 0);                   /* FM-1: "FM-1" over the whole screen too */
     CHECK(m.pop == POP_MODE && m.pop_i == 0);
     rfm_move_screen(&m, NULL, out);
-    for (d = 0, y = 0; y < 64; y++)
-        for (x = 0; x < 64; x++)
-            d += px_at(out, 64 + x, y) != m.thumb[y][x];
-    CHECK(d == 0 && px_at(out, 0, 0));
+    CHECK(!px_at(out, 64 + 10, 10) && !px_at(out, 0, 0));
+    ms(&m, RFM_MOVE_POPUP_MS);
+    rfm_move_screen(&m, NULL, out);
+    CHECK(px_at(out, 64 + 10, 10));                     /* (then the FM-1's screen again) */
+    m.thumb[10][10] = 0;
     track(&m, 1, 1), track(&m, 1, 0);
     ms(&m, RFM_MOVE_POPUP_MS);
-    /* Shift + step 9: Keys & Scales (the Track 2 menu's picture); the scale pads cyan; Back closes it */
+    /* MIDI mode has no Shift shortcuts (the owner's): Shift + step 9 is the FM-1's GLO and nothing else */
     clear();
     button(&m, MR_CC_SHIFT, 1), step(&m, 8, 1), step(&m, 8, 0), button(&m, MR_CC_SHIFT, 0);
-    CHECK(m.mmenu && nact == 0);                        /* (nothing to the FM-1: no GLO) */
+    CHECK(!m.mmenu && has(RFM_MOVE_ACT_BTN, RFM_MOVE_B_GLO, 1, 0));
+    /* the scale: Track 2 held, row 2's pads (cyan); its hold screen only once held 300 ms, or used */
+    clear();
+    track(&m, 1, 1);
+    rfm_move_screen(&m, NULL, out);
+    CHECK(!px_at(out, 1, 0) && rfm_move_screen_timed(&m));   /* (not yet: the pad map; the host draws again) */
+    ms(&m, RFM_MOVE_TAP_MS);
+    rfm_move_screen(&m, NULL, out);
+    CHECK(px_at(out, 1, 0));                            /* (held: the menu's layout tabs) */
     pad(&m, 17, 100), pad(&m, 17, 0);                   /* minor */
     rfm_move_screen(&m, NULL, out);
     write_pbm("move_midi_keys.pbm", out);
@@ -935,9 +944,14 @@ static void test_midi_round(void)
             CHECK(leds[i].r == 0 && leds[i].b == 255);  /* (the current scale's pad: cyan, full) */
         else if (!leds[i].cc && leds[i].number == MR_NOTE_PAD0 + 16)
             CHECK(leds[i].r == 0 && leds[i].b > 20 && leds[i].b < 100);
-    button(&m, MR_CC_BACK, 1), button(&m, MR_CC_BACK, 0);
-    CHECK(!m.mmenu && m.s.mode == RFM_MOVE_MODE_MIDI);
+    track(&m, 1, 0);                                    /* (used: no tap on its release) */
+    CHECK(m.s.mode == RFM_MOVE_MODE_MIDI && m.s.midi_view == RFM_MOVE_MV_PADS);
     rfm_move_set_scale(&m, RFM_MOVE_SCALE_MAJOR, 0);
+    track(&m, 2, 1), track(&m, 2, 0);                   /* a quick click on Track 3: its hold screen never drawn */
+    rfm_move_screen(&m, NULL, out);
+    CHECK(m.s.mode == RFM_MOVE_MODE_CONTROL && m.pop == POP_MODE && !px_at(out, 1, 1));
+    track(&m, 1, 1), track(&m, 1, 0);
+    ms(&m, RFM_MOVE_POPUP_MS);
     /* Track 2 tapped in MIDI mode: NOTES (named); the notes held and their chord on the left, the FM-1's screen
      * right; a knob's popup on the left half while turning only */
     track(&m, 1, 1), track(&m, 1, 0);
@@ -996,6 +1010,9 @@ static void test_fm1_shift_layer(void)
     CHECK(nact == 1 && has(RFM_MOVE_ACT_KEY, 0, 1, 0));
     pad(&m, 16, 0);
     rfm_move_screen(&m, NULL, out);
+    CHECK(!px_at(out, 0, 0));                           /* (the badge: not before 300 ms, or a use) */
+    ms(&m, RFM_MOVE_TAP_MS);
+    rfm_move_screen(&m, NULL, out);
     CHECK(px_at(out, 0, 0) && px_at(out, 39, 10));      /* the Shift layer's badge */
     for (d = 0, y = 0; y < 64; y++)
         for (x = 0; x < 64; x++)
@@ -1009,11 +1026,36 @@ static void test_fm1_shift_layer(void)
             CHECK(leds[i].r > 0);                       /* (step 6: Metronome, lit) */
         else if (!leds[i].cc && leds[i].number == MR_NOTE_STEP0 + 3)
             CHECK(leds[i].r == 0);                      /* (step 4: nothing) */
+    for (i = 0; i < n; i++)                             /* the icons under the steps: a shortcut dim, none off */
+        if (leds[i].cc && leds[i].number == MR_CC_STEP_ICON0 + 5)
+            CHECK(!leds[i].rgb && leds[i].r == 24);
+        else if (leds[i].cc && leds[i].number == MR_CC_STEP_ICON0 + 3)
+            CHECK(leds[i].r == 0);
     clear();
     step(&m, 5, 1), step(&m, 5, 0);                     /* Shift + step 6: the metronome */
     CHECK(m.seq.metro && count(RFM_MOVE_ACT_KEY) == 0);
+    {   /* written on change only: the metronome's icon full now, nothing else */
+        int k = 0;
+        n = rfm_move_leds(&m, leds, RFM_MOVE_NLEDS);
+        for (i = 0; i < n; i++)
+            if (leds[i].cc && leds[i].number == MR_CC_STEP_ICON0 + 5) {
+                k++;
+                CHECK(leds[i].r == 127);
+            } else if (leds[i].cc && leds[i].number >= MR_CC_STEP_ICON0 && leds[i].number < MR_CC_STEP_ICON0 + 16)
+                k += 100;
+        CHECK(k == 1);
+    }
     step(&m, 6, 1), step(&m, 6, 0);                     /* Shift + step 7: Groove's menu */
+    rfm_move_leds(&m, leds, RFM_MOVE_NLEDS);
     track(&m, 0, 0);
+    {   /* Track 1 let go: every icon off (and the step pads' own LEDs, notes 16..31, untouched by them) */
+        int k = 0, on = 0;
+        n = rfm_move_leds(&m, leds, RFM_MOVE_NLEDS);
+        for (i = 0; i < n; i++)
+            if (leds[i].cc && leds[i].number >= MR_CC_STEP_ICON0 && leds[i].number < MR_CC_STEP_ICON0 + 16)
+                k++, on += leds[i].r != 0;
+        CHECK(k == 13 && on == 0);
+    }
     CHECK(m.seq.smenu == RFM_MOVE_SM_GROOVE && m.s.mode == RFM_MOVE_MODE_FM1 && m.pop != POP_MODE);
     clear();
     jog(&m, 2);                                         /* (the menu's: the groove, not SELECT) */
@@ -1041,6 +1083,29 @@ static void test_fm1_shift_layer(void)
     CHECK(!m.seq.projects);
     /* a quick tap on Track 1 from another mode: FM-1 mode, named */
     track(&m, 1, 1), track(&m, 1, 0);
+    button(&m, MR_CC_SHIFT, 1);                         /* (MIDI mode: no Shift layer, no icons) */
+    {
+        uint8_t ic[16];
+        rfmv_shift_icons(&m, ic);
+        for (i = 0; i < 16; i++)
+            CHECK(ic[i] == 0);
+    }
+    button(&m, MR_CC_SHIFT, 0);
+    track(&m, 3, 1), track(&m, 3, 0);                   /* the sequencer: Shift held, or locked: the icons */
+    button(&m, MR_CC_SHIFT, 1);
+    {
+        uint8_t ic[16];
+        rfmv_shift_icons(&m, ic);
+        CHECK(ic[0] == 24 && ic[3] == 0 && ic[5] == 127 && ic[15] == 24);   /* (the metronome on: full) */
+        button(&m, MR_CC_SHIFT, 0);
+        rfmv_shift_icons(&m, ic);
+        CHECK(ic[0] == 0 && ic[5] == 0);
+        now_ms += 1000;
+        button(&m, MR_CC_SHIFT, 1), button(&m, MR_CC_SHIFT, 0), button(&m, MR_CC_SHIFT, 1), button(&m, MR_CC_SHIFT, 0);
+        rfmv_shift_icons(&m, ic);
+        CHECK(m.seq.shift_lock && ic[0] == 24);
+        button(&m, MR_CC_BACK, 1), button(&m, MR_CC_BACK, 0);
+    }
     track(&m, 0, 1), track(&m, 0, 0);
     CHECK(m.s.mode == RFM_MOVE_MODE_FM1 && m.pop == POP_MODE && m.pop_i == 0);
     clear();

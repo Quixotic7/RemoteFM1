@@ -26,7 +26,7 @@ export const CLOCK = { AUTO: 0, INT: 1, EXT: 2 };
 export const PROJECTS = 32, PROJECT_MAX = 39072;   // (RFM_MOVE_PROJECT_MAX, version 3 blobs)
 export const MODE = { FM1: 0, MIDI: 1, CONTROL: 2, SEQ: 3 };
 export const MODE_NAMES = ["FM-1", "MIDI", "Control", "Sequencer"];
-export const SCREEN_BYTES = 1024, SETTINGS_BYTES = 78, NLEDS = 76, POPUP_MS = 1000;   // (RFM_MOVE_POPUP_MS: a popup stays this long)
+export const SCREEN_BYTES = 1024, SETTINGS_BYTES = 78, NLEDS = 92, POPUP_MS = 1000;   // (RFM_MOVE_POPUP_MS: a popup stays this long)
 const ACT_BYTES = 10, LED_BYTES = 6;
 // pressure 0..127 as key_lean 0..100 (move.h rfm_move_lean)
 export const lean = (p) => Math.floor((Math.max(0, Math.min(127, p | 0)) * 100 + 63) / 127);

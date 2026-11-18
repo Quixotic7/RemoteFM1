@@ -127,7 +127,7 @@ typedef struct {
 /* every LED rfm_move drives: 32 pads and 16 steps (RGB note LEDs), 15 RGB CC LEDs (Play, Rec, Sample, Track 1..4,
  * knob rings 1..8), 13 white CC LEDs (Shift, Menu, Back, Capture, Down, Up, Undo, Loop, Copy, Left, Right, Mute,
  * Delete) */
-#define RFM_MOVE_NLEDS 76
+#define RFM_MOVE_NLEDS 92                               /* (the last 16: the white icon LEDs under the steps, CC 16..31) */
 
 /* ---- the sequencer (Track 4; host/src/move/README.md, "Sequencer") */
 #define RFM_MOVE_SEQ_TRACKS 16                          /* track n plays MIDI channel n by default */
@@ -397,6 +397,7 @@ typedef struct {
     int8_t knob_acc[RFM_MOVE_NKNOBS];                   /* FM-1 encoders: the ticks short of a detent (RFM_MOVE_KNOB_TICKS) */
     uint8_t mmenu;                                      /* MIDI mode's Keys & Scales menu is open */
     uint32_t tbtn_ms[4];                                /* a Track button's press (a tap: its release soon after) */
+    uint32_t tbtn_clk[4];                               /* .. on the popups' clock (its hold screen after RFM_MOVE_TAP_MS) */
     uint8_t tbtn_sw;                                    /* bits: that press changed the mode */
     /* the screen's popup (host/src/move/README.md, "The screen"): what it shows, for which control, and since when */
     uint8_t pop;                                        /* what (move_int.h POP_*), 0 none */

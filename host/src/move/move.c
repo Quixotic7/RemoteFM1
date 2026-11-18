@@ -364,6 +364,11 @@ int rfmv_pick_layout(rfm_move_t *m, int p)
 
 static int midi_mode(const rfm_move_t *m) { return m->s.mode != RFM_MOVE_MODE_FM1; }
 int rfmv_track_held(const rfm_move_t *m, int t) { return (m->track_held >> t) & 1; }
+/* a held Track button's screen (its menu) shows once it has been held RFM_MOVE_TAP_MS, or used, not on a tap */
+int rfmv_hold_shown(const rfm_move_t *m, int t)
+{
+    return rfmv_track_held(m, t) && (m->menu_what != MENU_NONE || rfmv_now_ms(m) - m->tbtn_clk[t] >= RFM_MOVE_TAP_MS);
+}
 int rfmv_half(const rfm_move_t *m)                     /* popups on the left half: the FM-1's screen on the right */
 {
     return m->s.mode == RFM_MOVE_MODE_FM1 || (m->s.mode == RFM_MOVE_MODE_MIDI && !m->mmenu && m->s.midi_view == RFM_MOVE_MV_NOTES);
@@ -469,12 +474,6 @@ static void on_step(rfm_move_t *m, int s, int down, uint32_t now)
     }
     if (h->kind != H_NONE)
         return;
-    if (m->s.mode == RFM_MOVE_MODE_MIDI && m->shift_down) {   /* Shift + step 9: Keys & Scales (again: closed) */
-        h->kind = H_MENU;
-        if (s == 8)
-            m->mmenu = (uint8_t)!m->mmenu;
-        return;
-    }
     if (track_held(m, 1)) {                             /* Track 2 held: steps 1..16 = the MIDI channel */
         h->kind = H_MENU;
         rfmv_menu(m, MENU_CHANNEL, s);
@@ -509,7 +508,7 @@ static void on_button(rfm_move_t *m, int cc, int down, uint32_t now)
             rfm_move_set_mode(m, t);
             rfmv_menu(m, MENU_NONE, 0);
             m->track_held = (uint8_t)(m->track_held | 1u << t);
-            m->tbtn_ms[t] = now, m->tbtn_sw = (uint8_t)(was != m->s.mode ? m->tbtn_sw | 1u << t : m->tbtn_sw & ~(1u << t));
+            m->tbtn_ms[t] = now, m->tbtn_clk[t] = rfmv_now_ms(m), m->tbtn_sw = (uint8_t)(was != m->s.mode ? m->tbtn_sw | 1u << t : m->tbtn_sw & ~(1u << t));
         } else if (m->track_held >> t & 1) {
             m->track_held = (uint8_t)(m->track_held & ~(1u << t));
             if (now - m->tbtn_ms[t] < RFM_MOVE_TAP_MS && m->menu_what == MENU_NONE && m->s.mode == t) {   /* a tap (no
@@ -554,16 +553,6 @@ static void on_button(rfm_move_t *m, int cc, int down, uint32_t now)
     }
     if (cc == MR_CC_SHIFT)
         m->shift_down = (uint8_t)down;
-    if (m->s.mode == RFM_MOVE_MODE_MIDI) {              /* MIDI mode: Shift is the Move's (Shift + step 9: Keys &
-                                                         * Scales), Back closes that menu */
-        if (cc == MR_CC_SHIFT)
-            return;
-        if (cc == MR_CC_BACK && m->mmenu) {
-            if (down)
-                m->mmenu = 0;
-            return;
-        }
-    }
     if (cc == MR_CC_UP || cc == MR_CC_DOWN) {
         const int o = clampi(m->s.octave + (cc == MR_CC_UP ? 1 : -1), RFM_MOVE_OCT_MIN, RFM_MOVE_OCT_MAX);
         if (down && midi_mode(m) && o != m->s.octave) {
@@ -826,8 +815,10 @@ static void led_id(int i, rfm_move_led_t *l)
         l->cc = 1, l->number = (uint8_t)(MR_CC_TRACK1 - (i - L_TRACK0));
     else if (i < L_WHITE0)
         l->cc = 1, l->number = (uint8_t)(MR_CC_KNOB1 + i - L_RING0);
-    else
+    else if (i < L_ICON0)
         l->rgb = 0, l->cc = 1, l->number = WHITE_CC[i - L_WHITE0];
+    else                                                /* the white icons under the steps */
+        l->rgb = 0, l->cc = 1, l->number = (uint8_t)(MR_CC_STEP_ICON0 + i - L_ICON0);
 }
 
 /* a MIDI mode's pad colour */
@@ -918,6 +909,12 @@ static void wanted(const rfm_move_t *m, uint8_t w[RFM_MOVE_NLEDS][3])
         w[i][0] = c[i].r, w[i][1] = c[i].g, w[i][2] = c[i].b;
     for (i = 0; i < 13; i++)
         w[L_WHITE0 + i][0] = wv[i], w[L_WHITE0 + i][1] = 0, w[L_WHITE0 + i][2] = 0;
+    {
+        uint8_t ic[16];
+        rfmv_shift_icons(m, ic);
+        for (i = 0; i < 16; i++)
+            w[L_ICON0 + i][0] = ic[i], w[L_ICON0 + i][1] = 0, w[L_ICON0 + i][2] = 0;
+    }
 }
 
 int rfm_move_leds(rfm_move_t *m, rfm_move_led_t *out, int max)

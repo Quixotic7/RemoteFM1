@@ -29,8 +29,10 @@ on). In modes 1..3 the named buttons, Left / Right and the volume knob are the F
 FM-1's except in Control mode. Sequencer mode has its own (section 4).
 
 **A tap** on a Track button (released within `RFM_MOVE_TAP_MS`, 300 ms, with nothing done while it was down) names
-the mode it switched to in a short text popup: FM-1, MIDI, CONTROL, SEQUENCER (FM-1 mode: on the left half). A hold
-names nothing (a held Track button is its menu). A tap on the Track button of the mode already on turns its screens
+the mode it switched to for a moment over the whole screen, no frame, as big as it fits and centred: FM-1, MIDI,
+CONTROL, SEQUENCER (in FM-1 mode too, over the FM-1's screen). A hold names nothing: a held Track button is its menu,
+and its hold screen appears only once it has been held 300 ms (or something was done with it), so a tap never
+flashes it. A tap on the Track button of the mode already on turns its screens
 where it has several, naming each: Track 2 in MIDI mode, PADS / NOTES (below).
 
 ### 1. FM-1 mode
@@ -83,11 +85,11 @@ layout (the current one bright), steps 1..16 pick the channel (the current one l
 
 Pads: the root in the mode colour, in-scale notes white-ish, the rest dim, pressed ones white, notes past 0..127 off.
 The scale and root are settings (`rfm_move_set_scale`: major, minor, dorian, mixolydian, the two pentatonics,
-harmonic minor, blues). **Hold Track 2**, or **Shift + step 9** (Keys & Scales, the Move's; it stays open until
-Shift + step 9 again or Back): row 2's eight pads pick the scale in that order (lit cyan, the current one full: a
-colour of their own), the top row the layout, the jog wheel the root (C..B, wrapping); the screen shows them, and
-while a scale pad is pressed that scale's name alone at 2x, its tab tall. In MIDI mode Shift is the Move's own (not
-the FM-1's GLO). MIDI and Control mode share these settings; the sequencer's GLOBAL key is its project's.
+harmonic minor, blues). **Hold Track 2**: row 2's eight pads pick the scale in that order (lit cyan, the current one
+full: a colour of their own), the top row the layout, the jog wheel the root (C..B, wrapping); the screen shows them,
+and while a scale pad is pressed that scale's name alone at 2x, its tab tall. MIDI mode has no Shift shortcuts (the
+owner's: only the sequencer uses the Move's Shift; FM-1 mode has its Track 1 layer): Shift is the FM-1's GLO. MIDI
+and Control mode share these settings; the sequencer's GLOBAL key is its project's.
 
 **MIDI mode's screens** (a tap on Track 2 in MIDI mode turns them; kept in the settings, `midi_view`): **PADS**, the
 pad map (below), full-width popups; **NOTES**, the FM-1's screen on the right half and on the left the notes held
@@ -239,6 +241,7 @@ the screen's corner while it records. (Tap tempo: Shift + step 5.)
 | Copy, Delete | copy, cut, paste (above) |
 | Undo | undo (multi-level); Shift + Undo: redo |
 | Mute | held: the screen shows the 16 tracks (with notes filled, muted crossed out); + step n or + clip: mute track n; alone: the selected track |
+| Shift (the icons) | while Shift is held or locked (and in FM-1 mode while Track 1 is held), the white icon LEDs under the steps (CC 16..31) light every step with a shortcut: dim, full where it is on (a toggle on, its menu open); off otherwise and in MIDI and Control mode. Written on change only, like every LED; the step pads' own LEDs are separate |
 | Shift | double-tap (a tap, then a press within 300 ms): latched (its LED lit, every Shift combination without holding it); a press unlatches it. Shift + Sample: nothing (the Move has none) |
 | Menu | Track <-> Session view (or out of the project grid) |
 | Back | the universal escape: closes the latest layer still on, one a press (a Shift menu, the project grid, Loop's latch, Shift's lock, the step / clip clipboard's marks, the page clipboard's); with none: FM-1 mode |
