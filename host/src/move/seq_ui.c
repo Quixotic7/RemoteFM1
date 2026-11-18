@@ -955,11 +955,10 @@ int rfmv_seq_button(rfm_move_t *m, int cc, int down, uint32_t now)
     const int mb = mod_bit(cc);
     if (mb) {
         if (down) {
-            if (cc == MR_CC_LOOP && (q->mods & SEQ_M_SHIFT)) {   /* Shift + Loop: double the loop (as Shift + 15) */
+            if (cc == MR_CC_LOOP && (q->mods & SEQ_M_SHIFT)) {   /* Shift + Loop held: FILL (the owner's; Double
+                                                         * Loop is Shift + step 15) */
                 q->mods_used |= SEQ_M_SHIFT;
-                rfmv_seq_group(m);
-                if (rfmv_seq_clip_double(m, edit_clip(m)) == 0)
-                    rfmv_seq_msg(m, SEQ_MSG_DOUBLE);
+                q->fill = 1, q->loop_end = 1;           /* (its release: FILL off, nothing else) */
                 return 1;
             }
             if (mb == SEQ_M_SHIFT) {                    /* a double tap latches Shift (a tap, then a press within
@@ -982,7 +981,7 @@ int rfmv_seq_button(rfm_move_t *m, int cc, int down, uint32_t now)
         } else if (mb == SEQ_M_SHIFT && q->shift_lock) {
             ;                                           /* (latched: it stays down) */
         } else if (mb == SEQ_M_LOOP && q->loop_end) {
-            q->loop_end = 0;                            /* (the press that ended the latch) */
+            q->loop_end = 0, q->fill = 0;               /* (the press that ended the latch, or FILL's) */
         } else if (mb == SEQ_M_LOOP && !(q->mods_used & SEQ_M_LOOP) && !q->loop_latch && !q->view && !q->projects) {
             q->loop_latch = 1, layer(q, LY_LOOP);       /* a tap on Loop: latched (the jog sets the length) until
                                                          * Loop or Back again */

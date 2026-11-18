@@ -371,7 +371,7 @@ static void core_screens(void)
     shot("loop.ghost");
     reset(3), rfmv_seq_loop_set(&C, 0, 0, 64), rfmv_seq_note_put(&C, 0, 16, 60, 100, 24, 0), rfmv_seq_note_put(&C, 0, 5 * 16, 60, 100, 24, 0);
     C.seq.page = 1, press(MR_CC_LOOP), button(MR_CC_DELETE, 1), step(1, 1), step(1, 0), button(MR_CC_DELETE, 0), rest(), shot("loop.marks");
-    reset(3), rfmv_seq_loop_set(&C, 0, 0, 64), button(MR_CC_SHIFT, 1), press(MR_CC_LOOP), button(MR_CC_SHIFT, 0), shot("loop.doubled");
+    reset(3), rfmv_seq_loop_set(&C, 0, 0, 64), shift_step(14), shot("loop.doubled");
     /* session */
     reset(3), press(MR_CC_MENU);
     {

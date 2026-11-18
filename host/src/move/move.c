@@ -615,6 +615,13 @@ static void on_button(rfm_move_t *m, int cc, int down, uint32_t now)
             rfmv_seq_button(m, cc, 1, now);
         return;
     }
+    if (cc == MR_CC_LOOP && !down && m->seq.fill) {    /* (FILL's Loop let go: wherever Shift was) */
+        m->seq.fill = 0;
+        if (m->s.mode != RFM_MOVE_MODE_SEQ) {
+            m->seq.loop_end = 0;
+            return;
+        }
+    }
     if (track_held(m, 0) && (cc == MR_CC_REC || cc == MR_CC_PLAY || cc == MR_CC_CAPTURE || cc == MR_CC_UNDO ||
                              cc == MR_CC_LOOP || cc == MR_CC_SAMPLE)) {
         if (down)                                       /* Track 1 held: Shift + Record (the record settings), Shift +
@@ -859,8 +866,7 @@ void rfm_move_input(rfm_move_t *m, const mr_event_t *ev, uint32_t now_ms)
     case MR_EV_BUTTON: on_button(m, ev->index, ev->value != 0, now_ms); break;
     case MR_EV_KNOB: on_knob(m, ev->index, ev->value, now_ms); break;
     case MR_EV_JOG: on_jog(m, ev->value, now_ms); break;
-    case MR_EV_JOG_CLICK:                               /* the sequencer: FILL while the wheel is held down */
-        m->seq.fill = (uint8_t)(m->s.mode == RFM_MOVE_MODE_SEQ && ev->value != 0);
+    case MR_EV_JOG_CLICK:                               /* (FILL is Shift + Loop held now, the owner's) */
         break;
     case MR_EV_TOUCH:
         if (ev->index >= 0 && ev->index <= 9)

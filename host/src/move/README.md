@@ -142,7 +142,7 @@ its 8 columns through the 16 tracks.
 | knobs | the knob page: TRIG (below), then Control mode's CC banks 1..4, live on the track's channel; a step held: its CC locks | nothing; a touch selects the track in that knob's column |
 | volume knob | MASTER; a step held: its notes' velocity (a VELO popup) | MASTER |
 | jog | the knob page (TRIG, banks 1..4); a step held: its notes' length (the LENGTH popup); Loop held or latched: the loop's length; a Shift menu: its value; a drum pad held: its note | the knob page |
-| jog pressed | FILL while held (the FILL / !FILL conditions) | the same |
+| jog pressed | nothing (FILL is Shift + Loop held) | the same |
 
 **Steps (track view)**, as on the Move, with the owner's changes (2026-11-17):
 
@@ -183,7 +183,8 @@ its 8 columns through the 16 tracks.
 - **Pages cut, copied, pasted** (Loop held or latched): Delete + a page with notes cuts it (gone, an X on its step and
   in the popup's page strip), Copy + one copies it (dashed); Delete or Copy + an empty page pastes there (a pasted cut
   empties the clipboard). A page clipboard of its own, apart from the steps'. Back clears its mark.
-- **Shift + Loop** / Shift + step 15: double the loop (its content copied into the new pages).
+- **Shift + step 15**: double the loop (its content copied into the new pages). **Shift + Loop held: FILL** (FILL
+  conditions pass while it is held; the jog wheel held does nothing).
 
 **The TRIG page** (the jog left of bank 1; its popup at 2x with a picture). Per held step, or with no step held
 every step with notes in the clip:
@@ -258,7 +259,7 @@ the screen's corner while it records. (Tap tempo: Shift + step 5.)
 | Record | the record mode's (above). Shift + Record: the record settings |
 | Capture | Capture (above) |
 | Sample | the audio loop (above) |
-| Loop | held or latched: pages and the loop (above). Shift + Loop: double the loop |
+| Loop | held or latched: pages and the loop (above). Shift + Loop held: FILL |
 | Copy, Delete | copy, cut, paste (above) |
 | Undo | undo (multi-level); Shift + Undo: redo |
 | Mute | held: the screen shows the 16 tracks (with notes filled, muted crossed out); + step n or + clip: mute track n; alone: the selected track |

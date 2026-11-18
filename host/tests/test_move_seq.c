@@ -305,7 +305,7 @@ static void test_model(void)
     CHECK(m->seq.len[0] == 128 && rfmv_seq_find(m, 0, 33 + 64, 48) >= 0 && rfmv_seq_find(m, 0, 8 + 64, 52) >= 0);
     button(m, MR_CC_LOOP, 1), step(m, 15, 1), step(m, 0, 1), step(m, 0, 0), step(m, 15, 0), button(m, MR_CC_LOOP, 0);
     CHECK(m->seq.len[0] == 256 && m->seq.lstart[0] == 0);   /* (either order) */
-    button(m, MR_CC_SHIFT, 1), press(m, MR_CC_LOOP), button(m, MR_CC_SHIFT, 0);
+    button(m, MR_CC_SHIFT, 1), tap_step(m, 14), button(m, MR_CC_SHIFT, 0);
     CHECK(m->seq.len[0] == 256);                        /* (at most 16 pages) */
     button(m, MR_CC_LOOP, 1), tap_step(m, 2), button(m, MR_CC_LOOP, 0);   /* a tap: the page shown, the loop kept */
     CHECK(m->seq.len[0] == 256 && m->seq.page == 2);
@@ -1886,17 +1886,20 @@ static void test_controls(void)
     }
     rfm_move_seq_play(m, 0);
     m->seq.tr[0].rate = RFM_MOVE_SEQ_RATE_16;
-    /* FILL (the jog wheel held): a FILL step plays only then */
+    /* FILL (Shift + Loop held, the owner's; not the jog wheel): a FILL step plays only then */
     rfmv_seq_lock_set(m, 0, 1, RFM_MOVE_TRIG_COND, RFM_MOVE_COND_FILL);
     clear();
     rfm_move_seq_play(m, 1), b0 = base;
     adv(m, 16 * FPS);
     CHECK(count_on(0, 64) == 0);
     raw(m, 0xB0, MR_CC_JOG_CLICK, 127);
-    CHECK(m->seq.fill);
-    adv(m, 16 * FPS);
+    CHECK(!m->seq.fill);                                /* (the jog held: nothing) */
     raw(m, 0xB0, MR_CC_JOG_CLICK, 0);
-    CHECK(count_on(0, 64) == 1 && !m->seq.fill);
+    button(m, MR_CC_SHIFT, 1), button(m, MR_CC_LOOP, 1), button(m, MR_CC_SHIFT, 0);
+    CHECK(m->seq.fill && !m->seq.loop_latch && !(m->seq.mods & SEQ_M_LOOP));
+    adv(m, 16 * FPS);
+    button(m, MR_CC_LOOP, 0);
+    CHECK(count_on(0, 64) == 1 && !m->seq.fill && !m->seq.loop_latch && !(m->seq.mods & SEQ_M_LOOP));
     rfm_move_seq_play(m, 0);
     /* Shift + step 6: the metronome (a click a beat, the bar's first marked) */
     button(m, MR_CC_SHIFT, 1), tap_step(m, 5), button(m, MR_CC_SHIFT, 0);
@@ -2250,18 +2253,18 @@ static void test_tracks16(void)
     /* Back: the latest layer first (Shift locked, then a Shift menu: Back closes the menu, then the lock) */
     m->s.layout = RFM_MOVE_LAYOUT_SCALE;
     now_ms += 1000;
+    press(m, MR_CC_LOOP);                               /* Loop latched (with Shift locked, Loop is FILL) */
+    CHECK(m->seq.loop_latch);
     press(m, MR_CC_SHIFT), press(m, MR_CC_SHIFT);
     CHECK(m->seq.shift_lock);
     tap_step(m, 8);                                     /* (Shift locked: Keys & Scales) */
     CHECK(m->seq.smenu == RFM_MOVE_SM_KEYS);
-    press(m, MR_CC_LOOP);                               /* Loop latched too */
-    CHECK(m->seq.loop_latch);
     press(m, MR_CC_BACK);
-    CHECK(!m->seq.loop_latch && m->seq.smenu == RFM_MOVE_SM_KEYS && m->seq.shift_lock);
+    CHECK(m->seq.loop_latch && !m->seq.smenu && m->seq.shift_lock);
     press(m, MR_CC_BACK);
-    CHECK(!m->seq.smenu && m->seq.shift_lock);
+    CHECK(m->seq.loop_latch && !m->seq.shift_lock && !(m->seq.mods & SEQ_M_SHIFT));
     press(m, MR_CC_BACK);
-    CHECK(!m->seq.shift_lock && !(m->seq.mods & SEQ_M_SHIFT) && m->s.mode == RFM_MOVE_MODE_SEQ);
+    CHECK(!m->seq.loop_latch && m->s.mode == RFM_MOVE_MODE_SEQ);
     rfmv_seq_note_put(m, clip_of(m), 3, 60, 100, 24, 0);
     button(m, MR_CC_COPY, 1), tap_step(m, 3), button(m, MR_CC_COPY, 0);   /* the clipboard's mark */
     CHECK(rfmv_seq_src_step(m, clip_of(m), 3) == 1);
