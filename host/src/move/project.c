@@ -5,7 +5,8 @@
  * rfm_move_project_check reads nothing past n and accepts only a blob every field of which is in range.
  *
  *   0  "RMSQ"  4 version (3; 2 loads: a shorter arp, no per-track key; 1 loads: no extension)  5 flags (0)  6 bpm10 u16  8 clock mode  9 fixed velocity  10 selected track
- *   11 tracks (16)  12 scenes (16)  13 record mode (RFM_MOVE_RM_*)  14 record style (RFM_MOVE_RS_*)  15..23 zero
+ *   11 tracks (16)  12 scenes (16)  13 record mode (RFM_MOVE_RM_*)  14 record style (RFM_MOVE_RS_*)  15 groove
+ *   16 root  17 scale (version 3)  18 colour 0..16 (any version: older blobs have 0, the slot's own)  19..23 zero
  *   24 16 tracks x { channel 0..15, mute 0/1, active clip 0..15 or 255, edited clip 0..15 }
  *   88 256 clip lengths u16 (1..256 steps), clip id = track * 16 + scene
  *  600 notes u16, then n x { clip, step, note 0..127, velocity 1..127, micro -12..11, length u16 1..6144 }
@@ -53,6 +54,7 @@ int rfm_move_project_save(rfm_move_t *m, uint8_t *out, uint32_t cap)
     p[8] = q->clock_mode, p[9] = q->fixed_vel, p[10] = q->sel_track;
     p[13] = q->rec_mode, p[14] = q->rec_style;          /* (version 2) */
     p[15] = q->groove, p[16] = q->root, p[17] = q->scale;   /* (version 3: the Global groove, key and scale) */
+    p[18] = q->color;                                   /* (its colour: any version may carry it, 0 the slot's) */
     p[11] = RFM_MOVE_SEQ_TRACKS, p[12] = RFM_MOVE_SEQ_SCENES;
     p += HDR;
     for (i = 0; i < RFM_MOVE_SEQ_TRACKS; i++, p += 4)
@@ -138,7 +140,7 @@ static int parse(const uint8_t *b, uint32_t n, rfm_move_seq_t *q)
         return -5;
     if (r16(b + 6) < RFM_MOVE_SEQ_BPM10_MIN || r16(b + 6) > RFM_MOVE_SEQ_BPM10_MAX || b[8] > RFM_MOVE_CLOCK_EXTERNAL ||
         b[9] > 1 || b[10] >= RFM_MOVE_SEQ_TRACKS || b[13] >= RFM_MOVE_RM_N || b[14] >= RFM_MOVE_RS_N || b[15] > 150 ||
-        b[16] > 11 || b[17] >= RFM_MOVE_NSCALES)
+        b[16] > 11 || b[17] >= RFM_MOVE_NSCALES || b[18] > RFM_MOVE_PROJ_COLORS)
         return -6;
     for (i = 0, p = b + OFF_TRACKS; i < RFM_MOVE_SEQ_TRACKS; i++, p += 4)
         if (p[0] > 15 || p[1] > 1 || (p[2] != 255 && p[2] >= RFM_MOVE_SEQ_SCENES) || p[3] >= RFM_MOVE_SEQ_SCENES)
@@ -210,7 +212,7 @@ static int parse(const uint8_t *b, uint32_t n, rfm_move_seq_t *q)
     if (!q)
         return 0;
     q->bpm10 = (uint16_t)r16(b + 6), q->clock_mode = b[8], q->fixed_vel = b[9], q->sel_track = b[10];
-    q->rec_mode = b[13], q->rec_style = b[14];
+    q->rec_mode = b[13], q->rec_style = b[14], q->color = b[18];
     if (ver >= 3)                                       /* (older: the key and scale MIDI mode has now) */
         q->groove = b[15], q->root = b[16], q->scale = b[17];
     for (i = 0, p = b + OFF_TRACKS; i < RFM_MOVE_SEQ_TRACKS; i++, p += 4) {
@@ -284,7 +286,7 @@ static void info_live(const rfm_move_seq_t *q, rfm_move_proj_info_t *o)
     int i;
     memset(o, 0, sizeof *o);
     memset(seen, 0, sizeof seen);
-    o->ok = 1, o->bpm10 = q->bpm10;
+    o->ok = 1, o->bpm10 = q->bpm10, o->color = q->color;
     for (i = 0; i < q->nnotes; i++)
         info_count(o, seen, q->notes[i].clip, 1);
     for (i = 0; i < q->nlocks; i++)
@@ -313,7 +315,7 @@ int rfm_move_project_info(rfm_move_t *m, int slot, const uint8_t *b, uint32_t n)
     if (parse(b, n, NULL) != 0)
         return -1;
     memset(seen, 0, sizeof seen);
-    o->ok = 1, o->bpm10 = (uint16_t)r16(b + 6);
+    o->ok = 1, o->bpm10 = (uint16_t)r16(b + 6), o->color = b[18];
     nn = r16(b + OFF_NOTES);
     for (i = 0, p = b + OFF_NOTES + 2; i < nn; i++, p += 7)
         info_count(o, seen, p[0], 1);
@@ -345,7 +347,9 @@ int rfm_move_project_load(rfm_move_t *m, int slot, const uint8_t *b, uint32_t n)
         q->following = 0;
     q->bank = (uint8_t)(q->sel_track / 4);
     rfmv_seq_load_track(m);                             /* (the selected track's layout, CC numbers, key) */
-    q->proj_cur = (int8_t)slot, q->proj_pending = -1, q->projects = 0;
+    q->proj_cur = (int8_t)slot, q->proj_pending = -1;   /* (projects mode stays: the owner's, left with Back / Menu) */
+    if (q->play_after_load)
+        q->play_after_load = 0, rfmv_seq_start(m);      /* (Play pressed while it loaded) */
     q->dirty = 0;
     info_live(q, &q->info[slot]);
     return 0;
@@ -394,10 +398,8 @@ void rfmv_proj_open(rfm_move_t *m, int slot)
     rfm_move_seq_t *q = &m->seq;
     if (slot < 0 || slot >= RFM_MOVE_PROJECTS || q->proj_pending >= 0)
         return;
-    if (slot == q->proj_cur) {
-        q->projects = 0;
-        return;
-    }
+    if (slot == q->proj_cur)
+        return;                                         /* (the open one: nothing to do) */
     if (q->dirty || (q->proj_used >> q->proj_cur & 1))
         rfmv_proj_save_now(m);
     if (q->proj_used >> slot & 1) {
@@ -422,4 +424,191 @@ void rfmv_proj_delete(rfm_move_t *m, int slot)
         rfmv_seq_project_clear(m);
     }
     emit_slot(m, RFM_MOVE_ACT_PROJECT_DELETE, slot, NULL, 0);
+}
+
+/* ================================================================ projects mode === */
+/* A mode of its own (the owner's): the 32 projects on the pads (top-left = 1), in their colours; a pad loads its
+ * project (an empty one: a new project there); Delete / Copy + a pad: cut / copy it into the host's buffer, or paste
+ * the buffer into an empty one; a pad held + knob 1: its colour; Play plays the selected project; Back or Menu
+ * leaves. Everything else does nothing here. */
+static const rfmv_rgb_t PROJ_RGB[RFM_MOVE_PROJ_COLORS] = {
+    { 255, 36, 36 },  { 255, 120, 0 },  { 255, 200, 0 },  { 190, 255, 40 }, { 40, 255, 70 },  { 0, 255, 170 },
+    { 20, 220, 255 }, { 40, 120, 255 }, { 90, 60, 255 },  { 170, 60, 255 }, { 255, 50, 210 }, { 255, 110, 150 },
+    { 255, 160, 100 }, { 160, 110, 60 }, { 150, 150, 160 }, { 255, 255, 255 },
+};
+static int proj_color(const rfm_move_t *m, int slot)   /* 1..16 */
+{
+    rfm_move_proj_info_t in;
+    rfmv_proj_info(m, slot, &in);
+    return in.color ? in.color : slot % RFM_MOVE_PROJ_COLORS + 1;
+}
+rfmv_rgb_t rfmv_proj_rgb(const rfm_move_t *m, int slot) { return PROJ_RGB[proj_color(m, slot) - 1]; }
+
+static int slot_full(const rfm_move_t *m, int slot)
+{
+    return (m->seq.proj_used >> slot & 1) || (slot == m->seq.proj_cur && m->seq.dirty);
+}
+
+void rfmv_proj_enter(rfm_move_t *m)
+{
+    rfm_move_seq_t *q = &m->seq;
+    rfmv_release_holds(m);                              /* (everything held let go: its releases come here now) */
+    q->projects = 1, q->smenu = 0, q->proj_held = -1, q->play_after_load = 0;
+    q->mods = q->mods_used = 0, q->shift_lock = 0;
+}
+static void proj_leave(rfm_move_t *m)
+{
+    rfm_move_seq_t *q = &m->seq;
+    int i;
+    q->projects = 0, q->mods = q->mods_used = 0, q->proj_held = -1;
+    for (i = 0; i < RFM_MOVE_NPADS; i++)
+        m->pad_down[i] = 0, m->pad[i].kind = 0;
+    for (i = 0; i < 128; i++)
+        m->btn[i].kind = 0;
+    for (i = 0; i < RFM_MOVE_NSTEPS; i++)
+        m->step[i].kind = 0;
+    m->pop = POP_NONE;
+}
+
+/* cut / copy a full slot into the host's buffer, or paste it into an empty one */
+static void proj_clip(rfm_move_t *m, int slot, int cut)
+{
+    rfm_move_seq_t *q = &m->seq;
+    if (q->proj_pending >= 0)
+        return;
+    if (slot_full(m, slot)) {
+        if (slot == q->proj_cur && (q->dirty || !(q->proj_used >> slot & 1)))
+            rfmv_proj_save_now(m);                      /* (the open one: stored as it is first) */
+        rfmv_proj_info(m, slot, &q->pbuf_info);
+        emit_slot(m, cut ? RFM_MOVE_ACT_PROJECT_CUT : RFM_MOVE_ACT_PROJECT_COPY, slot, NULL, 0);
+        q->pbuf_kind = (uint8_t)(cut ? 2 : 1), q->pbuf_src = (uint8_t)slot;
+        if (cut) {                                      /* (gone at once; the open one: an empty project there) */
+            q->proj_used &= ~(1u << slot);
+            q->info[slot].ok = 0;
+            if (slot == q->proj_cur) {
+                rfm_move_project_load(m, slot, NULL, 0);
+                q->proj_used &= ~(1u << slot);
+            }
+        }
+        return;
+    }
+    if (!q->pbuf_kind)
+        return;
+    emit_slot(m, RFM_MOVE_ACT_PROJECT_PASTE, slot, NULL, 0);
+    q->proj_used |= 1u << slot;
+    q->info[slot] = q->pbuf_info;
+    if (q->pbuf_kind == 2)
+        q->pbuf_kind = 0;                               /* (a cut is pasted once) */
+}
+
+void rfmv_proj_input(rfm_move_t *m, const mr_event_t *ev, uint32_t now)
+{
+    rfm_move_seq_t *q = &m->seq;
+    (void)now;
+    switch (ev->type) {
+    case MR_EV_PAD: {
+        const int p = ev->index, slot = (3 - p / 8) * 8 + p % 8;
+        if (p < 0 || p >= RFM_MOVE_NPADS)
+            return;
+        if (!ev->value) {
+            m->pad_down[p] = 0;
+            if (q->proj_held == slot)
+                q->proj_held = -1;
+            rfmv_pop_let(m, POP_PROJ, slot);
+            return;
+        }
+        if (m->pad_down[p])
+            return;
+        m->pad_down[p] = 1, q->proj_held = (int8_t)slot;
+        if (q->mods & (SEQ_M_DELETE | SEQ_M_COPY)) {
+            q->mods_used |= q->mods & (SEQ_M_DELETE | SEQ_M_COPY);
+            proj_clip(m, slot, (q->mods & SEQ_M_DELETE) != 0);
+            return;
+        }
+        rfmv_pop(m, POP_PROJ, slot);
+        rfmv_proj_open(m, slot);
+        return;
+    }
+    case MR_EV_BUTTON: {
+        const int cc = ev->index, down = ev->value != 0;
+        const int mb = cc == MR_CC_DELETE ? SEQ_M_DELETE : cc == MR_CC_COPY ? SEQ_M_COPY : 0;
+        if (cc >= MR_CC_TRACK4 && cc <= MR_CC_TRACK1) {   /* (inert; a release still lets the button go) */
+            if (!down)
+                m->track_held = (uint8_t)(m->track_held & ~(1u << (MR_CC_TRACK1 - cc)));
+            return;
+        }
+        if (mb) {
+            q->mods = (uint8_t)(down ? q->mods | mb : q->mods & ~mb);
+            return;
+        }
+        if (!down)
+            return;
+        if (cc == MR_CC_BACK || cc == MR_CC_MENU) {     /* out */
+            if (q->pbuf_kind == 1)
+                q->pbuf_kind = 0;                       /* (a copy's mark goes; a cut stays in the buffer) */
+            proj_leave(m);
+        } else if (cc == MR_CC_PLAY) {                  /* the selected project plays (loading: once loaded) */
+            if (q->playing || q->start_pending)
+                rfmv_seq_stop(m);
+            else if (q->proj_pending >= 0)
+                q->play_after_load = 1;
+            else
+                rfmv_seq_start(m);
+        }
+        return;
+    }
+    case MR_EV_KNOB:                                    /* a pad held + knob 1: its colour (one a few ticks) */
+        if (ev->index == 0 && q->proj_held >= 0 && slot_full(m, q->proj_held)) {
+            const int slot = q->proj_held, d = rfmv_list_ticks(m, 0, ev->value);
+            int c;
+            if (!d)
+                return;
+            c = ((proj_color(m, slot) - 1 + d) % RFM_MOVE_PROJ_COLORS + RFM_MOVE_PROJ_COLORS) % RFM_MOVE_PROJ_COLORS + 1;
+            if (slot == q->proj_cur)
+                q->color = (uint8_t)c;
+            q->info[slot].color = (uint8_t)c;
+            {
+                rfm_move_act_t a;
+                memset(&a, 0, sizeof a);
+                a.kind = RFM_MOVE_ACT_PROJECT_COLOR, a.index = (uint8_t)slot, a.value = (int16_t)c;
+                if (m->fn)
+                    m->fn(m->ctx, &a);
+            }
+            rfmv_pop(m, POP_PROJ, slot);
+        }
+        return;
+    case MR_EV_TOUCH:
+        if (!ev->value && ev->index == 0)
+            m->list_acc[0] = 0;
+        return;
+    default: return;                                    /* (steps, the jog, the other knobs: nothing) */
+    }
+}
+
+/* the pads: each project in its colour (dim; the open one full, pulsing on the beat while it plays; loading:
+ * blinking; empty: off; a cut slot: red, blinking; copied: blinking); Back, Menu, Copy, Delete, Play lit */
+void rfmv_proj_leds(const rfm_move_t *m, rfmv_rgb_t c[L_WHITE0], uint8_t w[13])
+{
+    const rfm_move_seq_t *q = &m->seq;
+    const int bl = q->tl >= 0 && (q->tl / 48) & 1, beat = q->playing && q->T >= 0 ? 256 - (int)(q->T % 96) * 120 / 96 : 256;
+    int i;
+    memset(c, 0, sizeof(rfmv_rgb_t) * L_WHITE0);
+    memset(w, 0, 13);
+    for (i = 0; i < RFM_MOVE_NPADS; i++) {
+        const int slot = (3 - i / 8) * 8 + i % 8;
+        rfmv_rgb_t v = RFMV_OFF;
+        if (q->pbuf_kind == 2 && q->pbuf_src == slot && !slot_full(m, slot))
+            v = rfmv_sc(RFMV_RED, bl ? 200 : 40);
+        else if (slot == q->proj_pending)
+            v = rfmv_sc(rfmv_proj_rgb(m, slot), bl ? 256 : 30);
+        else if (slot == q->proj_cur)
+            v = rfmv_sc(rfmv_proj_rgb(m, slot), beat);
+        else if (slot_full(m, slot))
+            v = rfmv_sc(rfmv_proj_rgb(m, slot), q->pbuf_kind == 1 && q->pbuf_src == slot && bl ? 256 : 60);
+        c[L_PAD0 + i] = v;
+    }
+    c[L_PLAY] = q->playing ? RFMV_GREEN : rfmv_sc(RFMV_WHITE, 40);
+    w[W_BACK] = 100, w[W_MENU] = 60;
+    w[W_COPY] = (q->mods & SEQ_M_COPY) ? 127 : 40;
+    w[W_DELETE] = (q->mods & SEQ_M_DELETE) ? 127 : 40;
 }

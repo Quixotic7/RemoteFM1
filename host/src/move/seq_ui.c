@@ -45,8 +45,7 @@ void rfmv_shift_icons(const rfm_move_t *m, uint8_t icon[16])
     const rfm_move_seq_t *q = &m->seq;
     int i;
     memset(icon, 0, 16);
-    if (!((m->s.mode == RFM_MOVE_MODE_SEQ && (q->mods & SEQ_M_SHIFT)) ||
-          (m->s.mode == RFM_MOVE_MODE_FM1 && rfmv_track_held(m, 0))))
+    if (!((m->s.mode == RFM_MOVE_MODE_SEQ && (q->mods & SEQ_M_SHIFT)) || rfmv_track_held(m, 0)))
         return;
     for (i = 0; i < RFM_MOVE_NSTEPS; i++) {
         const int job = i == SH_PROJECTS || i == SH_CLOCK || i == SH_FIXVEL || i == SH_DOUBLE || i == SH_QUANT ||
@@ -718,7 +717,7 @@ void rfmv_seq_step(rfm_move_t *m, int s, int down, uint32_t now)
             return;
         }
         switch (s) {
-        case SH_PROJECTS: q->projects = 1, q->smenu = 0, layer(q, LY_PROJ); break;
+        case SH_PROJECTS: rfmv_proj_enter(m); break;    /* (projects mode: a mode of its own) */
         case SH_METRO:
             q->metro = (uint8_t)!q->metro;
             rfmv_seq_msg(m, q->metro ? SEQ_MSG_METRO_ON : SEQ_MSG_METRO_OFF);
@@ -1279,11 +1278,31 @@ static void trig_turn(rfm_move_t *m, int clip, int abs, int k, int d)
 }
 
 /* a Shift menu's values: knob k (jog: k -1, the menu's first value) */
+/* a Shift menu's knob that picks from a list (a scale, a root, a layout, a rate, a pattern, a mode ..): turned a
+ * slower one item a few ticks, the same for every menu (rfmv_list_ticks); numbers (tempo, groove, ..) as before */
+static int smenu_list(const rfm_move_seq_t *q, int k)
+{
+    switch (q->smenu) {
+    case RFM_MOVE_SM_WORKFLOW: return k == 0 || k == 1;
+    case RFM_MOVE_SM_GROOVE: return k == 1;
+    case RFM_MOVE_SM_LAYOUT: return k == 0;
+    case RFM_MOVE_SM_KEYS: return k <= 2;
+    case RFM_MOVE_SM_ARP:
+        if (q->arp_page)
+            return (k == 0 && q->arp_page == 1) || k == 1;
+        return k == 0 || k == 1 || k == 2 || k == 4 || k == 7;
+    case RFM_MOVE_SM_REC: return k <= 1;
+    default: return 0;
+    }
+}
+
 static void smenu_turn(rfm_move_t *m, int k, int d)
 {
     rfm_move_seq_t *q = Q(m);
     rfm_move_track_t *t = &q->tr[q->sel_track];
     rfm_move_arp_t *a = &t->arp;
+    if (k >= 0 && smenu_list(q, k) && !(d = rfmv_list_ticks(m, k, d)))
+        return;                                         /* (not a whole item yet) */
     rfmv_menu(m, MENU_NONE, k < 0 ? 0 : k);
     switch (q->smenu) {
     case RFM_MOVE_SM_WORKFLOW:                          /* channel, rate, quantize amount */
@@ -1411,6 +1430,8 @@ void rfmv_seq_knob(rfm_move_t *m, int k, int d, uint32_t now)
         rfmv_pop(m, POP_TRIG, k);
         if (k > 6)
             return;
+        if ((k == 3 || k == 4) && !(d = rfmv_list_ticks(m, k, d)))
+            return;                                     /* (COND, FUNC: lists, one item a few ticks) */
         if (!q->step_held)
             rfmv_seq_group(m);                          /* (held steps: the hold's group) */
         if (q->step_held) {
@@ -1778,6 +1799,16 @@ static void projects_screen(const rfm_move_t *m, mr_canvas_t *cv)
         const int x = (i % 8) * 16 + 1, y = (i / 8) * 16 + 1, cur = i == q->proj_cur || (i == q->proj_pending && blink(q));
         rfm_move_proj_info_t in;
         int used[RFM_MOVE_SEQ_TRACKS], nu = 0, g, t;
+        if (q->pbuf_kind && q->pbuf_src == i && !cur) {  /* the buffer's source: cut an X, copied dashed */
+            if (q->pbuf_kind == 2 && !(q->proj_used >> i & 1)) {
+                rfmv_xbox(cv, x, y, 14, 14);
+                continue;
+            }
+            if (q->pbuf_kind == 1) {
+                rfmv_dotted(cv, x, y, 14, 14);
+                continue;
+            }
+        }
         if (!cur && !(q->proj_used >> i & 1)) {
             mr_gfx_rect(cv, x + 6, y + 6, 2, 2, 1, 1);
             continue;
@@ -2028,8 +2059,7 @@ static void smenu_screen(const rfm_move_t *m, mr_canvas_t *cv)
         row2(cv, 24, rfm_move_layout_name(m->s.layout));
         break;
     case RFM_MOVE_SM_KEYS:
-        for (i = 0; i < RFM_MOVE_NSCALES; i++)
-            mr_gfx_rect(cv, i * 16 + 1, 2, 14, 6, 1, i == m->s.scale);
+        rfmv_scale_tabs(m, cv, 2, 0);
         snprintf(b, sizeof b, "%s %s", rfmv_note_names[m->s.root % 12], rfm_move_scale_name(m->s.scale));
         rfmv_big(cv, 64 - rfmv_big_w(b, 2) / 2 > 0 ? 64 - rfmv_big_w(b, 2) / 2 : 0, 14, b, 2, 1);
         for (i = 0; i < 12; i++) {
@@ -2127,7 +2157,9 @@ static void arec_glyph(const rfm_move_t *m, mr_canvas_t *cv)
 void rfmv_seq_screen(const rfm_move_t *m, mr_canvas_t *cv)
 {
     const rfm_move_seq_t *q = &m->seq;
-    if (q->smenu && !q->projects)
+    if (q->projects)
+        projects_screen(m, cv);
+    else if (q->smenu)
         smenu_screen(m, cv);
     else if (q->projects)
         projects_screen(m, cv);
@@ -2152,8 +2184,7 @@ void rfmv_seq_track_menu(const rfm_move_t *m, mr_canvas_t *cv)
     int i;
     for (i = 0; i < 4; i++)
         mr_gfx_rect(cv, i * 32 + 1, 0, 30, 3, 1, i == m->s.layout);
-    for (i = 0; i < RFM_MOVE_NSCALES; i++)
-        mr_gfx_rect(cv, i * 16 + 1, 5, 14, 3, 1, i == m->s.scale);
+    rfmv_scale_tabs(m, cv, 4, 0);
     switch (m->menu_what) {
     case MENU_TCH: snprintf(b, sizeof b, "CH %d", t->ch + 1); break;
     case MENU_CC: snprintf(b, sizeof b, "K%d CC%d", (m->menu_i & 7) + 1, m->s.cc[m->s.bank][m->menu_i & 7]); break;

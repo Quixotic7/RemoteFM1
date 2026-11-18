@@ -21,7 +21,7 @@
 //   core.projectFlush() -> actions; core.projectSlot(); core.projectSave() -> the current blob; core.projectCheck(bytes)
 //   core.projectInfo(slot, bytes): a stored project's content for the screen's project grid (0 ok)
 export const ACT = { KEY: 1, PRESS: 2, BTN: 3, TURN: 4, MASTER: 5, MIDI: 6, SETTINGS: 7, PROJECT_SAVE: 8, PROJECT_LOAD: 9, PROJECT_DELETE: 10,
-  CLICK: 11, AUDIO_REC: 12 };
+  CLICK: 11, AUDIO_REC: 12, PROJECT_CUT: 13, PROJECT_COPY: 14, PROJECT_PASTE: 15, PROJECT_COLOR: 16 };
 export const CLOCK = { AUTO: 0, INT: 1, EXT: 2 };
 export const PROJECTS = 32, PROJECT_MAX = 39072;   // (RFM_MOVE_PROJECT_MAX, version 3 blobs)
 export const MODE = { FM1: 0, MIDI: 1, CONTROL: 2, SEQ: 3 };
@@ -82,6 +82,10 @@ export class MoveCore {
       else if (kind === ACT.PROJECT_DELETE) out.push({ kind: "projectDelete", slot: index });
       else if (kind === ACT.CLICK) out.push({ kind: "click", accent: !!value });          // the metronome
       else if (kind === ACT.AUDIO_REC) out.push({ kind: "audioRec", on: !!value, bars: index });   // Sample's loop
+      else if (kind === ACT.PROJECT_CUT) out.push({ kind: "projectCut", slot: index });            // projects mode
+      else if (kind === ACT.PROJECT_COPY) out.push({ kind: "projectCopy", slot: index });
+      else if (kind === ACT.PROJECT_PASTE) out.push({ kind: "projectPaste", slot: index });
+      else if (kind === ACT.PROJECT_COLOR) out.push({ kind: "projectColor", slot: index, color: value });
       if (out.length > len) out[len].frame = (b[fr + 4 * i] | (b[fr + 4 * i + 1] << 8) | (b[fr + 4 * i + 2] << 16) | (b[fr + 4 * i + 3] << 24)) >>> 0;
     }
     return out;

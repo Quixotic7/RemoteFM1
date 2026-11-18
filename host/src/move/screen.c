@@ -566,6 +566,13 @@ static void project_popup(const rfm_move_t *m, mr_canvas_t *cv)
     rfmv_frame(cv, 2, 2, 124, 60);
     snprintf(b, sizeof b, "%02d", m->pop_i + 1);
     rfmv_big(cv, 7, 8, b, 4, 1);
+    {                                                   /* its colour (1..16, a dot and the number), as knob 1 turns
+                                                         * it */
+        char cb[8];
+        snprintf(cb, sizeof cb, "%d", in.color ? in.color : m->pop_i % RFM_MOVE_PROJ_COLORS + 1);
+        rfmv_big(cv, 123 - rfmv_big_w(cb, 2), 6, cb, 2, 1);
+        rfmv_disc(cv, 123 - rfmv_big_w(cb, 2) - 13, 8, 10, 1);
+    }
     if (!in.ok)
         return;
     for (i = 8; i < RFM_MOVE_SEQ_TRACKS; i++)
@@ -633,7 +640,8 @@ static void popups(const rfm_move_t *m, mr_canvas_t *cv)
 {
     const rfm_move_seq_t *q = &m->seq;
     const char *msg = rfmv_seq_msg_text(m);
-    int up = m->pop && (m->pop != POP_SELECT || g_half) && rfmv_pop_up(m, m->pop);
+    int up = m->pop && (m->pop != POP_SELECT || g_half) && rfmv_pop_up(m, m->pop) &&
+             !(m->pop == POP_MODE && m->pop_i < 4 && rfmv_hold_shown(m, m->pop_i));   /* (its button held: its menu) */
     if (up && m->pop == POP_STEP && (q->view || q->projects || m->s.mode != RFM_MOVE_MODE_SEQ))
         up = 0;
     if (msg && (!up || (int32_t)(q->msg_ms - m->pop_ms) >= 0)) {
@@ -903,15 +911,13 @@ static void midi_menu(const rfm_move_t *m, mr_canvas_t *cv)
     int i;
     for (i = 0; i < 4; i++)
         mr_gfx_rect(cv, i * 32 + 1, 0, 30, 4, 1, i == m->s.layout);
-    for (i = 0; i < RFM_MOVE_NSCALES; i++)
-        mr_gfx_rect(cv, i * 16 + 1, 6, 14, 4, 1, i == m->s.scale);
+    rfmv_scale_tabs(m, cv, 5, m->menu_what == MENU_SCALE);
     if (m->menu_what == MENU_LAYOUT)
         snprintf(b, sizeof b, "%s", rfm_move_layout_name(m->s.layout));
     else if (m->menu_what == MENU_CHANNEL)
         snprintf(b, sizeof b, "CH %d", m->s.channel + 1);
     else if (m->menu_what == MENU_SCALE) {              /* a scale pad: the scale's name alone, its tab tall */
         snprintf(b, sizeof b, "%s", rfm_move_scale_name(m->s.scale));
-        mr_gfx_rect(cv, m->s.scale * 16 + 1, 6, 14, 7, 1, 1);
     } else
         snprintf(b, sizeof b, "%s %s", rfmv_note_names[m->s.root % 12], rfm_move_scale_name(m->s.scale));
     big_mid(cv, 64, 15, b, 2, 1);
@@ -921,6 +927,17 @@ static void midi_menu(const rfm_move_t *m, mr_canvas_t *cv)
     }
     for (i = 0; i < RFM_MOVE_NSTEPS; i++)
         mr_gfx_rect(cv, i * 8, 54, 7, 10, 1, i == m->s.channel);
+}
+
+/* the 24 scales as 3 rows of 8 tabs (as the pads: rows 2..4), the current one filled (tall: a scale pad pressed) */
+void rfmv_scale_tabs(const rfm_move_t *m, mr_canvas_t *cv, int y, int tall)
+{
+    int i;
+    for (i = 0; i < RFM_MOVE_NSCALES; i++)
+        if (i == m->s.scale)                            /* (the current: a block; the others: a line) */
+            mr_gfx_rect(cv, (i % 8) * 16 + 1, y + (i / 8) * 3 - (tall ? 1 : 0), 14, tall ? 4 : 2, 1, 1);
+        else
+            mr_gfx_rect(cv, (i % 8) * 16 + 3, y + (i / 8) * 3 + 1, 10, 1, 1, 1);
 }
 
 /* Track 3: the bank, the knob turned (filled) and its CC number at 2x */
@@ -995,6 +1012,13 @@ void rfm_move_screen(rfm_move_t *m, const uint16_t *rgb565, uint8_t out[MR_SCREE
         mr_gfx_pack(&cv, out);
         return;
     }
+    if (m->s.mode != RFM_MOVE_MODE_SEQ && (m->seq.smenu || m->seq.projects)) {   /* a sequencer menu opened with
+                                                         * Track 1 held (the Shift layer): full width until Back */
+        rfmv_seq_screen(m, &cv);
+        popups(m, &cv);
+        mr_gfx_pack(&cv, out);
+        return;
+    }
     switch (m->s.mode) {
     case RFM_MOVE_MODE_SEQ: rfmv_seq_screen(m, &cv); break;
     case RFM_MOVE_MODE_MIDI:
@@ -1010,24 +1034,17 @@ void rfm_move_screen(rfm_move_t *m, const uint16_t *rgb565, uint8_t out[MR_SCREE
         break;
     case RFM_MOVE_MODE_CONTROL: control_screen(m, &cv); break;
     default:
-        if (m->seq.smenu || m->seq.projects) {          /* a sequencer menu opened with Track 1 (the Shift layer):
-                                                         * full width until Back */
-            rfmv_seq_screen(m, &cv);
-            popups(m, &cv);
-            mr_gfx_pack(&cv, out);
-            return;
-        }
         rfmv_fm1_art(m, &cv);
         for (y = 0; y < 64; y++)
             for (x = 0; x < 64; x++)
                 cv.px[y][64 + x] = m->thumb[y][x];
-        if (rfmv_hold_shown(m, 0)) {                    /* Track 1 held: the Shift layer, a badge on the left */
-            mr_gfx_rect(&cv, 0, 0, 40, 11, 1, 1);
-            fill(&cv, 3, 6, 7, 1, 0), fill(&cv, 4, 5, 5, 1, 0), fill(&cv, 5, 4, 3, 1, 0), fill(&cv, 6, 3, 1, 1, 0);
-            fill(&cv, 5, 7, 3, 2, 0);                   /* (an up arrow) */
-            mr_gfx_text(&cv, 12, 2, "SHIFT", 0);
-        }
         break;
+    }
+    if (rfmv_hold_shown(m, 0)) {                        /* Track 1 held (any mode): the Shift layer, a badge top left */
+        mr_gfx_rect(&cv, 0, 0, 40, 11, 1, 1);
+        fill(&cv, 3, 6, 7, 1, 0), fill(&cv, 4, 5, 5, 1, 0), fill(&cv, 5, 4, 3, 1, 0), fill(&cv, 6, 3, 1, 1, 0);
+        fill(&cv, 5, 7, 3, 2, 0);                       /* (an up arrow) */
+        mr_gfx_text(&cv, 12, 2, "SHIFT", 0);
     }
     g_half = rfmv_half(m), g_full = 0;
     popups(m, &cv);

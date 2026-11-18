@@ -58,6 +58,15 @@ export class MoveProjects {
 export const validSlot = (s) => Number.isInteger(s) && s >= 0 && s < SLOTS;
 export const dirBits = (recs) => recs.reduce((b, r) => (validSlot(r.slot) ? (b | (1 << r.slot)) >>> 0 : b), 0);
 export const projectName = (slot) => `Project ${slot + 1}`;
+// a project blob with its colour (byte 18, 0..16) set and its FNV-1a check (the last 4 bytes) made again
+export function withColor(bytes, color) {
+  const b = Uint8Array.from(bytes), n = b.length - 4;
+  b[18] = color & 255;
+  let h = 2166136261;
+  for (let i = 0; i < n; i++) h = Math.imul(h ^ b[i], 16777619) >>> 0;
+  b[n] = h & 255; b[n + 1] = (h >>> 8) & 255; b[n + 2] = (h >>> 16) & 255; b[n + 3] = (h >>> 24) & 255;
+  return b;
+}
 export const fileName = (slot) => `move-project-${String(slot + 1).padStart(2, "0")}${EXT_ONE}`;
 export const SET_NAME = `move-projects${EXT_SET}`;
 export const firstFree = (bits) => { for (let s = 0; s < SLOTS; s++) if (!(bits >>> s & 1)) return s; return -1; };

@@ -52,7 +52,11 @@ enum { RFM_MOVE_LAYOUT_SCALE = 0, RFM_MOVE_LAYOUT_CHROMATIC = 1, RFM_MOVE_LAYOUT
 enum {
     RFM_MOVE_SCALE_MAJOR = 0, RFM_MOVE_SCALE_MINOR, RFM_MOVE_SCALE_DORIAN, RFM_MOVE_SCALE_MIXOLYDIAN,
     RFM_MOVE_SCALE_PENTA_MAJOR, RFM_MOVE_SCALE_PENTA_MINOR, RFM_MOVE_SCALE_HARM_MINOR, RFM_MOVE_SCALE_BLUES,
-    RFM_MOVE_NSCALES                                    /* 8: Track 2 held, row 2's pads */
+    RFM_MOVE_SCALE_PHRYGIAN, RFM_MOVE_SCALE_LYDIAN, RFM_MOVE_SCALE_LOCRIAN, RFM_MOVE_SCALE_MELODIC_MINOR,
+    RFM_MOVE_SCALE_WHOLE_TONE, RFM_MOVE_SCALE_DIM_HW, RFM_MOVE_SCALE_DIM_WH, RFM_MOVE_SCALE_HUNGARIAN_MINOR,
+    RFM_MOVE_SCALE_PHRYGIAN_DOM, RFM_MOVE_SCALE_IN_SEN, RFM_MOVE_SCALE_HIRAJOSHI, RFM_MOVE_SCALE_IWATO,
+    RFM_MOVE_SCALE_PELOG, RFM_MOVE_SCALE_DOUBLE_HARM, RFM_MOVE_SCALE_SPANISH8, RFM_MOVE_SCALE_BEBOP,
+    RFM_MOVE_NSCALES                                    /* 24 (the first 8 as before): Track 2 held, rows 2..4 */
 };
 #define RFM_MOVE_OCT_MIN (-4)                           /* the octave: the lowest pad of layouts 1, 2, 4 is */
 #define RFM_MOVE_OCT_MAX 4                              /* 48 + root + 12 * octave (C3 = 48 at octave 0) */
@@ -77,6 +81,11 @@ enum {
     RFM_MOVE_ACT_PROJECT_DELETE = 10,                   /* index slot: forget it */
     RFM_MOVE_ACT_AUDIO_REC = 12,                        /* Sample's audio loop (frame-stamped, on a bar line): value 1
                                                          * start, 0 stop (index: the bars recorded, at a stop) */
+    RFM_MOVE_ACT_PROJECT_CUT = 13,                      /* index slot: into the host's project buffer, then gone */
+    RFM_MOVE_ACT_PROJECT_COPY = 14,                     /* index slot: into the buffer (it stays) */
+    RFM_MOVE_ACT_PROJECT_PASTE = 15,                    /* index slot (empty): the buffer stored there */
+    RFM_MOVE_ACT_PROJECT_COLOR = 16,                    /* index slot, value its colour 1..16: the host sets the stored
+                                                         * blob's byte 18 (and its check) */
     RFM_MOVE_ACT_CLICK = 11,                            /* the metronome (frame-stamped): value 1 a bar's first beat,
                                                          * 0 another beat; the host plays a click */
 };
@@ -107,6 +116,7 @@ typedef struct {
     uint8_t drum[RFM_MOVE_NPADS];                       /* the drum layout's notes, by pad (0 = bottom-left) */
     uint8_t midi_view;                                  /* MIDI mode's screen: RFM_MOVE_MV_* */
 } rfm_move_settings_t;
+#define RFM_MOVE_LIST_TICKS 5                           /* a list-type menu knob (scale, root, layout ..): ticks an item */
 #define RFM_MOVE_KNOB_TICKS 2                           /* the Move's knob ticks an FM-1 encoder detent (the jog: 1) */
 #define RFM_MOVE_SETTINGS_VERSION 2                     /* (version 1, 77 bytes, loads too: no MIDI screen) */
 #define RFM_MOVE_SETTINGS_BYTES (6 + 7 + RFM_MOVE_NBANKS * RFM_MOVE_NKNOBS + RFM_MOVE_NPADS + 1)
@@ -252,7 +262,9 @@ typedef struct {                                        /* a stored project in b
     uint8_t clips;                                      /* clips with notes or locks */
     uint16_t bpm10;
     uint16_t notes[RFM_MOVE_SEQ_TRACKS];                /* notes on each track */
+    uint8_t color;                                      /* its colour 1..16 (RFM_MOVE_PROJ_COLORS), 0 the slot's own */
 } rfm_move_proj_info_t;
+#define RFM_MOVE_PROJ_COLORS 16                         /* the projects' colours (the Move's palette) */
 
 typedef struct {
     /* ---- the project (what a blob holds) */
@@ -289,6 +301,11 @@ typedef struct {
     uint32_t lead_us;                                   /* the host runs the clock this far ahead of what sounds */
     uint8_t metro;                                      /* the metronome (off at first) */
     uint8_t groove, root, scale;                        /* (saved) the project's (Global) groove, key and scale */
+    uint8_t color;                                      /* (saved) this project's colour, 0 its slot's */
+    uint8_t pbuf_kind, pbuf_src;                        /* projects mode: the host's buffer: 0 none, 1 copied, 2 cut */
+    rfm_move_proj_info_t pbuf_info;
+    int8_t proj_held;                                   /* .. the project pad held (its colour on knob 1), -1 none */
+    uint8_t play_after_load;                            /* .. Play while the project loads: it plays once loaded */
     uint8_t arp_page, arp_sel;                          /* the arp menu's page (0 ARP, 1 its MOD lane, 2 TRANSPOSE),
                                                          * the lane step selected */
     uint32_t tstep_held;                                /* Track 4 held: the track steps down (tap / hold / double) */
@@ -396,7 +413,8 @@ typedef struct {
     uint16_t master;                                    /* MASTER as the host last said or the volume knob set */
     int8_t edit_pad;                                    /* the drum pad the jog wheel is editing, -1 none */
     uint8_t shift_down;                                 /* Shift is down (MIDI mode: Shift + step 9) */
-    int8_t knob_acc[RFM_MOVE_NKNOBS];                   /* FM-1 encoders: the ticks short of a detent (RFM_MOVE_KNOB_TICKS) */
+    int8_t knob_acc[RFM_MOVE_NKNOBS];
+    int8_t list_acc[RFM_MOVE_NKNOBS + 1];               /* list-type menu knobs: the ticks short of an item */                   /* FM-1 encoders: the ticks short of a detent (RFM_MOVE_KNOB_TICKS) */
     uint8_t mmenu;                                      /* MIDI mode's Keys & Scales menu is open */
     uint32_t tbtn_ms[4];                                /* a Track button's press (a tap: its release soon after) */
     uint32_t tbtn_clk[4];                               /* .. on the popups' clock (its hold screen after RFM_MOVE_TAP_MS) */

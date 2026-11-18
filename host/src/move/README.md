@@ -28,24 +28,26 @@ Track 1..4 select the mode; the selected Track LED is lit in the mode's colour (
 on). In modes 1..3 the named buttons, Left / Right and the volume knob are the FM-1's (below); the knobs are the
 FM-1's except in Control mode. Sequencer mode has its own (section 4).
 
-**A tap** on a Track button (released within `RFM_MOVE_TAP_MS`, 300 ms, with nothing done while it was down) names
-the mode it switched to for a moment over the whole screen, no frame, as big as it fits and centred: FM-1, MIDI,
-CONTROL, SEQUENCER (in FM-1 mode too, over the FM-1's screen). A hold names nothing: a held Track button is its menu,
-and its hold screen appears only once it has been held 300 ms (or something was done with it), so a tap never
-flashes it. A tap on the Track button of the mode already on turns its screens
-where it has several, naming each: Track 2 in MIDI mode, PADS / NOTES (below).
+**Switching.** Track 2, 3, 4 switch on their press; the new mode's name is the first thing drawn, over the whole
+screen (no frame, as big as it fits, centred), and the mode's own screen only once the name has gone (a second;
+`rfm_move_screen_timed` keeps the host drawing). **Track 1 switches to FM-1 mode only on a tap** (released within
+`RFM_MOVE_TAP_MS`, 300 ms, with nothing done while it was down), its name drawn at that release; **held, in any
+mode, it is the Move's Shift layer** (below) and switches nothing. A held Track button's own screen (its menu)
+appears only once held 300 ms (or used), replacing the name; no name at its release then. A tap on the Track button
+of the mode already on turns its screens where it has several, naming each: Track 2 in MIDI mode, PADS / NOTES.
 
 ### 1. FM-1 mode
 
 In FM-1 mode every popup (a knob, MASTER, a message) keeps to the left half, over the drawing: the FM-1's screen on the right stays in view.
-**Track 1 held: the Move's Shift layer** (Shift itself stays the FM-1's GLO). With Track 1 held the steps are the
+**Track 1 held: the Move's Shift layer**, in every mode (FM-1, MIDI, Control, Sequencer; in FM-1 and MIDI mode
+Shift itself stays the FM-1's GLO). With Track 1 held the steps are the
 Move's Shift + step shortcuts on the sequencer (projects, setup, Workflow, Tempo with its taps, Metronome, Groove,
 Layout, Keys & Scales, the arp, Full Velocity, New Clip, Double Loop, Quantize; the ones with a job lit), and Record,
 Play, Capture, Undo, Loop and Sample their Shift + button (Shift + Record: the record settings). A menu opened this way
 stays open after Track 1 is let go (full width; the jog, the knobs and, where it uses them, the pads and steps are
 the menu's) until Back, which closes it rather than pressing the FM-1's SEQ. While Track 1 is held a small SHIFT badge
-sits top left, the FM-1's screen stays on the right; the pads stay the FM-1's keys, at once. A quick tap on Track 1
-still just switches to FM-1 mode (named).
+sits top left (the FM-1's screen stays on the right in FM-1 mode), and the icons under the steps light; the pads
+stay what they were (FM-1 keys, MIDI notes), at once. A quick tap on Track 1 switches to FM-1 mode (named).
 A knob's popup comes only with turning (its detents, from 0 each gesture): a touch alone lights the knob on the
 drawing; the release drops the popup and its count. MASTER the same. The jog wheel (SELECT) has the same popup
 while it turns (the firmware's SELECT label, its detents), gone and counted from 0 again a second after it stops.
@@ -85,9 +87,13 @@ layout (the current one bright), steps 1..16 pick the channel (the current one l
 
 Pads: the root in the mode colour, in-scale notes white-ish, the rest dim, pressed ones white, notes past 0..127 off.
 The scale and root are settings (`rfm_move_set_scale`: major, minor, dorian, mixolydian, the two pentatonics,
-harmonic minor, blues). **Hold Track 2**: row 2's eight pads pick the scale in that order (lit cyan, the current one
-full: a colour of their own), the top row the layout, the jog wheel the root (C..B, wrapping); the screen shows them,
-and while a scale pad is pressed that scale's name alone at 2x, its tab tall. MIDI mode has no Shift shortcuts (the
+harmonic minor, blues, and since the owner asked for 24: phrygian, lydian, locrian, melodic minor, whole tone,
+diminished half-whole and whole-half, Hungarian minor, phrygian dominant, in sen, hirajoshi, iwato, pelog, double
+harmonic, Spanish 8-tone, bebop dominant; the first 8 keep their indexes, so older settings and projects mean the
+same). **Hold Track 2**: rows 2, 3 and 4 of the pads (24) pick the scale in that order (lit cyan, the current one
+full: a colour of their own), the top row the layout, the jog wheel or knob 1 the root (C..B, wrapping), knob 2 the
+scale (both list knobs: one a few ticks); the screen shows them (the 24 as 3 rows of tabs, the current one a block),
+and while a scale pad is pressed or knob 2 turns that scale's short name alone at 2x, its tab tall. MIDI mode has no Shift shortcuts (the
 owner's: only the sequencer uses the Move's Shift; FM-1 mode has its Track 1 layer): Shift is the FM-1's GLO. MIDI
 and Control mode share these settings; the sequencer's GLOBAL key is its project's.
 
@@ -273,14 +279,33 @@ step or Back closes it):
 **Track rates**: 1/32T 1/32 1/16T 1/16 1/8T 1/8 1/4T 1/4 1/2T 1/2 (a step 8 .. 192 ticks at 96 PPQN); a step
 always has 24 micro ticks, scaled to the rate.
 
-**Projects.** Shift + step 1 opens the grid: 32 projects on the pads, top-left = project 1 (current: red, saved:
-white, empty: faint). A pad: the current project is saved, then that one is loaded (the host answers
-`PROJECT_LOAD`; the pad blinks until it does), or, for an empty pad, a new empty project starts there (saved at once).
-Delete + pad deletes a project (the current one empties). The current pad, Shift + step 1 or Back leaves. Changes
-are autosaved 2 s after the last edit (`RFM_MOVE_AUTOSAVE_MS`), and on every switch. Blob version 3 (current) adds
+**Projects mode** (the owner's: a mode of its own, just for picking a project; Shift + step 1, or Track 1 held +
+step 1 from any mode). The pads are the 32 projects (top-left = project 1), each in its own colour (dim; the open
+one full, pulsing on the beat while it plays; loading: blinking; empty: off). Everything else does nothing here:
+steps, the jog, the knobs (but one), the Shift shortcuts, the Track buttons.
+
+- **A pad**: that project is selected: the open one saved, that one loaded (the host answers `PROJECT_LOAD`), or, for
+  an empty pad, a new empty project there (saved at once). Projects mode stays.
+- **Delete + a project**: cut, into the host's buffer and gone at once (`RFM_MOVE_ACT_PROJECT_CUT`; an X on the
+  screen, its pad red and blinking); **Copy + a project**: copied (`..._COPY`; dashed, blinking); **Delete or Copy +
+  an empty pad**: the buffer pasted there (`..._PASTE`; a cut once, a copy again and again). The open project cut:
+  saved first, an empty project in its slot.
+- **A pad held + knob 1**: its colour, one of 16 (the Move's palette; one every few ticks), shown big on the screen;
+  stored with the project (blob byte 18, `..._COLOR`: the host sets it in the stored blob and makes its check again).
+- **Play**: the selected project plays (still loading: once loaded); Play again stops it.
+- **Back** or **Menu** leaves.
+
+Changes are autosaved 2 s after the last edit (`RFM_MOVE_AUTOSAVE_MS`), and on every switch. Blob version 3 (current) adds
 to version 2 the project's groove, key and scale, each track's GLOBAL / TRACK choices, own key and scale and solo,
 and the arp's QUANT, RESET and lanes. Version 2 (loop starts, made clips, rates, grooves, arps, layouts, CC numbers,
-the record settings) and version 1 blobs still load (a version 2 groove becomes the track's own).
+the record settings) and version 1 blobs still load (a version 2 groove becomes the track's own). The project's
+colour is byte 18 of the header in every version (older blobs: 0, the slot's own colour).
+
+**List knobs.** A menu knob that picks from a list (a scale, a root, a layout, a rate, an arp pattern, mode or
+QUANT, RESET, a MOD lane value, the record mode and style, GLOBAL / TRACK, a condition, a step function, a project's
+colour) moves one item every `RFM_MOVE_LIST_TICKS` (5) of the Move's ticks, the same helper everywhere
+(`rfmv_list_ticks`); a turn back or the knob let go forgets the rest. Numbers (tempo, groove, gate, ..) as before;
+the jog wheel stays 1:1.
 
 **Screens**: track view, session view and the project grid are pictures (below, "The screen").
 

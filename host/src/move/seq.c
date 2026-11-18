@@ -516,7 +516,7 @@ void rfmv_seq_project_clear(rfm_move_t *m)
     int t, c;
     q->bpm10 = 1200, q->clock_mode = RFM_MOVE_CLOCK_AUTO, q->fixed_vel = 0, q->sel_track = 0;
     q->rec_mode = RFM_MOVE_RM_CAPTURE, q->rec_style = RFM_MOVE_RS_OVERDUB;
-    q->groove = 0;
+    q->groove = 0, q->color = 0;
     q->root = q->in_seq ? m->seq.stash_root : m->s.root;   /* (a new project: MIDI mode's key and scale) */
     q->scale = q->in_seq ? m->seq.stash_scale : m->s.scale;
     for (t = 0; t < RFM_MOVE_SEQ_TRACKS; t++) {
@@ -551,7 +551,7 @@ void rfmv_seq_init(rfm_move_t *m)
     q->proj_cur = 0, q->proj_pending = -1;
     q->nlast = 0;
     q->step_first = -1;
-    q->loop_first = -1, q->loop_tap = -1, q->tstep_tap = -1, q->pad_tap = -1;
+    q->loop_first = -1, q->loop_tap = -1, q->tstep_tap = -1, q->pad_tap = -1, q->proj_held = -1;
     q->rng = 0x9E3779B9u;
     q->qstrength = 100;
     q->group = 1;

@@ -1800,7 +1800,9 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
       ok(c.projectLoad(0, p1.slice(0, 100)) === null && c.projectLoad(0, p1) !== null && c.projectSlot() === 0, "move seq: a bad answer refused, the good one loads project 1");
       inp(cc(49, 127), P(0x90, 16, 127), P(0x80, 16, 0), cc(49, 0));
       a = inp(cc(119, 127), P(0x90, 93, 100), P(0x80, 93, 0), cc(119, 0));
-      ok(kinds(a) === "projectDelete:1", `move seq: Delete + project 2's pad: ${kinds(a)} (kind 10)`);
+      ok(kinds(a) === "projectCut:1", `move seq: projects mode, Delete + project 2's pad: ${kinds(a)} (a cut, kind 13)`);
+      a = inp(cc(60, 127), P(0x90, 95, 100), P(0x80, 95, 0), cc(60, 0));
+      ok(kinds(a) === "projectPaste:3", `move seq: ...Copy + an empty pad: ${kinds(a)} (the cut pasted, kind 15)`);
       c.free(); f.free();
       // Sample's audio loop (kind 12): from a bar line to a bar line of the sequencer's audio clock: frames = bars x 4 x
       // 60 / bpm x rate (to the frame: the tick grid rounds); the metronome's clicks (kind 11) on the beats
@@ -1883,6 +1885,13 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
          && u1.entries[0].saved === "2026-11-17T10:00:00.000Z" && u1.entries[0].bytes.every((b, i) => b === blob[i]),
          `move projects: a .rfmmove round trip (RMVP v1, one project, ${one.length} bytes, slot and date kept)`);
       ok(us.kind === 2 && us.entries.map((e) => e.slot).join() === "0,3,7", "move projects: a .rfmmoveset round trip (three projects)");
+      {   // projects mode's colour: byte 18 set in the stored blob, its check made again (the core still reads it)
+        const c = MP.withColor(blob, 7);
+        ok(c[18] === 7 && core.projectCheck(c) === 0 && core.projectCheck(blob) === 0 && c.length === blob.length,
+           "move projects: withColor sets a stored project's colour (byte 18) and its FNV-1a check");
+        const bad = Uint8Array.from(c); bad[18] = 17;
+        ok(core.projectCheck(MP.withColor(bad, 17)) !== 0, "move projects: ...a colour past 16 is refused");
+      }
       const refuse = (b) => { try { MP.unpackFile(b, chk); return ""; } catch (e) { return e.message; } };
       const bad = { truncated: one.slice(0, one.length - 1), "a byte after": Uint8Array.from([...one, 0]), magic: Uint8Array.from([0x58, ...one.subarray(1)]),
         "huge": new Uint8Array(MP.MAX_FILE + 1), "damaged blob": (() => { const x = one.slice(); x[40] ^= 0x55; return x; })(),

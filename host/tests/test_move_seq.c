@@ -22,7 +22,9 @@ static uint64_t base;                                   /* the absolute frame of
 static int sounding[16][128];
 static uint8_t store[RFM_MOVE_PROJECTS][RFM_MOVE_PROJECT_MAX];
 static uint32_t store_n[RFM_MOVE_PROJECTS];
-static int answer_sync, nsave, nload, ndel, last_slot;
+static int answer_sync, nsave, nload, ndel, last_slot, ncut, npaste, ncolor;
+static uint8_t pbuf[RFM_MOVE_PROJECT_MAX];
+static uint32_t pbuf_n;
 static rfm_move_t *answer_m;
 
 static void on_act(void *ctx, const rfm_move_act_t *a)
@@ -51,6 +53,22 @@ static void on_act(void *ctx, const rfm_move_act_t *a)
     }
     if (a->kind == RFM_MOVE_ACT_PROJECT_DELETE)
         ndel++, last_slot = a->index, store_n[a->index] = 0;
+    if (a->kind == RFM_MOVE_ACT_PROJECT_CUT || a->kind == RFM_MOVE_ACT_PROJECT_COPY) {   /* the host's buffer */
+        memcpy(pbuf, store[a->index], store_n[a->index]), pbuf_n = store_n[a->index];
+        if (a->kind == RFM_MOVE_ACT_PROJECT_CUT)
+            store_n[a->index] = 0, ncut++;
+    }
+    if (a->kind == RFM_MOVE_ACT_PROJECT_PASTE)
+        memcpy(store[a->index], pbuf, pbuf_n), store_n[a->index] = pbuf_n, npaste++;
+    if (a->kind == RFM_MOVE_ACT_PROJECT_COLOR && store_n[a->index]) {   /* byte 18, the check again */
+        uint32_t h = 2166136261u, k;
+        store[a->index][18] = (uint8_t)a->value;
+        for (k = 0; k < store_n[a->index] - 4; k++)
+            h = (h ^ store[a->index][k]) * 16777619u;
+        for (k = 0; k < 4; k++)
+            store[a->index][store_n[a->index] - 4 + k] = (uint8_t)(h >> (8 * k));
+        ncolor++;
+    }
 }
 static void clear(void) { nact = 0; }
 static int stuck(void)
@@ -1096,11 +1114,13 @@ static void test_project_grid(void)
     memset(store_n, 0, sizeof store_n);
     answer_m = m, answer_sync = 1;
     CHECK(rfm_move_project_slot(m) == 0 && m->seq.proj_used == 0);
-    /* Shift + step 1: the grid; the current one again: out */
+    /* Shift + step 1: projects mode (a mode of its own: the current one again changes nothing, it stays) */
     button(m, MR_CC_SHIFT, 1), tap_step(m, 0), button(m, MR_CC_SHIFT, 0);
     CHECK(m->seq.projects == 1);
     pad(m, 24, 100), pad(m, 24, 0);                     /* top left = project 1 = current */
-    CHECK(m->seq.projects == 0 && nsave == 0);
+    CHECK(m->seq.projects == 1 && nsave == 0);
+    press(m, MR_CC_MENU);                               /* (Menu leaves it, as Back) */
+    CHECK(m->seq.projects == 0 && m->seq.view == 0);
     /* some notes; then project 2 (empty): project 1 saved, project 2 new and saved */
     pad(m, 0, 100), pad(m, 0, 0);
     tap_step(m, 0), tap_step(m, 6);
@@ -1108,14 +1128,16 @@ static void test_project_grid(void)
     button(m, MR_CC_SHIFT, 1), tap_step(m, 0), button(m, MR_CC_SHIFT, 0);
     pad(m, 25, 100), pad(m, 25, 0);
     CHECK(nsave == 2 && store_n[0] > 0 && store_n[1] == RFM_MOVE_PROJECT_FIXED && rfm_move_project_slot(m) == 1);
-    CHECK(m->seq.nnotes == 0 && m->seq.projects == 0 && m->seq.proj_used == 3 && !m->seq.dirty);
+    CHECK(m->seq.nnotes == 0 && m->seq.projects == 1 && m->seq.proj_used == 3 && !m->seq.dirty);
+    press(m, MR_CC_BACK);
     /* project 1 again: saved, then a LOAD the host answers at once (inside the callback) */
     rfmv_seq_note_put(m, 0, 3, 70, 100, 24, 0);
     nsave = 0;
     button(m, MR_CC_SHIFT, 1), tap_step(m, 0), button(m, MR_CC_SHIFT, 0);
     pad(m, 24, 100), pad(m, 24, 0);
     CHECK(nsave == 1 && nload == 1 && last_slot == 0 && rfm_move_project_slot(m) == 0);
-    CHECK(m->seq.nnotes == 2 && rfmv_seq_find(m, 0, 6, 48) >= 0 && m->seq.projects == 0);
+    CHECK(m->seq.nnotes == 2 && rfmv_seq_find(m, 0, 6, 48) >= 0 && m->seq.projects == 1);
+    press(m, MR_CC_BACK);
     /* a later answer (async): the pad blinks meanwhile, other pads wait */
     answer_sync = 0;
     button(m, MR_CC_SHIFT, 1), tap_step(m, 0), button(m, MR_CC_SHIFT, 0);
@@ -1125,6 +1147,7 @@ static void test_project_grid(void)
     CHECK(m->seq.proj_pending == 1 && nload == 2);
     CHECK(rfm_move_project_load(m, 1, store[1], store_n[1]) == 0 && rfm_move_project_slot(m) == 1);
     CHECK(rfmv_seq_find(m, 0, 3, 70) >= 0);
+    press(m, MR_CC_BACK);
     /* a load that fails: nothing changes, the message says so */
     {
         static uint8_t bogus[700];
@@ -1132,16 +1155,35 @@ static void test_project_grid(void)
         CHECK(rfm_move_project_load(m, 5, bogus, sizeof bogus) < 0 && rfm_move_project_slot(m) == 1 &&
               m->seq.msg == SEQ_MSG_LOADFAIL && rfmv_seq_find(m, 0, 3, 70) >= 0);
     }
-    /* Delete + pad: project 1 is deleted; Delete + the current one: it empties */
+    /* Delete + a project: cut (into the host's buffer, gone at once: an X); Delete + an empty slot: pasted there */
     button(m, MR_CC_SHIFT, 1), tap_step(m, 0), button(m, MR_CC_SHIFT, 0);
     button(m, MR_CC_DELETE, 1);
-    pad(m, 24, 100), pad(m, 24, 0);
-    CHECK(ndel == 1 && last_slot == 0 && !(m->seq.proj_used & 1));
-    pad(m, 25, 100), pad(m, 25, 0);
-    CHECK(ndel == 2 && m->seq.nnotes == 0 && m->seq.proj_used == 0 && !m->seq.dirty);
+    pad(m, 24, 100), pad(m, 24, 0);                     /* project 1 */
+    CHECK(ncut == 1 && store_n[0] == 0 && !(m->seq.proj_used & 1) && m->seq.pbuf_kind == 2 && m->seq.pbuf_src == 0);
+    pad(m, 27, 100), pad(m, 27, 0);                     /* project 4 (empty): pasted */
+    CHECK(npaste == 1 && store_n[3] > 0 && (m->seq.proj_used & 8) && m->seq.pbuf_kind == 0);
     button(m, MR_CC_DELETE, 0);
-    press(m, MR_CC_BACK);                               /* Back leaves the grid, not the mode */
+    /* Copy + a project: copied (dashed); Copy + an empty slot: pasted (again and again) */
+    button(m, MR_CC_COPY, 1);
+    pad(m, 27, 100), pad(m, 27, 0), pad(m, 28, 100), pad(m, 28, 0), pad(m, 29, 100), pad(m, 29, 0);
+    CHECK(npaste == 3 && store_n[4] == store_n[3] && store_n[5] == store_n[3] && m->seq.pbuf_kind == 1);
+    button(m, MR_CC_COPY, 0);
+    /* the open one cut: saved first, then cut; an empty project there */
+    button(m, MR_CC_DELETE, 1), pad(m, 25, 100), pad(m, 25, 0), button(m, MR_CC_DELETE, 0);
+    CHECK(ncut == 2 && rfm_move_project_slot(m) == 1 && m->seq.nnotes == 0 && !(m->seq.proj_used & 2) && pbuf_n > 0);
+    /* a pad held + knob 1: its colour (one every few ticks), to the store's blob too */
+    pad(m, 27, 100);
+    knob(m, 0, RFM_MOVE_LIST_TICKS * 2);
+    CHECK(ncolor == 1 && store[3][18] == 3 * 0 + 4 + 2 && m->seq.info[3].color == 6);   /* (slot 4's own colour 4, +2) */
+    pad(m, 27, 0);
+    CHECK(rfm_move_project_check(store[3], store_n[3]) == 0);
+    /* everything else does nothing here: steps, the jog, the other knobs */
+    clear();
+    tap_step(m, 3), jog(m, 1), knob(m, 2, 5);
+    CHECK(nact == 0 && m->seq.projects);
+    press(m, MR_CC_BACK);                               /* Back leaves projects mode */
     CHECK(m->seq.projects == 0 && m->s.mode == RFM_MOVE_MODE_SEQ);
+    m->seq.pbuf_kind = 0;
     /* the host's directory */
     rfm_move_project_dir(m, 0x80000001u);
     CHECK(m->seq.proj_used == 0x80000001u);
@@ -1171,10 +1213,10 @@ static void test_project_grid(void)
         rfm_move_leds_invalidate(m);
         n = rfm_move_leds(m, out, RFM_MOVE_NLEDS);
         for (j = 0; j < n; j++) {
-            if (!out[j].cc && out[j].number == MR_NOTE_PAD0 + 25)
-                cur = out[j].r == 0xff && out[j].g == 0x2a;
-            if (!out[j].cc && out[j].number == MR_NOTE_PAD0 + 7)   /* slot 32 (used, bottom right) */
-                used = out[j].r == 71 && out[j].g == 71;
+            if (!out[j].cc && out[j].number == MR_NOTE_PAD0 + 25)   /* slot 2, the open one: its colour (2) full */
+                cur = out[j].r == 255 && out[j].g == 120 && out[j].b == 0;
+            if (!out[j].cc && out[j].number == MR_NOTE_PAD0 + 7)   /* slot 32 (used, bottom right): its colour, dim */
+                used = out[j].r == 59 && out[j].g == 59 && out[j].b == 59;
         }
         CHECK(cur && used);
         press(m, MR_CC_BACK);
@@ -1203,8 +1245,8 @@ static void write_pbm(const char *path, const uint8_t *packed)
 #define GOLD_STEP 0xcbab8d53u
 #define GOLD_SESSION 0xef220383u
 #define GOLD_PROJECTS 0x5204a535u
-#define GOLD_PROJECT 0x25ca21a2u
-#define GOLD_TRACKS 0x32878560u
+#define GOLD_PROJECT 0x2b200224u
+#define GOLD_TRACKS 0xc171edf0u
 #define GOLD_COUNT 0xb117a7b1u
 #define GOLD_MSG 0xffb67057u
 static int px_at(const uint8_t *packed, int x, int y) { return packed[(y >> 3) * 128 + x] >> (y & 7) & 1; }
@@ -1366,7 +1408,8 @@ static void test_screens_leds(void)
         pad(m, 26, 0);
         adv(m, RATE * RFM_MOVE_POPUP_MS / 1000);
         rfm_move_screen(m, NULL, out);
-        CHECK(!px_at(out, 2, 2) && !m->seq.projects);   /* gone a second after; the grid closed on the load */
+        CHECK(!px_at(out, 2, 2) && m->seq.projects);    /* gone a second after; projects mode stays (Back leaves) */
+        press(m, MR_CC_BACK);
     }
     /* Track 4 held: the track menu */
     track(m, 3, 1);
@@ -1603,7 +1646,7 @@ static void test_live_record(void)
     /* the record settings: Shift + Record, the jog = the mode, knob 2 = the style; saved with the project */
     button(m, MR_CC_SHIFT, 1), press(m, MR_CC_REC), button(m, MR_CC_SHIFT, 0);
     CHECK(m->seq.smenu == RFM_MOVE_SM_REC);
-    jog(m, -2), knob(m, 1, 1);
+    jog(m, -2), knob(m, 1, RFM_MOVE_LIST_TICKS);
     CHECK(m->seq.rec_mode == RFM_MOVE_RM_CAPTURE && m->seq.rec_style == RFM_MOVE_RS_REPLACE);
     press(m, MR_CC_BACK);
     CHECK(!m->seq.smenu && m->s.mode == RFM_MOVE_MODE_SEQ);
@@ -1640,16 +1683,16 @@ static void test_trig(void)
     rfm_move_seq_play(m, 0);
     adv(m, 2 * FPS);
     /* condition 1:2 on step 9: every other pass; FUNC JUMP on step 1 to step 9 (steps 2..8 skipped) */
-    step(m, 8, 1), knob(m, 3, 1), step(m, 8, 0);       /* 1:2 */
+    step(m, 8, 1), knob(m, 3, RFM_MOVE_LIST_TICKS), step(m, 8, 0);       /* 1:2 */
     CHECK(rfmv_seq_trig(m, 0, 8, RFM_MOVE_TRIG_COND) == 1);
     clear();
     rfm_move_seq_play(m, 1), b0 = base;
     adv(m, 4 * 16 * FPS);
     CHECK(count_on(0, 64) == 2 && count_on(0, 60) == 4);
     rfm_move_seq_play(m, 0);
-    step(m, 0, 1), knob(m, 4, RFM_MOVE_FN_JUMP), knob(m, 5, 8), step(m, 0, 0);
+    step(m, 0, 1), knob(m, 4, RFM_MOVE_FN_JUMP * RFM_MOVE_LIST_TICKS), knob(m, 5, 8), step(m, 0, 0);
     CHECK(rfmv_seq_trig(m, 0, 0, RFM_MOVE_TRIG_FUNC) == RFM_MOVE_FN_JUMP && rfmv_seq_trig(m, 0, 0, RFM_MOVE_TRIG_JUMP) == 8);
-    step(m, 8, 1), knob(m, 3, -1), step(m, 8, 0);      /* (no condition) */
+    step(m, 8, 1), knob(m, 3, -RFM_MOVE_LIST_TICKS), step(m, 8, 0);      /* (no condition) */
     clear();
     rfm_move_seq_play(m, 1), b0 = base;
     adv(m, 16 * FPS);
@@ -1661,7 +1704,7 @@ static void test_trig(void)
     }
     rfm_move_seq_play(m, 0);
     /* REVERSE on step 1: then 16, 15 .. (the next step after step 1 is step 16) */
-    step(m, 0, 1), knob(m, 4, -(RFM_MOVE_FN_JUMP - RFM_MOVE_FN_REVERSE)), step(m, 0, 0);
+    step(m, 0, 1), knob(m, 4, -(RFM_MOVE_FN_JUMP - RFM_MOVE_FN_REVERSE) * RFM_MOVE_LIST_TICKS), step(m, 0, 0);
     rfmv_seq_note_put(m, 0, 15, 67, 100, 24, 0);
     clear();
     rfm_move_seq_play(m, 1), b0 = base;
@@ -1672,7 +1715,7 @@ static void test_trig(void)
     }
     rfm_move_seq_play(m, 0);
     /* chance: about half of 64 passes */
-    step(m, 0, 1), knob(m, 4, -RFM_MOVE_FN_REVERSE), knob(m, 2, -50), step(m, 0, 0);
+    step(m, 0, 1), knob(m, 4, -RFM_MOVE_FN_REVERSE * RFM_MOVE_LIST_TICKS), knob(m, 2, -50), step(m, 0, 0);
     CHECK(rfmv_seq_trig(m, 0, 0, RFM_MOVE_TRIG_CHANCE) == 50 && rfmv_seq_trig(m, 0, 0, RFM_MOVE_TRIG_FUNC) < 0);
     clear();
     rfm_move_seq_play(m, 1), b0 = base;
@@ -1774,10 +1817,10 @@ static void test_controls(void)
     CHECK(m->seq.smenu == RFM_MOVE_SM_GROOVE);
     jog(m, 15);                                         /* (5 % a detent: 75 %; GLOBAL at first: the project's) */
     CHECK(m->seq.groove == 75 && !(m->seq.tr[0].own & 1) && rfmv_seq_groove_of(m, 5) == 75);
-    knob(m, 1, 1);                                      /* knob 2: TRACK (its own, from the global one) */
+    knob(m, 1, RFM_MOVE_LIST_TICKS);                                      /* knob 2: TRACK (its own, from the global one) */
     jog(m, 2);
     CHECK((m->seq.tr[0].own & 1) && m->seq.tr[0].groove == 85 && m->seq.groove == 75 && rfmv_seq_groove_of(m, 0) == 85);
-    jog(m, -2), knob(m, 1, -1);                         /* (GLOBAL again) */
+    jog(m, -2), knob(m, 1, -RFM_MOVE_LIST_TICKS);                         /* (GLOBAL again) */
     CHECK(!(m->seq.tr[0].own & 1) && rfmv_seq_groove_of(m, 0) == 75);
     rest(m);
     rfm_move_screen(m, NULL, out);
@@ -1796,7 +1839,7 @@ static void test_controls(void)
     /* Shift + step 3: Workflow Settings: the jog the channel, knob 2 the rate, knob 3 Quantize's amount */
     button(m, MR_CC_SHIFT, 1), tap_step(m, 2), button(m, MR_CC_SHIFT, 0);
     CHECK(m->seq.smenu == RFM_MOVE_SM_WORKFLOW);
-    jog(m, 2), knob(m, 1, -1), knob(m, 2, -10);
+    jog(m, 2), knob(m, 1, -RFM_MOVE_LIST_TICKS), knob(m, 2, -10);
     CHECK(m->seq.tr[0].ch == 2 && m->seq.tr[0].rate == 2 && m->seq.qstrength == 50);
     rest(m);
     rfm_move_screen(m, NULL, out);
@@ -1835,7 +1878,7 @@ static void test_controls(void)
     rfm_move_set_scale(m, 0, 0), m->s.layout = RFM_MOVE_LAYOUT_SCALE;
     /* Shift + step 11: the arp (FIZZ's): MODE ON, UP over two octaves at 1/16: C3 E3, C4 E4, C3 .. */
     button(m, MR_CC_SHIFT, 1), tap_step(m, 10), button(m, MR_CC_SHIFT, 0);
-    knob(m, 4, 1), knob(m, 1, 3);                       /* MODE ON, RATE 1/16 (FIZZ's defaults: RANGE 2, 1/8) */
+    knob(m, 4, RFM_MOVE_LIST_TICKS), knob(m, 1, 3 * RFM_MOVE_LIST_TICKS);                       /* MODE ON, RATE 1/16 (FIZZ's defaults: RANGE 2, 1/8) */
     CHECK(m->seq.smenu == RFM_MOVE_SM_ARP && m->seq.tr[0].arp.mode == RFM_MOVE_AM_ON && m->seq.tr[0].arp.range == 2);
     rest(m);
     rfm_move_screen(m, NULL, out);
@@ -2078,7 +2121,7 @@ static void test_tracks16(void)
     button(m, MR_CC_SHIFT, 1), tap_step(m, 8), button(m, MR_CC_SHIFT, 0);
     jog(m, 2);                                          /* D, the project's */
     CHECK(m->seq.root == 2 && m->s.root == 2 && !(m->seq.tr[12].own & 2));
-    knob(m, 2, 1), jog(m, 2);                           /* TRACK: its own, E */
+    knob(m, 2, RFM_MOVE_LIST_TICKS), jog(m, 2);                           /* TRACK: its own, E */
     CHECK((m->seq.tr[12].own & 2) && m->seq.tr[12].root == 4 && m->seq.root == 2 && m->s.root == 4);
     press(m, MR_CC_BACK);
     track(m, 3, 1), now_ms += 1000, tap_step(m, 0), track(m, 3, 0);   /* track 1: GLOBAL: D */
@@ -2160,11 +2203,11 @@ static void test_round2(void)
     {
         rfm_move_arp_t *ap = &m->seq.tr[0].arp;
         button(m, MR_CC_SHIFT, 1), tap_step(m, 10), button(m, MR_CC_SHIFT, 0);
-        knob(m, 4, 1), knob(m, 1, 3), knob(m, 2, -1), knob(m, 7, -10);   /* ON, 1/16, RANGE 1, QUANT off */
+        knob(m, 4, RFM_MOVE_LIST_TICKS), knob(m, 1, 3 * RFM_MOVE_LIST_TICKS), knob(m, 2, -RFM_MOVE_LIST_TICKS), knob(m, 7, -10 * RFM_MOVE_LIST_TICKS);   /* ON, 1/16, RANGE 1, QUANT off */
         jog(m, 1);
         CHECK(m->seq.arp_page == 1);
-        tap_step(m, 1), knob(m, 0, RFM_MOVE_AL_REST);
-        tap_step(m, 2), knob(m, 0, RFM_MOVE_AL_CHORD);
+        tap_step(m, 1), knob(m, 0, RFM_MOVE_AL_REST * RFM_MOVE_LIST_TICKS);
+        tap_step(m, 2), knob(m, 0, RFM_MOVE_AL_CHORD * RFM_MOVE_LIST_TICKS);
         knob(m, 3, -13);                                /* (the lane's length: 3) */
         CHECK(ap->lane[0][1] == RFM_MOVE_AL_REST && ap->lane[0][2] == RFM_MOVE_AL_CHORD && ap->mlen == 3 && ap->quant == 0);
         rest(m);
@@ -2336,6 +2379,64 @@ static void test_session2(void)
     CHECK(stuck() == 0);
 }
 
+/* list-type menu knobs: one item every RFM_MOVE_LIST_TICKS ticks (the rest kept; a turn back or a release forgets
+ * it); projects mode from FM-1 mode (Track 1 + step 1): its own LEDs, Play plays the selected project */
+static void test_round4(void)
+{
+    rfm_move_t *m = &M;
+    rfm_move_led_t leds[RFM_MOVE_NLEDS];
+    int i, n, k;
+    fresh(m);
+    button(m, MR_CC_SHIFT, 1), tap_step(m, 8), button(m, MR_CC_SHIFT, 0);   /* Keys & Scales */
+    knob(m, 1, RFM_MOVE_LIST_TICKS - 1);
+    CHECK(m->s.scale == 0);                             /* (not yet a whole item) */
+    knob(m, 1, 1);
+    CHECK(m->s.scale == 1);
+    knob(m, 1, 3), knob(m, 1, -1);                      /* (a turn back forgets the 3) */
+    CHECK(m->s.scale == 1 && m->list_acc[1] == -1);
+    raw(m, 0x90, 1, 127), raw(m, 0x80, 1, 0);           /* (a touch released forgets the -1) */
+    CHECK(m->list_acc[1] == 0);
+    knob(m, 0, 2 * RFM_MOVE_LIST_TICKS);                /* the root: two items */
+    CHECK(m->s.root == 2);
+    jog(m, 1);                                          /* (the jog stays 1:1) */
+    CHECK(m->s.root == 3);
+    press(m, MR_CC_BACK);
+    /* FM-1 mode, Track 1 + step 1: projects mode; the pads are the projects (no FM-1 key), their LEDs */
+    answer_m = m, answer_sync = 1;
+    rfmv_seq_note_put(m, 0, 0, 60, 100, 24, 0);
+    rfm_move_project_flush(m);
+    track(m, 0, 1), track(m, 0, 0);
+    track(m, 0, 1), tap_step(m, 0), track(m, 0, 0);
+    CHECK(m->s.mode == RFM_MOVE_MODE_FM1 && m->seq.projects);
+    clear();
+    pad(m, 16, 100), pad(m, 16, 0);                     /* (slot 9: a new, empty project; no FM-1 key) */
+    CHECK(count_kind(RFM_MOVE_ACT_KEY) == 0 && rfm_move_project_slot(m) == 8);
+    rfm_move_leds_invalidate(m);
+    n = rfm_move_leds(m, leds, RFM_MOVE_NLEDS);
+    for (i = 0, k = 0; i < n; i++) {
+        if (!leds[i].cc && leds[i].number == MR_NOTE_PAD0 + 16)
+            k += leds[i].r == 90 && leds[i].g == 60 && leds[i].b == 255;   /* (slot 9: its colour, 9, full: the open one) */
+        if (!leds[i].cc && leds[i].number == MR_NOTE_PAD0 + 24)
+            k += leds[i].r == 59 && leds[i].g == 8;     /* (slot 1: its colour, dim) */
+        if (!leds[i].cc && leds[i].number == MR_NOTE_PAD0 + 5)
+            k += 10 * (leds[i].r || leds[i].g || leds[i].b);   /* (an empty slot: off) */
+    }
+    CHECK(k == 2);
+    /* Play: the selected project plays; again: stops */
+    pad(m, 24, 100), pad(m, 24, 0);                     /* slot 1 (stored): it loads */
+    press(m, MR_CC_PLAY);
+    CHECK(m->seq.start_pending == 1 || m->seq.play_after_load);
+    clear();
+    adv(m, 2 * FPS);
+    CHECK(m->seq.playing && find_midi(0x90, 60, 100, NULL));
+    press(m, MR_CC_PLAY);
+    CHECK(!m->seq.playing);
+    press(m, MR_CC_BACK);
+    CHECK(!m->seq.projects && m->s.mode == RFM_MOVE_MODE_FM1);
+    adv(m, 2 * FPS);
+    answer_m = NULL, answer_sync = 0;
+}
+
 int main(void)
 {
     test_model();
@@ -2359,5 +2460,6 @@ int main(void)
     test_tracks16();
     test_round2();
     test_session2();
+    test_round4();
     return check_done("move_seq");
 }

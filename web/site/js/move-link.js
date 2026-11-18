@@ -28,7 +28,7 @@ import { h } from "./sheet.js";
 import { SRC, E, NB, labelToMatrix, roleToMatrix } from "./panel.js";
 import { lean, MODE_NAMES } from "./move-core.js";
 import { SeqClock } from "./move-seq.js";
-import { MoveProjects, unpackFile, packFile, projectName, fileName, SET_NAME, firstFree, validSlot, dirBits, SLOTS, EXT_ONE, EXT_SET, MAX_FILE } from "./move-projects.js";
+import { MoveProjects, unpackFile, packFile, projectName, fileName, SET_NAME, firstFree, validSlot, dirBits, SLOTS, EXT_ONE, EXT_SET, MAX_FILE, withColor } from "./move-projects.js";
 
 // ---- the protocol (include/moveremote/proto.h)
 export const MR = {
@@ -430,6 +430,17 @@ export class MoveLink {
       else if (a.kind === "projectSave") this.projSave(a.slot, a.bytes);
       else if (a.kind === "projectLoad") this.projLoad(a.slot);
       else if (a.kind === "projectDelete") this.projDelete(a.slot);
+      else if (a.kind === "projectCut" || a.kind === "projectCopy") {   // projects mode: into the page's buffer (a cut:
+        const slot = a.slot;                                              // then gone from the store; the store's queue keeps the order)
+        this.store.get(slot).then((r) => { if (r) this.projBuf = r.bytes; });
+        if (a.kind === "projectCut") this.projDelete(slot);
+      } else if (a.kind === "projectPaste") {
+        const slot = a.slot;                                              // (the buffer's get is queued before this put)
+        this.store.get(-1).then(() => this.projBuf ? this.projSave(slot, this.projBuf) : null);
+      } else if (a.kind === "projectColor") {
+        const { slot, color } = a;
+        this.store.get(slot).then((r) => (r ? this.projSave(slot, withColor(r.bytes, color)) : null));
+      }
       else if (a.kind === "click") { if (this.o.site.click) this.o.site.click(typeof at === "number" ? at + (a.frame || 0) : null, a.accent); }
       else if (a.kind === "audioRec") {   // Sample: a loop of whole bars, from a bar line to a bar line (worklet frames)
         if (this.o.site.loopRec) this.o.site.loopRec(a.on, typeof at === "number" ? at + (a.frame || 0) : null, a.bars, this.core.bpm10());

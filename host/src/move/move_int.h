@@ -15,7 +15,10 @@ enum { H_NONE = 0, H_KEY, H_BTN, H_NOTE, H_MENU, H_SEQ, H_ARP };
 enum { L_PAD0 = 0, L_STEP0 = 32, L_PLAY = 48, L_REC, L_SAMPLE, L_TRACK0, L_RING0 = 55, L_WHITE0 = 63, L_ICON0 = 76 };
 enum { W_SHIFT, W_MENU, W_BACK, W_CAPTURE, W_DOWN, W_UP, W_UNDO, W_LOOP, W_COPY, W_LEFT, W_RIGHT, W_MUTE, W_DELETE };
 
-extern const uint8_t rfmv_scales[RFM_MOVE_NSCALES][8];   /* [0] = length */
+#define RFM_MOVE_SCALE_W 9                              /* a scale: its length, then up to 8 degrees */
+extern const uint8_t rfmv_scales[RFM_MOVE_NSCALES][RFM_MOVE_SCALE_W];   /* [0] = length */
+int rfmv_scale_of_pad(int p);                          /* Track 2 held: the scale a pad picks (0..23) */
+void rfmv_scale_tabs(const rfm_move_t *m, mr_canvas_t *cv, int y, int tall);   /* the 24 as 3 rows of tabs */
 extern const char *const rfmv_note_names[12];
 extern const char *const rfmv_scale_names[RFM_MOVE_NSCALES];
 extern const rfmv_rgb_t rfmv_mode_rgb[4], rfmv_bank_rgb[4];
@@ -28,6 +31,12 @@ rfmv_rgb_t rfmv_midi_pad(const rfm_move_t *m, int p, rfmv_rgb_t mode);
 rfmv_rgb_t rfmv_layout_pad(const rfm_move_t *m, int p, rfmv_rgb_t mode);   /* .. as if not pressed */
 int rfmv_track_held(const rfm_move_t *m, int t);
 int rfmv_half(const rfm_move_t *m);
+int rfmv_list_ticks(rfm_move_t *m, int k, int d);      /* a list-type menu knob's items (one per RFM_MOVE_LIST_TICKS) */
+void rfmv_release_holds(rfm_move_t *m);                /* every held control let go (entering projects mode) */
+void rfmv_proj_input(rfm_move_t *m, const mr_event_t *ev, uint32_t now);   /* projects mode's input */
+void rfmv_proj_leds(const rfm_move_t *m, rfmv_rgb_t c[L_WHITE0], uint8_t white[13]);
+rfmv_rgb_t rfmv_proj_rgb(const rfm_move_t *m, int slot);   /* a project's colour */
+void rfmv_proj_enter(rfm_move_t *m);                   /* projects mode on (Shift + step 1, Track 1 + step 1) */
 int rfmv_hold_shown(const rfm_move_t *m, int t);       /* Track t's hold screen is due (held long enough, or used) */                    /* FM-1 mode, MIDI's NOTES: left-half popups, turn-only knob ones */
 int rfmv_seq_trk_held(const rfm_move_t *m);            /* the sequencer: Track 4 held (the tracks, the track's settings) */
 
