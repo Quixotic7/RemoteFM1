@@ -171,10 +171,10 @@ static int pop_held(const rfm_move_t *m)
     const int i = m->pop_i;
     switch (m->pop) {
     case POP_ENC:
-    case POP_MASTER:
+    case POP_MASTER: return m->touched == i && !rfmv_half(m);   /* (FM-1 mode, MIDI's NOTES: turning only) */
     case POP_CC:
     case POP_TRIG: return m->touched == i;
-    case POP_SELECT: return m->touched == 9;
+    case POP_SELECT: return 0;                          /* (turning only: a moment after the last detent) */
     case POP_DRUM: return i < RFM_MOVE_NPADS && m->pad_down[i];
     case POP_LOOP: return (m->seq.mods & SEQ_M_LOOP) != 0;
     case POP_STEP: return i < RFM_MOVE_NSTEPS && (m->seq.step_held >> i & 1);
@@ -265,8 +265,9 @@ static void value_popup(const rfm_move_t *m, mr_canvas_t *cv)
     const int i = m->pop_i;
     int frac = 0, centred = 0, deg;
     switch (m->pop) {
+    case POP_SELECT:
     case POP_ENC: {
-        const int e = rfm_move_knob_enc(i), t = m->pop_val;
+        const int e = m->pop == POP_SELECT ? RFM_MOVE_E_SELECT : rfm_move_knob_enc(i), t = m->pop_val;
         snprintf(l, sizeof l, "%s", enc_label(m, e));
         snprintf(v, sizeof v, t ? "%+d" : "%d", t);
         frac = clampi(t, -32, 32) * 1000 / 32, centred = 1;
@@ -631,7 +632,7 @@ static void popups(const rfm_move_t *m, mr_canvas_t *cv)
 {
     const rfm_move_seq_t *q = &m->seq;
     const char *msg = rfmv_seq_msg_text(m);
-    int up = m->pop && m->pop != POP_SELECT && rfmv_pop_up(m, m->pop);
+    int up = m->pop && (m->pop != POP_SELECT || g_half) && rfmv_pop_up(m, m->pop);
     if (up && m->pop == POP_STEP && (q->view || q->projects || m->s.mode != RFM_MOVE_MODE_SEQ))
         up = 0;
     if (msg && (!up || (int32_t)(q->msg_ms - m->pop_ms) >= 0)) {
@@ -651,6 +652,10 @@ static void popups(const rfm_move_t *m, mr_canvas_t *cv)
             rfmv_frame(cv, 2, 2, 124, 60);
             rfmv_seq_track_glyph(m, cv, 10, 12, 8);
             rfmv_big(cv, 56, 22, b, 2, 1);
+        } else if (m->pop == POP_MODE) {                /* a Track button tapped: the mode (or its screen) named */
+            static const char *const MODES[4] = { "FM-1", "MIDI", "CONTROL", "SEQUENCER" };
+            static const char *const VIEWS[RFM_MOVE_MV_N] = { "PADS", "NOTES" };
+            message_popup(cv, m->pop_i < 4 ? MODES[m->pop_i] : VIEWS[(m->pop_i - 10) % RFM_MOVE_MV_N]);
         } else if (m->pop == POP_BAR) {                   /* Move's "Bar 2" (a ghost page), over the page strip */
             char b[12];
             snprintf(b, sizeof b, "BAR %d", m->pop_i + 1);
@@ -779,6 +784,83 @@ static void midi_screen(const rfm_move_t *m, mr_canvas_t *cv)
     }
 }
 
+/* ---- MIDI mode's NOTES screen: the notes held (names, 2x when they fit) and the chord they make (Cmaj7, Am, Dsus4,
+ * G7; inverted: a slash chord, C/E) on the left half */
+static const struct { uint16_t set; const char *name; } CHORDS[] = {
+    { 0x091, "" }, { 0x089, "m" }, { 0x049, "dim" }, { 0x111, "aug" }, { 0x085, "sus2" }, { 0x0A1, "sus4" },
+    { 0x891, "maj7" }, { 0x491, "7" }, { 0x489, "m7" }, { 0x449, "m7b5" }, { 0x249, "dim7" }, { 0x889, "mmaj7" },
+    { 0x291, "6" }, { 0x289, "m6" }, { 0x095, "add9" }, { 0x08D, "madd9" }, { 0x495, "9" }, { 0x895, "maj9" },
+    { 0x48D, "m9" }, { 0x4A1, "7sus4" }, { 0x081, "5" },
+};
+/* the chord of notes n[0..k) (any order): its name, or "" */
+const char *rfmv_chord_name(const uint8_t *n, int k, char *out, int cap)
+{
+    uint16_t pcs = 0;
+    int i, r, c, bass = 128, best = -1, best_r = 0;
+    out[0] = 0;
+    for (i = 0; i < k; i++) {
+        pcs = (uint16_t)(pcs | 1u << (n[i] % 12));
+        if (n[i] < bass)
+            bass = n[i];
+    }
+    if (k < 2)
+        return out;
+    for (r = 0; r < 12; r++) {                          /* (the bass as the root first: C6 over Am7/C) */
+        const int root = (bass % 12 + r) % 12;
+        const uint16_t rel = (uint16_t)(((pcs >> root) | (pcs << (12 - root))) & 0xFFF);
+        if (!(rel & 1))
+            continue;
+        for (c = 0; c < (int)(sizeof CHORDS / sizeof CHORDS[0]); c++)
+            if (CHORDS[c].set == rel && (best < 0 || c < best))
+                best = c, best_r = root;
+        if (best >= 0)
+            break;
+    }
+    if (best < 0)
+        return out;
+    snprintf(out, (size_t)cap, "%s%s", rfmv_note_names[best_r], CHORDS[best].name);
+    if (bass % 12 != best_r) {
+        const size_t l = strlen(out);
+        snprintf(out + l, (size_t)cap - l, "/%s", rfmv_note_names[bass % 12]);
+    }
+    return out;
+}
+static void notes_half(const rfm_move_t *m, mr_canvas_t *cv)
+{
+    uint8_t n[16];
+    char b[24], c[16];
+    int k = 0, i, y;
+    for (i = 0; i < 128 && k < 16; i++)
+        if (m->note_count[m->s.channel][i])
+            n[k++] = (uint8_t)i;
+    if (!k)
+        return;                                         /* (at rest: black) */
+    rfmv_chord_name(n, k, c, sizeof c);
+    y = 2;
+    if (*c) {                                           /* the chord: 2x when it fits, else 1x */
+        if (rfmv_big_w(c, 2) <= 62)
+            rfmv_big(cv, 1, y, c, 2, 1), y += 18;
+        else
+            mr_gfx_text(cv, 1, y + 4, c, 1), y += 14;
+        mr_gfx_rect(cv, 1, y - 3, 60, 1, 1, 1);
+    }
+    if (k <= (*c ? 2 : 3)) {                            /* a few: one a line at 2x */
+        for (i = 0; i < k; i++, y += 16)
+            rfmv_big(cv, 1, y, rfmv_note_name(n[i], b, sizeof b), 2, 1);
+        return;
+    }
+    {                                                   /* more: 1x, as many a line as fit */
+        int x = 1;
+        for (i = 0; i < k; i++) {
+            rfmv_note_name(n[i], b, sizeof b);
+            if (x + 6 * (int)strlen(b) > 63)
+                x = 1, y += 9;
+            mr_gfx_text(cv, x, y, b, 1);
+            x += 6 * (int)strlen(b) + 4;
+        }
+    }
+}
+
 /* Control.dc.html: the 4 banks as tabs (the current one filled), the 8 values as full-height bars */
 static void bank_tabs(const rfm_move_t *m, mr_canvas_t *cv, int y)
 {
@@ -812,7 +894,10 @@ static void midi_menu(const rfm_move_t *m, mr_canvas_t *cv)
         snprintf(b, sizeof b, "%s", rfm_move_layout_name(m->s.layout));
     else if (m->menu_what == MENU_CHANNEL)
         snprintf(b, sizeof b, "CH %d", m->s.channel + 1);
-    else
+    else if (m->menu_what == MENU_SCALE) {              /* a scale pad: the scale's name alone, its tab tall */
+        snprintf(b, sizeof b, "%s", rfm_move_scale_name(m->s.scale));
+        mr_gfx_rect(cv, m->s.scale * 16 + 1, 6, 14, 7, 1, 1);
+    } else
         snprintf(b, sizeof b, "%s %s", rfmv_note_names[m->s.root % 12], rfm_move_scale_name(m->s.scale));
     big_mid(cv, 64, 15, b, 2, 1);
     for (i = 0; i < 12; i++) {                          /* the root: C..B, sharps short */
@@ -892,7 +977,17 @@ void rfm_move_screen(rfm_move_t *m, const uint16_t *rgb565, uint8_t out[MR_SCREE
     }
     switch (m->s.mode) {
     case RFM_MOVE_MODE_SEQ: rfmv_seq_screen(m, &cv); break;
-    case RFM_MOVE_MODE_MIDI: midi_screen(m, &cv); break;
+    case RFM_MOVE_MODE_MIDI:
+        if (m->mmenu)
+            midi_menu(m, &cv);                          /* (Shift + step 9: Keys & Scales) */
+        else if (m->s.midi_view == RFM_MOVE_MV_NOTES) {
+            notes_half(m, &cv);                         /* the notes and the chord; the FM-1's screen on the right */
+            for (y = 0; y < 64; y++)
+                for (x = 0; x < 64; x++)
+                    cv.px[y][64 + x] = m->thumb[y][x];
+        } else
+            midi_screen(m, &cv);
+        break;
     case RFM_MOVE_MODE_CONTROL: control_screen(m, &cv); break;
     default:
         rfmv_fm1_art(m, &cv);
@@ -901,7 +996,7 @@ void rfm_move_screen(rfm_move_t *m, const uint16_t *rgb565, uint8_t out[MR_SCREE
                 cv.px[y][64 + x] = m->thumb[y][x];
         break;
     }
-    g_half = m->s.mode == RFM_MOVE_MODE_FM1;
+    g_half = rfmv_half(m);
     popups(m, &cv);
     if (g_half) {                                       /* (any wider popup: the FM-1's screen drawn back over it) */
         for (y = 0; y < 64; y++)

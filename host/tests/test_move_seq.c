@@ -125,6 +125,7 @@ static void fresh(rfm_move_t *m)
 {
     rfm_move_init(m, NULL, on_act, NULL);
     track(m, 3, 1), track(m, 3, 0);
+    m->pop = POP_NONE;                                  /* (the tap's "SEQUENCER" popup) */
     base = 0;
     clear();
     reset_sounding();

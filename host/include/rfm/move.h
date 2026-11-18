@@ -105,9 +105,11 @@ typedef struct {
     uint8_t bank;                                       /* Control mode's CC bank 0..3 */
     uint8_t cc[RFM_MOVE_NBANKS][RFM_MOVE_NKNOBS];       /* each bank's CC numbers, knob 1..8 */
     uint8_t drum[RFM_MOVE_NPADS];                       /* the drum layout's notes, by pad (0 = bottom-left) */
+    uint8_t midi_view;                                  /* MIDI mode's screen: RFM_MOVE_MV_* */
 } rfm_move_settings_t;
-#define RFM_MOVE_SETTINGS_VERSION 1
-#define RFM_MOVE_SETTINGS_BYTES (6 + 7 + RFM_MOVE_NBANKS * RFM_MOVE_NKNOBS + RFM_MOVE_NPADS)
+#define RFM_MOVE_SETTINGS_VERSION 2                     /* (version 1, 77 bytes, loads too: no MIDI screen) */
+#define RFM_MOVE_SETTINGS_BYTES (6 + 7 + RFM_MOVE_NBANKS * RFM_MOVE_NKNOBS + RFM_MOVE_NPADS + 1)
+enum { RFM_MOVE_MV_PADS, RFM_MOVE_MV_NOTES, RFM_MOVE_MV_N };   /* MIDI mode's screens (a tap on Track 2 turns them) */
 void rfm_move_settings_default(rfm_move_settings_t *s);
 /* "RMV" version8 len16, then the fields; returns RFM_MOVE_SETTINGS_BYTES */
 uint32_t rfm_move_save(const rfm_move_settings_t *s, uint8_t out[RFM_MOVE_SETTINGS_BYTES]);
@@ -390,6 +392,10 @@ typedef struct {
     uint8_t cc_val[RFM_MOVE_NBANKS][RFM_MOVE_NKNOBS];   /* Control mode's values (not saved), 64 at first */
     uint16_t master;                                    /* MASTER as the host last said or the volume knob set */
     int8_t edit_pad;                                    /* the drum pad the jog wheel is editing, -1 none */
+    uint8_t shift_down;                                 /* Shift is down (MIDI mode: Shift + step 9) */
+    uint8_t mmenu;                                      /* MIDI mode's Keys & Scales menu is open */
+    uint32_t tbtn_ms[4];                                /* a Track button's press (a tap: its release soon after) */
+    uint8_t tbtn_sw;                                    /* bits: that press changed the mode */
     /* the screen's popup (host/src/move/README.md, "The screen"): what it shows, for which control, and since when */
     uint8_t pop;                                        /* what (move_int.h POP_*), 0 none */
     uint8_t pop_i;                                      /* its knob (0..7, 8 volume), step, pad or project slot */

@@ -28,9 +28,17 @@ Track 1..4 select the mode; the selected Track LED is lit in the mode's colour (
 on). In modes 1..3 the named buttons, Left / Right and the volume knob are the FM-1's (below); the knobs are the
 FM-1's except in Control mode. Sequencer mode has its own (section 4).
 
+**A tap** on a Track button (released within `RFM_MOVE_TAP_MS`, 300 ms, with nothing done while it was down) names
+the mode it switched to in a short text popup: FM-1, MIDI, CONTROL, SEQUENCER (FM-1 mode: on the left half). A hold
+names nothing (a held Track button is its menu). A tap on the Track button of the mode already on turns its screens
+where it has several, naming each: Track 2 in MIDI mode, PADS / NOTES (below).
+
 ### 1. FM-1 mode
 
 In FM-1 mode every popup (a knob, MASTER, a message) keeps to the left half, over the drawing: the FM-1's screen on the right stays in view.
+A knob's popup comes only with turning (its detents, from 0 each gesture): a touch alone lights the knob on the
+drawing; the release drops the popup and its count. MASTER the same. The jog wheel (SELECT) has the same popup
+while it turns (the firmware's SELECT label, its detents), gone and counted from 0 again a second after it stops.
 
 | Move | FM-1 |
 |---|---|
@@ -67,8 +75,17 @@ layout (the current one bright), steps 1..16 pick the channel (the current one l
 
 Pads: the root in the mode colour, in-scale notes white-ish, the rest dim, pressed ones white, notes past 0..127 off.
 The scale and root are settings (`rfm_move_set_scale`: major, minor, dorian, mixolydian, the two pentatonics,
-harmonic minor, blues). **Hold Track 2**: row 2's eight pads pick the scale in that order, the jog wheel the root
-(C..B, wrapping); the held screen shows them (below, "The screen"). MIDI, Control and Sequencer mode share these settings.
+harmonic minor, blues). **Hold Track 2**, or **Shift + step 9** (Keys & Scales, the Move's; it stays open until
+Shift + step 9 again or Back): row 2's eight pads pick the scale in that order (lit cyan, the current one full: a
+colour of their own), the top row the layout, the jog wheel the root (C..B, wrapping); the screen shows them, and
+while a scale pad is pressed that scale's name alone at 2x, its tab tall. In MIDI mode Shift is the Move's own (not
+the FM-1's GLO). MIDI and Control mode share these settings; the sequencer's GLOBAL key is its project's.
+
+**MIDI mode's screens** (a tap on Track 2 in MIDI mode turns them; kept in the settings, `midi_view`): **PADS**, the
+pad map (below), full-width popups; **NOTES**, the FM-1's screen on the right half and on the left the notes held
+(their names, 2x when they fit) and the chord they make (Cmaj7, Am, Dsus4, G7, m7b5 .., an inversion as a slash chord,
+C/E; black at rest). In NOTES the popups keep to the left half and the knobs follow FM-1 mode's rule (a popup while
+turning only).
 
 ### 3. Control mode
 
@@ -329,7 +346,7 @@ rfm_move_screen_timed(&m);                        /* 1: draw again as the clock 
 rfm_move_release_all(&m);                         /* the link dropped, or the host leaves Move control */
 rfm_move_leds_invalidate(&m);                     /* a new connection: repaint */
 rfm_move_set_master(&m, v); rfm_move_set_label(&m, enc, "CUTOFF"); rfm_move_set_keymap(&m, km);
-rfm_move_save(&m.s, bytes); rfm_move_load(&s, bytes, n);   /* "RMV" + version 1, 77 bytes */
+rfm_move_save(&m.s, bytes); rfm_move_load(&s, bytes, n);   /* "RMV" + version 2, 78 bytes (version 1, 77 bytes, loads) */
 ```
 
 `rfm_move_t` is about 150 KB with the sequencer: keep it static or on the heap. The sequencer:

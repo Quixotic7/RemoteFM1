@@ -27,6 +27,7 @@ rfmv_rgb_t rfmv_add(rfmv_rgb_t a, rfmv_rgb_t b);
 rfmv_rgb_t rfmv_midi_pad(const rfm_move_t *m, int p, rfmv_rgb_t mode);
 rfmv_rgb_t rfmv_layout_pad(const rfm_move_t *m, int p, rfmv_rgb_t mode);   /* .. as if not pressed */
 int rfmv_track_held(const rfm_move_t *m, int t);
+int rfmv_half(const rfm_move_t *m);                    /* FM-1 mode, MIDI's NOTES: left-half popups, turn-only knob ones */
 int rfmv_seq_trk_held(const rfm_move_t *m);            /* the sequencer: Track 4 held (the tracks, the track's settings) */
 
 /* actions (stamped with m->seq.frame) */
@@ -41,7 +42,8 @@ int rfmv_level(const rfm_move_t *m, int id);           /* the FM-1 LED level 0..
 
 /* ---- screen.c: the screen (every mode's picture, the popups, the held Track buttons' menus) */
 enum { POP_NONE = 0, POP_ENC, POP_MASTER, POP_CC, POP_SELECT, POP_DRUM, POP_TEMPO, POP_LOOP, POP_BANK, POP_STEP,
-       POP_PROJ, POP_TRIG, POP_BAR, POP_TRACK };
+       POP_PROJ, POP_TRIG, POP_BAR, POP_TRACK, POP_MODE };
+#define RFM_MOVE_TAP_MS 300                             /* a Track button released this soon: a tap (not its menu) */
 enum { MENU_NONE = 0, MENU_LAYOUT, MENU_SCALE, MENU_ROOT, MENU_CHANNEL, MENU_CC, MENU_TRACK, MENU_TCH, MENU_RATE };
 uint32_t rfmv_now_ms(const rfm_move_t *m);             /* the sequencer clock's ms (what popups time out on) */
 void rfmv_pop(rfm_move_t *m, int kind, int i);          /* a popup up (again) now */
@@ -51,7 +53,8 @@ void rfmv_menu(rfm_move_t *m, int what, int i);         /* a held Track button's
 int rfmv_big(mr_canvas_t *cv, int x, int y, const char *s, int k, int on);   /* font5x7 at k x; returns the end x */
 int rfmv_big_w(const char *s, int k);                   /* .. its width */
 void rfmv_dotted(mr_canvas_t *cv, int x, int y, int w, int h);   /* a dotted outline */
-void rfmv_cond_name(int c, char *b, int cap);           /* "1:2", "FILL" .. */
+void rfmv_cond_name(int c, char *b, int cap);
+const char *rfmv_chord_name(const uint8_t *n, int k, char *out, int cap);   /* "Cmaj7", "C/E", "" */           /* "1:2", "FILL" .. */
 void rfmv_seq_track_glyph(const rfm_move_t *m, mr_canvas_t *cv, int x, int y, int k);   /* which of the 16 tracks */
 void rfmv_xbox(mr_canvas_t *cv, int x, int y, int w, int h);     /* an outline crossed out (a cut) */
 void rfmv_tri(mr_canvas_t *cv, int x, int y, int w, int h, int on);   /* a play triangle, pointing right */
