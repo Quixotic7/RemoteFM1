@@ -72,8 +72,9 @@ screen, LEDs and flash go to the page by `postMessage` at up to 30 Hz.
 - **An Ableton Move as the controller** (Settings > Use my Ableton Move; `js/move-core.js` rfm_move in WebAssembly,
   `js/move-link.js` the protocol, the link and the sheet): a Move running [Move Remote](https://github.com/Quixotic7/abletonmoveremote)
   (its `docs/PROTOCOL.md`: `u16 len | u8 type | payload`, a WebSocket at `ws://<move>:7720/ws`). The mapping is the
-  portable C core every host shares, `host/src/move/move.c` (its README has the tables: Track 1..4 = FM-1, MIDI,
-  Control, Sequencer modes), built by `web/move/build.sh` into `web/build/move/rfm_move.mjs` (a single-file ES module,
+  portable C core every host shares, [rfm1cs-abletonmove](https://github.com/Quixotic7/rfm1cs-abletonmove) (the
+  `web/vendor/rfm1cs-abletonmove` submodule, pinned to a tag; its README has the tables: Track 1..4 = FM-1, MIDI,
+  Control, Sequencer modes; `js/move-core.js` and `js/move-seq.js` re-export its `web/` files), built by `web/move/build.sh` (its `web/build.sh`) into `web/build/move/rfm_move.mjs` (a single-file ES module,
   ~45 KB, never committed; the Pages workflow builds it with the remote module; catalog `paths.move`). HELLO (proto 1),
   then CONFIG audio clock off (the page plays its own sound); INPUT records go through the core into actions on the
   panel (source `SRC.MOVE`, bit 256: the holds are 16-bit), MASTER through `mapAct`, MIDI into the firmware's MIDI in;
@@ -91,7 +92,7 @@ screen, LEDs and flash go to the page by `postMessage` at up to 30 Hz.
   itself and relays it over postMessage, bridge protocol v1); a failed or unanswered direct try offers it on an "Open
   the bridge window" button (popups only from a click). The window is reused on reconnects, closing it is a link close,
   Disconnect closes it; no hello in 5 s means a Move Remote older than 0.1.1. Tests: `web/site/test.mjs` (framing, the wasm core against
-  `host/tests/test_move.c`'s answers, `MoveLink` on a fake transport and clock) and `web/site/tools/move-e2e.mjs`
+  rfm1cs-abletonmove's `tests/test_move.c` answers, `MoveLink` on a fake transport and clock) and `web/site/tools/move-e2e.mjs`
   (headless Chromium against Move Remote's own simulator, `moveremote-sim`, driven through its test FIFO).
   **The sequencer (Track 4)** runs in the page's core and is timed by the audio clock (`js/move-seq.js` SeqClock): every
   10 ms and before each Move input the core is advanced in 128-frame blocks up to the AudioContext's frame plus a
@@ -104,7 +105,7 @@ screen, LEDs and flash go to the page by `postMessage` at up to 30 Hz.
   (`midiOut` `frame`); its F8 / FA / FB / FC / F2 go to `rfm_move_seq_midi_in` at that frame plus the lead, so in AUTO
   the sequencer follows the firmware's tempo and transport (its notes the lead, 30 ms, after the firmware's beat), and
   goes back to its own BPM 500 ms after the last clock. The Move section shows the clock source (INT / from the
-  firmware) and the tempo. Which firmwares send clock: host/src/move/README.md, "The web player". **Projects:** the 32
+  firmware) and the tempo. Which firmwares send clock: rfm1cs-abletonmove's README.md, "The web player". **Projects:** the 32
   slots in IndexedDB `remotefm1-move` (`js/move-projects.js`; not the firmwares' saves), the core's PROJECT_SAVE /
   LOAD / DELETE answered there, the last project (prefs `moveProject`) opened at start, the autosave flushed on
   disconnect and pagehide; the section lists them (size, date) with Backup (`.rfmmove`; all: `.rfmmoveset`), Import

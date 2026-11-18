@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
-// The Ableton Move sequencer's 32 projects in this browser (host/src/move/README.md, "Projects"), kept apart from the
+// The Ableton Move sequencer's 32 projects in this browser (rfm1cs-abletonmove's README.md, "Projects"), kept apart from the
 // firmwares' saves (js/saves.js): IndexedDB "remotefm1-move", store "projects", one record a slot
 // { slot 0..31, bytes: the core's blob ("RMSQ"), saved: ISO date }. Not per firmware or device: a project is MIDI.
 // Every write goes through one queue, so a save, a load and a delete of the same slot happen in the order asked.

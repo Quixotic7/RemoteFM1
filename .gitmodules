@@ -7,3 +7,6 @@
 [submodule "base"]
 	path = base
 	url = https://github.com/charlesvestal/fm1-base
+[submodule "web/vendor/rfm1cs-abletonmove"]
+	path = web/vendor/rfm1cs-abletonmove
+	url = https://github.com/Quixotic7/rfm1cs-abletonmove.git

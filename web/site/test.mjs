@@ -1660,7 +1660,7 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
 }
 
 // ---- the Ableton Move (js/move-link.js, js/move-core.js): Move Remote's framing, rfm_move in WebAssembly (web/move/
-// build.sh; the same answers as host/tests/test_move.c on a few spot checks), MoveLink against a fake transport
+// build.sh; the same answers as rfm1cs-abletonmove's tests/test_move.c on a few spot checks), MoveLink against a fake transport
 {
   const L = await import("./js/move-link.js"), MC = await import("./js/move-core.js");
   // framing: u16 len | u8 type | payload, any chunking

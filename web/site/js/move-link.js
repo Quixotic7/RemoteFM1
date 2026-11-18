@@ -2,7 +2,7 @@
 // USE MY ABLETON MOVE: an Ableton Move running Move Remote (github.com/Quixotic7/abletonmoveremote) as the FM-1's
 // controller. Its pads, steps, buttons and knobs drive the page's panel (source SRC.MOVE) or the firmware's MIDI in,
 // and the page lights its pads and buttons from the FM-1's LEDs and draws its 128 x 64 screen. The mapping is the
-// portable C core rfm_move (host/src/move/README.md), in WebAssembly (js/move-core.js); this file is the protocol
+// portable C core rfm_move (rfm1cs-abletonmove, web/vendor/rfm1cs-abletonmove: its README.md), in WebAssembly (js/move-core.js); this file is the protocol
 // (Move Remote's docs/PROTOCOL.md: u16 len | u8 type | payload) and the page's side, modelled on js/omx-link.js.
 //
 // The link is a transport: { name, connect() -> Promise, send(Uint8Array) -> bool, onmessage(Uint8Array),
@@ -22,7 +22,7 @@
 // Lost: everything the Move held is let go, and it connects again (1, 2, 4 s ...) while wanted. BYE: the exit
 // gesture or another host taking the Move ends it; a power off tries again.
 //
-// The sequencer (Track 4; host/src/move/README.md): js/move-seq.js's SeqClock advances the core by the audio clock
+// The sequencer (Track 4; rfm1cs-abletonmove's README.md): js/move-seq.js's SeqClock advances the core by the audio clock
 // (site.audioNow()) every SEQ_MS and before each input, its MIDI timed into the worklet (site.midiIn(bytes, at)); the
 // firmware's MIDI out ("midiOut", with its frame) brings its MIDI clock in. When the sequencer stops, and on a
 // disconnect, a lost link or the page going, the timed queue is cut (site.midiCut()) and every note let go. Projects:
