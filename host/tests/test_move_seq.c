@@ -509,13 +509,13 @@ static void test_external(void)
         uint8_t out[MR_SCREEN_BYTES];
         m->seq.msg = 0;
         rfm_move_screen(m, NULL, out);
-        CHECK(m->battery == -1 && !px_at(out, 10, 6));  /* ("--": the icon empty) */
+        CHECK(m->battery == -1 && px_at(out, 60, 1) && !px_at(out, 64, 6));   /* ("--": the battery empty) */
         CHECK(rfm_move_set_battery(m, 63, 0) == 1 && rfm_move_set_battery(m, 63, 0) == 0);
         CHECK(rfm_move_set_battery(m, 120, 0) == 1 && m->battery == 100);   /* (clamped) */
         rfm_move_set_battery(m, 63, 0);
         rfm_move_screen(m, NULL, out);
         write_pbm("move_seq_global.pbm", out);
-        CHECK(px_at(out, 2, 1) && px_at(out, 10, 6) && !px_at(out, 20, 6));   /* (the icon 63 % filled) */
+        CHECK(px_at(out, 60, 1) && px_at(out, 64, 6) && px_at(out, 72, 6) && !px_at(out, 74, 6));   /* (63 % filled) */
     }
     m->s.vel_mode = RFM_MOVE_VEL_DYNAMIC, m->s.vel_level = 127;
     tap_step(m, 1);                                     /* (a plain step: the mode's, the menu stays) */
@@ -1306,14 +1306,14 @@ static void write_pbm(const char *path, const uint8_t *packed)
     fclose(f);
 }
 
-#define GOLD_TRACK 0x8085c9edu
-#define GOLD_STEP 0xf7e36d4fu
-#define GOLD_SESSION 0xef220383u
+#define GOLD_TRACK 0x9af1e831u
+#define GOLD_STEP 0x2e90a9f0u
+#define GOLD_SESSION 0xa247c937u
 #define GOLD_PROJECTS 0x5204a535u
-#define GOLD_PROJECT 0x4d90229eu
-#define GOLD_TRACKS 0xc171edf0u
-#define GOLD_COUNT 0x33395f33u
-#define GOLD_MSG 0xadad5123u
+#define GOLD_PROJECT 0xb8a42ba8u
+#define GOLD_TRACKS 0x56d88463u
+#define GOLD_COUNT 0x8e572804u
+#define GOLD_MSG 0x418461a1u
 static int px_at(const uint8_t *packed, int x, int y) { return packed[(y >> 3) * 128 + x] >> (y & 7) & 1; }
 static void gold(const char *name, const uint8_t *out, uint32_t want)
 {
@@ -1361,17 +1361,18 @@ static void test_screens_leds(void)
     adv(m, 5 * FPS + 10);
     m->pop = POP_NONE;                                  /* (the taps' popups dismissed: the view at rest) */
     rfm_move_screen(m, NULL, out);
-    CHECK(px_at(out, 1, 0) && px_at(out, 30, 3) && px_at(out, 33, 0) && !px_at(out, 33, 1));   /* page 1, page 2 */
-    CHECK(px_at(out, 0, 54) && px_at(out, 3, 60) && !px_at(out, 11, 60) && px_at(out, 43, 60)); /* steps 1, 2, 6 */
+    CHECK(px_at(out, 64, 61) && px_at(out, 64, 63) && !px_at(out, 64, 58));  /* the strip: one page, thick */
     CHECK(px_at(out, 40, 7) && px_at(out, 40, 50) && !px_at(out, 41, 7));    /* the playhead: step 6 (+ 10 frames) */
-    CHECK(px_at(out, 0, 46) && px_at(out, 0, 34) && px_at(out, 32, 46));     /* C3 E3 G3 on step 1, C3 on step 5 */
+    CHECK(px_at(out, 1, 10) && px_at(out, 1, 22) && px_at(out, 1, 38) && px_at(out, 33, 38));   /* C3 E3 G3 on step 1, C3
+                                                         * on step 5 (rows of 4 px, centred) */
     gold("track", out, GOLD_TRACK);
     step(m, 0, 1);
     rfm_move_screen(m, NULL, out);
     CHECK(!rfmv_pop_up(m, POP_STEP) && !px_at(out, 6, 6));   /* (a press alone: no popup) */
     adv(m, RATE * RFM_MOVE_SEQ_HOLD_MS / 1000 + 128);  /* held: its popup */
     rfm_move_screen(m, NULL, out);
-    CHECK(m->pop == POP_STEP && m->pop_i == 0 && px_at(out, 6, 6) && !px_at(out, 2, 2) && px_at(out, 0, 52));
+    CHECK(m->pop == POP_STEP && m->pop_i == 0 && px_at(out, 0, 52) && px_at(out, 0, 49) && lit(out) > 200);   /* (the
+                                                         * names, the steps row, the held step marked) */
     gold("step", out, GOLD_STEP);
     /* the step LEDs (Move's): the held step in the track's colour, the playhead green, notes white, empty steps
      * the track's colour dim */
@@ -1417,7 +1418,7 @@ static void test_screens_leds(void)
     press(m, MR_CC_MENU);
     rfm_move_screen(m, NULL, out);
     CHECK(px_at(out, 1, 0) && px_at(out, 14, 1) && !px_at(out, 17, 0));      /* track 1 selected */
-    CHECK(px_at(out, 65, 1) && !px_at(out, 66, 1) && !px_at(out, 65, 0));    /* track 5 muted: dotted */
+    CHECK(px_at(out, 65, 1) && px_at(out, 66, 1) && !px_at(out, 67, 1) && !px_at(out, 65, 0));   /* track 5 muted: dashed */
     CHECK(px_at(out, 1, 4) && !px_at(out, 5, 7) && px_at(out, 4, 7));        /* track 1 scene 1: playing, a black triangle */
     CHECK(px_at(out, 17, 19) && !px_at(out, 20, 23));                        /* track 2 scene 2: content, outlined */
     CHECK(px_at(out, 55, 9) && !px_at(out, 54, 9));                          /* track 4 scene 1: empty, a dot */
@@ -1455,6 +1456,8 @@ static void test_screens_leds(void)
         CHECK(rfm_move_project_info(m, 13, blob, (uint32_t)nb) == 0);
         rfm_move_project_dir(m, 0x0000f00du);
         button(m, MR_CC_SHIFT, 1), tap_step(m, 0), button(m, MR_CC_SHIFT, 0);
+        CHECK(m->pop == POP_MODE && m->pop_i == 20);    /* (Move's set icon over "Projects", a second) */
+        m->pop = POP_NONE;
         rfm_move_screen(m, NULL, out);
         CHECK(px_at(out, 1, 1) && px_at(out, 7, 7) && !px_at(out, 4, 10));      /* 1: current, filled, black bars */
         CHECK(px_at(out, 23, 7) && px_at(out, 24, 8) && !px_at(out, 25, 7));    /* 2: empty, a dot */
@@ -1480,7 +1483,7 @@ static void test_screens_leds(void)
     track(m, 3, 1);
     tap_step(m, 2);
     rfm_move_screen(m, NULL, out);
-    CHECK(m->menu_what == MENU_TRACK && m->seq.sel_track == 2 && px_at(out, 19, 59) && px_at(out, 19, 37));
+    CHECK(m->menu_what == MENU_TRACK && m->seq.sel_track == 2 && px_at(out, 16, 28) && px_at(out, 22, 53) && !px_at(out, 16, 55));
     gold("tracks", out, GOLD_TRACKS);
     tap_step(m, 0);
     track(m, 3, 0);
@@ -1593,7 +1596,7 @@ static void test_popups(void)
     adv(m, 128);
     knob(m, 3, 1);
     rfm_move_screen(m, NULL, out);
-    CHECK(px_at(out, 127, 50));                         /* the knob's popup (its full-width bar) */
+    CHECK(px_at(out, 4, 54) && px_at(out, 123, 54));    /* the knob's popup (its bar) */
     /* a held step and a knob: the step's CC lock */
     adv(m, pop_frames);
     step(m, 4, 1);
@@ -1820,11 +1823,11 @@ static void test_controls(void)
     rfmv_seq_note_put(m, SEQ_CLIP(1, 0), 0, 60, 100, 24, 0);
     button(m, MR_CC_MUTE, 1);
     rfm_move_screen(m, NULL, out);
-    CHECK(px_at(out, 17 + 7, 2 + 13) && !m->seq.tr[1].mute);   /* (the tracks: track 2 has notes: filled) */
+    CHECK(px_at(out, 8, 28) && !px_at(out, 10, 40) && !m->seq.tr[1].mute);   /* (the tracks: track 2 has notes: outlined) */
     tap_step(m, 1);
     rfm_move_screen(m, NULL, out);
     button(m, MR_CC_MUTE, 0);
-    CHECK(m->seq.tr[1].mute && px_at(out, 17, 2) && !px_at(out, 17 + 4, 2 + 13));   /* (crossed out) */
+    CHECK(m->seq.tr[1].mute && px_at(out, 8, 28) && px_at(out, 9, 37));   /* (crossed out) */
     write_pbm("move_seq_mute.pbm", out);
     /* Track 1 held (the selected track's button): knob 3 = its CC number, the top row's pads the layout, Up / Down
      * the rate */
@@ -1996,12 +1999,12 @@ static void test_controls(void)
         rfm_move_screen(m, NULL, out);
         write_pbm("move_seq_pending.pbm", out);
         CHECK(m->pop == POP_BAR && m->pop_i == 3);      /* ("BAR 4", a second) */
-        CHECK(px_at(out, 0, 2) && px_at(out, 20, 2) && !px_at(out, 40, 2));   /* (the real page: a line, a ghost blank) */
-        CHECK(px_at(out, 100 / 4 * 4 - 100 / 8, 0));   /* (the "+" at the far end) */
+        CHECK(px_at(out, 24, 49) && px_at(out, 27, 37) && px_at(out, 0, 30));   /* (page edit: the ghost page shown, a dot) */
         rest(m);
         rfm_move_screen(m, NULL, out);
         write_pbm("move_seq_pending_rest.pbm", out);
-        CHECK(!rfmv_pop_up(m, POP_BAR) && px_at(out, 127 - 6 * 4 - 3, 0));   /* (the box: "16/1") */
+        CHECK(!rfmv_pop_up(m, POP_BAR) && px_at(out, 0, 30) && px_at(out, 24, 49) && px_at(out, 27, 37));   /* (page edit:
+                                                         * page 1 looped, page 4 shown, past the clip a dot) */
         press(m, MR_CC_LEFT);
         CHECK(m->seq.page == 2 && m->seq.len[c] == 16);
         press(m, MR_CC_LOOP);                           /* (page edit off: the ghost page shown stays, for a step) */
@@ -2078,7 +2081,7 @@ static void test_audio_loop(void)
     {
         uint8_t out[MR_SCREEN_BYTES];
         rfm_move_screen(m, NULL, out);
-        CHECK(px_at(out, 100, 6));                      /* (the waveform, top right) */
+        CHECK(px_at(out, 5, 2) && lit(out) > 100);       /* (the wave icon, "Sampling") */
     }
     press(m, MR_CC_SAMPLE);                             /* done at the next bar line: 2 bars */
     CHECK(m->seq.arec == 3);

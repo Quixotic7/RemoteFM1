@@ -444,71 +444,81 @@ libremotefm1's `rfm_event_t`: buttons 0 OCT- 1 OCT+ 2 FX 3 SEL 4 ENV 5 LFO 6 EDI
 
 ## The screen
 
-The owner's design (`Move Screen UI for RemoteFM1`: one HTML mockup a screen at 4x, the geometry in native pixels,
-followed exactly). The Move's screen is small, so **at rest every screen is symbols and pictures only**; words come
-in large popups (font5x7 at 2x, numbers at 4x) while a knob is touched or turned, a step or a project pad is held, and
-for `RFM_MOVE_POPUP_MS` (1 s) after the release or the last turn. The popups time out on the sequencer's clock
-(`rfm_move_seq_advance`, which hosts call in every mode); `rfm_move_screen_timed` says when the screen changes with
-the clock alone (a popup up, playing), so the host draws it again then.
+**v2** (the owner's design canvas "Move Screen UI for RemoteFM1", its v2 boards and the renderer they share,
+`V2Screen.dc.html`). `v2.c` is a line-for-line port of that renderer's primitives (font5x7 in its 8-row cell, the
+11 x 11 icons, the strip, the edit popup, the key / scale screen, the cells), JavaScript's rounding included, so a
+screen drawn with it matches the mockup pixel for pixel; `test_move_v2` draws all 67 mockup screens with it and
+compares each with the mockup's own pixels (`tests/move_v2_ref.h`, made by `tests/move_v2_ref.mjs` from the design's
+`V2Screen.dc.html`), then sets each situation up on a live core and writes `core_<name>.pbm` beside `v2_<name>.pbm`
+for a contact sheet.
 
-| Screen | What it draws |
+The grammar (the owner's rules): **symbols at rest, words only while something is touched or turned**; at most three
+rows of 2x text, 4x for the one number that matters, 3x for long mode names, 1x only inside pictures; **Title Case**
+("Loop Doubled", "Click On"); **no boxes** around values, parameters or icons; a chosen icon **underlined**, never
+inverted (the one inversion: FM-1 mode's touched-knob block); **dashes 2 on, 2 off** (copied, the beats, a muted
+track); cut = crossed. **Move's bottom strip** (1 px segments, the current ones 3 px) says where you are: the pages
+and the playhead tick in track view, the bank, the arp's page, the modes. The popups time out on the sequencer's
+clock (`rfm_move_seq_advance`, called in every mode); `rfm_move_screen_timed` says when the screen changes with the
+clock alone.
+
+| Screen | What it draws (the mockup) |
 |---|---|
-| FM-1 mode | left: the owner's 64 × 64 drawing of the FM-1, pixel for pixel, live (below); right: the FM-1's screen, 64 × 64 black and white (a luminance threshold, `RFM_MOVE_THUMB_LUMA`; no dither) |
-| MIDI mode | the 8 × 4 pad map (14 × 14 cells, 16 px apart): the root filled, in the scale outlined, out of it a 2 × 2 dot, a pressed pad filled with a 6 × 6 black square |
-| Control mode | the 4 banks as tabs (the current one filled), the 8 values as full-height bars |
-| Track view | the clip's pages on top (the shown one filled, in the loop outlined, past it dotted; 4 segments, 8 or 16 thinner ones past 4 or 8 pages), the page's notes as a piano roll (8 px a step, 3 px a semitone up from the page's lowest note, squeezed past 13 semitones; the beats dotted; the playhead a 1 px line), the 16 steps at the bottom (notes or the playhead filled, empty outlined, past the clip's end dotted) |
-| Session view | the owner's mockup (Session.dc.html): the 8 tracks in view across, their 4 clip slots down (14 × 13 cells, 16 px apart, from y 4), as the pads are; a 14 × 2 bar over the selected track (muted: a dotted line); a clip empty (a 2 × 2 dot), with content (an outline), playing (filled, a black ▶), queued (a blinking outline), stopping (blinking), recording (filled, a black ●; blinking while it waits); copied dashed, cut crossed |
-| Project grid | the 32 slots as the pads are: the current one filled, a saved one outlined, each with three bars (its tracks with notes in three groups, a bar's height the bits of their note count, at most 8), an empty slot a dot; a project loading blinks |
+| FM-1 mode (fm1.rest) | left: the owner's 64 × 64 drawing, pixel for pixel, live (below); right: the FM-1's screen, 64 × 64 black and white (`RFM_MOVE_THUMB_LUMA`, no dither). Playing: a small play triangle top left; Track 1 held 300 ms: the shift icon there (fm1.shift) |
+| MIDI Pads (midi.pads) | the 8 × 4 pads: the root filled, in the scale outlined, out of it a dot; a pressed pad carries a 6 × 6 square in the opposite colour |
+| MIDI Notes (midi.notes, midi.chord) | left black at rest; playing: the chord's name at 3x (2x, 1x when wider), the held notes on a one-octave keyboard (white keys filled, black keys a dot) |
+| Control mode (ctl.rest) | the 8 values as filled bars over their knobs on a base line, the bank on the strip |
+| Track view (seq.track) | the shown page as a piano roll, full height (8 px a step, rows of 4 px, the page's notes centred, squeezed past 12 semitones; the beats dashed; the playhead a line); the strip: the clip's pages, the shown one thick, the playhead tick over the whole clip (a ghost page shown: the real pages a line, a + at the far end). The steps row (seq.clip) only while a step, Copy or Delete is held or Step record is on: notes filled, empty outlined, copied dashed, cut crossed, the held ones marked above. Recording: a record icon and "Recording" on top (rec.capture); the audio loop: a wave icon and "Sample" (armed, blinking) / "Sampling" (rec.sample) |
+| Loop page edit (loop.edit) | Loop held or latched: the loop icon, "Bars 3-6", the 16 pages as cells (looped filled, the clip's others outlined, past it a dot, cut crossed, copied dashed), the shown one underlined |
+| Session view (sess.rest) | the owner's mockup: 8 tracks across, 4 slots down; playing filled with a black play icon, recording with a black square, queued doubled (blinking), stopping blinking, a clip outlined, empty a dot, copied dashed, cut crossed; a bar over the selected track, a dashed line over muted ones |
+| Projects (proj.grid) | the 32 slots as the pads are: the open one filled, saved ones outlined, each with three bars (how full its tracks are), empty a dot; cut crossed, copied dashed; loading blinks. Entering: the set icon over "Projects" (mode.proj) |
 
-**FM-1 mode's drawing, live.** The drawing stays as drawn (its mini screen too) but for:
+**FM-1 mode's drawing, live** (the owner's exact drawing; only these change): the touched knob's 2 × 2 dot inverted
+in a 6 × 6 block (the volume knob MASTER, knob 1 PRESETS, knob 2 ALGO, knobs 5..8 K1..K4, the jog SELECT); a button's
+cell filled while the FM-1's LED for it is at `RFM_MOVE_SCREEN_LIT` (64) or more, or it is held (the 6 × 2 grid in
+the panel's order, OCT- / OCT+ the box of two at the left); a held key's 2 × 4 block dark.
 
-- **encoders**: the touched knob's 2 × 2 dot inverted in a 6 × 6 block. The left 2 × 2 are MASTER, SELECT (top) and
-  PRESETS, ALGO (bottom), as on the FM-1 (and the web player's panel); the row of 4 over the buttons K1..K4. So:
-  the volume knob MASTER, knob 1 PRESETS, knob 2 ALGO, knobs 5..8 K1..K4, the jog wheel SELECT (lit while touched,
-  or a second after a turn). In FM-1 mode a touch alone marks the drawing; a turn brings the knob popup.
-- **buttons**: a cell filled while the FM-1's LED for it is at `RFM_MOVE_SCREEN_LIT` (64) or more, or the button is
-  held. The 6 × 2 grid in the panel's order, FX SEL ENV LFO EDIT GLO over HOME SAVE ARP SEQ PLAY REC; OCT- and OCT+
-  are the box of two at the left (its 3 × 1 slots).
-- **keys**: a held key's 2 × 4 block goes dark. The bottom row's 16 blocks are the 16 white keys (key 0 F3 .. key
-  26 G5); the top row's 15 blocks sit in the gaps between them, and each black key is the block in the gap after its
-  white key (F# after F ...); the gaps B-C and E-F have no key, their blocks stay as drawn.
+**Popups**: full screen, borderless. In FM-1 mode and MIDI Notes they keep to the left 64 × 64, cleared to black,
+the name (2x, 1x past five letters) and the value (4x, else 2x) only, no bar (fm1.knob, fm1.jog, fm1.master,
+midi.knob), so the FM-1's screen stays in view.
 
-**Popups** (the owner's: no box, no border, no hatching): each clears the whole screen to black and lays its content
-across the 128 x 64 (the step popup keeps the steps row below). In FM-1 mode and MIDI's NOTES they keep to the left
-64 x 64, cleared to black, so the FM-1's screen stays in view on the right. The knob popup: the label at 2x, the
-value at 3x where it fits, the dial top right, a full-width bar along the bottom.
-
-| Popup | When | What |
+| Popup | When | What (the mockup) |
 |---|---|---|
-| knob | a knob touched or turned: FM-1 encoders (in MIDI mode on a touch, in FM-1 mode on a turn), Control / Sequencer CCs, the volume knob; Sequencer mode: Shift + jog, Loop held, the jog's bank; a drum pad + jog | the label at 2x (the firmware's label, else SELECT .. PRESETS; `CC 16`; MASTER; TEMPO, LOOP, BANK, DRUM), the value at 2x with its unit small (% BPM BARS LOCK ..), a thick bar, a dial with its pointer; the right half hatched behind. An FM-1 encoder is relative: its value is this gesture's detents (+3), the bar from the middle, the dial turning 15° a detent |
-| step | a step held 300 ms or more in track view (a tap: none) | its notes as inverted chips (the first two and "+n" past three), the velocity (a level) and the length in steps (a bracket) at 2x; the steps row stays below, the held step marked over it |
-| trig | a knob touched or turned on the TRIG page | a picture (micro: a note in a step's box; ratchet: the hits; chance: a die; condition: the passes, the A-th filled; function: an arrow, a die, hops; length: a gate bar over steps) and the name and value at 2x |
-| loop | Loop held or latched | the length in bars (+ steps) at 2x, the loop as a bar over the 16 pages, the pages (in the loop filled, the shown one marked) |
-| bar | Left / Right adding or taking away a ghost page | "BAR n", 1 s |
-| Shift menus | Shift + step 3, 5, 7, 8, 9, 11; Shift + Record (stay open: the same again or Back) | Workflow: CH, RATE, QUANT; Tempo: the BPM at 4x (EXT and a padlock when locked); Groove: two 16ths, the second late; Layout, Keys & Scales: tabs and a keyboard; Arp: the pattern's walk, its name, rate, mode and range; Record: the mode's picture and name, the style |
-| mute | Mute held | the 16 tracks, muted crossed out |
-| project | a project pad held in the grid (also once that project is open: the grid closes on the load) | its number at 4x, a bar a track (its notes; 16 thinner bars when tracks 9..16 have notes), ▶ the tempo, the clip symbol and the clips |
-| message | an action's result (UNDO, CLICK ON ..; not copy / cut / paste), 1 s | the words at 3x where they fit, else 2x, a line or two |
-| count-in | Play with Rec armed (Record mode), from stopped | the beats to go at 6x, a big recording dot |
+| mode name | a quick Track tap (mode.fm1, mode.seq, mode.notes) | "FM-1", "MIDI", "Control", "Seq" at 4x (else 3x), the strip the four modes (the two views for Pads / Notes) |
+| edit | a knob turned (ctl.knob, seq.lock), the volume knob, Shift + jog, the jog's bank, a drum pad + jog | the name on row 1, the value under it at 4x (2x when wider), no box; a bar (bipolar from the middle for an FM-1 encoder's detents); a held step's CC lock: a padlock; the knob pages on the strip |
+| step | a step held 300 ms in track view (seq.step) | its notes in words (sharps; "+n" past what fits), the velocity with its icon, the length with a bracket; the steps row, the held step marked |
+| held-step edits | a step held + the arrows, the jog, the volume knob (seq.micro, seq.len, seq.vel) | "Nudge" (in % of a step), "Length" (steps), "Velocity" (with a bar) at 4x; the page strip with the step's tick |
+| trig | a knob on the TRIG page (trig.*) | a picture on the left (micro: the note between its step's ticks; ratchet: the hits; chance: a die; condition: A:B, the A-th tall; function: the playhead's path; length: a gate bar) and the name and value on the right; the strip the five knob pages, TRIG first |
+| loop length | the jog in page edit (loop.len) | "Loop", "4 Bars" at 4x, the looped pages thick on a strip of 16, a second |
+| bar | Right past the end in page edit (loop.ghost) | "Bar n" over the ghost strip, a second |
+| project | a project pad held (proj.held); + knob 1 (proj.color) | its number at 4x, a bar a track, ▶ its tempo, its clips; the colour once: "Color" and its number at 4x, the 16 colours on the strip |
+| message | an action's result, 1 s (sys.msg, menu.quant, loop.doubled, menu.metro, menu.newclip, rec.captured) | one or two centred rows in Title Case ("Quantized", "Loop Doubled", "Undone"); a toggle or one-shot with its icon (metronome, new clip) has no strip, the others keep the page strip (Double Loop: the loop on a strip of 16); Captured: "Captured" and the tempo |
+| count-in | Play with Rec armed (seq.count) | a record dot, the beats to go at 4x, the strip filling beat by beat |
+| track | a track change | "Track n" |
 
-The newer of a control's popup and a message shows; the count-in shows under both. The core knows the current
-project's content; for the others the host passes each stored blob once (`rfm_move_project_info`: at start and after
-an import; saves, loads and deletes keep it up to date). A project it was not given is drawn outlined, without bars.
+**The Shift menus** (V2Menus, V2Arp, V2Global): the knob legend (rings over the knobs a menu uses, the touched one
+filled; the same knobs glow) where the design has it. Workflow: "Ch 3", "Rate 1/16", "Quant 50%". Tempo: the tap icon
+(following: a padlock), "Tempo", the BPM at 4x, the taps on the strip. Groove: two 16ths (the second late by the
+amount, the straight place dashed), "Groove" and the amount, Global / Track as icons (the chosen one underlined).
+Layout: Move's four layout icons, the chosen one underlined and named. Keys & Scales and Track 2 held: the build's
+key / scale screen, kept as the owner asked (the layouts as tabs on top, "D DOR" at 4x, the root on a 12-key row;
+the 16 channels below, or Global / Track with its icon). Velocity: the curve as a graph, the option and the level
+with a bar. Arp: the pattern's walk (outlined while off), its name, rate and octaves, the page on the strip; the lanes:
+the 16 steps as bars from a line, the edited one underlined. Record: the three modes as icons (the chosen underlined
+and named), the style with its icon. Global Settings: the Move's battery (outline, fill, nub) and its %, centred on top
+("--" until the first STATUS), "Clock Int", "Vel Fixed"; knob 3 touched: the "Level" popup.
 
-**Held Track buttons** fill the screen with their menu, in the same language (Track 1 has none: FM-1 mode stays):
+**Held Track buttons**: Track 2 the key / scale screen with the channels (midi.hold2, midi.scale); Track 3 the knob
+legend (the turned one filled), "CC" and the number it sends at 4x, which knob (ctl.hold3); Track 4 (and Mute held)
+the 16 tracks on one row as the 16 step keys: the selected one filled, muted crossed, soloed a square inside, with
+notes outlined, empty a dot; the selected track (or what changed last: "Ch 5", "K3 CC 20", "Rate 1/16") on top
+(sess.hold4).
 
-- **Track 2**: the 4 layouts as tabs (the top row's pads 1..4), the 8 scales (row 2's pads), the root as a keyboard
-  octave (the jog wheel), the 16 channels as the steps; the setting changed last at 2x (`C MIN`, `DRUM`, `CH 5`).
-- **Track 3**: the bank's tabs, the 8 knobs (the one turned filled), its CC number at 2x (`CC 20`).
-- **Track 4** (Sequencer): the 16 tracks as the steps (selected filled, with content outlined, empty dotted, muted
-  flagged above), the selected track's channel as a strip of 16 (the jog wheel), `TR 3` or `CH 5` at 2x.
-
-**Where it departs from the mockups**: the mockups' Silkscreen text is font5x7 at 2x (labels of 8 characters at
-11 px a character, more cut to 8); in FM-1 mode a touch alone marks the encoder on the drawing and the popup comes
-with the turn (it would otherwise cover the mark), and the jog wheel (SELECT) gets no popup, so the FM-1's screen
-stays in view while its menus are scrolled; the step popup shows the first note's velocity and length (offsets and
-CC locks are not on the screen any more; a held step's lock shows in the knob popup as `LOCK`); muted tracks, the
-stopping and waiting states and the 16-page clips are drawn in the design's symbols, where the mockups had none.
+**Where it differs from the mockups** (behaviour kept, looks as close as the data allows): note names are the core's
+(C4 = MIDI 60, sharps: "C4 D#4 G4" for the mockup's "C3 Eb3 G3"); the arp's page 1 keeps all 8 knobs (the legend shows
+8 rings, the mockup 4); the arp's lanes have 16 steps (the mockup draws 8); the audio loop has no waveform (the core
+does not see the audio), only the bar lines and the strip; there is no charging screen (no STATUS power bit is known
+to mean charging); Track 4 held keeps saying what changed last; the play triangle in FM-1 mode stays; the FM-1
+drawing's touch marks follow our drawing's cells (the mockup's examples sit one pixel off).
 
 ## Tests
 

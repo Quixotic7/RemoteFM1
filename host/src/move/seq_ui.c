@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "move_int.h"
+#include "v2.h"
 
 #define clampi rfmv_clampi
 #define sc rfmv_sc
@@ -58,11 +59,6 @@ void rfmv_shift_icons(const rfm_move_t *m, uint8_t icon[16])
     }
 }
 
-static int sh_step(int menu)
-{
-    static const int8_t S[] = { -1, SH_WORKFLOW, SH_TEMPO, SH_GROOVE, SH_LAYOUT, SH_KEYS, SH_ARP, -1, SH_FIXVEL, SH_CLOCK };
-    return menu > 0 && menu < (int)sizeof S ? S[menu] : -1;
-}
 
 static rfm_move_seq_t *Q(rfm_move_t *m) { return &m->seq; }
 static int edit_clip(const rfm_move_t *m)
@@ -731,6 +727,7 @@ void rfmv_seq_step(rfm_move_t *m, int s, int down, uint32_t now)
                 if (!rfmv_seq_clip_has(m, SEQ_CLIP(q->sel_track, sc2))) {
                     rfmv_seq_clip_make(m, SEQ_CLIP(q->sel_track, sc2), 1);
                     t->sel = (int8_t)sc2, q->page = 0;
+                    rfmv_seq_msg(m, SEQ_MSG_NEWCLIP);
                     break;
                 }
             }
@@ -1568,6 +1565,7 @@ void rfmv_seq_jog(rfm_move_t *m, int d, uint32_t now)
         q->mods_used |= SEQ_M_LOOP | ((q->mods & SEQ_M_SHIFT) ? SEQ_M_SHIFT : 0);
         rfmv_seq_len_set(m, clip, clampi(nl, unit, RFM_MOVE_SEQ_MAXLEN));
         rfmv_pop(m, POP_LOOP, 0);
+        m->pop_val = 1;                                 /* (the jog: Move's "Loop Length") */
         return;
     }
     if (q->mods & SEQ_M_SHIFT) {                        /* Shift + jog: the tempo, 1 BPM a detent */
@@ -1825,17 +1823,28 @@ void rfmv_seq_leds(const rfm_move_t *m, rgb_t c[L_WHITE0], uint8_t w[13])
 }
 
 /* ================================================================ the screen === */
-/* (the owner's design: Session.dc.html, Track.dc.html, Projects.dc.html; symbols only, the words in screen.c's
- * popups) */
-static const char *const MSG[] = { "", "NO EMPTY CLIP", "FULL", "LOAD FAILED", "CAPTURED", "UNDO", "REDO", "COPIED",
-                                   "PASTED", "CUT", "QUANTIZED", "DOUBLED", "EXT TEMPO", "DUPLICATED", "CLEARED",
-                                   "CAPTURE CLEARED", "CLOCK AUTO", "CLOCK INT", "CLOCK EXT", "FULL VEL",
-                                   "PAD VEL", "CLICK ON", "CLICK OFF" };
+/* v2 (the design canvas's V2Track, V2Loop, V2Session, V2Menus, V2Arp, V2Projects, V2Record; drawn with v2.c):
+ * symbols at rest, words only while something is touched or turned; Move's bottom strip says where you are */
+static const struct { const char *a, *b; int8_t icon; } MSG[] = {
+    { "", "", -1 }, { "No Empty", "Clip", -1 }, { "Full", "", -1 }, { "Load", "Failed", -1 }, { "Captured", "", -1 },
+    { "Undone", "", -1 }, { "Redone", "", -1 }, { "Copied", "", -1 }, { "Pasted", "", -1 }, { "Cut", "", -1 },
+    { "Quantized", "", -1 }, { "Loop", "Doubled", -1 }, { "Ext Tempo", "", V2I_LOCK }, { "Duplicated", "", -1 },
+    { "Cleared", "", -1 }, { "Capture", "Cleared", -1 }, { "Clock Auto", "", -1 }, { "Clock Int", "", -1 },
+    { "Clock Ext", "", -1 }, { "Full Vel", "", V2I_VEL }, { "Pad Vel", "", V2I_VEL }, { "Click On", "", V2I_METRO },
+    { "Click Off", "", V2I_METRO }, { "New Clip", "", V2I_CLIP },
+};
 const char *rfmv_seq_msg_text(const rfm_move_t *m)
 {
     const rfm_move_seq_t *q = &m->seq;
-    return q->msg && rfmv_now_ms(m) - q->msg_ms < RFM_MOVE_POPUP_MS && q->msg < sizeof MSG / sizeof MSG[0] ? MSG[q->msg]
+    return q->msg && rfmv_now_ms(m) - q->msg_ms < RFM_MOVE_POPUP_MS && q->msg < sizeof MSG / sizeof MSG[0] ? MSG[q->msg].a
                                                                                                          : NULL;
+}
+int rfmv_seq_msg_info(const rfm_move_t *m, const char **a, const char **b, int *icon)
+{
+    const rfm_move_seq_t *q = &m->seq;
+    const int id = rfmv_seq_msg_text(m) ? q->msg : 0;
+    *a = MSG[id].a, *b = MSG[id].b, *icon = MSG[id].icon;
+    return id;
 }
 
 /* how full a group of notes looks: 0 none, 1 .. cap (a bar's height: the bits of the count) */
@@ -1847,9 +1856,55 @@ static int fullness(int n, int cap)
     return b < cap ? b : cap;
 }
 
-/* Projects.dc.html: the 32 slots as the pads are (top-left = 1); the current one filled, a saved one outlined, each
- * with three bars (its tracks with notes, in three groups: the notes of each, as fullness()); an empty slot a dot.
- * A project loading (the host's answer pending) blinks. */
+/* a clip's last page: the loop's, or a later one with notes */
+int rfmv_seq_end_page(const rfm_move_t *m, int clip) { return clip_end_page(m, clip); }
+
+/* Move's strip in track view: the clip's pages (the shown one thick; a ghost page shown: the real pages a line and a
+ * + at the far end), the playhead (or, at >= 0, that step) a tick over the whole clip */
+void rfmv_seq_page_strip(const rfm_move_t *m, mr_canvas_t *cv, int at)
+{
+    const rfm_move_seq_t *q = &m->seq;
+    const int clip = edit_clip(m), end = clip_end_page(m, clip), n = end + 1;
+    const rfm_move_track_t *t = &q->tr[q->sel_track];
+    int pos = at;
+    if (q->page > end) {
+        v2_ghostStrip(cv, n, q->page + 2);
+        return;
+    }
+    if (pos < 0 && t->active == t->sel && running(q))
+        pos = rfmv_seq_clip_pos(m, q->sel_track);
+    v2_strip(cv, n, 1u << q->page, pos >= 0 ? (double)pos / (n * RFM_MOVE_SEQ_PAGE) : -1, 0, 128);
+}
+
+/* the 16 steps of the shown page as cells (only while a step, Copy or Delete is held, or Step record is on): notes
+ * filled, empty outlined, copied dashed, cut crossed; the held ones (marks) underlined above */
+void rfmv_seq_steps_cells(const rfm_move_t *m, mr_canvas_t *cv, uint32_t marks)
+{
+    const rfm_move_seq_t *q = &m->seq;
+    const int clip = edit_clip(m);
+    int i;
+    for (i = 0; i < RFM_MOVE_NSTEPS; i++) {
+        const int abs = q->page * RFM_MOVE_SEQ_PAGE + i, src = rfmv_seq_src_step(m, clip, abs), x = i * 8, y = 52;
+        int lo;
+        const int notes = rfmv_seq_range(m, clip, abs, &lo) > lo;
+        if (src == 2)
+            v2_O(cv, x, y, 7, 11, 1), v2_X(cv, x + 1, y + 2, 5, 7);
+        else if (src == 1) {
+            if (notes)
+                v2_R(cv, x + 2, y + 3, 3, 5, 1);
+            v2_dashO(cv, x, y, 7, 11);
+        } else if (notes)
+            v2_R(cv, x, y, 7, 11, 1);
+        else
+            v2_O(cv, x, y, 7, 11, 1);
+        if (marks >> i & 1)
+            v2_R(cv, x, y - 3, 7, 2, 1);
+    }
+}
+
+/* V2Projects proj.grid: the 32 slots as the pads are (top-left = 1); the open one filled, a saved one outlined, each
+ * with three bars (its tracks with notes in three groups, as fullness()); an empty slot a dot; the clipboard's
+ * source crossed (cut) or dashed (copied). A project loading (the host's answer pending) blinks. */
 static void projects_screen(const rfm_move_t *m, mr_canvas_t *cv)
 {
     const rfm_move_seq_t *q = &m->seq;
@@ -1858,21 +1913,24 @@ static void projects_screen(const rfm_move_t *m, mr_canvas_t *cv)
         const int x = (i % 8) * 16 + 1, y = (i / 8) * 16 + 1, cur = i == q->proj_cur || (i == q->proj_pending && blink(q));
         rfm_move_proj_info_t in;
         int used[RFM_MOVE_SEQ_TRACKS], nu = 0, g, t;
-        if (q->pbuf_kind && q->pbuf_src == i && !cur) {  /* the buffer's source: cut an X, copied dashed */
+        if (q->pbuf_kind && q->pbuf_src == i && !cur) {  /* the buffer's source: cut crossed, copied dashed */
             if (q->pbuf_kind == 2 && !(q->proj_used >> i & 1)) {
-                rfmv_xbox(cv, x, y, 14, 14);
+                v2_O(cv, x, y, 14, 14, 1), v2_X(cv, x + 3, y + 3, 8, 8);
                 continue;
             }
             if (q->pbuf_kind == 1) {
-                rfmv_dotted(cv, x, y, 14, 14);
+                v2_dashO(cv, x, y, 14, 14);
                 continue;
             }
         }
         if (!cur && !(q->proj_used >> i & 1)) {
-            mr_gfx_rect(cv, x + 6, y + 6, 2, 2, 1, 1);
+            v2_R(cv, x + 6, y + 6, 2, 2, 1);
             continue;
         }
-        mr_gfx_rect(cv, x, y, 14, 14, 1, cur);
+        if (cur)
+            v2_R(cv, x, y, 14, 14, 1);
+        else
+            v2_O(cv, x, y, 14, 14, 1);
         rfmv_proj_info(m, i, &in);
         if (!in.ok)
             continue;
@@ -1886,149 +1944,57 @@ static void projects_screen(const rfm_move_t *m, mr_canvas_t *cv)
                 n += used[t];
             h = fullness(n, 8);
             if (h)
-                mr_gfx_rect(cv, x + 3 + g * 3, y + 11 - h, 2, h, !cur, 1);
+                v2_R(cv, x + 3 + g * 3, y + 11 - h, 2, h, !cur);
         }
     }
 }
 
-/* which track of the 16: a 4 x 4 of cells (a column a bank, Track 1 on top), the selected one filled, the
- * bank's column bigger; k the cell's size */
-void rfmv_seq_track_glyph(const rfm_move_t *m, mr_canvas_t *cv, int x, int y, int k)
-{
-    const rfm_move_seq_t *q = &m->seq;
-    int b, t;
-    for (b = 0; b < 4; b++)
-        for (t = 0; t < 4; t++) {
-            const int tr = b * 4 + t, cx = x + b * (k + 1), cy = y + t * (k + 1);
-            if (tr == q->sel_track)
-                mr_gfx_rect(cv, cx, cy, k, k, 1, 1);
-            else if (b == q->bank)
-                mr_gfx_rect(cv, cx, cy, k, k, 1, 0);
-            else
-                mr_gfx_pixel(cv, cx + k / 2, cy + k / 2, 1);
-        }
-}
-
-/* Session.dc.html (the owner's mockup): the 8 tracks in view across, their 4 clip slots down (14 x 13 cells, 16 px
- * apart, from y 4); a 14 x 2 bar over the selected track (muted: a dotted line there); a clip empty (a 2 x 2 dot), with
- * content (an outline), playing (filled, a black play triangle), queued (a blinking outline), stopping (blinking
- * between playing and an outline), recording (filled, a black dot; blinking while it waits); the clipboard's source
- * dashed (copied) or crossed (cut) */
+/* V2Session sess.rest (the owner's mockup): the 8 tracks in view across, their 4 clip slots down; a 14 x 2 bar over
+ * the selected track (muted tracks: a dashed line on top); playing filled with a black play icon, recording filled
+ * with a black square, queued doubled (blinking), stopping blinking, a clip outlined, empty a dot; the clipboard's
+ * source dashed (copied) or crossed (cut) */
 static void session_screen(const rfm_move_t *m, mr_canvas_t *cv)
 {
     const rfm_move_seq_t *q = &m->seq;
     const int bl = blink(q);
-    int c, r, i;
+    int c, r;
     for (c = 0; c < 8; c++) {
         const int track = q->track_page + c, x = c * 16 + 1;
         if (track == q->sel_track)
-            mr_gfx_rect(cv, x, 0, 14, q->tr[track].mute ? 1 : 2, 1, 1);
-        if (q->tr[track].mute)
-            for (i = 0; i < 14; i += 2)
-                mr_gfx_pixel(cv, x + i, 1, 1);
+            v2_R(cv, x, 0, 14, 2, 1);
+        else if (q->tr[track].mute)
+            v2_dotH(cv, x, 1, 14);
     }
     for (r = 0; r < 4; r++)
         for (c = 0; c < 8; c++) {
-            const int track = q->track_page + c, scene = q->scene_off + r, x = c * 16 + 1, y = 4 + r * 15;
-            int st = clip_state(m, track, scene);
+            const int track = q->track_page + c, scene = q->scene_off + r;
             const int src = rfmv_seq_src_clip(m, SEQ_CLIP(track, scene));
-            if (src) {
-                if (src == 2)
-                    rfmv_xbox(cv, x, y, 14, 13);
-                else
-                    rfmv_dotted(cv, x, y, 14, 13);
-                continue;
-            }
-            if (st == CS_STOPPING)
-                st = bl ? CS_CONTENT : CS_PLAYING;
-            if (st == CS_REC_WAIT)
-                st = bl ? CS_CONTENT : CS_REC;
-            switch (st) {
-            case CS_EMPTY: mr_gfx_rect(cv, x + 6, y + 5, 2, 2, 1, 1); break;
-            case CS_QUEUED:
-                if (!bl)
-                    mr_gfx_rect(cv, x, y, 14, 13, 1, 0);
-                break;
-            case CS_PLAYING:
-                mr_gfx_rect(cv, x, y, 14, 13, 1, 1);
-                rfmv_tri(cv, x + 4, y + 3, 6, 8, 0);
-                break;
-            case CS_REC:
-                mr_gfx_rect(cv, x, y, 14, 13, 1, 1);
-                rfmv_disc(cv, x + 4, y + 3, 7, 0);
-                break;
-            default: mr_gfx_rect(cv, x, y, 14, 13, 1, 0); break;
-            }
+            char s = '.';
+            if (src)
+                s = src == 2 ? 'X' : 'D';
+            else
+                switch (clip_state(m, track, scene)) {
+                case CS_CONTENT: s = 'C'; break;
+                case CS_QUEUED: s = bl ? 'C' : 'Q'; break;
+                case CS_PLAYING: s = 'P'; break;
+                case CS_STOPPING: s = bl ? 'C' : 'P'; break;
+                case CS_REC: s = 'R'; break;
+                case CS_REC_WAIT: s = bl ? 'C' : 'R'; break;
+                default: break;
+                }
+            v2_cell(cv, c, r, s);
         }
 }
 
-/* the 16 steps of the page at the bottom (7 x 10, 8 px apart): notes or the playhead filled, empty outlined, past the
- * clip's end dotted. Returns the step the playhead is on (-1 none) */
-static int playhead_step(const rfm_move_t *m)
+/* the shown page's notes as a piano roll: 8 px a step, 13 rows of 4 px (the page's highest note on top; squeezed past
+ * 12 semitones), 3 px tall, the beats dashed, the playhead a line */
+static void roll(const rfm_move_t *m, mr_canvas_t *cv, int y0, int h)
 {
     const rfm_move_seq_t *q = &m->seq;
-    const rfm_move_track_t *t = &q->tr[q->sel_track];
-    return t->active == t->sel ? rfmv_seq_clip_pos(m, q->sel_track) - q->page * RFM_MOVE_SEQ_PAGE : -1;
-}
-int rfmv_seq_steps_row(const rfm_move_t *m, mr_canvas_t *cv)
-{
-    const rfm_move_seq_t *q = &m->seq;
-    const int clip = edit_clip(m), pos = playhead_step(m), a = rfmv_seq_loop_lo(m, clip), b = rfmv_seq_loop_hi(m, clip);
-    int i;
-    if (q->steprec && q->step_cur / RFM_MOVE_SEQ_PAGE == q->page)   /* Step record's cursor: a bar over its step */
-        mr_gfx_rect(cv, (q->step_cur % RFM_MOVE_SEQ_PAGE) * 8, 51, 7, 2, 1, 1);
-    for (i = 0; i < RFM_MOVE_NSTEPS; i++) {
-        const int abs = q->page * RFM_MOVE_SEQ_PAGE + i, src = rfmv_seq_src_step(m, clip, abs);
-        int lo;
-        const int notes = rfmv_seq_range(m, clip, abs, &lo) > lo;
-        if (src == 2)                                   /* cut: an X */
-            rfmv_xbox(cv, i * 8, 54, 7, 10);
-        else if (src == 1)                              /* copied: dashed */
-            rfmv_dotted(cv, i * 8, 54, 7, 10);
-        else if (abs < a || abs >= b) {                 /* outside the loop: a line (with notes: half filled) */
-            mr_gfx_rect(cv, i * 8, 63, 7, 1, 1, 1);
-            if (notes)
-                mr_gfx_rect(cv, i * 8, 59, 7, 5, 1, 1);
-        } else
-            mr_gfx_rect(cv, i * 8, 54, 7, 10, 1, i == pos || notes);
-    }
-    return pos;
-}
-
-/* Track.dc.html: the clip's pages on top (the shown one filled, in the loop outlined, past it dotted: 4 segments, or
- * 8 / 16 thinner ones for a longer clip or page), the page's notes as a piano roll (8 px a step, 3 px a semitone
- * up from the page's lowest note; squeezed past 13 semitones) with the beats dotted and the playhead a 1 px line, the
- * 16 steps at the bottom */
-static void track_screen(const rfm_move_t *m, mr_canvas_t *cv)
-{
-    const rfm_move_seq_t *q = &m->seq;
-    const int clip = edit_clip(m), pa = rfmv_seq_loop_lo(m, clip) / RFM_MOVE_SEQ_PAGE;
-    const int pages = (rfmv_seq_loop_hi(m, clip) + RFM_MOVE_SEQ_PAGE - 1) / RFM_MOVE_SEQ_PAGE;
-    const int need = pages > q->page + 1 ? pages : q->page + 1, nseg = need <= 4 ? 4 : need <= 8 ? 8 : 16;
-    const int pitch = 128 / nseg, p0 = q->page * RFM_MOVE_SEQ_PAGE;
-    int i, lo, hi, nlo = 127, nhi = 0, y;
-    if (q->page >= pages) {                             /* ghost pages (Move's): a line under the real pages, blank
-                                                         * ghosts, a "+" at the far end; the clip's steps / pages boxed */
-        char b[16];
-        const int seg = 100 / (q->page + 1), xe = seg * (q->page + 1);
-        mr_gfx_rect(cv, 0, 2, seg * pages - 2 > 1 ? seg * pages - 2 : 1, 1, 1, 1);
-        mr_gfx_rect(cv, xe - seg / 2 - 2, 2, 5, 1, 1, 1), mr_gfx_rect(cv, xe - seg / 2, 0, 1, 5, 1, 1);
-        snprintf(b, sizeof b, "%d/%d", rfmv_seq_loop_hi(m, clip) - rfmv_seq_loop_lo(m, clip), pages);
-        mr_gfx_rect(cv, 127 - 6 * (int)strlen(b) - 3, 0, 6 * (int)strlen(b) + 3, 9, 1, 0);
-        mr_gfx_text(cv, 127 - 6 * (int)strlen(b) - 1, 1, b, 1);
-    }
-    for (i = 0; i < nseg && q->page < pages; i++) {
-        const int x = i * pitch + 1, w = pitch - 2;
-        if (i == q->page)
-            mr_gfx_rect(cv, x, 0, w, 4, 1, 1);
-        else if (i >= pa && i < pages)
-            mr_gfx_rect(cv, x, 0, w, 4, 1, 0);
-        else
-            rfmv_dotted(cv, x, 0, w, 4);
-    }
-    for (i = 1; i <= 4; i++)                            /* the beats */
-        for (y = 7; y < 51; y += 4)
-            mr_gfx_pixel(cv, i * 32 - 1, y, 1);
+    const int clip = edit_clip(m), p0 = q->page * RFM_MOVE_SEQ_PAGE, row = (h - 4) / 12;
+    int i, lo, hi, nlo = 127, nhi = 0, s;
+    for (s = 4; s < 16; s += 4)
+        v2_dotV(cv, s * 8, y0, h);
     hi = rfmv_seq_clip_range(m, clip, &lo);
     for (i = lo; i < hi; i++)
         if (q->notes[i].step >= p0 && q->notes[i].step < p0 + RFM_MOVE_SEQ_PAGE) {
@@ -2037,276 +2003,309 @@ static void track_screen(const rfm_move_t *m, mr_canvas_t *cv)
         }
     for (i = lo; i < hi; i++) {
         const rfm_move_note_t *n = &q->notes[i];
-        int x, w, dy;
+        int x, w, r;
         if (n->step < p0 || n->step >= p0 + RFM_MOVE_SEQ_PAGE)
             continue;
-        x = (n->step - p0) * 8 + n->micro / 3;
-        w = n->len * 8 / RFM_MOVE_SEQ_TPS - 1;
-        dy = nhi - nlo <= 13 ? (n->note - nlo) * 3 : (n->note - nlo) * 39 / (nhi - nlo);
-        mr_gfx_rect(cv, x, 46 - dy, w < 1 ? 1 : w, 4, 1, 1);
+        x = (n->step - p0) * 8 + 1 + n->micro / 3;
+        w = n->len * 8 / RFM_MOVE_SEQ_TPS - 2;
+        r = nhi - nlo <= 12 ? nhi - n->note + (12 - (nhi - nlo)) / 2 : (nhi - n->note) * 12 / (nhi - nlo);   /* (centred) */
+        v2_R(cv, x, y0 + 2 + r * row, w < 1 ? 1 : w, 3, 1);
     }
     {
         const rfm_move_track_t *t = &q->tr[q->sel_track];
         const int tick = t->active == t->sel ? rfmv_seq_clip_tick(m, q->sel_track) : -1;
         if (tick >= 0 && tick / RFM_MOVE_SEQ_TPS >= p0 && tick / RFM_MOVE_SEQ_TPS < p0 + RFM_MOVE_SEQ_PAGE)
-            mr_gfx_rect(cv, (tick - p0 * RFM_MOVE_SEQ_TPS) * 8 / RFM_MOVE_SEQ_TPS, 7, 1, 44, 1, 1);
+            v2_R(cv, (tick - p0 * RFM_MOVE_SEQ_TPS) * 8 / RFM_MOVE_SEQ_TPS, y0, 1, h, 1);
     }
-
-    mr_gfx_rect(cv, 116, 6, 12, 12, 0, 1);             /* which track of the 16 */
-    rfmv_seq_track_glyph(m, cv, 117, 7, 2);
-    rfmv_seq_steps_row(m, cv);
 }
 
-/* Mute held: the 16 tracks, two rows of 8 (with notes filled, empty outlined), a muted one crossed out; the
- * selected one underlined */
-static void mute_screen(const rfm_move_t *m, mr_canvas_t *cv)
+/* V2Track seq.track: the shown page as a piano roll, full height; Move's strip the pages and the playhead. A step,
+ * Copy or Delete held, or Step record: the steps row (seq.clip). Recording: Move's "Recording" row on top
+ * (rec.capture); the audio loop: "Sampling" (rec.sample) */
+static void track_screen(const rfm_move_t *m, mr_canvas_t *cv)
+{
+    const rfm_move_seq_t *q = &m->seq;
+    const int cells = q->step_held || (q->mods & (SEQ_M_COPY | SEQ_M_DELETE)) || q->steprec;
+    int y0 = 0, h = cells ? 46 : 56;
+    if (q->arec >= 2 || (q->arec == 1 && !blink(q))) {  /* the audio loop: armed (blinking), recording */
+        v2_ic(cv, V2I_WAVE, 0, 2, 1);
+        v2_T(cv, 16, 1, q->arec == 1 ? "Sample" : "Sampling", 2, 1);
+        y0 = 20, h = cells ? 26 : 36;
+    } else if (q->rec && running(q) && q->rec_mode != RFM_MOVE_RM_STEP) {
+        v2_ic(cv, V2I_REC, 0, 2, 1);
+        v2_T(cv, 16, 1, "Recording", 2, 1);
+        y0 = 20, h = cells ? 26 : 36;
+    }
+    roll(m, cv, y0, h);
+    if (cells) {
+        uint32_t marks = q->step_held;
+        if (q->steprec && q->step_cur / RFM_MOVE_SEQ_PAGE == q->page)
+            marks |= 1u << (q->step_cur % RFM_MOVE_SEQ_PAGE);   /* (Step record's cursor) */
+        rfmv_seq_steps_cells(m, cv, marks);
+    } else
+        rfmv_seq_page_strip(m, cv, -1);
+}
+
+/* the 16 tracks on one row, as the 16 step keys: the selected one filled, muted crossed, soloed a square inside,
+ * with notes outlined, empty a dot; a word on top */
+static void tracks_row(const rfm_move_t *m, mr_canvas_t *cv, const char *title)
 {
     const rfm_move_seq_t *q = &m->seq;
     int i;
+    v2_TC(cv, 64, 3, title, 2, 1);
     for (i = 0; i < RFM_MOVE_SEQ_TRACKS; i++) {
-        const int x = (i % 8) * 16 + 1, y = (i / 8) * 32 + 2;
-        if (q->tr[i].mute)
-            rfmv_xbox(cv, x, y, 14, 26);
+        const int x = i * 8, y = 28;
+        if (i == q->sel_track) {
+            v2_R(cv, x, y, 7, 26, 1);
+            if (q->tr[i].mute)
+                v2_R(cv, x + 1, y + 9, 5, 8, 0), v2_X(cv, x + 1, y + 9, 5, 8), v2_XR(cv, x + 1, y + 9, 5, 8);
+            else if (q->tr[i].solo)
+                v2_R(cv, x + 2, y + 10, 3, 6, 0);
+        } else if (q->tr[i].mute)
+            v2_O(cv, x, y, 7, 26, 1), v2_X(cv, x + 1, y + 9, 5, 8);
+        else if (q->tr[i].solo)
+            v2_O(cv, x, y, 7, 26, 1), v2_R(cv, x + 2, y + 10, 3, 6, 1);
+        else if (rfmv_seq_track_used(m, i))
+            v2_O(cv, x, y, 7, 26, 1);
         else
-            mr_gfx_rect(cv, x, y, 14, 26, 1, rfmv_seq_track_used(m, i));
-        if (i == q->sel_track)
-            mr_gfx_rect(cv, x, y + 28, 14, 2, 1, 1);
+            v2_R(cv, x + 3, y + 12, 1, 2, 1);
     }
 }
 
-/* a Shift menu (Shift + a step, Shift + Record): its values at 2x (4x the tempo), a picture where one says more */
-static const char *const AP_NAMES[RFM_MOVE_AP_N] = { "UP", "DOWN", "UP DN", "DN UP", "U+D", "D+U", "CONV", "DIV",
-                                                     "CON DIV", "HI UP", "HI UPDN", "LO UP", "LO UPDN", "RAND",
-                                                     "RAND OTH", "SHUFFLE", "AS PLAYED" };
-static const char *const AM_NAMES[RFM_MOVE_AM_N] = { "OFF", "ON", "1-ST", "ONCE", "HOLD" };
-static void row2(mr_canvas_t *cv, int y, const char *s) { rfmv_big(cv, 4, y, s, 2, 1); }
+/* Mute held: the 16 tracks, the muted ones crossed */
+static void mute_screen(const rfm_move_t *m, mr_canvas_t *cv) { tracks_row(m, cv, "Mute"); }
+
+/* the Shift menus (V2Menus, V2Arp, V2Global): knobs and the jog only; the knob legend where the design has it */
+static const char *const AP_NAMES[RFM_MOVE_AP_N] = { "Up", "Down", "Up Dn", "Dn Up", "U+D", "D+U", "Conv", "Div",
+                                                     "Con Div", "Hi Up", "Hi UpDn", "Lo Up", "Lo UpDn", "Rand",
+                                                     "Rand Oth", "Shuffle", "Played" };
+static int touched_knob(const rfm_move_t *m) { return m->touched >= 0 && m->touched < RFM_MOVE_NKNOBS ? m->touched : -1; }
+static void fit2(mr_canvas_t *cv, int x, int y, const char *s, int w)   /* 2x where it fits in w, else 1x */
+{
+    if (v2_tw(s, 2) <= w)
+        v2_T(cv, x, y, s, 2, 1);
+    else
+        v2_T(cv, x, y + 4, s, 1, 1);
+}
 static void smenu_screen(const rfm_move_t *m, mr_canvas_t *cv)
 {
     const rfm_move_seq_t *q = &m->seq;
     const rfm_move_track_t *t = &q->tr[q->sel_track];
-    char b[32];
+    const int tk = touched_knob(m);
+    char b[32], c[32];
     int i;
-    mr_gfx_rect(cv, sh_step(q->smenu) * 8, 62, 7, 2, 1, 1);   /* (its step, under the screen) */
     switch (q->smenu) {
-    case RFM_MOVE_SM_WORKFLOW:
-        snprintf(b, sizeof b, "CH %d", t->ch + 1), row2(cv, 2, b);
-        snprintf(b, sizeof b, "RATE %s", rfm_move_seq_rate_name(t->rate)), row2(cv, 21, b);
-        snprintf(b, sizeof b, "QUANT %d%%", q->qstrength), row2(cv, 40, b);
+    case RFM_MOVE_SM_WORKFLOW:                          /* the track's channel, rate and quantize: a row a knob */
+        v2_knobs(cv, 7, tk);
+        snprintf(b, sizeof b, "Ch %d", t->ch + 1), v2_T(cv, 0, 14, b, 2, 1);
+        snprintf(b, sizeof b, "Rate %s", rfm_move_seq_rate_name(t->rate)), v2_T(cv, 0, 31, b, 2, 1);
+        snprintf(b, sizeof b, "Quant %d%%", q->qstrength), v2_T(cv, 0, 48, b, 2, 1);
         break;
-    case RFM_MOVE_SM_TEMPO: {
+    case RFM_MOVE_SM_TEMPO: {                           /* the tap icon (following: a padlock), the BPM at 4x; the
+                                                         * taps counted on the strip */
         const int b10 = rfm_move_seq_bpm10(m);
-        snprintf(b, sizeof b, "%d", (b10 + 5) / 10);
-        rfmv_big(cv, 64 - rfmv_big_w(b, 4) / 2, 8, b, 4, 1);
-        if (q->following) {                             /* locked to the firmware's clock: a padlock */
-            mr_gfx_rect(cv, 6, 44, 14, 12, 1, 1);
-            mr_gfx_rect(cv, 9, 36, 8, 9, 1, 0);
-            rfmv_big(cv, 28, 44, "EXT", 2, 1);
-        } else
-            rfmv_tri(cv, 6, 44, 10, 12, 1), rfmv_big(cv, 22, 44, "BPM", 2, 1);
+        v2_ic(cv, q->following ? V2I_LOCK : V2I_TAP, 2, 3, 1);
+        v2_TC(cv, 64, 3, "Tempo", 2, 1);
+        snprintf(b, sizeof b, b10 % 10 && b10 < 1000 ? "%d.%d" : "%d", b10 % 10 && b10 < 1000 ? b10 / 10 : (b10 + 5) / 10, b10 % 10);
+        v2_TC(cv, 64, 22, b, v2_tw(b, 4) <= 124 ? 4 : 3, 1);
+        if (!q->following)
+            v2_strip(cv, 4, (1u << clampi(q->ntap, 0, 4)) - 1, -1, 0, 128);
         break;
     }
-    case RFM_MOVE_SM_GROOVE:                            /* two 16ths, the second late by the groove */
-        mr_gfx_rect(cv, 8, 10, 4, 26, 1, 1);
-        mr_gfx_rect(cv, 40 + rfmv_seq_groove_of(m, q->sel_track) * 32 / 300, 10, 4, 26, 1, 1);
-        mr_gfx_rect(cv, 40, 38, 1, 3, 1, 1);
-        rfmv_big(cv, 80, 14, (t->own & 1) ? "TRK" : "GLB", 2, 1);   /* (whose: the track's own or the project's) */
-        snprintf(b, sizeof b, "GROOVE %d%%", rfmv_seq_groove_of(m, q->sel_track)), row2(cv, 44, b);
+    case RFM_MOVE_SM_GROOVE: {                          /* two 16ths, the second late by the groove; Global / Track */
+        const int g = rfmv_seq_groove_of(m, q->sel_track), own = t->own & 1;
+        v2_knobs(cv, 3, tk);
+        v2_R(cv, 4, 12, 3, 30, 1);
+        v2_R(cv, 28 + (g * 10 + 50) / 100, 12, 3, 30, 1);
+        v2_dotV(cv, 28, 12, 30);
+        snprintf(b, sizeof b, "%d%%", g);
+        v2_titleBox(cv, "Groove", b, 88, 50);
+        if (own)
+            v2_ic(cv, V2I_GLOBE, 2, 48, 1), v2_icSel(cv, V2I_TRACK, 18, 48);
+        else
+            v2_icSel(cv, V2I_GLOBE, 2, 48), v2_ic(cv, V2I_TRACK, 18, 48, 1);
+        v2_T(cv, 40, 48, own ? "Track" : "Global", 2, 1);
         break;
-    case RFM_MOVE_SM_LAYOUT:
+    }
+    case RFM_MOVE_SM_LAYOUT: {                          /* Move's icon row: the chosen one underlined and named */
+        static const int IC[4] = { V2I_INKEY, V2I_CHROM, V2I_DRUM, V2I_OCT };
+        static const char *const NM[4] = { "In-Key", "Chromatic", "Drum", "Octaves" };
         for (i = 0; i < 4; i++)
-            mr_gfx_rect(cv, i * 32 + 1, 2, 30, 8, 1, i == m->s.layout);
-        row2(cv, 24, rfm_move_layout_name(m->s.layout));
+            if (i == m->s.layout)
+                v2_icSel(cv, IC[i], 22 + i * 24, 6);
+            else
+                v2_ic(cv, IC[i], 22 + i * 24, 6, 1);
+        v2_TC(cv, 64, 30, NM[m->s.layout & 3], 2, 1);
+        v2_strip(cv, 2, 1, -1, 0, 128);
         break;
-    case RFM_MOVE_SM_KEYS:
-        rfmv_scale_tabs(m, cv, 2, 0);
-        snprintf(b, sizeof b, "%s %s", rfmv_note_names[m->s.root % 12], rfm_move_scale_name(m->s.scale));
-        rfmv_big(cv, 64 - rfmv_big_w(b, 2) / 2 > 0 ? 64 - rfmv_big_w(b, 2) / 2 : 0, 14, b, 2, 1);
-        for (i = 0; i < 12; i++) {
-            const int sharp = (0x54A >> i) & 1;
-            mr_gfx_rect(cv, 4 + i * 10, 34, 8, sharp ? 6 : 12, 1, i == m->s.root);
-        }
-        row2(cv, 48, (t->own & 2) ? "TRACK" : "GLOBAL");
+    }
+    case RFM_MOVE_SM_KEYS:                              /* the build's key / scale screen, Global / Track below */
+        rfmv_keys_menu(m, cv, !(t->own & 2));
         break;
     case RFM_MOVE_SM_ARP:
-        if (q->arp_page) {                              /* a lane: its 16 steps (past its length dotted, the picked
-                                                         * one underlined), RESET and the length */
-            static const char *const RS[RFM_MOVE_AR_N] = { "NORM", "NOTE", "MPAT", "TPAT" };
-            static const char MODC[RFM_MOVE_AL_N1 + 1] = "x.-R<>\"#";
+        if (q->arp_page) {                              /* a lane: its 16 steps as bars (the edited one underlined;
+                                                         * past its length a dot) */
             const rfm_move_arp_t *a = &t->arp;
             const int L = q->arp_page - 1, len = L ? a->tlen : a->mlen;
-            rfmv_big(cv, 2, 2, L ? "TRANS" : "MOD", 2, 1);
-            snprintf(b, sizeof b, "%s %d", RS[a->reset % RFM_MOVE_AR_N], len), rfmv_big(cv, 68, 2, b, 2, 1);
+            v2_knobs(cv, 0x0F, tk);
+            v2_T(cv, 0, 11, L ? "Trans" : "Mod", 2, 1);
+            v2_R(cv, 0, 40, 128, 1, 1);
             for (i = 0; i < RFM_MOVE_ARP_LANE; i++) {
-                const int x = i * 8, v = a->lane[L][i];
+                const int x = i * 8 + 1, v = a->lane[L][i];
                 if (i >= len) {
-                    rfmv_dotted(cv, x, 24, 7, 28);
+                    v2_R(cv, x + 2, 44, 2, 2, 1);
                     continue;
                 }
-                if (L) {                                /* transpose: a bar up or down from the middle */
-                    const int h = clampi(v, -48, 48) * 13 / 48;
-                    mr_gfx_rect(cv, x, 38 - (h > 0 ? h : 0), 7, h > 0 ? h : h < 0 ? -h : 1, 1, 1);
-                } else {
-                    char c[2] = { v < RFM_MOVE_AL_N1 ? MODC[v] : (char)('1' + v - RFM_MOVE_AL_N1), 0 };
-                    mr_gfx_text(cv, x + 1, 34, c, 1);
-                }
+                if (L) {                                /* transpose: up or down from the line */
+                    const int d = clampi(v, -48, 48) * 14 / 48;
+                    v2_R(cv, x, d >= 0 ? 40 - d : 41, 6, d ? (d > 0 ? d : -d) : 1, 1);
+                } else                                  /* mod: the kind as a height */
+                    v2_R(cv, x, 40 - 2 * v - 1, 6, 2 * v + 1, 1);
                 if (i == q->arp_sel)
-                    mr_gfx_rect(cv, x, 54, 7, 2, 1, 1);
+                    v2_R(cv, x, 55, 6, 2, 1);
             }
+            v2_strip(cv, 3, 1u << q->arp_page, -1, 0, 128);
             break;
         }
-    {                             /* the pattern's walk over C E G, the mode, the rate */
-        const rfm_move_arp_t *a = &t->arp;
-        uint8_t walk[32];
-        int n = 0, x;
-        switch (a->pat) {
-        case RFM_MOVE_AP_DN: walk[0] = 2, walk[1] = 1, walk[2] = 0, n = 3; break;
-        case RFM_MOVE_AP_UPDN: walk[0] = 0, walk[1] = 1, walk[2] = 2, walk[3] = 1, n = 4; break;
-        case RFM_MOVE_AP_DNUP: walk[0] = 2, walk[1] = 1, walk[2] = 0, walk[3] = 1, n = 4; break;
-        case RFM_MOVE_AP_UANDD: walk[0] = 0, walk[1] = 1, walk[2] = 2, walk[3] = 2, walk[4] = 1, walk[5] = 0, n = 6; break;
-        case RFM_MOVE_AP_DANDU: walk[0] = 2, walk[1] = 1, walk[2] = 0, walk[3] = 0, walk[4] = 1, walk[5] = 2, n = 6; break;
-        case RFM_MOVE_AP_CON: case RFM_MOVE_AP_CONDIV: walk[0] = 0, walk[1] = 2, walk[2] = 1, n = 3; break;
-        case RFM_MOVE_AP_DIV: walk[0] = 1, walk[1] = 2, walk[2] = 0, n = 3; break;
-        case RFM_MOVE_AP_HI1: case RFM_MOVE_AP_HI2: walk[0] = 2, walk[1] = 1, walk[2] = 2, walk[3] = 0, n = 4; break;
-        case RFM_MOVE_AP_LO1: case RFM_MOVE_AP_LO2: walk[0] = 0, walk[1] = 1, walk[2] = 0, walk[3] = 2, n = 4; break;
-        case RFM_MOVE_AP_RAND: case RFM_MOVE_AP_ROTH: case RFM_MOVE_AP_RONC:
-            walk[0] = 1, walk[1] = 0, walk[2] = 2, walk[3] = 0, walk[4] = 1, n = 5; break;
-        default: walk[0] = 0, walk[1] = 1, walk[2] = 2, n = 3; break;
+        {                                               /* the pattern's walk as a picture, its name, rate, range */
+            const rfm_move_arp_t *a = &t->arp;
+            uint8_t walk[8];
+            int n = 0;
+            switch (a->pat) {
+            case RFM_MOVE_AP_DN: walk[0] = 2, walk[1] = 1, walk[2] = 0, n = 3; break;
+            case RFM_MOVE_AP_UPDN: walk[0] = 0, walk[1] = 1, walk[2] = 2, walk[3] = 1, n = 4; break;
+            case RFM_MOVE_AP_DNUP: walk[0] = 2, walk[1] = 1, walk[2] = 0, walk[3] = 1, n = 4; break;
+            case RFM_MOVE_AP_UANDD: walk[0] = 0, walk[1] = 1, walk[2] = 2, walk[3] = 2, walk[4] = 1, walk[5] = 0, n = 6; break;
+            case RFM_MOVE_AP_DANDU: walk[0] = 2, walk[1] = 1, walk[2] = 0, walk[3] = 0, walk[4] = 1, walk[5] = 2, n = 6; break;
+            case RFM_MOVE_AP_CON: case RFM_MOVE_AP_CONDIV: walk[0] = 0, walk[1] = 2, walk[2] = 1, n = 3; break;
+            case RFM_MOVE_AP_DIV: walk[0] = 1, walk[1] = 2, walk[2] = 0, n = 3; break;
+            case RFM_MOVE_AP_HI1: case RFM_MOVE_AP_HI2: walk[0] = 2, walk[1] = 1, walk[2] = 2, walk[3] = 0, n = 4; break;
+            case RFM_MOVE_AP_LO1: case RFM_MOVE_AP_LO2: walk[0] = 0, walk[1] = 1, walk[2] = 0, walk[3] = 2, n = 4; break;
+            case RFM_MOVE_AP_RAND: case RFM_MOVE_AP_ROTH: case RFM_MOVE_AP_RONC:
+                walk[0] = 1, walk[1] = 0, walk[2] = 2, walk[3] = 0, walk[4] = 1, n = 5; break;
+            default: walk[0] = 0, walk[1] = 1, walk[2] = 2, n = 3; break;
+            }
+            v2_knobs(cv, 0xFF, tk);
+            for (i = 0; i < n; i++) {                   /* (off: outlined) */
+                if (a->mode == RFM_MOVE_AM_OFF)
+                    v2_O(cv, 2 + i * 10, 46 - walk[i] * 15, 8, 4, 1);
+                else
+                    v2_R(cv, 2 + i * 10, 46 - walk[i] * 15, 8, 4, 1);
+            }
+            fit2(cv, 66, 10, AP_NAMES[a->pat % RFM_MOVE_AP_N], 62);
+            snprintf(b, sizeof b, "1/%d", rfmv_seq_arp_rate_of(a->rate)), fit2(cv, 66, 27, b, 62);
+            snprintf(b, sizeof b, "Oct %d", a->range), fit2(cv, 66, 44, b, 62);
+            v2_strip(cv, 3, 1, -1, 0, 128);
         }
-        for (i = 0, x = 4; i < n; i++, x += 40 / n)
-            mr_gfx_rect(cv, x, 22 - walk[i] * 8, 40 / n - 1 > 2 ? 40 / n - 1 : 2, 4, 1, a->mode != RFM_MOVE_AM_OFF);
-        if (a->mode == RFM_MOVE_AM_OFF)
-            for (i = 0; i < 48; i += 3)
-                mr_gfx_pixel(cv, i, 30, 1);
-        rfmv_big(cv, 50, 2, AP_NAMES[a->pat % RFM_MOVE_AP_N], 2, 1);
-        snprintf(b, sizeof b, "1/%d", rfmv_seq_arp_rate_of(a->rate)), rfmv_big(cv, 50, 21, b, 2, 1);
-        snprintf(b, sizeof b, "%s x%d", AM_NAMES[a->mode % RFM_MOVE_AM_N], a->range), row2(cv, 40, b);
-        if (a->quant)
-            snprintf(b, sizeof b, "Q1/%d", rfmv_seq_arp_rate_of(a->quant - 1)), mr_gfx_text(cv, 92, 56, b, 1);
+        break;
+    case RFM_MOVE_SM_REC: {                             /* the three modes as icons, the chosen one underlined and
+                                                         * named; the style below with its icon */
+        static const int IC[3] = { V2I_CAPTURE, V2I_REC, V2I_STEP };
+        static const char *const NM[3] = { "Capture", "Record", "Step" };
+        for (i = 0; i < 3; i++)
+            if (i == q->rec_mode)
+                v2_icSel(cv, IC[i], 34 + i * 24, 2);
+            else
+                v2_ic(cv, IC[i], 34 + i * 24, 2, 1);
+        v2_TC(cv, 64, 22, NM[q->rec_mode % 3], 2, 1);
+        v2_ic(cv, q->rec_style == RFM_MOVE_RS_REPLACE ? V2I_REPLACE : V2I_OVERDUB, 22, 44, 1);
+        v2_T(cv, 40, 42, q->rec_style == RFM_MOVE_RS_REPLACE ? "Replace" : "Overdub", 2, 1);
         break;
     }
-    case RFM_MOVE_SM_GLOBAL: {                          /* the Move's battery on top (an icon filled, the %; "--"
-                                                         * until its first STATUS), then the settings */
-        static const char *const CK[3] = { "AUTO", "INT", "EXT" };
+    case RFM_MOVE_SM_VEL: {                             /* the curve as a graph (Fixed: a flat line at the level), the
+                                                         * option (the jog) and the level (knob 1) with a bar */
+        v2_knobs(cv, 1, tk);
+        v2_R(cv, 2, 12, 1, 40, 1), v2_R(cv, 2, 51, 40, 1, 1);
+        for (i = 0; i < 38; i++) {
+            const int v = rfm_move_vel(&m->s, 1 + i * 126 / 37);
+            v2_R(cv, 3 + i, 51 - (v * 37 + 63) / 127, 1, 2, 1);
+        }
+        rfmv_tcase(rfm_move_vel_name(m->s.vel_mode), c, sizeof c);
+        v2_T(cv, 50 + v2_tw(c, 2) <= 128 ? 50 : 128 - v2_tw(c, 2), 12, c, 2, 1);
+        snprintf(b, sizeof b, "%d", m->s.vel_level), v2_T(cv, 50, 30, b, 2, 1);
+        v2_vbar(cv, m->s.vel_level / 127.0, 0, 50, 76, 48);
+        break;
+    }
+    case RFM_MOVE_SM_GLOBAL: {                          /* the Move's battery (as Move draws it) and the settings;
+                                                         * the velocity level only in its popup (knob 3 touched) */
+        static const char *const CK[3] = { "Auto", "Int", "Ext" };
         const int bt = m->battery;
-        mr_gfx_rect(cv, 2, 1, 24, 12, 1, 0);
-        mr_gfx_rect(cv, 26, 4, 3, 6, 1, 1);
-        if (bt > 0)
-            mr_gfx_rect(cv, 4, 3, (bt * 20 + 99) / 100, 8, 1, 1);
+        if (tk == 2) {
+            snprintf(b, sizeof b, "%d", m->s.vel_level);
+            v2_titleBox(cv, "Level", b, 64, 124);
+            v2_vbar(cv, m->s.vel_level / 127.0, 0, 4, 120, 52);
+            break;
+        }
+        v2_knobs(cv, 7, tk);
+        v2_battery(cv, 60, 1, bt > 0 ? bt : 0, 0);
         if (bt >= 0)
             snprintf(b, sizeof b, "%d%%", bt);
         else
             snprintf(b, sizeof b, "--");
-        rfmv_big(cv, 34, 1, b, 2, 1);
-        if (m->power & 0x08)
-            mr_gfx_text(cv, 96, 4, "PWR", 1);           /* (the power button held) */
-        mr_gfx_rect(cv, 0, 16, 128, 1, 1, 1);
-        snprintf(b, sizeof b, "CLOCK %s%s", CK[q->clock_mode % 3], q->following ? "*" : ""), row2(cv, 20, b);
-        snprintf(b, sizeof b, "VEL %s", rfm_move_vel_name(m->s.vel_mode)), row2(cv, 38, b);
-        snprintf(b, sizeof b, "%d", m->s.vel_level), mr_gfx_text(cv, 104, 52, b, 1);
-        break;
-    }
-    case RFM_MOVE_SM_VEL: {                             /* the curve (played in, out: FIXED a flat line), the
-                                                         * option's name, the level with its bar */
-        const int fixed = m->s.vel_mode == RFM_MOVE_VEL_FIXED;
-        const char *nm = rfm_move_vel_name(m->s.vel_mode);
-        int w = rfmv_big_w(nm, 3) <= 124 ? 3 : 2;
-        rfmv_big(cv, 64 - rfmv_big_w(nm, w) / 2, 2, nm, w, 1);
-        mr_gfx_rect(cv, 2, 26, 34, 34, 1, 0);
-        for (i = 0; i < 32; i++) {
-            const int v = rfm_move_vel(&m->s, 1 + i * 126 / 31);
-            mr_gfx_rect(cv, 3 + i, 59 - v * 32 / 127, 1, 1, 1, 1);
-        }
-        snprintf(b, sizeof b, "%d", m->s.vel_level);
-        rfmv_big(cv, 44, 28, b, 3, 1);
-        mr_gfx_rect(cv, 44, 52, 82, 8, 1, 0);
-        if (fixed)
-            mr_gfx_rect(cv, 46, 54, m->s.vel_level * 78 / 127, 4, 1, 1);
-        else
-            for (i = 0; i < m->s.vel_level * 78 / 127; i += 2)
-                mr_gfx_pixel(cv, 46 + i, 55, 1);       /* (not in use: dotted) */
-        break;
-    }
-    case RFM_MOVE_SM_REC: {                             /* the mode's picture, its name, the style */
-        static const char *const RM[RFM_MOVE_RM_N] = { "CAPTURE", "RECORD", "STEP" };
-        if (q->rec_mode == RFM_MOVE_RM_RECORD)
-            rfmv_disc(cv, 4, 4, 14, 1);
-        else if (q->rec_mode == RFM_MOVE_RM_STEP)
-            for (i = 0; i < 3; i++)
-                mr_gfx_rect(cv, 2 + i * 6, 8, 5, 8, 1, i == 1);
-        else
-            rfmv_disc(cv, 4, 4, 14, 1), rfmv_disc(cv, 8, 8, 6, 0);
-        rfmv_big(cv, 24, 4, RM[q->rec_mode % RFM_MOVE_RM_N], 2, 1);
-        row2(cv, 32, q->rec_style == RFM_MOVE_RS_REPLACE ? "REPLACE" : "OVERDUB");
+        v2_T(cv, 90, 0, b, 2, 1);
+        snprintf(b, sizeof b, "Clock %s", CK[q->clock_mode % 3]), v2_T(cv, 0, 22, b, 2, 1);
+        rfmv_tcase(rfm_move_vel_name(m->s.vel_mode), c, sizeof c);
+        snprintf(b, sizeof b, "Vel %s", c), v2_T(cv, 0, 42, b, 2, 1);
         break;
     }
     default: break;
     }
 }
 
-/* Sample's audio loop: a waveform in the top-right corner (armed: blinking) */
-static void arec_glyph(const rfm_move_t *m, mr_canvas_t *cv)
+/* V2Loop loop.edit: Loop held or latched (page edit): the loop icon, the range in words, the 16 pages as cells (in
+ * the loop filled, the clip's others outlined, past the clip a dot, cut crossed, copied dashed), the shown one
+ * underlined */
+void rfmv_seq_loop_edit(const rfm_move_t *m, mr_canvas_t *cv)
 {
-    static const uint8_t H[9] = { 2, 5, 8, 4, 9, 6, 3, 7, 2 };
+    const rfm_move_seq_t *q = &m->seq;
+    const int clip = edit_clip(m), pa = rfmv_seq_loop_lo(m, clip) / RFM_MOVE_SEQ_PAGE;
+    const int pb = (rfmv_seq_loop_hi(m, clip) - 1) / RFM_MOVE_SEQ_PAGE;
+    char b[24], mk[16];
     int i;
-    if (!m->seq.arec || (m->seq.arec == 1 && blink(&m->seq)))
-        return;
-    mr_gfx_rect(cv, 98, 0, 30, 12, 0, 1);
-    for (i = 0; i < 9; i++)
-        mr_gfx_rect(cv, 100 + i * 3, 6 - H[i] / 2, 2, H[i] < 1 ? 1 : H[i], 1, 1);
+    v2_ic(cv, V2I_LOOP, 3, 3, 1);
+    if (pa == pb)
+        snprintf(b, sizeof b, "Bar %d", pa + 1);
+    else
+        snprintf(b, sizeof b, "Bars %d-%d", pa + 1, pb + 1);
+    v2_TC(cv, 76, 4, b, 2, 1);
+    for (i = 0; i < 16; i++) {
+        const int src = rfmv_seq_src_page(m, clip, i);
+        mk[i] = (char)(src == 2 ? 'X' : src == 1 ? 'D' : 0);
+    }
+    v2_pages(cv, clip_end_page(m, clip) + 1, pa, pb, q->page, mk);
 }
 
 void rfmv_seq_screen(const rfm_move_t *m, mr_canvas_t *cv)
 {
     const rfm_move_seq_t *q = &m->seq;
-    if (q->projects)
+    if (!q->projects && !q->smenu && !q->view && (q->mods & SEQ_M_LOOP) && !(q->mods & SEQ_M_MUTE))
+        rfmv_seq_loop_edit(m, cv);
+    else if (q->projects)
         projects_screen(m, cv);
     else if (q->smenu)
         smenu_screen(m, cv);
-    else if (q->projects)
-        projects_screen(m, cv);
     else if (q->mods & SEQ_M_MUTE)
         mute_screen(m, cv);
     else if (q->view)
         session_screen(m, cv);
     else
         track_screen(m, cv);
-    arec_glyph(m, cv);
 }
 
-/* Track 4 held: the layout (4 tabs: the top row's pads) and the scale (8: row 2's) on top, what changed last at 2x
- * (the track, its channel: the jog wheel, a knob's CC: the knobs, the rate: Up / Down, the layout, the scale), the
- * channel (a strip of 16), the rate (a strip of 10), and the tracks on the steps (the selected one filled, with
- * content outlined, empty dotted, a muted one flagged above) */
+/* Track 4 held (V2Session sess.hold4): the 16 tracks on one row, the selected one named on top (or what changed last:
+ * the channel, a knob's CC, the rate, the layout, the scale) */
 void rfmv_seq_track_menu(const rfm_move_t *m, mr_canvas_t *cv)
 {
     const rfm_move_seq_t *q = &m->seq;
     const rfm_move_track_t *t = &q->tr[q->sel_track];
-    char b[24];
-    int i;
-    for (i = 0; i < 4; i++)
-        mr_gfx_rect(cv, i * 32 + 1, 0, 30, 3, 1, i == m->s.layout);
-    rfmv_scale_tabs(m, cv, 4, 0);
+    char b[24], c[24];
     switch (m->menu_what) {
-    case MENU_TCH: snprintf(b, sizeof b, "CH %d", t->ch + 1); break;
-    case MENU_CC: snprintf(b, sizeof b, "K%d CC%d", (m->menu_i & 7) + 1, m->s.cc[m->s.bank][m->menu_i & 7]); break;
-    case MENU_RATE: snprintf(b, sizeof b, "%s", rfm_move_seq_rate_name(t->rate)); break;
-    case MENU_LAYOUT: snprintf(b, sizeof b, "%s", rfm_move_layout_name(m->s.layout)); break;
-    case MENU_SCALE: snprintf(b, sizeof b, "%s", rfm_move_scale_name(m->s.scale)); break;
-    default: snprintf(b, sizeof b, "TR %d", q->sel_track + 1); break;
+    case MENU_TCH: snprintf(b, sizeof b, "Ch %d", t->ch + 1); break;
+    case MENU_CC: snprintf(b, sizeof b, "K%d CC %d", (m->menu_i & 7) + 1, m->s.cc[m->s.bank][m->menu_i & 7]); break;
+    case MENU_RATE: snprintf(b, sizeof b, "Rate %s", rfm_move_seq_rate_name(t->rate)); break;
+    case MENU_LAYOUT: rfmv_tcase(rfm_move_layout_name(m->s.layout), b, sizeof b); break;
+    case MENU_SCALE: rfmv_tcase(rfm_move_scale_name(m->s.scale), c, sizeof c), snprintf(b, sizeof b, "%s", c); break;
+    default: snprintf(b, sizeof b, "Track %d", q->sel_track + 1); break;
     }
-    rfmv_big(cv, 64 - rfmv_big_w(b, 2) / 2, 13, b, 2, 1);
-    for (i = 0; i < 16; i++)
-        mr_gfx_rect(cv, i * 8, 33, 7, 5, 1, i == t->ch);
-    for (i = 0; i < RFM_MOVE_SEQ_RATES; i++)
-        mr_gfx_rect(cv, i * 13 + 1, 41, 11, 5, 1, i == t->rate);
-    for (i = 0; i < RFM_MOVE_SEQ_TRACKS; i++) {
-        if (i == q->sel_track)
-            mr_gfx_rect(cv, i * 8, 54, 7, 10, 1, 1);
-        else if (rfmv_seq_track_used(m, i))
-            mr_gfx_rect(cv, i * 8, 54, 7, 10, 1, 0);
-        else
-            rfmv_dotted(cv, i * 8, 54, 7, 10);
-        if (q->tr[i].mute)
-            mr_gfx_rect(cv, i * 8 + 2, 50, 3, 2, 1, 1);
-    }
+    tracks_row(m, cv, b);
 }

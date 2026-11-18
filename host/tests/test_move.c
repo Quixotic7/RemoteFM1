@@ -574,15 +574,23 @@ static void write_pbm(const char *path, const uint8_t *packed)
  * look at the PBMs this test writes into the build directory first (move_*.pbm) */
 #define GOLD_FM1 0xca84fa11u
 #define GOLD_FM1_LIVE 0x714e834du
-#define GOLD_KNOB 0xdfe7f427u
-#define GOLD_MASTER 0x3bbe6504u
+#define GOLD_KNOB 0x08192ac2u
+#define GOLD_MASTER 0x292b3b1cu
 #define GOLD_MIDI 0x3de84831u
-#define GOLD_MIDI_HIT 0x570d8447u
-#define GOLD_CONTROL 0xdaa9dc11u
-#define GOLD_CC 0x9b8f64b3u
-#define GOLD_MENU_MIDI 0x27622f6eu
-#define GOLD_MENU_CC 0x35fff5ddu
+#define GOLD_MIDI_HIT 0xf3eb1a5bu
+#define GOLD_CONTROL 0x2fd858c1u
+#define GOLD_CC 0x934410bcu
+#define GOLD_MENU_MIDI 0x91e1fc98u
+#define GOLD_MENU_CC 0x1b3ac58du
 
+static int lit_in(const uint8_t *out, int x0, int y0, int x1, int y1)   /* the pixels on in [x0, x1) x [y0, y1) */
+{
+    int x, y, n = 0;
+    for (y = y0; y < y1; y++)
+        for (x = x0; x < x1; x++)
+            n += out[(y >> 3) * 128 + x] >> (y & 7) & 1;
+    return n;
+}
 static int px_at(const uint8_t *packed, int x, int y) { return packed[(y >> 3) * 128 + x] >> (y & 7) & 1; }
 static uint32_t gold(const char *name, const uint8_t *out, uint32_t want)
 {
@@ -703,7 +711,7 @@ static void test_screen(void)
     jog(&m, 1), jog(&m, 2);                             /* the jog wheel: SELECT's popup on the left half while turning
                                                          * (its detents), the mirror stays */
     rfm_move_screen(&m, NULL, out);
-    CHECK(m.pop == POP_SELECT && m.pop_val == 3 && !px_at(out, 0, 0) && !px_at(out, 63, 63) && px_at(out, 4, 46) && px_at(out, 64 + 15, 8));
+    CHECK(m.pop == POP_SELECT && m.pop_val == 3 && !px_at(out, 0, 0) && !px_at(out, 63, 63) && lit_in(out, 0, 28, 64, 56) > 40 && px_at(out, 64 + 15, 8));
     ms(&m, RFM_MOVE_POPUP_MS);
     rfm_move_screen(&m, NULL, out);
     CHECK(art_diff(out) == 0);                          /* timed out: the drawing at rest */
@@ -741,7 +749,8 @@ static void test_screen(void)
     knob(&m, 4, 4), knob(&m, 4, 2);                     /* (6 ticks: 3 detents) */
     rfm_move_screen(&m, NULL, out);
     CHECK(m.pop == POP_ENC && m.pop_val == 3);
-    CHECK(!px_at(out, 0, 0) && !px_at(out, 63, 63) && px_at(out, 4, 46));   /* the left half, no frame (its bar) */
+    CHECK(!px_at(out, 0, 0) && !px_at(out, 63, 63) && lit_in(out, 0, 8, 64, 24) > 20 && lit_in(out, 0, 28, 64, 56) > 40 &&
+          !lit_in(out, 0, 57, 64, 64));       /* the left half, no frame, no bar: the name and the value */
     for (d = 0, y = 0; y < 64; y++)
         for (x = 0; x < 64; x++)
             d += px_at(out, 64 + x, y) != m.thumb[y][x];
@@ -790,12 +799,13 @@ static void test_screen(void)
     gold("midi", out, GOLD_MIDI);
     pad(&m, 1, 90);
     rfm_move_screen(&m, NULL, out);
-    CHECK(px_at(out, 18, 50) && !px_at(out, 21, 53) && px_at(out, 27, 62));   /* pressed: filled, a black square */
+    CHECK(px_at(out, 17, 49) && !px_at(out, 18, 50) && px_at(out, 21, 53) && px_at(out, 26, 58));   /* pressed: a square in the
+                                                         * opposite colour (outlined: white) */
     gold("midi_hit", out, GOLD_MIDI_HIT);
     pad(&m, 1, 0);
     touch(&m, 4, 1);                                    /* MIDI mode: a touch alone brings the popup */
     rfm_move_screen(&m, NULL, out);
-    CHECK(m.pop == POP_ENC && px_at(out, 0, 50) && px_at(out, 127, 63));
+    CHECK(m.pop == POP_ENC && px_at(out, 4, 54) && px_at(out, 123, 54));   /* (full screen: a bar's track) */
     touch(&m, 4, 0);
     ms(&m, RFM_MOVE_POPUP_MS);
     /* Track 2 held: the menu (layout, scale, root, channel); then the scale changed: its name at 2x */
@@ -803,7 +813,7 @@ static void test_screen(void)
     pad(&m, 17, 100), pad(&m, 17, 0);                   /* row 2, pad 2: minor */
     rfm_move_screen(&m, NULL, out);
     CHECK(m.menu_what == MENU_SCALE && m.s.scale == RFM_MOVE_SCALE_MINOR);
-    CHECK(px_at(out, 17, 6) && px_at(out, 3, 6) && !px_at(out, 1, 6));        /* scale 2 a block, 1 a line (24: 3 rows) */
+    CHECK(px_at(out, 1, 0) && !px_at(out, 33, 0) && px_at(out, 3, 58));       /* (the layout tab thick, channel 1 filled) */
     gold("menu_midi", out, GOLD_MENU_MIDI);
     pad(&m, 16, 100), pad(&m, 16, 0);
     pad(&m, 26, 100), pad(&m, 26, 0);                   /* the drum layout: a pad held + the jog wheel, its note */
@@ -811,7 +821,7 @@ static void test_screen(void)
     pad(&m, 7, 100);
     jog(&m, -2);
     rfm_move_screen(&m, NULL, out);
-    CHECK(m.pop == POP_DRUM && m.pop_i == 7 && m.s.drum[7] == 34 && px_at(out, 2, 2));
+    CHECK(m.pop == POP_DRUM && m.pop_i == 7 && m.s.drum[7] == 34 && lit_in(out, 0, 3, 128, 19) > 20 && px_at(out, 4, 54));
     write_pbm("move_pop_drum.pbm", out);
     pad(&m, 7, 0);
     ms(&m, RFM_MOVE_POPUP_MS - 1);
@@ -825,8 +835,8 @@ static void test_screen(void)
     knob(&m, 1, 36);                                    /* knob 2: 100 */
     ms(&m, RFM_MOVE_POPUP_MS);
     rfm_move_screen(&m, NULL, out);
-    CHECK(px_at(out, 1, 1) && px_at(out, 30, 4) && px_at(out, 33, 1) && !px_at(out, 40, 3));
-    CHECK(px_at(out, 7, 63) && px_at(out, 7, 37) && !px_at(out, 7, 34) && px_at(out, 23, 21));
+    CHECK(px_at(out, 1, 57) && px_at(out, 1, 29) && !px_at(out, 1, 28) && px_at(out, 17, 14) && !px_at(out, 17, 13));
+    CHECK(px_at(out, 5, 62) && !px_at(out, 40, 62) && px_at(out, 40, 63));   /* (the strip: bank 1 of 4 thick) */
     gold("control", out, GOLD_CONTROL);
     knob(&m, 0, 1);
     rfm_move_screen(&m, NULL, out);
@@ -834,11 +844,11 @@ static void test_screen(void)
     gold("cc", out, GOLD_CC);
     ms(&m, RFM_MOVE_POPUP_MS);
     rfm_move_screen(&m, NULL, out2);
-    CHECK(px_at(out, 127, 50) && !rfmv_pop_up(&m, POP_CC));   /* dropped (the full-width bar gone) */
+    CHECK(px_at(out, 4, 54) && !rfmv_pop_up(&m, POP_CC));   /* dropped (the bar gone) */
     track(&m, 2, 1);                                    /* Track 3 held + knob 3: its CC number */
     knob(&m, 2, 2);
     rfm_move_screen(&m, NULL, out);
-    CHECK(m.menu_what == MENU_CC && m.menu_i == 2 && m.s.cc[0][2] == 20 && px_at(out, 40, 50));
+    CHECK(m.menu_what == MENU_CC && m.menu_i == 2 && m.s.cc[0][2] == 20 && px_at(out, 39, 3) && lit_in(out, 40, 13, 88, 41) > 60);   /* (knob 3's ring filled, the CC at 4x) */
     gold("menu_cc", out, GOLD_MENU_CC);
     track(&m, 2, 0);
     CHECK(GOLD_FM1 && GOLD_FM1_LIVE && GOLD_KNOB && GOLD_MASTER && GOLD_MIDI && GOLD_MIDI_HIT && GOLD_CONTROL &&
@@ -905,9 +915,10 @@ static void test_midi_round(void)
     write_pbm("move_mode_midi.pbm", out);
     for (d = 0, y = 0; y < 64; y++)
         for (x = 0; x < 128; x++)
-            d += px_at(out, x, y) && (y < 14 || y > 50);
-    CHECK(!px_at(out, 2, 2) && !px_at(out, 0, 0) && d == 0 && px_at(out, 64 - 46, 18 + 1));   /* (the whole screen, no
-                                                         * frame: "MIDI" at 4x, centred) */
+            d += px_at(out, x, y) && (y < 14 || (y > 50 && y < 61));
+    CHECK(!px_at(out, 2, 2) && !px_at(out, 0, 0) && d == 0 && px_at(out, 64 - 46, 15) && px_at(out, 40, 62) &&
+          !px_at(out, 10, 62));                         /* (the whole screen, no frame: "MIDI" at 4x, centred; the
+                                                         * strip: mode 2 of 4) */
     ms(&m, RFM_MOVE_POPUP_MS);
     track(&m, 2, 1), now_ms += 500, track(&m, 2, 0);    /* Track 3 held: its menu over MIDI mode, no switch */
     CHECK(m.s.mode == RFM_MOVE_MODE_MIDI && !rfmv_pop_up(&m, POP_MODE));
@@ -939,7 +950,7 @@ static void test_midi_round(void)
     pad(&m, 17, 100), pad(&m, 17, 0);                   /* minor */
     rfm_move_screen(&m, NULL, out);
     write_pbm("move_midi_keys.pbm", out);
-    CHECK(px_at(out, 17, 4) && px_at(out, 17, 7) && !px_at(out, 17, 9));   /* (minor's tab, tall: a scale pad pressed) */
+    CHECK(lit_in(out, 0, 7, 128, 35) > 200);           /* ("C MIN" at 4x) */
     jog(&m, 2);                                         /* D */
     CHECK(m.s.scale == RFM_MOVE_SCALE_MINOR && m.s.root == 2 && count(RFM_MOVE_ACT_MIDI) == 0);
     rfm_move_leds_invalidate(&m);
@@ -956,7 +967,7 @@ static void test_midi_round(void)
     CHECK(m.s.root == 3 && m.menu_what == MENU_ROOT && count(RFM_MOVE_ACT_TURN) == 0);
     knob(&m, 1, -RFM_MOVE_LIST_TICKS);                  /* knob 2: the scale (minor -> major) */
     rfm_move_screen(&m, NULL, out);
-    CHECK(m.s.scale == RFM_MOVE_SCALE_MAJOR && m.menu_what == MENU_SCALE && px_at(out, 1, 4) && px_at(out, 1, 7));   /* (its tab tall) */
+    CHECK(m.s.scale == RFM_MOVE_SCALE_MAJOR && m.menu_what == MENU_SCALE && px_at(out, 1, 0));
     knob(&m, 1, RFM_MOVE_LIST_TICKS), knob(&m, 0, -RFM_MOVE_LIST_TICKS);
     CHECK(m.s.scale == RFM_MOVE_SCALE_MINOR && m.s.root == 2);
     /* 24 scales: rows 2, 3, 4 of the pads (the first 8 as before); knob 2 walks all of them; short names */
@@ -1002,10 +1013,7 @@ static void test_midi_round(void)
     pad(&m, 0, 100), pad(&m, 2, 100), pad(&m, 4, 100); /* C3 E3 G3: "C" */
     rfm_move_screen(&m, NULL, out);
     write_pbm("move_midi_notes.pbm", out);
-    for (d = 0, y = 0; y < 16; y++)
-        for (x = 0; x < 16; x++)
-            d += px_at(out, x, y);
-    CHECK(d > 10);
+    CHECK(lit_in(out, 0, 4, 64, 28) > 40 && px_at(out, 1, 34) && px_at(out, 3, 50));   /* ("C" at 3x, the keyboard: C held) */
     for (d = 0, y = 0; y < 64; y++)
         for (x = 0; x < 64; x++)
             d += px_at(out, 64 + x, y) != m.thumb[y][x];
@@ -1015,7 +1023,7 @@ static void test_midi_round(void)
     CHECK(!rfmv_pop_up(&m, POP_ENC));                   /* (a touch: nothing) */
     knob(&m, 4, 4);
     rfm_move_screen(&m, NULL, out);
-    CHECK(rfmv_pop_up(&m, POP_ENC) && m.pop_val == 2 && !px_at(out, 0, 0) && px_at(out, 4, 46));
+    CHECK(rfmv_pop_up(&m, POP_ENC) && m.pop_val == 2 && !px_at(out, 0, 0) && lit_in(out, 0, 28, 64, 56) > 40);
     touch(&m, 4, 0);
     CHECK(!rfmv_pop_up(&m, POP_ENC) && m.pop_val == 0);
     /* the settings keep the screen; a version 1 image (77 bytes) still loads */
@@ -1053,7 +1061,7 @@ static void test_fm1_shift_layer(void)
     CHECK(!px_at(out, 0, 0));                           /* (the badge: not before 300 ms, or a use) */
     ms(&m, RFM_MOVE_TAP_MS);
     rfm_move_screen(&m, NULL, out);
-    CHECK(px_at(out, 0, 0) && px_at(out, 39, 10));      /* the Shift layer's badge */
+    CHECK(px_at(out, 7, 2) && px_at(out, 2, 7) && !px_at(out, 0, 0));   /* the shift icon, top left */
     for (d = 0, y = 0; y < 64; y++)
         for (x = 0; x < 64; x++)
             d += px_at(out, 64 + x, y) != m.thumb[y][x];
@@ -1168,12 +1176,12 @@ static void test_mode_name_first(void)
     rfm_move_screen(&m, NULL, out);
     for (d = 0, y = 0; y < 64; y++)
         for (x = 0; x < 128; x++)
-            d += px_at(out, x, y) && (y < 14 || y > 50);
-    CHECK(m.s.mode == RFM_MOVE_MODE_CONTROL && m.pop == POP_MODE && d == 0 && !px_at(out, 2, 8) &&
-          rfm_move_screen_timed(&m));                   /* (no bank tabs, no bars; the host draws again) */
+            d += px_at(out, x, y) && (y < 18 || (y > 50 && y < 61));
+    CHECK(m.s.mode == RFM_MOVE_MODE_CONTROL && m.pop == POP_MODE && d == 0 && !px_at(out, 2, 57) &&
+          rfm_move_screen_timed(&m));                   /* (no bars; the host draws again) */
     ms(&m, RFM_MOVE_POPUP_MS);
     rfm_move_screen(&m, NULL, out);
-    CHECK(px_at(out, 2, 8) && !rfm_move_screen_timed(&m));   /* (then Control mode's screen) */
+    CHECK(px_at(out, 2, 57) && !rfm_move_screen_timed(&m));   /* (then Control mode's screen) */
     track(&m, 1, 1);                                    /* Track 2 held 300 ms: its menu over Control mode */
     ms(&m, RFM_MOVE_TAP_MS);
     rfm_move_screen(&m, NULL, out);
@@ -1216,7 +1224,7 @@ static void test_track1_anywhere(void)
     CHECK(m.seq.metro);
     ms(&m, RFM_MOVE_POPUP_MS);                          /* (the CLICK ON message gone) */
     rfm_move_screen(&m, NULL, out);
-    CHECK(px_at(out, 0, 0) && px_at(out, 39, 10));      /* (held: the SHIFT badge over MIDI mode's screen) */
+    CHECK(px_at(out, 7, 2) && px_at(out, 2, 7) && !px_at(out, 1, 1));   /* (held: the shift icon over MIDI mode's screen) */
     step(&m, 8, 1), step(&m, 8, 0);                     /* Shift + step 9: Keys & Scales, open past the release */
     track(&m, 0, 0);
     CHECK(m.s.mode == RFM_MOVE_MODE_MIDI && m.seq.smenu == RFM_MOVE_SM_KEYS);   /* (used: no switch) */
@@ -1233,7 +1241,7 @@ static void test_track1_anywhere(void)
     rfm_move_screen(&m, NULL, out);
     for (d = 0, y = 0; y < 64; y++)
         for (x = 0; x < 128; x++)
-            d += px_at(out, x, y) && (y < 14 || y > 50);
+            d += px_at(out, x, y) && (y < 14 || (y > 50 && y < 61));
     CHECK(d == 0);                                      /* (the name only, no drawing) */
     /* the sequencer: Track 1 held is its Shift layer too (no step entered) */
     track(&m, 3, 1), track(&m, 3, 0);

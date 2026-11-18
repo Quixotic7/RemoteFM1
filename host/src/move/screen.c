@@ -10,75 +10,13 @@
 #include <string.h>
 
 #include "move_int.h"
+#include "v2.h"
 #include "../../third_party/moveremote/common/font5x7.h"
 
 #define clampi rfmv_clampi
 
 /* ================================================================ drawing === */
 static void fill(mr_canvas_t *cv, int x, int y, int w, int h, int on) { mr_gfx_rect(cv, x, y, w, h, on, 1); }
-static void box(mr_canvas_t *cv, int x, int y, int w, int h) { mr_gfx_rect(cv, x, y, w, h, 1, 0); }
-
-int rfmv_big_w(const char *s, int k)
-{
-    int w = 0;
-    for (; *s; s++)
-        w += *s == '.' ? 2 * k : MR_FONT_ADV * k;
-    return w ? w - k : 0;
-}
-
-int rfmv_big(mr_canvas_t *cv, int x, int y, const char *s, int k, int on)
-{
-    for (; *s; s++) {
-        const uint8_t *g = mr_glyph(*s);
-        int i, j;
-        if (*s == '.') {                                /* a narrow point: one font pixel, then the gap */
-            fill(cv, x, y + 6 * k, k, k, on);
-            x += 2 * k;
-            continue;
-        }
-        for (i = 0; i < MR_FONT_W; i++)
-            for (j = 0; j < MR_FONT_H; j++)
-                if (g[i] >> j & 1)
-                    fill(cv, x + i * k, y + j * k, k, k, on);
-        x += MR_FONT_ADV * k;
-    }
-    return x - k;
-}
-
-/* text at k x, at most w pixels wide (the characters that fit) */
-static int big_fit(mr_canvas_t *cv, int x, int y, const char *s, int k, int w, int on)
-{
-    char b[24];
-    int n;
-    snprintf(b, sizeof b, "%s", s);
-    for (n = (int)strlen(b); n > 0 && rfmv_big_w(b, k) > w; n--)
-        b[n - 1] = 0;
-    return rfmv_big(cv, x, y, b, k, on);
-}
-
-static void big_mid(mr_canvas_t *cv, int cx, int y, const char *s, int k, int on)
-{
-    rfmv_big(cv, cx - rfmv_big_w(s, k) / 2, y, s, k, on);
-}
-
-void rfmv_dotted(mr_canvas_t *cv, int x, int y, int w, int h)
-{
-    int i;
-    for (i = 0; i < w; i += 2)
-        mr_gfx_pixel(cv, x + i, y, 1), mr_gfx_pixel(cv, x + i, y + h - 1, 1);
-    for (i = 0; i < h; i += 2)
-        mr_gfx_pixel(cv, x, y + i, 1), mr_gfx_pixel(cv, x + w - 1, y + i, 1);
-}
-
-void rfmv_xbox(mr_canvas_t *cv, int x, int y, int w, int h)
-{
-    int i;
-    box(cv, x, y, w, h);
-    for (i = 0; i < w; i++) {                           /* (the diagonals, scaled to the box) */
-        const int j = i * (h - 1) / (w - 1 > 0 ? w - 1 : 1);
-        mr_gfx_pixel(cv, x + i, y + j, 1), mr_gfx_pixel(cv, x + w - 1 - i, y + j, 1);
-    }
-}
 
 /* the CSS triangle (border-left w, top / bottom h / 2 transparent): row j is w x (1 - |centre - h/2| / (h/2)) long */
 void rfmv_tri(mr_canvas_t *cv, int x, int y, int w, int h, int on)
@@ -87,50 +25,6 @@ void rfmv_tri(mr_canvas_t *cv, int x, int y, int w, int h, int on)
     for (j = 0; j < h; j++) {
         const int d = 2 * j + 1 - h, len = (w * (h - (d < 0 ? -d : d)) + h / 2) / h;
         fill(cv, x, y + j, len, 1, on);
-    }
-}
-
-/* a circle (border-radius 50 %) in the d x d box at x, y: pixel centres within d / 2 */
-void rfmv_disc(mr_canvas_t *cv, int x, int y, int d, int on)
-{
-    int i, j;
-    for (j = 0; j < d; j++)
-        for (i = 0; i < d; i++) {
-            const int dx = 2 * i + 1 - d, dy = 2 * j + 1 - d;
-            if (dx * dx + dy * dy <= d * d)
-                mr_gfx_pixel(cv, x + i, y + j, on);
-        }
-}
-
-/* a popup's ground (the owner's: no box, no border): black, the whole screen across (the left half's popups: the left
- * 64 x 64, the FM-1's screen stays in view), down to just under the area asked for (a step popup keeps the steps row) */
-void rfmv_frame(mr_canvas_t *cv, int x, int y, int w, int h)
-{
-    const int half = x == 0 && w <= 64, bottom = y + h + 2 > 64 ? 64 : y + h + 2;
-    fill(cv, 0, 0, half ? 64 : 128, bottom, 0);
-}
-
-/* sin of a multiple of 5 degrees, x 1024 */
-static int isin5(int deg)
-{
-    static const int16_t S[19] = { 0, 89, 178, 265, 350, 433, 512, 587, 658, 724, 784, 839, 887, 928, 962, 989, 1008, 1020, 1024 };
-    deg = ((deg % 360) + 360) % 360;
-    if (deg <= 90) return S[deg / 5];
-    if (deg <= 180) return S[(180 - deg) / 5];
-    if (deg <= 270) return -S[(deg - 180) / 5];
-    return -S[(360 - deg) / 5];
-}
-
-/* the popup's dial (KnobPopup: a 22 px disc, a 2 x 9 px black pointer from its centre); deg 0 = up, clockwise */
-static void dial(mr_canvas_t *cv, int deg)
-{
-    const int cx = 108, cy = 18;
-    int t;
-    deg = (deg >= 0 ? deg + 2 : deg - 2) / 5 * 5;
-    rfmv_disc(cv, 97, 7, 22, 1);
-    for (t = 0; t <= 18; t++) {                         /* half pixels out to 9 */
-        const int X = cx * 1024 + t * isin5(deg) / 2, Y = cy * 1024 - t * isin5(deg + 90) / 2;
-        fill(cv, (X >> 10) - 1, (Y >> 10) - 1, 2, 2, 0);
     }
 }
 
@@ -145,7 +39,7 @@ uint32_t rfmv_now_ms(const rfm_move_t *m) { return (uint32_t)(m->seq.now_us / 10
 
 void rfmv_pop(rfm_move_t *m, int kind, int i)
 {
-    m->pop = (uint8_t)kind, m->pop_i = (uint8_t)i, m->pop_ms = rfmv_now_ms(m);
+    m->pop = (uint8_t)kind, m->pop_i = (uint8_t)i, m->pop_ms = rfmv_now_ms(m), m->pop_val = 0;
 }
 
 void rfmv_pop_let(rfm_move_t *m, int kind, int i)
@@ -181,70 +75,48 @@ int rfmv_pop_up(const rfm_move_t *m, int kind)
     return m->pop && m->pop == kind && (pop_held(m) || rfmv_now_ms(m) - m->pop_ms < RFM_MOVE_POPUP_MS);
 }
 
-/* KnobPopup: the label and the value at 2x (the unit small), a thick bar, a dial; the right half hatched behind.
- * frac 0..1000 fills the bar from the left; centred (an FM-1 encoder's relative turn): -1000..1000 from the middle */
-/* FM-1 mode: popups keep to the left half, so the FM-1's screen (the right half) stays in view */
+/* ---- v2 (the design canvas's V2Screen, see v2.h): full-screen popups with no frame, the left-half ones (FM-1
+ * mode, MIDI's NOTES) the name and the value only; Title Case words */
 static int g_half;
 static int g_full;                                      /* (a popup over the whole screen: nothing drawn back) */
 
-/* the left-half knob popup: the label (2x when it fits, else 1x), the value at 2x, the bar */
-static void knob_popup_half(mr_canvas_t *cv, const char *label, const char *value, const char *unit, int frac,
-                            int centred)
+/* Title Case ("CUTOFF" -> "Cutoff", "UP DN" -> "Up Dn"); words with a digit stay as they are (K1, P12) */
+void rfmv_tcase(const char *s, char *o, int cap)
 {
-    int w;
-    rfmv_frame(cv, 0, 0, 64, 64);
-    if (rfmv_big_w(label, 2) <= 58)
-        rfmv_big(cv, 4, 5, label, 2, 1);
-    else
-        mr_gfx_text(cv, 4, 8, label, 1);
-    w = big_fit(cv, 4, 24, value, 2, 56, 1) - 4;
-    if (unit && *unit && w + 8 + 6 * (int)strlen(unit) <= 60)
-        mr_gfx_text(cv, 4 + w + 4, 31, unit, 1);
-    box(cv, 4, 46, 56, 10);
-    if (!centred)
-        fill(cv, 6, 48, clampi(frac, 0, 1000) * 52 / 1000, 6, 1);
-    else {
-        const int d = clampi(frac, -1000, 1000) * 26 / 1000;
-        fill(cv, d >= 0 ? 32 : 32 + d, 48, d >= 0 ? d : -d, 6, 1);
-        fill(cv, 32, 47, 1, 8, 1);                      /* (the middle) */
+    int i = 0, start = 1, digit = 0;
+    const char *w;
+    for (; *s && i < cap - 1; s++) {
+        if (start) {                                    /* (a word with a digit or a '/': kept) */
+            for (digit = 0, w = s; *w && *w != ' '; w++)
+                digit |= (*w >= '0' && *w <= '9') || *w == '/';
+        }
+        o[i++] = digit ? *s : start ? (char)(*s >= 'a' && *s <= 'z' ? *s - 32 : *s)
+                                    : (char)(*s >= 'A' && *s <= 'Z' ? *s + 32 : *s);
+        start = *s == ' ' || *s == '-';
     }
+    o[i] = 0;
 }
 
-static void knob_popup(mr_canvas_t *cv, const char *label, const char *value, const char *unit, int frac, int centred,
-                       int deg)
+/* the knob pages' strip: Sequencer mode TRIG and the 4 banks, else the 4 banks */
+static void bank_strip(const rfm_move_t *m, mr_canvas_t *cv)
 {
-    int w;
+    if (m->s.mode == RFM_MOVE_MODE_SEQ)
+        v2_strip(cv, 5, 1u << (m->seq.trig ? 0 : m->s.bank + 1), -1, 0, 128);
+    else
+        v2_strip(cv, 4, 1u << m->s.bank, -1, 0, 128);
+}
+
+/* a value popup: the left half (the name, the value), else the whole screen (the name, the value, a bar) */
+static void value_pop(mr_canvas_t *cv, const char *label, const char *val, double frac, int bar)
+{
     if (g_half) {
-        knob_popup_half(cv, label, value, unit, frac, centred);
+        v2_lpop(cv, label, val);
         return;
     }
-    mr_gfx_clear(cv, 0);                                /* (the whole screen, no frame: the owner's) */
-    if (rfmv_big_w(label, 2) <= 90)
-        rfmv_big(cv, 2, 2, label, 2, 1);
-    else {                                              /* 8 characters: 11 px each; more: the first 8 */
-        char b[9];
-        int i;
-        snprintf(b, sizeof b, "%s", label);
-        for (i = 0; b[i]; i++) {
-            const char c[2] = { b[i], 0 };
-            rfmv_big(cv, 2 + 11 * i, 2, c, 2, 1);
-        }
-    }
-    if (rfmv_big_w(value, 3) <= 88)                     /* the value: 3x where it fits (the room the frame had) */
-        w = rfmv_big(cv, 2, 20, value, 3, 1) - 2;
-    else
-        w = big_fit(cv, 2, 24, value, 2, 92, 1) - 2;
-    if (unit && *unit)
-        mr_gfx_text(cv, w + 6 + 6 * (int)strlen(unit) <= 96 ? 2 + w + 4 : 60, 34, unit, 1);
-    box(cv, 0, 50, 128, 14);
-    if (!centred)
-        fill(cv, 2, 52, clampi(frac, 0, 1000) * 124 / 1000, 10, 1);
-    else {
-        const int d = clampi(frac, -1000, 1000) * 62 / 1000;
-        fill(cv, d >= 0 ? 64 : 64 + d, 52, d >= 0 ? d : -d, 10, 1);
-        fill(cv, 64, 51, 1, 12, 1);                     /* (the middle) */
-    }
-    dial(cv, deg);
+    mr_gfx_clear(cv, 0);
+    v2_titleBox(cv, label, val, 64, 124);
+    if (bar)
+        v2_vbar(cv, frac, bar == 2, 4, 120, 52);
 }
 
 static const char *enc_label(const rfm_move_t *m, int e)
@@ -256,111 +128,76 @@ static const char *enc_label(const rfm_move_t *m, int e)
 static void value_popup(const rfm_move_t *m, mr_canvas_t *cv)
 {
     const rfm_move_seq_t *q = &m->seq;
-    char l[24], v[24], u[8] = "";
+    char l[24], v[24];
     const int i = m->pop_i;
-    int frac = 0, centred = 0, deg;
     switch (m->pop) {
     case POP_SELECT:
-    case POP_ENC: {
+    case POP_ENC: {                                     /* an FM-1 encoder: this turn's detents */
         const int e = m->pop == POP_SELECT ? RFM_MOVE_E_SELECT : rfm_move_knob_enc(i), t = m->pop_val;
-        snprintf(l, sizeof l, "%s", enc_label(m, e));
-        snprintf(v, sizeof v, t ? "%+d" : "%d", t);
-        frac = clampi(t, -32, 32) * 1000 / 32, centred = 1;
-        deg = t * 15;                                   /* (relative: the dial turns with the detents) */
-        knob_popup(cv, l, v, u, frac, centred, ((deg % 360) + 540) % 360 - 180);
+        rfmv_tcase(enc_label(m, e), l, sizeof l);
+        snprintf(v, sizeof v, t ? "%+d" : "0", t);
+        value_pop(cv, l, v, clampi(t, -32, 32) / 32.0, 2);
         return;
     }
     case POP_MASTER:
-        snprintf(l, sizeof l, "%s", enc_label(m, RFM_MOVE_E_MASTER));
-        snprintf(v, sizeof v, "%d", (m->master * 100 + 511) / 1023);
-        snprintf(u, sizeof u, "%%");
-        frac = m->master * 1000 / 1023;
-        break;
+        rfmv_tcase(enc_label(m, RFM_MOVE_E_MASTER), l, sizeof l);
+        snprintf(v, sizeof v, "%d%%", (m->master * 100 + 511) / 1023);
+        value_pop(cv, l, v, m->master / 1023.0, 1);
+        return;
     case POP_CC: {
         const int b = m->s.bank, cc = m->s.cc[b][i & 7];
-        int val = m->cc_val[b][i & 7];
+        int val = m->cc_val[b][i & 7], lock = 0;
         snprintf(l, sizeof l, "CC %d", cc);
         if (m->s.mode == RFM_MOVE_MODE_SEQ && !q->view && q->step_first >= 0) {   /* a held step's lock */
             const int clip = SEQ_CLIP(q->sel_track, q->tr[q->sel_track].sel);
             val = rfmv_seq_lock_get(m, clip, q->page * RFM_MOVE_SEQ_PAGE + q->step_first, cc);
-            snprintf(u, sizeof u, "LOCK");
+            lock = 1;
         }
         if (val < 0)
             snprintf(v, sizeof v, "--"), val = 0;
         else
             snprintf(v, sizeof v, "%d", val);
-        frac = val * 1000 / 127;
-        break;
+        value_pop(cv, l, v, val / 127.0, 1);
+        if (!g_half) {
+            if (lock)
+                v2_ic(cv, V2I_LOCK, 114, 4, 1);         /* (a padlock: the step's lock) */
+            bank_strip(m, cv);
+        }
+        return;
     }
     case POP_DRUM: {
         const int n = m->s.drum[i & 31];
-        snprintf(l, sizeof l, "DRUM");
         rfmv_note_name(n, v, sizeof v);
-        snprintf(u, sizeof u, "%d", n);
-        frac = n * 1000 / 127;
-        break;
+        value_pop(cv, "Drum", v, n / 127.0, 1);
+        return;
     }
     case POP_TEMPO: {
         const int b10 = rfm_move_seq_bpm10(m);
-        snprintf(l, sizeof l, "TEMPO");
         snprintf(v, sizeof v, b10 % 10 ? "%d.%d" : "%d", b10 / 10, b10 % 10);
-        snprintf(u, sizeof u, "BPM");
-        frac = (b10 - RFM_MOVE_SEQ_BPM10_MIN) * 1000 / (RFM_MOVE_SEQ_BPM10_MAX - RFM_MOVE_SEQ_BPM10_MIN);
-        break;
-    }
-    case POP_LOOP: {
-        const int len = q->len[SEQ_CLIP(q->sel_track, q->tr[q->sel_track].sel)];
-        snprintf(l, sizeof l, "LOOP");
-        snprintf(v, sizeof v, "%d", len % RFM_MOVE_SEQ_PAGE ? len : len / RFM_MOVE_SEQ_PAGE);
-        snprintf(u, sizeof u, "%s", len % RFM_MOVE_SEQ_PAGE ? "STEPS" : len == RFM_MOVE_SEQ_PAGE ? "BAR" : "BARS");
-        frac = len * 1000 / RFM_MOVE_SEQ_MAXLEN;
-        break;
+        value_pop(cv, "Tempo", v, 0, 0);
+        return;
     }
     default:                                            /* POP_BANK (the sequencer: TRIG before bank 1) */
-        if (m->s.mode == RFM_MOVE_MODE_SEQ && q->trig) {
-            snprintf(l, sizeof l, "KNOBS");
-            snprintf(v, sizeof v, "TRIG");
-            frac = 0;
-        } else {
-            snprintf(l, sizeof l, "BANK");
+        if (m->s.mode == RFM_MOVE_MODE_SEQ && q->trig)
+            value_pop(cv, "Knobs", "Trig", 0, 0);
+        else {
             snprintf(v, sizeof v, "%d", m->s.bank + 1);
-            frac = (m->s.bank + 1) * 1000 / RFM_MOVE_NBANKS;
+            value_pop(cv, "Bank", v, 0, 0);
         }
-        break;
+        if (!g_half)
+            bank_strip(m, cv);
+        return;
     }
-    knob_popup(cv, l, v, u, frac, centred, -135 + frac * 270 / 1000);
 }
 
-/* ---- the TRIG page's popup: a picture on the left, the name and the value at 2x on the right */
-static void hline(mr_canvas_t *cv, int x, int y, int w) { fill(cv, x, y, w, 2, 1); }
-static void arrow(mr_canvas_t *cv, int x0, int x1, int y)   /* a 2 px arrow from x0 to x1 (its head at x1) */
-{
-    const int d = x1 > x0 ? 1 : -1;
-    int i;
-    hline(cv, x0 < x1 ? x0 : x1, y, (x1 - x0) * d + 1);
-    for (i = 1; i <= 5; i++)
-        fill(cv, x1 - d * i, y - i, 1, 2 * i + 2, 1);
-}
-static void die(mr_canvas_t *cv, int x, int y)        /* a die showing five */
-{
-    box(cv, x, y, 26, 26);
-    box(cv, x + 1, y + 1, 24, 24);
-    fill(cv, x + 5, y + 5, 4, 4, 1), fill(cv, x + 17, y + 5, 4, 4, 1), fill(cv, x + 11, y + 11, 4, 4, 1);
-    fill(cv, x + 5, y + 17, 4, 4, 1), fill(cv, x + 17, y + 17, 4, 4, 1);
-}
-static void hop(mr_canvas_t *cv, int x, int y, int w)  /* an arc from (x, y) to (x + w, y), up */
-{
-    int i;
-    for (i = 0; i <= w; i++) {
-        const int u = 2 * i - w, h = (w * w - u * u) * 10 / (w * w > 0 ? w * w : 1);
-        fill(cv, x + i, y - h, 1, 2, 1);
-    }
-}
-static const char *const FN_NAMES[RFM_MOVE_FN_N] = { "NONE", "RESTART", "REVERSE", "FORWARD", "FLIP", "RANDOM",
-                                                      "RND FN", "LEAP", "JUMP" };
+/* ---- the TRIG page: a picture on the left, the name and the value on the right (no boxes); the knob pages as the
+ * strip, TRIG first. A step held and the arrows, the jog or the volume knob (not on the TRIG page): Nudge, Length,
+ * Velocity as edit popups over the page strip */
+static const char *const FN_NAMES[RFM_MOVE_FN_N] = { "None", "Restart", "Reverse", "Forward", "Flip", "Random",
+                                                      "Rnd Fn", "Leap", "Jump" };
 void rfmv_cond_name(int c, char *b, int cap)
 {
-    static const char *const N[] = { "FILL", "!FILL", "PRE", "!PRE", "NEI", "!NEI", "1ST", "!1ST" };
+    static const char *const N[] = { "Fill", "!Fill", "Pre", "!Pre", "Nei", "!Nei", "1st", "!1st" };
     if (c >= 1 && c <= RFM_MOVE_COND_AB_N) {
         int bb = 2, a = c;
         while (a > bb)
@@ -369,7 +206,25 @@ void rfmv_cond_name(int c, char *b, int cap)
     } else if (c >= RFM_MOVE_COND_FILL && c < RFM_MOVE_COND_N)
         snprintf(b, (size_t)cap, "%s", N[c - RFM_MOVE_COND_FILL]);
     else
-        snprintf(b, (size_t)cap, "ALWAYS");
+        snprintf(b, (size_t)cap, "Always");
+}
+static void len_text(int v, char *b, int cap)
+{
+    if (rfmv_seq_len_inf(v))
+        snprintf(b, (size_t)cap, "Inf");
+    else if (v % RFM_MOVE_SEQ_TPS == 0)
+        snprintf(b, (size_t)cap, "%d", v / RFM_MOVE_SEQ_TPS);
+    else if (v < RFM_MOVE_SEQ_TPS)
+        snprintf(b, (size_t)cap, "1/%d", (RFM_MOVE_SEQ_TPS + v / 2) / v);
+    else
+        snprintf(b, (size_t)cap, "%d.%d", v / RFM_MOVE_SEQ_TPS, v % RFM_MOVE_SEQ_TPS * 10 / RFM_MOVE_SEQ_TPS);
+}
+static void steps_base(mr_canvas_t *cv)               /* a base line and the step ticks under a picture */
+{
+    int i;
+    v2_R(cv, 2, 45, 41, 1, 1);
+    for (i = 0; i < 6; i++)
+        v2_R(cv, 2 + i * 8, 40, 1, 6, 1);
 }
 static void trig_popup(const rfm_move_t *m, mr_canvas_t *cv)
 {
@@ -382,88 +237,113 @@ static void trig_popup(const rfm_move_t *m, mr_canvas_t *cv)
         abs = hi > lo ? q->notes[lo].step : abs;
     }
     v = rfmv_seq_trig_val(m, clip, abs, k);
-    rfmv_frame(cv, 2, 2, 124, 60);
+    mr_gfx_clear(cv, 0);
+    g_full = 1;
+    if (!q->trig) {                                     /* a held step's edit popup (V2Track's seq.micro / len / vel) */
+        if (k == 0)
+            snprintf(l, sizeof l, "Nudge"), snprintf(b, sizeof b, v ? "%+d%%" : "0%%", v * 100 / RFM_MOVE_SEQ_TPS);
+        else if (k == 6)
+            snprintf(l, sizeof l, "Length"), len_text(v, b, sizeof b);
+        else
+            snprintf(l, sizeof l, "Velocity"), snprintf(b, sizeof b, "%d", v);
+        v2_titleBox(cv, l, b, 64, 124);
+        if (k == 7)
+            v2_vbar(cv, v / 127.0, 0, 4, 120, 52);
+        rfmv_seq_page_strip(m, cv, abs);
+        return;
+    }
     l[0] = b[0] = 0;
     switch (k) {
-    case 0:                                             /* a step, its note early or late */
-        snprintf(l, sizeof l, "MICRO"), snprintf(b, sizeof b, v ? "%+d" : "0", v);
-        box(cv, 12, 22, 24, 20);
-        for (i = 22; i < 42; i += 3)
-            mr_gfx_pixel(cv, 12, i, 1);
-        fill(cv, 12 + v, 26, 4, 12, 1);
+    case 0:                                             /* the note between its step's ticks, pushed by the offset */
+        snprintf(l, sizeof l, "Micro"), snprintf(b, sizeof b, v ? "%+d" : "0", v);
+        v2_R(cv, 2, 47, 41, 1, 1), v2_R(cv, 2, 40, 1, 8, 1), v2_R(cv, 42, 40, 1, 8, 1);
+        v2_R(cv, 7 + clampi(v, -5, 9), 26, 26, 4, 1);
+        if (v > 0)
+            v2_L(cv, 4, 36, 10, 36), v2_L(cv, 8, 34, 10, 36), v2_L(cv, 8, 38, 10, 36);
+        else if (v < 0)
+            v2_L(cv, 40, 36, 34, 36), v2_L(cv, 36, 34, 34, 36), v2_L(cv, 36, 38, 34, 36);
         break;
-    case 1:                                             /* the hits */
-        snprintf(l, sizeof l, "RATCH"), snprintf(b, sizeof b, "x%d", v);
-        for (i = 0; i < v; i++)
-            fill(cv, 8 + i * 32 / v, 14, 32 / v > 4 ? 3 : 2, 34, 1);
+    case 1: {                                           /* the hits inside one step, fading */
+        const int n = clampi(v, 1, 8), sp = 40 / n;
+        snprintf(l, sizeof l, "Ratch"), snprintf(b, sizeof b, "x%d", v);
+        for (i = 0; i < n; i++)
+            v2_R(cv, 4 + i * sp, 12 + i * 16 / n, sp * 4 / 10 > 1 ? sp * 4 / 10 : 1, 34 - i * 16 / n, 1);
+        v2_R(cv, 2, 47, 40, 1, 1);
         break;
-    case 2:
-        snprintf(l, sizeof l, "CHANCE"), snprintf(b, sizeof b, "%d%%", v);
-        die(cv, 10, 18);
+    }
+    case 2: {                                           /* a die */
+        static const int P[5][2] = { { 8, 14 }, { 30, 14 }, { 19, 25 }, { 8, 36 }, { 30, 36 } };
+        snprintf(l, sizeof l, "Chance"), snprintf(b, sizeof b, "%d%%", v);
+        for (i = 0; i < 5; i++)
+            v2_R(cv, P[i][0], P[i][1], 6, 6, 1);
         break;
-    case 3:                                             /* A:B: B passes, the A-th filled */
-        snprintf(l, sizeof l, "COND"), rfmv_cond_name(v, b, sizeof b);
+    }
+    case 3:                                             /* A:B as B passes, the A-th tall */
+        snprintf(l, sizeof l, "Cond"), rfmv_cond_name(v, b, sizeof b);
         if (v >= 1 && v <= RFM_MOVE_COND_AB_N) {
             int bb = 2, a = v;
             while (a > bb)
                 a -= bb, bb++;
-            for (i = 0; i < bb; i++)
-                mr_gfx_rect(cv, 6 + (i % 4) * 10, 18 + (i / 4) * 12, 8, 8, 1, i == a - 1);
-        } else if (v)
-            rfmv_big(cv, 8, 22, v == RFM_MOVE_COND_FILL || v == RFM_MOVE_COND_NFILL ? "F" : v <= RFM_MOVE_COND_NPRE ? "P" : v <= RFM_MOVE_COND_NNEI ? "N" : "1", 4, 1);
+            for (i = 0; i < bb; i++) {
+                const int x = 2 + i * (40 / bb);
+                if (i == a - 1)
+                    v2_R(cv, x, 18, 40 / bb - 2, 20, 1);
+                else
+                    v2_R(cv, x, 36, 40 / bb - 2, 2, 1);
+            }
+        }
         break;
-    case 4:
-        snprintf(l, sizeof l, "FUNC"), snprintf(b, sizeof b, "%s", FN_NAMES[clampi(v, 0, RFM_MOVE_FN_N - 1)]);
+    case 4:                                             /* the playhead's path over the steps */
+        snprintf(l, sizeof l, "Func"), snprintf(b, sizeof b, "%s", FN_NAMES[clampi(v, 0, RFM_MOVE_FN_N - 1)]);
+        steps_base(cv);
         switch (v) {
-        case RFM_MOVE_FN_RESTART: arrow(cv, 40, 10, 30), fill(cv, 6, 20, 2, 22, 1); break;
-        case RFM_MOVE_FN_REVERSE: arrow(cv, 40, 8, 30); break;
-        case RFM_MOVE_FN_FORWARD: arrow(cv, 8, 40, 30); break;
-        case RFM_MOVE_FN_FLIP: arrow(cv, 8, 40, 22), arrow(cv, 40, 8, 38); break;
-        case RFM_MOVE_FN_RANDOM: die(cv, 10, 18); break;
-        case RFM_MOVE_FN_RFUNC: die(cv, 6, 18), rfmv_big(cv, 36, 22, "?", 2, 1); break;
-        case RFM_MOVE_FN_LEAP: hop(cv, 6, 40, 14), hop(cv, 22, 40, 14), fill(cv, 38, 38, 4, 4, 1); break;
-        case RFM_MOVE_FN_JUMP: hop(cv, 6, 42, 34), fill(cv, 38, 40, 4, 4, 1); break;
+        case RFM_MOVE_FN_RESTART: v2_L(cv, 37, 30, 5, 30), v2_L(cv, 5, 30, 9, 26), v2_L(cv, 5, 30, 9, 34), v2_R(cv, 3, 20, 1, 20, 1); break;
+        case RFM_MOVE_FN_REVERSE: v2_L(cv, 37, 30, 5, 30), v2_L(cv, 5, 30, 9, 26), v2_L(cv, 5, 30, 9, 34); break;
+        case RFM_MOVE_FN_FORWARD: v2_L(cv, 5, 30, 37, 30), v2_L(cv, 37, 30, 33, 26), v2_L(cv, 37, 30, 33, 34); break;
+        case RFM_MOVE_FN_FLIP:
+            v2_L(cv, 5, 24, 37, 24), v2_L(cv, 37, 24, 33, 20), v2_L(cv, 37, 24, 33, 28);
+            v2_L(cv, 37, 34, 5, 34), v2_L(cv, 5, 34, 9, 30), v2_L(cv, 5, 34, 9, 38);
+            break;
+        case RFM_MOVE_FN_RANDOM: case RFM_MOVE_FN_RFUNC: v2_ic(cv, V2I_DICE, 16, 22, 1); break;
+        case RFM_MOVE_FN_LEAP: case RFM_MOVE_FN_JUMP:
+            v2_L(cv, 5, 38, 13, 20), v2_L(cv, 13, 20, 29, 20), v2_L(cv, 29, 20, 37, 38);
+            v2_L(cv, 33, 36, 37, 38), v2_L(cv, 37, 34, 37, 38);
+            break;
         default: break;
         }
         break;
-    case 5: {
+    case 5: {                                           /* the function's amount */
         const int f = rfmv_seq_trig_val(m, clip, abs, 4);
+        steps_base(cv);
+        if (f == RFM_MOVE_FN_LEAP || f == RFM_MOVE_FN_JUMP) {
+            v2_L(cv, 5, 38, 13, 20), v2_L(cv, 13, 20, 29, 20), v2_L(cv, 29, 20, 37, 38);
+            v2_L(cv, 33, 36, 37, 38), v2_L(cv, 37, 34, 37, 38);
+        }
         if (f == RFM_MOVE_FN_LEAP)
-            snprintf(l, sizeof l, "LEAP"), snprintf(b, sizeof b, "%+d", v), hop(cv, 6, 40, 30);
+            snprintf(l, sizeof l, "Leap"), snprintf(b, sizeof b, "%+d", v);
         else if (f == RFM_MOVE_FN_JUMP)
-            snprintf(l, sizeof l, "TO STEP"), snprintf(b, sizeof b, "%d", v + 1), hop(cv, 6, 42, 34);
+            snprintf(l, sizeof l, "Jump"), snprintf(b, sizeof b, "%d", v + 1);
         else
-            snprintf(l, sizeof l, "AMOUNT"), snprintf(b, sizeof b, "--");
+            snprintf(l, sizeof l, "Amount"), snprintf(b, sizeof b, "--");
         break;
     }
-    case 6:                                             /* a gate bar over a step's width (a step: 8 px) */
-        snprintf(l, sizeof l, "LENGTH");
-        if (rfmv_seq_len_inf(v))
-            snprintf(b, sizeof b, "INF");
-        else if (v % RFM_MOVE_SEQ_TPS == 0)
-            snprintf(b, sizeof b, "%d", v / RFM_MOVE_SEQ_TPS);
-        else if (v < RFM_MOVE_SEQ_TPS)
-            snprintf(b, sizeof b, "1/%d", RFM_MOVE_SEQ_TPS / v > 0 ? (RFM_MOVE_SEQ_TPS + v / 2) / v : 1);
-        else
-            snprintf(b, sizeof b, "%d.%d", v / RFM_MOVE_SEQ_TPS, v % RFM_MOVE_SEQ_TPS * 10 / RFM_MOVE_SEQ_TPS);
-        for (i = 0; i < 5; i++)
-            mr_gfx_pixel(cv, 6 + i * 8, 44, 1);         /* (the steps) */
-        fill(cv, 6, 26, clampi(v * 8 / RFM_MOVE_SEQ_TPS, 1, 38), 12, 1);
-        if (rfmv_seq_len_inf(v))
-            fill(cv, 40, 26, 4, 12, 0), rfmv_big(cv, 40, 24, ">", 2, 1);
+    case 6:                                             /* a gate bar over the steps it covers */
+        snprintf(l, sizeof l, "Length"), len_text(v, b, sizeof b);
+        steps_base(cv);
+        v2_R(cv, 3, 26, rfmv_seq_len_inf(v) ? 40 : clampi(v * 8 / RFM_MOVE_SEQ_TPS - 2, 1, 40), 6, 1);
         break;
-    case 7:                                             /* velocity: a level */
-        snprintf(l, sizeof l, "VELO"), snprintf(b, sizeof b, "%d", v);
-        box(cv, 14, 12, 16, 40);
-        fill(cv, 14, 52 - v * 40 / 127, 16, v * 40 / 127, 1);
+    case 7:                                             /* velocity */
+        snprintf(l, sizeof l, "Velo"), snprintf(b, sizeof b, "%d", v);
+        v2_ic(cv, V2I_VEL, 16, 22, 1);
         break;
     default: snprintf(l, sizeof l, "--"); break;
     }
-    big_fit(cv, 50, 10, l, 2, 74, 1);
-    big_fit(cv, 50, 34, b, 2, 74, 1);
+    v2_titleBox(cv, l, b, 88, 80);
+    v2_strip(cv, 5, 1, -1, 0, 128);
 }
 
-/* Loop held: the 16 pages (in the loop filled, the shown one marked under it) and the loop's pages at 2x */
+/* Loop held or latched (page edit): the loop icon, the range in words, the 16 pages as cells; the jog: Move's
+ * "Loop Length" (the length at 4x, the looped pages thick on a strip of 16) */
 static void loop_popup(const rfm_move_t *m, mr_canvas_t *cv)
 {
     const rfm_move_seq_t *q = &m->seq;
@@ -472,78 +352,61 @@ static void loop_popup(const rfm_move_t *m, mr_canvas_t *cv)
     const int pb = (h - 1) / RFM_MOVE_SEQ_PAGE;
     char b[24];
     int i;
-    rfmv_frame(cv, 2, 2, 124, 60);
-    {                                                   /* the length: pages (+ steps) */
+    mr_gfx_clear(cv, 0);
+    g_full = 1;
+    if (m->pop_val == 1 && rfmv_now_ms(m) - m->pop_ms < RFM_MOVE_POPUP_MS) {   /* the jog: the length (a second) */
         const int L = h - a, P = L / RFM_MOVE_SEQ_PAGE, S = L % RFM_MOVE_SEQ_PAGE;
+        uint32_t sel = 0;
         if (!P)
-            snprintf(b, sizeof b, "%d ST", S);
+            snprintf(b, sizeof b, "%d St", S);
         else if (S)
-            snprintf(b, sizeof b, "%dP+%d", P, S);
+            snprintf(b, sizeof b, "%d.%d", P, S * 10 / RFM_MOVE_SEQ_PAGE);
         else
-            snprintf(b, sizeof b, "%d %s", P, P == 1 ? "BAR" : "BARS");
+            snprintf(b, sizeof b, "%d %s", P, P == 1 ? "Bar" : "Bars");
+        for (i = pa; i <= pb && i < 16; i++)
+            sel |= 1u << i;
+        v2_titleBox(cv, "Loop", b, 64, 124);
+        v2_strip(cv, 16, sel, -1, 0, 128);
+        return;
     }
-    big_mid(cv, 64, 8, b, 2, 1);
-    {                                                   /* the loop bar: its span over the 16 pages, end marks */
-        const int x0 = 5 + a * 112 / RFM_MOVE_SEQ_MAXLEN, x1 = 5 + h * 112 / RFM_MOVE_SEQ_MAXLEN;
-        fill(cv, x0, 26, x1 - x0 > 1 ? x1 - x0 : 1, 3, 1);
-        fill(cv, x0, 24, 1, 7, 1), fill(cv, x1 - 1 > x0 ? x1 - 1 : x0, 24, 1, 7, 1);
-    }
-    for (i = 0; i < RFM_MOVE_SEQ_PAGES; i++) {
-        if (rfmv_seq_src_page(m, SEQ_CLIP(q->sel_track, q->tr[q->sel_track].sel), i) == 2)
-            rfmv_xbox(cv, 4 + i * 7 + 1, 34, 6, 12);    /* (the page cut) */
-        else if (rfmv_seq_src_page(m, SEQ_CLIP(q->sel_track, q->tr[q->sel_track].sel), i) == 1)
-            rfmv_dotted(cv, 4 + i * 7 + 1, 34, 6, 12);  /* (copied) */
-        else
-            mr_gfx_rect(cv, 4 + i * 7 + 1, 34, 6, 12, 1, i >= pa && i <= pb);
-        if (i == q->page)
-            fill(cv, 4 + i * 7 + 1, 49, 6, 2, 1);
-    }
+    rfmv_seq_loop_edit(m, cv);                          /* (else: page edit's own screen) */
 }
 
-/* StepPopup: the held step's notes as inverted chips (the first two and "+n" past three), its velocity (a level
- * symbol) and its length (a bracket) at 2x, over track view (its steps row stays, the step marked above it) */
+/* a step held (300 ms): its notes in words, the velocity and the length; the steps row, the held step marked */
 static void step_popup(const rfm_move_t *m, mr_canvas_t *cv)
 {
     const rfm_move_seq_t *q = &m->seq;
     const int s = m->pop_i, clip = SEQ_CLIP(q->sel_track, q->tr[q->sel_track].sel);
     const int abs = q->page * RFM_MOVE_SEQ_PAGE + s;
     int lo, hi = rfmv_seq_range(m, clip, abs, &lo), n = hi - lo, i;
-    char b[16];
-    fill(cv, 0, 0, 128, 54, 0);                         /* (track view's steps row stays below) */
-    rfmv_frame(cv, 2, 2, 124, 48);
-    for (i = 0; i < n && i < 3; i++) {
-        const int x = 6 + i * 40;
-        fill(cv, x, 6, 36, 18, 1);
-        if (i == 2 && n > 3)
-            snprintf(b, sizeof b, "+%d", n - 2);
-        else
-            rfmv_note_name(q->notes[lo + i].note, b, sizeof b);
-        if (rfmv_big_w(b, 2) <= 34)
-            big_mid(cv, x + 18, 8, b, 2, 0);
-        else
-            mr_gfx_text(cv, x + 18 - 6 * (int)strlen(b) / 2, 11, b, 0);   /* (C#-1: too wide at 2x) */
+    char b[48], nb[8];
+    mr_gfx_clear(cv, 0);
+    g_full = 1;
+    b[0] = 0;
+    for (i = 0; i < n; i++) {                           /* the names that fit (2x), "+n" for the rest */
+        char t[48];
+        snprintf(t, sizeof t, "%s%s%s", b, i ? " " : "", rfmv_note_name(q->notes[lo + i].note, nb, sizeof nb));
+        if (v2_tw(t, 2) > 124 - (i + 1 < n ? 30 : 0) && i) {
+            snprintf(t, sizeof t, "%s +%d", b, n - i);
+            snprintf(b, sizeof b, "%s", t);
+            break;
+        }
+        snprintf(b, sizeof b, "%s", t);
     }
+    v2_TC(cv, 64, 3, b, 2, 1);
     if (n) {
         const rfm_move_note_t *n0 = &q->notes[lo];
-        const int h = (n0->vel * 14 + 63) / 127, len = n0->len, st = len / RFM_MOVE_SEQ_TPS;
-        int w;
-        fill(cv, 7, 44 - h, 10, h, 1);                  /* velocity: a level, filled from the bottom */
-        box(cv, 7, 30, 10, 14);
+        v2_ic(cv, V2I_VEL, 2, 26, 1);
         snprintf(b, sizeof b, "%d", n0->vel);
-        rfmv_big(cv, 21, 29, b, 2, 1);
-        fill(cv, 66, 36, 26, 3, 1);                     /* length: a bracket */
-        fill(cv, 66, 32, 1, 11, 1), fill(cv, 91, 32, 1, 11, 1);
-        if (len % RFM_MOVE_SEQ_TPS && st < 10)
-            snprintf(b, sizeof b, "%d.%d", st, len % RFM_MOVE_SEQ_TPS * 10 / RFM_MOVE_SEQ_TPS);
-        else
-            snprintf(b, sizeof b, "%d", (len + RFM_MOVE_SEQ_TPS / 2) / RFM_MOVE_SEQ_TPS);
-        w = rfmv_big_w(b, 2);
-        rfmv_big(cv, 98 + w <= 124 ? 98 : 124 - w, 29, b, 2, 1);
+        v2_T(cv, 18, 24, b, 2, 1);
+        v2_R(cv, 68, 31, 18, 1, 1), v2_R(cv, 68, 28, 1, 7, 1), v2_R(cv, 85, 28, 1, 7, 1);   /* length: a bracket */
+        len_text(n0->len, b, sizeof b);
+        v2_T(cv, 92, 24, b, 2, 1);
     }
-    fill(cv, s * 8 - 2, 52, 11, 1, 1);                  /* the held step, over the row */
+    rfmv_seq_steps_cells(m, cv, 1u << s);
 }
 
-/* ProjectPopup: the number at 4x, a bar a track (its notes), the tempo, the clips */
+/* a project pad held: its number at 4x, a bar a track, the tempo, the clips; knob 1 turned: its colour */
 static int bits_of(int n)
 {
     int b = 0;
@@ -557,80 +420,88 @@ static void project_popup(const rfm_move_t *m, mr_canvas_t *cv)
     char b[16];
     int i, nt = 8;
     rfmv_proj_info(m, m->pop_i, &in);
-    rfmv_frame(cv, 2, 2, 124, 60);
-    snprintf(b, sizeof b, "%02d", m->pop_i + 1);
-    rfmv_big(cv, 7, 8, b, 4, 1);
-    {                                                   /* its colour (1..16, a dot and the number), as knob 1 turns
-                                                         * it */
-        char cb[8];
-        snprintf(cb, sizeof cb, "%d", in.color ? in.color : m->pop_i % RFM_MOVE_PROJ_COLORS + 1);
-        rfmv_big(cv, 123 - rfmv_big_w(cb, 2), 6, cb, 2, 1);
-        rfmv_disc(cv, 123 - rfmv_big_w(cb, 2) - 13, 8, 10, 1);
+    mr_gfx_clear(cv, 0);
+    g_full = 1;
+    if (m->pop_val == 1) {                              /* the colour, once */
+        const int c = in.color ? in.color : m->pop_i % RFM_MOVE_PROJ_COLORS + 1;
+        snprintf(b, sizeof b, "%d", c);
+        v2_titleBox(cv, "Color", b, 64, 124);
+        v2_strip(cv, 16, 1u << (c - 1), -1, 0, 128);
+        return;
     }
+    snprintf(b, sizeof b, "%02d", m->pop_i + 1);
+    v2_T(cv, 2, 4, b, 4, 1);
     if (!in.ok)
         return;
     for (i = 8; i < RFM_MOVE_SEQ_TRACKS; i++)
         if (in.notes[i])
             nt = 16;                                    /* (tracks 9..16 in use: 16 thinner bars) */
     for (i = 0; i < nt; i++) {
-        const int h = in.notes[i] ? clampi(5 * bits_of(in.notes[i]) + 1, 1, 26) : 1;   /* 1, 2, 4 .. notes: 6, 11, 16 .. px */
+        const int h = in.notes[i] ? clampi(5 * bits_of(in.notes[i]) + 1, 1, 26) : 1;
         if (nt == 8)
-            fill(cv, 58 + i * 8, 36 - h, 5, h, 1);
+            v2_R(cv, 64 + i * 8, 32 - h, 5, h, 1);
         else
-            fill(cv, 58 + i * 4, 36 - h, 3, h, 1);
+            v2_R(cv, 64 + i * 4, 32 - h, 3, h, 1);
     }
-    rfmv_tri(cv, 7, 45, 9, 12, 1);
+    v2_ic(cv, V2I_PLAY, 2, 44, 1);
     snprintf(b, sizeof b, "%d", (in.bpm10 + 5) / 10);
-    rfmv_big(cv, 21, 43, b, 2, 1);
-    box(cv, 76, 45, 12, 12);
-    fill(cv, 79, 48, 6, 6, 1);
+    v2_T(cv, 16, 43, b, 2, 1);
+    v2_ic(cv, V2I_CLIP, 74, 44, 1);
     snprintf(b, sizeof b, "%d", in.clips);
-    rfmv_big(cv, 92, 43, b, 2, 1);
+    v2_T(cv, 90, 43, b, 2, 1);
 }
 
-/* a message (the sequencer's: UNDO, COPIED ..) at 2x, a line or two */
-static void message_popup(mr_canvas_t *cv, const char *msg)
+/* a message (Title Case, past tense naming the thing): one or two rows, an icon over it where one says more, the
+ * page strip kept under it in track view; the left half: the rows at 2x where they fit */
+static void message_popup(const rfm_move_t *m, mr_canvas_t *cv)
 {
-    char a[24], b[24];
-    const char *sp = strchr(msg, ' ');
-    if (g_half) {                                       /* the left half: a word a line, 2x when it fits */
-        rfmv_frame(cv, 0, 0, 64, 64);
-        snprintf(a, sizeof a, "%.*s", sp ? (int)(sp - msg) : (int)strlen(msg), msg);
-        snprintf(b, sizeof b, "%s", sp ? sp + 1 : "");
-        if (rfmv_big_w(a, 2) <= 58 && rfmv_big_w(b, 2) <= 58) {
-            big_mid(cv, 32, *b ? 15 : 25, a, 2, 1);
-            if (*b)
-                big_mid(cv, 32, 35, b, 2, 1);
-        } else {
-            mr_gfx_text(cv, 32 - 3 * (int)strlen(a), *b ? 22 : 28, a, 1);
-            if (*b)
-                mr_gfx_text(cv, 32 - 3 * (int)strlen(b), 34, b, 1);
-        }
+    const char *a, *b;
+    int icon, id = rfmv_seq_msg_info(m, &a, &b, &icon);
+    if (g_half) {
+        v2_R(cv, 0, 0, 64, 64, 0);
+        if (*b) {
+            v2_TC(cv, 32, 18, a, v2_tw(a, 2) <= 62 ? 2 : 1, 1);
+            v2_TC(cv, 32, 38, b, v2_tw(b, 2) <= 62 ? 2 : 1, 1);
+        } else
+            v2_TC(cv, 32, 26, a, v2_tw(a, 2) <= 62 ? 2 : 1, 1);
         return;
     }
-    rfmv_frame(cv, 2, 2, 124, 60);
-    if (rfmv_big_w(msg, 3) <= 124) {                    /* (the whole screen: 3x where it fits) */
-        big_mid(cv, 64, 22, msg, 3, 1);
+    mr_gfx_clear(cv, 0);
+    g_full = 1;
+    if (id == SEQ_MSG_CAPTURED) {                       /* Move's message with the tempo under it */
+        char t[16];
+        const int b10 = rfm_move_seq_bpm10(m);
+        snprintf(t, sizeof t, "%d BPM", (b10 + 5) / 10);
+        v2_titleBox(cv, a, t, 64, 124);
+    } else if (icon >= 0) {                             /* (a toggle or a one-shot with its icon: no strip) */
+        v2_ic(cv, icon, 58, 4, 1);
+        v2_msg(cv, a, b);
         return;
-    }
-    if (rfmv_big_w(msg, 2) <= 124 || !sp) {
-        big_mid(cv, 64, 25, msg, 2, 1);
-        return;
-    }
-    snprintf(a, sizeof a, "%.*s", (int)(sp - msg), msg);
-    snprintf(b, sizeof b, "%s", sp + 1);
-    big_mid(cv, 64, 15, a, 2, 1);
-    big_mid(cv, 64, 35, b, 2, 1);
+    } else
+        v2_msg(cv, a, b);
+    if (id == SEQ_MSG_DOUBLE) {                         /* the loop's pages on a strip of 16 */
+        const rfm_move_seq_t *q = &m->seq;
+        const int clip = SEQ_CLIP(q->sel_track, q->tr[q->sel_track].sel);
+        const int pa = rfmv_seq_loop_lo(m, clip) / RFM_MOVE_SEQ_PAGE, pb = (rfmv_seq_loop_hi(m, clip) - 1) / RFM_MOVE_SEQ_PAGE;
+        uint32_t sel = 0;
+        int i;
+        for (i = pa; i <= pb && i < 16; i++)
+            sel |= 1u << i;
+        v2_strip(cv, 16, sel, -1, 0, 128);
+    } else if (m->s.mode == RFM_MOVE_MODE_SEQ && !m->seq.view && !m->seq.projects)
+        rfmv_seq_page_strip(m, cv, -1);
 }
 
-/* the count-in: its beats to go at 4x, a recording dot */
+/* the count-in: a record dot, the beats to go at 4x; the strip fills beat by beat */
 static void count_popup(const rfm_move_t *m, mr_canvas_t *cv)
 {
     char b[4];
-    snprintf(b, sizeof b, "%d", clampi((m->seq.count_in - 2) / 96 + 1, 1, 4));   /* (a bar: 4 .. 1) */
-    rfmv_frame(cv, 2, 2, 124, 60);                      /* (the whole screen: a big dot, the beat at 6x) */
-    rfmv_disc(cv, 10, 16, 32, 1);
-    rfmv_big(cv, 70, 11, b, 6, 1);
+    const int go = clampi((m->seq.count_in - 2) / 96 + 1, 1, 4);   /* (a bar: 4 .. 1) */
+    snprintf(b, sizeof b, "%d", go);
+    mr_gfx_clear(cv, 0);
+    v2_ic(cv, V2I_REC, 14, 22, 1);
+    v2_TC(cv, 76, 14, b, 4, 1);
+    v2_strip(cv, 4, (1u << (5 - go)) - 1, -1, 0, 128);
 }
 
 /* whichever popup is up now (the newer of a control's popup and a message; the count-in under both) */
@@ -643,7 +514,7 @@ static void popups(const rfm_move_t *m, mr_canvas_t *cv)
     if (up && m->pop == POP_STEP && (q->view || q->projects || m->s.mode != RFM_MOVE_MODE_SEQ))
         up = 0;
     if (msg && (!up || (int32_t)(q->msg_ms - m->pop_ms) >= 0)) {
-        message_popup(cv, msg);
+        message_popup(m, cv);
         return;
     }
     if (up) {
@@ -653,37 +524,33 @@ static void popups(const rfm_move_t *m, mr_canvas_t *cv)
             trig_popup(m, cv);
         else if (m->pop == POP_LOOP)
             loop_popup(m, cv);
-        else if (m->pop == POP_TRACK) {                 /* a track / bank change: "TRACK n" and the 4 x 4 */
+        else if (m->pop == POP_TRACK) {                 /* a track change: its name */
             char b[12];
-            snprintf(b, sizeof b, "TR %d", m->pop_i + 1);
-            rfmv_frame(cv, 2, 2, 124, 60);
-            rfmv_seq_track_glyph(m, cv, 10, 12, 8);
-            rfmv_big(cv, 56, 22, b, 2, 1);
-        } else if (m->pop == POP_MODE) {                /* a Track button tapped: the mode (or its screen) named, the
-                                                         * whole screen, no frame: as big as it fits, centred */
-            static const char *const MODES[4] = { "FM-1", "MIDI", "CONTROL", "SEQUENCER" };
-            static const char *const VIEWS[RFM_MOVE_MV_N] = { "PADS", "NOTES" };
-            const char *w = m->pop_i < 4 ? MODES[m->pop_i] : VIEWS[(m->pop_i - 10) % RFM_MOVE_MV_N];
-            int k;
+            snprintf(b, sizeof b, "Track %d", m->pop_i + 1);
             mr_gfx_clear(cv, 0);
-            for (k = 4; k > 1 && rfmv_big_w(w, k) > 126; k--) {}
-            if (rfmv_big_w(w, k) <= 126)
-                rfmv_big(cv, 64 - rfmv_big_w(w, k) / 2, 32 - 7 * k / 2, w, k, 1);
-            else {                                      /* (two lines) */
-                char a[16];
-                const char *sp = strchr(w, ' ');
-                snprintf(a, sizeof a, "%.*s", sp ? (int)(sp - w) : (int)strlen(w) / 2, w);
-                big_mid(cv, 64, 14, a, 2, 1);
-                big_mid(cv, 64, 36, sp ? sp + 1 : w + strlen(a), 2, 1);
-            }
+            v2_msg(cv, b, NULL);
             g_full = 1;
-        } else if (m->pop == POP_BAR) {                   /* Move's "Bar 2" (a ghost page), over the page strip */
+        } else if (m->pop == POP_MODE) {                /* a Track button tapped: the mode (or its view) named, the
+                                                         * whole screen, the strip the four modes (the two views) */
+            static const char *const MODES[4] = { "FM-1", "MIDI", "Control", "Seq" };
+            static const char *const VIEWS[RFM_MOVE_MV_N] = { "Pads", "Notes" };
+            mr_gfx_clear(cv, 0);
+            if (m->pop_i == 20) {                       /* projects mode entered: Move's set icon over the name */
+                v2_ic(cv, V2I_PROJ, 58, 4, 1);
+                v2_TC(cv, 64, 26, "Projects", 2, 1);
+            } else if (m->pop_i < 4)
+                v2_modeName(cv, MODES[m->pop_i], 4, m->pop_i);
+            else
+                v2_modeName(cv, VIEWS[(m->pop_i - 10) % RFM_MOVE_MV_N], RFM_MOVE_MV_N, (m->pop_i - 10) % RFM_MOVE_MV_N);
+            g_full = 1;
+        } else if (m->pop == POP_BAR) {                 /* Move's "Bar 2" (a ghost page) over the ghost strip */
             char b[12];
-            snprintf(b, sizeof b, "BAR %d", m->pop_i + 1);
-            fill(cv, 0, 12, 128, 38, 0);
-            big_mid(cv, 64, 24, b, 2, 1);
-        }
-        else if (m->pop == POP_PROJ)
+            snprintf(b, sizeof b, "Bar %d", m->pop_i + 1);
+            mr_gfx_clear(cv, 0);
+            v2_TC(cv, 64, 22, b, 2, 1);
+            rfmv_seq_page_strip(m, cv, -1);
+            g_full = 1;
+        } else if (m->pop == POP_PROJ)
             project_popup(m, cv);
         else
             value_popup(m, cv);
@@ -735,10 +602,8 @@ void rfmv_fm1_art(const rfm_move_t *m, mr_canvas_t *cv)
         e = RFM_MOVE_E_MASTER;
     else if (m->touched == 9 || rfmv_pop_up(m, POP_SELECT))
         e = RFM_MOVE_E_SELECT;
-    if (e >= 0) {
-        fill(cv, ENC_XY[e][0] - 2, ENC_XY[e][1] - 2, 6, 6, 1);
-        fill(cv, ENC_XY[e][0], ENC_XY[e][1], 2, 2, 0);
-    }
+    if (e >= 0)
+        v2_XR(cv, ENC_XY[e][0] - 2, ENC_XY[e][1] - 2, 6, 6);
     /* the buttons lit (RFM_MOVE_SCREEN_LIT) or held: their cells filled. The 6 x 2 grid in the panel's order
      * (FX SEL ENV LFO EDIT GLO / HOME SAVE ARP SEQ PLAY REC = matrix 2..13), OCT- OCT+ in the box at the left */
     for (b = 0; b < RFM_MOVE_NBTN; b++) {
@@ -784,8 +649,8 @@ static int pad_class(const rfm_move_t *m, int p)
     return 0;
 }
 
-/* Midi.dc.html: 14 x 14 cells, 16 px apart, top row = the top pads; root filled, in the scale outlined, out a dot,
- * a pressed pad filled with a 6 x 6 black square */
+/* V2Midi midi.pads: 14 x 14 cells, 16 px apart, top row = the top pads; root filled, in the scale outlined, out a
+ * dot; a pressed pad carries a 6 x 6 square in the opposite colour */
 static void midi_screen(const rfm_move_t *m, mr_canvas_t *cv)
 {
     int p;
@@ -793,15 +658,14 @@ static void midi_screen(const rfm_move_t *m, mr_canvas_t *cv)
         const int x = (p % 8) * 16 + 1, y = (3 - p / 8) * 16 + 1, c = pad_class(m, p);
         if (c < 0)
             continue;
-        if (m->pad_down[p]) {
-            fill(cv, x, y, 14, 14, 1);
-            fill(cv, x + 4, y + 4, 6, 6, 0);
-        } else if (c == 2)
-            fill(cv, x, y, 14, 14, 1);
+        if (c == 2)
+            v2_R(cv, x, y, 14, 14, 1);
         else if (c == 1)
-            box(cv, x, y, 14, 14);
+            v2_O(cv, x, y, 14, 14, 1);
         else
-            fill(cv, x + 6, y + 6, 2, 2, 1);
+            v2_R(cv, x + 6, y + 6, 2, 2, 1);
+        if (m->pad_down[p])                             /* pressed: a square in the opposite colour */
+            v2_R(cv, x + 4, y + 4, 6, 6, c != 2);
     }
 }
 
@@ -846,115 +710,70 @@ const char *rfmv_chord_name(const uint8_t *n, int k, char *out, int cap)
     }
     return out;
 }
+/* V2Midi midi.chord: the chord's name at 3x (2x, 1x when it is wider), the held notes on a one-octave keyboard */
 static void notes_half(const rfm_move_t *m, mr_canvas_t *cv)
 {
     uint8_t n[16];
-    char b[24], c[16];
-    int k = 0, i, y;
+    char c[16];
+    int k = 0, i, held = 0;
     for (i = 0; i < 128 && k < 16; i++)
         if (m->note_count[m->s.channel][i])
-            n[k++] = (uint8_t)i;
+            n[k++] = (uint8_t)i, held |= 1 << (i % 12);
     if (!k)
         return;                                         /* (at rest: black) */
     rfmv_chord_name(n, k, c, sizeof c);
-    y = 2;
-    if (*c) {                                           /* the chord: 2x when it fits, else 1x */
-        if (rfmv_big_w(c, 2) <= 62)
-            rfmv_big(cv, 1, y, c, 2, 1), y += 18;
-        else
-            mr_gfx_text(cv, 1, y + 4, c, 1), y += 14;
-        mr_gfx_rect(cv, 1, y - 3, 60, 1, 1, 1);
+    if (*c) {
+        const int s = v2_tw(c, 3) <= 62 ? 3 : v2_tw(c, 2) <= 62 ? 2 : 1;
+        v2_TC(cv, 32, s == 3 ? 4 : s == 2 ? 8 : 12, c, s, 1);
     }
-    if (k <= (*c ? 2 : 3)) {                            /* a few: one a line at 2x */
-        for (i = 0; i < k; i++, y += 16)
-            rfmv_big(cv, 1, y, rfmv_note_name(n[i], b, sizeof b), 2, 1);
-        return;
-    }
-    {                                                   /* more: 1x, as many a line as fit */
-        int x = 1;
-        for (i = 0; i < k; i++) {
-            rfmv_note_name(n[i], b, sizeof b);
-            if (x + 6 * (int)strlen(b) > 63)
-                x = 1, y += 9;
-            mr_gfx_text(cv, x, y, b, 1);
-            x += 6 * (int)strlen(b) + 4;
-        }
-    }
+    v2_kbd(cv, 1, 34, 62, 28, -1, 0, held);
 }
 
-/* Control.dc.html: the 4 banks as tabs (the current one filled), the 8 values as full-height bars */
-static void bank_tabs(const rfm_move_t *m, mr_canvas_t *cv, int y)
-{
-    int i;
-    for (i = 0; i < RFM_MOVE_NBANKS; i++)
-        mr_gfx_rect(cv, i * 32 + 1, y, 30, 4, 1, i == m->s.bank);
-}
+/* V2Control ctl.rest: the 8 values as filled bars over their knobs on a base line; the strip the bank */
 static void control_screen(const rfm_move_t *m, mr_canvas_t *cv)
 {
     int k;
-    bank_tabs(m, cv, 1);
     for (k = 0; k < RFM_MOVE_NKNOBS; k++) {
-        const int h = (m->cc_val[m->s.bank][k] * 54 + 63) / 127, x = k * 16 + 2;
-        box(cv, x, 8, 12, 56);
-        fill(cv, x, 9 + 54 - h, 12, h, 1);
+        const int x = k * 16 + 1, h = (m->cc_val[m->s.bank][k] * 55 + 63) / 127;
+        v2_R(cv, x, 57, 14, 1, 1);
+        v2_R(cv, x, 57 - h, 14, h, 1);
     }
+    bank_strip(m, cv);
 }
 
 /* ================================================================ held Track buttons === */
-/* Track 2: the layout (tabs: the top row's pads 1..4), the scale (row 2's 8 pads), the root (a keyboard octave: the
- * jog wheel), the channel (the 16 steps); the setting changed last in words at 2x */
-static void midi_menu(const rfm_move_t *m, mr_canvas_t *cv)
+/* the build's key / scale screen (kept, the owner's): the layouts as tabs, the key and the scale at 4x (3x, 2x when
+ * wider), the root on a 12-key row, the channels (MIDI) or Global / Track (the sequencer's Keys & Scales) */
+void rfmv_keys_menu(const rfm_move_t *m, mr_canvas_t *cv, int glob)
 {
     char b[24];
-    int i;
-    for (i = 0; i < 4; i++)
-        mr_gfx_rect(cv, i * 32 + 1, 0, 30, 4, 1, i == m->s.layout);
-    rfmv_scale_tabs(m, cv, 5, m->menu_what == MENU_SCALE);
-    if (m->menu_what == MENU_LAYOUT)
-        snprintf(b, sizeof b, "%s", rfm_move_layout_name(m->s.layout));
-    else if (m->menu_what == MENU_CHANNEL)
-        snprintf(b, sizeof b, "CH %d", m->s.channel + 1);
-    else if (m->menu_what == MENU_SCALE) {              /* a scale pad: the scale's name alone, its tab tall */
-        snprintf(b, sizeof b, "%s", rfm_move_scale_name(m->s.scale));
-    } else
-        snprintf(b, sizeof b, "%s %s", rfmv_note_names[m->s.root % 12], rfm_move_scale_name(m->s.scale));
-    big_mid(cv, 64, 15, b, 2, 1);
-    for (i = 0; i < 12; i++) {                          /* the root: C..B, sharps short */
-        const int sharp = (0x54A >> i) & 1, x = 4 + i * 10;
-        mr_gfx_rect(cv, x, 34, 8, sharp ? 5 : 9, 1, i == m->s.root);
+    snprintf(b, sizeof b, "%s %s", rfmv_note_names[m->s.root % 12], rfm_move_scale_name(m->s.scale));
+    if (v2_tw(b, 4) <= 128)
+        v2_keysMenu(cv, b, m->s.layout, m->s.root % 12, m->s.channel, glob);
+    else {                                              /* (a long scale name: the same screen, the name smaller) */
+        v2_keysMenu(cv, "", m->s.layout, m->s.root % 12, m->s.channel, glob);
+        v2_TC(cv, 64, v2_tw(b, 3) <= 128 ? 10 : 13, b, v2_tw(b, 3) <= 128 ? 3 : 2, 1);
     }
-    for (i = 0; i < RFM_MOVE_NSTEPS; i++)
-        mr_gfx_rect(cv, i * 8, 54, 7, 10, 1, i == m->s.channel);
 }
 
-/* the 24 scales as 3 rows of 8 tabs (as the pads: rows 2..4), the current one filled (tall: a scale pad pressed) */
-void rfmv_scale_tabs(const rfm_move_t *m, mr_canvas_t *cv, int y, int tall)
-{
-    int i;
-    for (i = 0; i < RFM_MOVE_NSCALES; i++)
-        if (i == m->s.scale)                            /* (the current: a block; the others: a line) */
-            mr_gfx_rect(cv, (i % 8) * 16 + 1, y + (i / 8) * 3 - (tall ? 1 : 0), 14, tall ? 4 : 2, 1, 1);
-        else
-            mr_gfx_rect(cv, (i % 8) * 16 + 3, y + (i / 8) * 3 + 1, 10, 1, 1, 1);
-}
-
-/* Track 3: the bank, the knob turned (filled) and its CC number at 2x */
+/* Track 3: the knob legend (the turned one filled), "CC", the number it sends at 4x and which knob; the bank strip */
 static void cc_menu(const rfm_move_t *m, mr_canvas_t *cv)
 {
     char b[16];
-    const int k = m->menu_what == MENU_CC ? m->menu_i & 7 : 0;
-    int i;
-    bank_tabs(m, cv, 1);
-    snprintf(b, sizeof b, "CC %d", m->s.cc[m->s.bank][k]);
-    big_mid(cv, 64, 15, b, 2, 1);
-    for (i = 0; i < RFM_MOVE_NKNOBS; i++)
-        mr_gfx_rect(cv, i * 16 + 2, 40, 12, 24, 1, i == k);
+    const int k = m->menu_what == MENU_CC ? m->menu_i & 7 : 0, cc = m->s.cc[m->s.bank][k];
+    v2_knobs(cv, 0xff, k);
+    v2_T(cv, 6, 18, "CC", 2, 1);
+    snprintf(b, sizeof b, "%d", cc);
+    v2_T(cv, cc >= 100 ? 26 : 40, 13, b, 4, 1);
+    snprintf(b, sizeof b, "K%d", k + 1);
+    v2_TC(cv, 106, 18, b, 2, 1);
+    bank_strip(m, cv);
 }
 
 static void held_menu(const rfm_move_t *m, mr_canvas_t *cv, int t)
 {
     if (t == RFM_MOVE_MODE_MIDI)
-        midi_menu(m, cv);
+        rfmv_keys_menu(m, cv, -1);
     else if (t == RFM_MOVE_MODE_CONTROL)
         cc_menu(m, cv);
     else
@@ -1021,7 +840,7 @@ void rfm_move_screen(rfm_move_t *m, const uint16_t *rgb565, uint8_t out[MR_SCREE
     case RFM_MOVE_MODE_SEQ: rfmv_seq_screen(m, &cv); break;
     case RFM_MOVE_MODE_MIDI:
         if (m->mmenu)
-            midi_menu(m, &cv);                          /* (Shift + step 9: Keys & Scales) */
+            rfmv_keys_menu(m, &cv, -1);                 /* (Shift + step 9: Keys & Scales) */
         else if (m->s.midi_view == RFM_MOVE_MV_NOTES) {
             notes_half(m, &cv);                         /* the notes and the chord; the FM-1's screen on the right */
             for (y = 0; y < 64; y++)
@@ -1038,11 +857,11 @@ void rfm_move_screen(rfm_move_t *m, const uint16_t *rgb565, uint8_t out[MR_SCREE
                 cv.px[y][64 + x] = m->thumb[y][x];
         break;
     }
-    if (rfmv_hold_shown(m, 0)) {                        /* Track 1 held (any mode): the Shift layer, a badge top left */
-        mr_gfx_rect(&cv, 0, 0, 40, 11, 1, 1);
-        fill(&cv, 3, 6, 7, 1, 0), fill(&cv, 4, 5, 5, 1, 0), fill(&cv, 5, 4, 3, 1, 0), fill(&cv, 6, 3, 1, 1, 0);
-        fill(&cv, 5, 7, 3, 2, 0);                       /* (an up arrow) */
-        mr_gfx_text(&cv, 12, 2, "SHIFT", 0);
+    if (rfmv_hold_shown(m, 0)) {                        /* Track 1 held (any mode): the Shift layer, the shift icon
+                                                         * in the top-left corner (the drawing's empty one) */
+        if (m->s.mode != RFM_MOVE_MODE_FM1)
+            v2_R(&cv, 0, 0, 15, 15, 0);
+        v2_ic(&cv, V2I_SHIFT, 2, 2, 1);
     }
     g_half = rfmv_half(m), g_full = 0;
     popups(m, &cv);

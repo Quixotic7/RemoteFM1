@@ -806,6 +806,8 @@ static void on_touch(rfm_move_t *m, int k, int on)
     if (rfmv_half(m) || rfmv_track_held(m, 2))         /* (FM-1 mode, MIDI's NOTES: a touch alone shows the drawing's
                                                          * highlight; the popup comes with turning) */
         return;
+    if (k < RFM_MOVE_NKNOBS && rfmv_menu_knobs(m) >= 0)
+        return;                                         /* (a menu or a held Track: its own screen, the legend ring) */
     if (k == 8)
         rfmv_pop(m, POP_MASTER, 8);
     else if (k < RFM_MOVE_NKNOBS && m->s.mode == RFM_MOVE_MODE_SEQ && m->seq.trig && !m->seq.view)

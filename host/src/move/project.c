@@ -462,6 +462,7 @@ void rfmv_proj_enter(rfm_move_t *m)
     rfmv_release_holds(m);                              /* (everything held let go: its releases come here now) */
     q->projects = 1, q->smenu = 0, q->proj_held = -1, q->play_after_load = 0;
     q->mods = q->mods_used = 0, q->shift_lock = 0;
+    rfmv_pop(m, POP_MODE, 20);                          /* (Move's set icon over "Projects", a second) */
 }
 static void proj_leave(rfm_move_t *m)
 {
@@ -582,6 +583,7 @@ void rfmv_proj_input(rfm_move_t *m, const mr_event_t *ev, uint32_t now)
                     m->fn(m->ctx, &a);
             }
             rfmv_pop(m, POP_PROJ, slot);
+            m->pop_val = 1;                             /* (knob 1: the colour popup) */
         }
         return;
     case MR_EV_TOUCH:

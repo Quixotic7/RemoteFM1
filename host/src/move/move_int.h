@@ -18,7 +18,6 @@ enum { W_SHIFT, W_MENU, W_BACK, W_CAPTURE, W_DOWN, W_UP, W_UNDO, W_LOOP, W_COPY,
 #define RFM_MOVE_SCALE_W 9                              /* a scale: its length, then up to 8 degrees */
 extern const uint8_t rfmv_scales[RFM_MOVE_NSCALES][RFM_MOVE_SCALE_W];   /* [0] = length */
 int rfmv_scale_of_pad(int p);                          /* Track 2 held: the scale a pad picks (0..23) */
-void rfmv_scale_tabs(const rfm_move_t *m, mr_canvas_t *cv, int y, int tall);   /* the 24 as 3 rows of tabs */
 extern const char *const rfmv_note_names[12];
 extern const char *const rfmv_scale_names[RFM_MOVE_NSCALES];
 extern const rfmv_rgb_t rfmv_mode_rgb[4], rfmv_bank_rgb[4];
@@ -59,19 +58,19 @@ uint32_t rfmv_now_ms(const rfm_move_t *m);             /* the sequencer clock's 
 void rfmv_pop(rfm_move_t *m, int kind, int i);          /* a popup up (again) now */
 void rfmv_pop_let(rfm_move_t *m, int kind, int i);      /* its control let go: it drops RFM_MOVE_POPUP_MS from now */
 int rfmv_pop_up(const rfm_move_t *m, int kind);
-int rfmv_seq_menu_knobs(const rfm_move_t *m);           /* the knobs the open Shift menu uses (a bit each) */
+int rfmv_seq_menu_knobs(const rfm_move_t *m);
+void rfmv_tcase(const char *s, char *o, int cap);       /* Title Case ("CUTOFF" -> "Cutoff") */
+void rfmv_keys_menu(const rfm_move_t *m, mr_canvas_t *cv, int glob);   /* the key / scale screen (-1: channels) */
+int rfmv_seq_msg_info(const rfm_move_t *m, const char **a, const char **b, int *icon);   /* the message up: its id */
+int rfmv_seq_end_page(const rfm_move_t *m, int clip);   /* the clip's last page (the loop's, or one with notes) */
+void rfmv_seq_loop_edit(const rfm_move_t *m, mr_canvas_t *cv);   /* Loop's page edit: the pages as cells */
+void rfmv_seq_page_strip(const rfm_move_t *m, mr_canvas_t *cv, int at);   /* Move's strip: pages, the playhead */
+void rfmv_seq_steps_cells(const rfm_move_t *m, mr_canvas_t *cv, uint32_t marks);   /* the 16 steps as cells */           /* the knobs the open Shift menu uses (a bit each) */
 int rfmv_menu_knobs(const rfm_move_t *m);               /* a menu's or a held Track's knobs (a bit each); -1 none */         /* that popup is up now */
 void rfmv_menu(rfm_move_t *m, int what, int i);         /* a held Track button's menu: what changed */
-int rfmv_big(mr_canvas_t *cv, int x, int y, const char *s, int k, int on);   /* font5x7 at k x; returns the end x */
-int rfmv_big_w(const char *s, int k);                   /* .. its width */
-void rfmv_dotted(mr_canvas_t *cv, int x, int y, int w, int h);   /* a dotted outline */
 void rfmv_cond_name(int c, char *b, int cap);
 const char *rfmv_chord_name(const uint8_t *n, int k, char *out, int cap);   /* "Cmaj7", "C/E", "" */           /* "1:2", "FILL" .. */
-void rfmv_seq_track_glyph(const rfm_move_t *m, mr_canvas_t *cv, int x, int y, int k);   /* which of the 16 tracks */
-void rfmv_xbox(mr_canvas_t *cv, int x, int y, int w, int h);     /* an outline crossed out (a cut) */
 void rfmv_tri(mr_canvas_t *cv, int x, int y, int w, int h, int on);   /* a play triangle, pointing right */
-void rfmv_disc(mr_canvas_t *cv, int x, int y, int d, int on);         /* a filled circle in a d x d box */
-void rfmv_frame(mr_canvas_t *cv, int x, int y, int w, int h);         /* a popup's box: black, a 1 px white frame */
 const char *rfmv_note_name(int n, char *b, int cap);
 void rfmv_fm1_art(const rfm_move_t *m, mr_canvas_t *cv);   /* FM-1 mode's left half: the owner's drawing, live */
 
@@ -168,7 +167,7 @@ enum { SEQ_M_SHIFT = 1, SEQ_M_COPY = 2, SEQ_M_DELETE = 4, SEQ_M_MUTE = 8, SEQ_M_
 enum { SEQ_MSG_NONE = 0, SEQ_MSG_NOCLIP, SEQ_MSG_FULL, SEQ_MSG_LOADFAIL, SEQ_MSG_CAPTURED, SEQ_MSG_UNDO,
        SEQ_MSG_REDO, SEQ_MSG_COPIED, SEQ_MSG_PASTED, SEQ_MSG_CUT, SEQ_MSG_QUANT, SEQ_MSG_DOUBLE, SEQ_MSG_EXTTAP,
        SEQ_MSG_DUP, SEQ_MSG_CLEARED, SEQ_MSG_CAPCLEAR, SEQ_MSG_CLK_AUTO, SEQ_MSG_CLK_INT, SEQ_MSG_CLK_EXT,
-       SEQ_MSG_FULLVEL_ON, SEQ_MSG_FULLVEL_OFF, SEQ_MSG_METRO_ON, SEQ_MSG_METRO_OFF };
+       SEQ_MSG_FULLVEL_ON, SEQ_MSG_FULLVEL_OFF, SEQ_MSG_METRO_ON, SEQ_MSG_METRO_OFF, SEQ_MSG_NEWCLIP };
 void rfmv_seq_ui_release(rfm_move_t *m);
 int rfmv_seq_src_step(const rfm_move_t *m, int clip, int abs);   /* the clipboard's source: 1 copied, 2 cut, 0 */
 int rfmv_seq_src_clip(const rfm_move_t *m, int clip);
@@ -190,6 +189,5 @@ void rfmv_seq_screen(const rfm_move_t *m, mr_canvas_t *cv);
 void rfmv_seq_track_menu(const rfm_move_t *m, mr_canvas_t *cv);   /* Track 4 held */
 void rfmv_seq_msg(rfm_move_t *m, int msg);
 const char *rfmv_seq_msg_text(const rfm_move_t *m);    /* the message up now, NULL none */
-int rfmv_seq_steps_row(const rfm_move_t *m, mr_canvas_t *cv);   /* track view's 16 steps at the bottom; the page's first step */
 
 #endif
