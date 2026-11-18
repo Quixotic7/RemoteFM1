@@ -205,9 +205,10 @@ async function openFirmware(id, want = null) {
   else $("start-name").textContent = nameOf(e, state.wantEngine);
 }
 
-// (re)start the current firmware on its engine, from a save (or the autosave)
+// (re)start the current firmware on its engine, from a save (or the autosave); fresh: with no flash at all, as if
+// newly installed (Reset firmware...)
 let bootSeq = 0;
-async function boot(fromSave = null) {
+async function boot(fromSave = null, { fresh = false } = {}) {
   let e = state.entry;
   const eng = state.wantEngine, seq = ++bootSeq;
   if (!e || !player) return;
@@ -234,13 +235,13 @@ async function boot(fromSave = null) {
       e = { ...e, localBytes: b };
     }
     const ver = versionOf(state.entry, eng);
-    const rec = fromSave || (await saves.get(state.entry.id, eng, ver, saves.AUTOSAVE));
+    const rec = fresh ? null : fromSave || (await saves.get(state.entry.id, eng, ver, saves.AUTOSAVE));
     const clk = mhzFor(state.entry.id, prefs, HOST);
     state.mhz = clk.mhz; state.mhzChoice = clk.choice;
     governor = eng === "emu" ? new Governor({ ...clk, now: performance.now() }) : null;
     state.mhzPending = null;
     await player.load(e, eng, rec ? rec.bytes : null, eng === "emu" ? { mhz: clk.mhz } : {});
-    if (!fromSave && !state.entry.local) offerCarry(state.entry, eng, ver);
+    if (!fromSave && !fresh && !state.entry.local) offerCarry(state.entry, eng, ver);
   } catch (err) {
     if (seq !== bootSeq) return;
     const msg = err.message || String(err);
@@ -438,6 +439,7 @@ function makePlayer() {
     leds(levels, green) { state.levels = levels; state.playGreen = green; device.setLeds(levels, green); invalidate(); siteEmit("leds", levels, green); },
     info(info) {
       state.info = info;
+      resetting = false;   // (the fresh engine is up: its flash writes are its own)
       takeFirmwareSkin(info);
       state.labels = null;   // (the new engine's come with its first "labels")
       if (state.engine !== "mock") state.engineState = "running";
@@ -466,7 +468,7 @@ function makePlayer() {
         .catch(() => player.fsReply({ type: "fsDone", key: m.key, id: m.id, result: -4 }));
     },
     flash(m) {
-      if (state.engine === "mock" || !state.entry) return;
+      if (state.engine === "mock" || !state.entry || resetting) return;   // (the old flash, on its way out: not the autosave)
       if (!m.bytes) { clearTimeout(flashTimer); flashTimer = setTimeout(() => player.flashReq(), 1500); return; }
       const e = state.entry, key = `${e.id}/${state.engine}`, hsh = quickHash(m.bytes);
       if (lastSaved.get(key) !== hsh) {
@@ -498,7 +500,7 @@ function makePlayer() {
   if (fm1 && fm1.status.audio) { player.tap(true); player.setMuted(true); }   // (Bluetooth audio already on)
   soundOut = new SoundOut({ player, media: navigator.mediaDevices, prefs, save: savePrefs, onChange: () => { if (sheet) sheet.render(); } });
 }
-let flashTimer = 0, pendingSave = null;
+let flashTimer = 0, pendingSave = null, resetting = false;
 const lastSaved = new Map();
 function quickHash(b) { let h = 2166136261; for (let i = 0; i < b.length; i += 7) h = Math.imul(h ^ b[i], 16777619); return (h >>> 0) + ":" + b.length; }
 // the flash on request too: some cores only write it when asked (W1), so ask now and then, and when the page hides
@@ -690,7 +692,7 @@ const app = {
   installerUrl: "",
   remoteMounted: false,
   remoteStatus: "",
-  versionOf, metaLine, engineNote, carryText, answerCarry, sourceNow,
+  versionOf, nameOf, metaLine, engineNote, carryText, answerCarry, sourceNow,
   folderSection: () => (folderUi ? folderUi.section() : []),
   ainSection: () => (ainUi ? ainUi.section() : []),
   sheetChanged(open) { if (open) learnStop(); document.body.classList.toggle("sheet-open", open); if (open) document.body.classList.remove("chrome"); else $("stage").focus({ preventScroll: true }); },
@@ -780,6 +782,36 @@ const app = {
   async saveAs(name) {
     try { const b = await currentFlash(); const e = state.entry; await saves.put(e.id, state.engine, versionOf(e, state.engine), name, b); state.selectedSave = name; await refreshSaves(); toast(`Saved "${name}".`, "ok"); }
     catch (err) { toast(err.message, "bad"); if (sheet) sheet.render(); }
+  },
+  // Reset firmware...: the firmware starts with a clean memory, as newly installed (its own default flash); the
+  // autosave of this firmware, engine and version goes. keep: a named copy of the current memory first. Other saves
+  // (named ones, other versions' and engines') stay as they are.
+  async resetFirmware(keep) {
+    const e = state.entry, eng = state.wantEngine;
+    if (!e || eng === "mock") return;
+    const ver = versionOf(e, eng), name = nameOf(e, eng);
+    try {
+      let copy = null;
+      if (keep) {
+        // the running flash (fm1-emu sends none while it is still the package's own: nothing to keep), else the autosave
+        let bytes = null;
+        if (state.running && state.engine === eng && state.info) bytes = await currentFlash().catch(() => null);
+        if (!bytes) { const r = await saves.get(e.id, eng, ver, saves.AUTOSAVE); bytes = r ? r.bytes : null; }
+        if (bytes) {
+          const d = new Date(), p = (n) => String(n).padStart(2, "0");
+          copy = `Before reset ${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+          if (state.saves.some((r) => r.engine === eng && r.version === ver && r.name === copy)) copy += `:${p(d.getSeconds())}`;
+          await saves.put(e.id, eng, ver, copy, bytes);
+        }
+      }
+      if (state.running) { resetting = true; clearTimeout(flashTimer); pendingSave = null; }
+      await saves.remove(e.id, eng, ver, saves.AUTOSAVE);
+      lastSaved.delete(`${e.id}/${eng}`);
+      state.selectedSave = null;
+      await refreshSaves();
+      if (state.running) await boot(null, { fresh: true });
+      toast(`${name} ${state.running ? "started" : "will start"} with a clean memory.${copy ? ` The old one is saved as "${copy}".` : ""}`, "ok", 6000);
+    } catch (err) { resetting = false; toast(err.message || String(err), "bad"); if (sheet) sheet.render(); }
   },
   async saveOver(rec) { if (rec) return app.saveAs(rec.name); },
   async renameSave(rec, to) { await saves.rename(rec.fw, rec.engine, rec.version, rec.name, to); state.selectedSave = to; await refreshSaves(); },

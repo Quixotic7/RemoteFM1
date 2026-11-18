@@ -271,6 +271,10 @@ kbd { font: 700 10.5px/1 var(--hw); letter-spacing: .04em; border: 0; border-rad
 .offer.show ~ .toast { bottom: 84px; }
 .sheet .carry { border: 1px solid var(--accent); border-radius: 10px; padding: 10px 12px; margin: 0 0 10px; font-size: 13px; color: var(--row-text); }
 .sheet .carry .pills { margin-top: 8px; }
+.sheet .ask { border: 1px solid rgba(255,100,100,.35); border-radius: 10px; padding: 10px 12px; margin: 10px 0 0; font-size: 13px; color: var(--row-text); }
+.sheet .ask p { margin: 0 0 8px; }
+.sheet .ask .pills { margin-top: 0; }
+.sheet .ask .pills > :first-child { grid-column: 1 / -1; }   /* (Save a copy and reset: the whole row) */
 
 /* MIDI learn (main.js): a bar over the keybed (no key is learnable), the toast above it; the canvas outlines the
    learnable controls */
