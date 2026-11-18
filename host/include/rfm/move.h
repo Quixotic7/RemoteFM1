@@ -186,7 +186,8 @@ typedef struct {
     uint32_t den_rate;                                  /* the rate den was made for */
     int32_t tl;                                         /* timeline tick (counts every tick; the clock's position) */
     int32_t T;                                          /* song tick while playing */
-    uint8_t playing, start_pending, following, ext_run;   /* start_pending 1 now, 2 at the timeline's next bar */
+    uint8_t playing, start_pending, following, ext_run;   /* start_pending 1 now, 2 at the timeline's next bar, 3 count-in */
+    int16_t count_in;                                   /* start_pending 3: ticks to go (Rec from stopped: a bar) */
     int32_t ext_clocks;                                 /* MIDI clocks since the reference (-1 before the first) */
     uint64_t ext_last_us, ext_win_us;
     int32_t ext_win_n;
@@ -223,7 +224,12 @@ typedef struct {
     uint8_t mods_used;                                  /* .. and used with something (no release action) */
     uint8_t copy_src;                                   /* this Copy hold has a source */
     uint8_t page, track_page, scene_off;
-    uint8_t cur_note, last_vel;
+    uint8_t nlast;                                      /* step entry's last notes (0: the root note) */
+    uint8_t last_note[RFM_MOVE_SEQ_POLY], last_vel[RFM_MOVE_SEQ_POLY];
+    uint32_t chord;                                     /* bits: pads held as a chord (track view, no step held) */
+    uint8_t pad_vel[RFM_MOVE_NPADS];                    /* .. their velocities */
+    uint8_t paste;                                      /* a copy waits for its target (Copy released) */
+    uint8_t copy_pasted;                                /* this Copy hold pasted */
     uint16_t step_held;                                 /* bits: steps held (track view) */
     uint16_t step_add, step_edit;                       /* .. pressed onto an empty note / edited while held */
     int8_t step_first;                                  /* the first step held, -1 none */

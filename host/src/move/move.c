@@ -482,6 +482,8 @@ static void on_knob(rfm_move_t *m, int k, int d, uint32_t now)
 {
     if (!d)
         return;
+    if (k == 8 && m->s.mode == RFM_MOVE_MODE_SEQ && rfmv_seq_volume(m, d))
+        return;                                         /* (Sequencer mode, a step held: its velocity) */
     if (k == 8) {                                       /* volume: MASTER */
         const int v = clampi(m->master + d * RFM_MOVE_MASTER_STEP, 0, 1023);
         note_last(m, LAST_MASTER, 0, v, now);
@@ -684,13 +686,17 @@ static void led_id(int i, rfm_move_led_t *l)
 /* a MIDI mode's pad colour */
 rgb_t midi_pad(const rfm_move_t *m, int p, rgb_t mode)
 {
+    if (rfm_move_pad_note(&m->s, p) >= 0 && m->pad_down[p])
+        return WHITE;
+    return rfmv_layout_pad(m, p, mode);
+}
+rgb_t rfmv_layout_pad(const rfm_move_t *m, int p, rgb_t mode)
+{
     const int n = rfm_move_pad_note(&m->s, p);
     int rel, i;
     const uint8_t *scl = SCALES[m->s.scale < RFM_MOVE_NSCALES ? m->s.scale : 0];
     if (n < 0)
         return OFF;
-    if (m->pad_down[p])
-        return WHITE;
     rel = ((n - m->s.root) % 12 + 12) % 12;
     if (rel == 0)
         return mode;

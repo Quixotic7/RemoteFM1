@@ -25,6 +25,7 @@ int rfmv_clampi(int v, int lo, int hi);
 rfmv_rgb_t rfmv_sc(rfmv_rgb_t c, int f);               /* c x f / 256 */
 rfmv_rgb_t rfmv_add(rfmv_rgb_t a, rfmv_rgb_t b);
 rfmv_rgb_t rfmv_midi_pad(const rfm_move_t *m, int p, rfmv_rgb_t mode);
+rfmv_rgb_t rfmv_layout_pad(const rfm_move_t *m, int p, rfmv_rgb_t mode);   /* .. as if not pressed */
 int rfmv_track_held(const rfm_move_t *m, int t);
 
 /* actions (stamped with m->seq.frame) */
@@ -76,9 +77,12 @@ void rfmv_seq_paste_step(rfm_move_t *m, int clip, int step);
 void rfmv_seq_paste_clip(rfm_move_t *m, int clip);
 void rfmv_seq_track_copy(rfm_move_t *m, int from, int to);
 void rfmv_seq_track_clear(rfm_move_t *m, int track);
+void rfmv_seq_clip_dup(rfm_move_t *m, int from, int to);   /* Copy alone: the clip duplicated */
 /* the transport */
 void rfmv_seq_start(rfm_move_t *m);                    /* Play: now, or at the external clock's next bar */
 void rfmv_seq_stop(rfm_move_t *m);                     /* everything sounding let go, recordings finished */
+void rfmv_seq_count_in(rfm_move_t *m);                 /* Rec from stopped: start a bar from now */
+void rfmv_seq_restart(rfm_move_t *m);                  /* Shift + Play: every clip from its start */
 void rfmv_seq_release(rfm_move_t *m, int track);       /* the track's sounding notes off (-1 all) */
 void rfmv_seq_launch(rfm_move_t *m, int track, int scene);   /* scene -1: stop the track */
 void rfmv_seq_launch_scene(rfm_move_t *m, int scene);
@@ -101,11 +105,13 @@ void rfmv_proj_poll(rfm_move_t *m);                    /* the autosave's debounc
 /* ---- seq_ui.c: Sequencer mode */
 enum { SEQ_M_SHIFT = 1, SEQ_M_COPY = 2, SEQ_M_DELETE = 4, SEQ_M_MUTE = 8, SEQ_M_LOOP = 16 };
 enum { SEQ_MSG_NONE = 0, SEQ_MSG_NOCLIP, SEQ_MSG_FULL, SEQ_MSG_LOADFAIL, SEQ_MSG_CAPTURED, SEQ_MSG_UNDO,
-       SEQ_MSG_REDO, SEQ_MSG_COPIED, SEQ_MSG_PASTED, SEQ_MSG_CUT, SEQ_MSG_QUANT, SEQ_MSG_DOUBLE, SEQ_MSG_EXTTAP };
+       SEQ_MSG_REDO, SEQ_MSG_COPIED, SEQ_MSG_PASTED, SEQ_MSG_CUT, SEQ_MSG_QUANT, SEQ_MSG_DOUBLE, SEQ_MSG_EXTTAP,
+       SEQ_MSG_DUP, SEQ_MSG_CLEARED, SEQ_MSG_CAPCLEAR };
 void rfmv_seq_ui_release(rfm_move_t *m);               /* leaving the mode / release-all: held things let go */
 void rfmv_seq_pad(rfm_move_t *m, int p, int vel, uint32_t now);
 void rfmv_seq_step(rfm_move_t *m, int s, int down, uint32_t now);
 int rfmv_seq_button(rfm_move_t *m, int cc, int down, uint32_t now);   /* 1 taken */
+int rfmv_seq_volume(rfm_move_t *m, int d);             /* the volume knob: 1 taken (a step held: velocity) */
 void rfmv_seq_knob(rfm_move_t *m, int k, int d, uint32_t now);
 void rfmv_seq_jog(rfm_move_t *m, int d, uint32_t now);
 void rfmv_seq_leds(const rfm_move_t *m, rfmv_rgb_t c[L_WHITE0], uint8_t white[13]);

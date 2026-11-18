@@ -420,6 +420,32 @@ void rfmv_seq_track_copy(rfm_move_t *m, int from, int to)
     }
     m->seq.clip_kind = 0;
 }
+/* a clip's notes, locks and length onto another (cleared first), not through the clipboard */
+void rfmv_seq_clip_dup(rfm_move_t *m, int from, int to)
+{
+    rfm_move_seq_t *q = &m->seq;
+    int lo, hi, k, n;
+    if (from == to || from < 0 || to < 0 || from >= RFM_MOVE_SEQ_CLIPS || to >= RFM_MOVE_SEQ_CLIPS)
+        return;
+    rfmv_seq_clip_clear(m, to);
+    rfmv_seq_len_set(m, to, q->len[from]);
+    n = rfmv_seq_clip_range(m, from, &lo) - lo;
+    for (k = 0; k < n; k++) {                           /* (the range moves when `to` sorts before it) */
+        rfm_move_note_t c;
+        rfmv_seq_clip_range(m, from, &lo);
+        c = q->notes[lo + k];
+        rfmv_seq_note_put(m, to, c.step, c.note, c.vel, c.len, c.micro);
+    }
+    n = rfmv_seq_clip_lock_range(m, from, &lo) - lo;
+    for (k = 0; k < n; k++) {
+        rfm_move_lock_t c;
+        rfmv_seq_clip_lock_range(m, from, &lo);
+        c = q->locks[lo + k];
+        rfmv_seq_lock_set(m, to, c.step, c.cc, c.val);
+    }
+    (void)hi;
+}
+
 void rfmv_seq_track_clear(rfm_move_t *m, int track)
 {
     int s;
@@ -455,7 +481,7 @@ void rfmv_seq_init(rfm_move_t *m)
     q->tl = -1, q->ext_clocks = -1, q->ext_win_n = -1;
     q->den_rate = 0;
     q->proj_cur = 0, q->proj_pending = -1;
-    q->cur_note = 48, q->last_vel = 100;
+    q->nlast = 0;
     q->step_first = -1;
     q->group = 1;
 }
@@ -621,7 +647,8 @@ static void tick(rfm_move_t *m, uint32_t frame)
     int i = 0;
     q->frame = frame;
     q->tl++;
-    if (q->start_pending == 1 || (q->start_pending == 2 && q->tl % BAR == 0))
+    if (q->start_pending == 1 || (q->start_pending == 2 && q->tl % BAR == 0) ||
+        (q->start_pending == 3 && --q->count_in <= 0))
         begin(m);
     while (i < q->nsnd)                                 /* note offs before note ons */
         if (q->snd[i].off <= q->tl)
@@ -640,7 +667,35 @@ void rfmv_seq_start(rfm_move_t *m)
     q->start_pending = q->following ? 2 : 1;            /* following: at the external clock's next bar */
 }
 
+/* Rec from stopped (Move's count-in): the transport starts a bar from now; following an external clock, at its
+ * next bar (as Play) */
+void rfmv_seq_count_in(rfm_move_t *m)
+{
+    rfm_move_seq_t *q = &m->seq;
+    if (q->playing || q->start_pending)
+        return;
+    if (q->following) {
+        rfmv_seq_start(m);
+        return;
+    }
+    q->start_pending = 3, q->count_in = BAR + 1;       /* (the first tick is due at once: a bar of ticks to T 0) */
+}
+
 static void rec_finish(rfm_move_t *m, int pad);
+
+/* Shift + Play (Move's retrigger): every playing clip from its start, at once (following: the clock's next bar) */
+void rfmv_seq_restart(rfm_move_t *m)
+{
+    rfm_move_seq_t *q = &m->seq;
+    const uint8_t rec = q->rec;
+    if (!q->playing) {
+        rfmv_seq_start(m);
+        return;
+    }
+    rfmv_seq_stop(m);
+    q->rec = rec;
+    rfmv_seq_start(m);
+}
 
 void rfmv_seq_stop(rfm_move_t *m)
 {
@@ -837,8 +892,8 @@ void rfm_move_seq_advance(rfm_move_t *m, uint32_t frames, uint32_t rate)
     den = (uint64_t)rate * 600u;
     num = (uint64_t)(q->following ? clampi(ext_bpm10(q), 10, 30000) : q->bpm10) * 96u;
     cap = q->following ? q->ext_clocks * 4 + 3 : INT32_MAX;
-    if (q->start_pending == 1)
-        q->ph = den;                                    /* Play: the first tick is due at once */
+    if (q->start_pending == 1 || (q->start_pending == 3 && q->count_in > BAR))
+        q->ph = den;                                    /* Play (or a count-in): the first tick is due at once */
     for (;;) {
         uint64_t need;
         if (q->ph >= den) {

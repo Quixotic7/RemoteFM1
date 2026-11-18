@@ -207,20 +207,20 @@ int main(int argc, char **argv)
     mr_display(c, frame);
     CHECK(shot_matches(dir, fifo, c, frame), "the MIDI mode's screen shown");
 
-    /* Track 4: the sequencer. Pad 1 picks C3, steps 1 and 5 get it, Play; the internal clock (driven here as an
-     * audio callback would, 48 kHz in blocks of 128) plays them as MIDI actions and the step LEDs show them */
+    /* Track 4: the sequencer. Pad 1 picks C3, steps 1 and 5 get it (the first note into the empty clip starts the
+     * transport, as on the Move); the internal clock (driven here as an audio callback would, 48 kHz in blocks of
+     * 128) plays them as MIDI actions and the step LEDs show them */
     {
         rfm_move_led_t out[RFM_MOVE_NLEDS];
         const int before = g_inputs;
         int ons = 0, offs = 0, lit1 = 0, lit5 = 0, lit2 = 1, frames;
         uint32_t at5 = 0;
         g_nact = 0;
-        inject(fifo, "cc 40 127\ncc 40 0\nnote 68 100\nnote 68 0\nnote 16 127\nnote 16 0\nnote 20 127\nnote 20 0\n"
-                     "cc 85 127\ncc 85 0\n");
-        for (tries = 0; tries < 300 && g_inputs < before + 10; tries++)
+        inject(fifo, "cc 40 127\ncc 40 0\nnote 68 100\nnote 68 0\nnote 16 127\nnote 16 0\nnote 20 127\nnote 20 0\n");
+        for (tries = 0; tries < 300 && g_inputs < before + 8; tries++)
             pump(c, -1, 10);
         CHECK(g_m.s.mode == RFM_MOVE_MODE_SEQ && g_m.seq.nnotes == 2 && g_m.seq.start_pending == 1,
-              "Track 4: two steps set, Play pressed (%d notes)", g_m.seq.nnotes);
+              "Track 4: two steps set, the first started the transport (%d notes)", g_m.seq.nnotes);
         g_nact = 0;
         for (frames = 0; frames < 48000; frames += 128) {
             const int n0 = g_nact;
@@ -246,7 +246,7 @@ int main(int argc, char **argv)
                 lit5 = out[i].r > 100;
             else if (!out[i].cc && out[i].number == MR_NOTE_STEP0 + 1)
                 lit2 = out[i].r > 100;
-        CHECK(lit1 && lit5 && !lit2, "step LEDs: 1 and 5 lit in the track's colour, 2 not");
+        CHECK(lit1 && lit5 && !lit2, "step LEDs: 1 and 5 lit (white: notes), 2 not");
         rfm_move_leds_invalidate(&g_m);
         n = send_leds(c);
         CHECK(n == RFM_MOVE_NLEDS, "the sequencer's LEDs written (%d)", n);

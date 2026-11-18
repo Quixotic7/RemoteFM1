@@ -1760,6 +1760,7 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
       const f = await load(), finp = (...pk) => pk.flatMap((p) => f.input(p));
       finp(cc(40, 127), cc(40, 0));
       for (let s = 0; s < 16; s += 4) finp(P(0x90, 16 + s, 127), P(0x80, 16 + s, 0));
+      f.seqPlay(0);                                     // (the first step started the transport, as on the Move)
       const fon = [];
       const fc = new S.SeqClock({ advance: (n, r) => f.seqAdvance(n, r), midiIn: (b) => f.seqMidiIn(b), emit: (acts, at) => { for (const a of acts) if (a.kind === "midi" && (a.bytes[0] & 0xf0) === 0x90) fon.push(at + a.frame); } });
       let next = 0, clocks = 0;
@@ -2043,6 +2044,7 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
       ok(w6.link.projects().length === 1 && w6.link.projects()[0].name === "Project 4" && w6.link.projects()[0].current, "MoveLink: the project list: Project 4, open");
       w6.input(cc(40, 127), cc(40, 0));
       for (let st = 0; st < 16; st++) w6.input(P(0x90, 16 + st, 127), P(0x80, 16 + st, 0));
+      w6.input(cc(85, 127), cc(85, 0));                 // (the first step started the transport, as on the Move: stop it)
       w6.timed.length = 0; w6.midi.length = 0; w6.cuts.length = 0;
       w6.input(cc(85, 127), cc(85, 0));
       w6.clock.advance(1000);

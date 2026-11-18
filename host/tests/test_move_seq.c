@@ -141,25 +141,54 @@ static int nnotes_clip(const rfm_move_t *m, int clip)
 static void test_model(void)
 {
     rfm_move_t *m = &M;
-    int lo, hi, i;
+    int lo, hi, i, mst;
     fresh(m);
     CHECK(m->s.mode == RFM_MOVE_MODE_SEQ && m->seq.view == 0 && m->seq.sel_track == 0);
     for (i = 0; i < 16; i++)
         CHECK(m->seq.tr[i].ch == i && m->seq.tr[i].active == 0 && m->seq.tr[i].sel == 0);
     CHECK(SEQ_CLIP(3, 5) == 3 * 16 + 5 && m->seq.len[SEQ_CLIP(15, 15)] == 16);
-    /* pick a note (pad 2: E3 in C major), tap steps: they toggle that note */
+    /* nothing played yet: an empty step gets the root (C3); the first note into an empty clip starts the
+     * transport (Move); a tap on a step with notes clears it (Move) */
+    tap_step(m, 2);
+    CHECK(m->seq.nnotes == 1 && rfmv_seq_find(m, 0, 2, 48) >= 0 && m->seq.start_pending == 1);
+    rfm_move_seq_play(m, 0);
+    tap_step(m, 2);
+    CHECK(m->seq.nnotes == 0 && !m->seq.start_pending);
+    /* Move's pad, then step: a pad played (E3, pad 2 in C major) is what empty steps get */
     pad(m, 2, 90), pad(m, 2, 0);
-    CHECK(m->seq.cur_note == 52 && m->seq.last_vel == 90);
-    tap_step(m, 0), tap_step(m, 4), tap_step(m, 15);
+    CHECK(m->seq.nlast == 1 && m->seq.last_note[0] == 52 && m->seq.last_vel[0] == 90);
+    tap_step(m, 0);
+    CHECK(m->seq.start_pending == 1);
+    rfm_move_seq_play(m, 0);
+    tap_step(m, 4), tap_step(m, 15);
     CHECK(m->seq.nnotes == 3 && rfmv_seq_find(m, 0, 0, 52) >= 0 && rfmv_seq_find(m, 0, 15, 52) >= 0);
     CHECK(m->seq.notes[0].vel == 90 && m->seq.notes[0].len == 24 && m->seq.notes[0].micro == 0);
-    tap_step(m, 4);                                     /* again: off */
+    CHECK(!m->seq.start_pending);                       /* (the clip had notes: no start) */
+    tap_step(m, 4);                                     /* notes: cleared */
     CHECK(m->seq.nnotes == 2 && rfmv_seq_find(m, 0, 4, 52) < 0);
-    /* polyphony: another note on step 1 by a tap (the step has notes: the tap adds the current one) */
-    pad(m, 4, 70), pad(m, 4, 0);                        /* G3 */
+    /* a chord held (C3 100, G3 70), then a step: exactly those notes (step 1's E3 replaced) */
+    pad(m, 0, 100), pad(m, 4, 70);
     tap_step(m, 0);
+    pad(m, 0, 0), pad(m, 4, 0);
     hi = rfmv_seq_range(m, 0, 0, &lo);
-    CHECK(hi - lo == 2 && m->seq.notes[lo].note == 52 && m->seq.notes[lo + 1].note == 55);
+    CHECK(hi - lo == 2 && m->seq.notes[lo].note == 48 && m->seq.notes[lo].vel == 100 &&
+          m->seq.notes[lo + 1].note == 55 && m->seq.notes[lo + 1].vel == 70);
+    /* no pad held: an empty step gets the last step's notes, with their velocities */
+    tap_step(m, 6);
+    hi = rfmv_seq_range(m, 0, 6, &lo);
+    CHECK(hi - lo == 2 && m->seq.notes[lo].note == 48 && m->seq.notes[lo + 1].vel == 70);
+    tap_step(m, 6);
+    CHECK(rfmv_seq_range(m, 0, 6, &lo) == lo);
+    /* a chord held over two steps: both get it */
+    pad(m, 1, 80), pad(m, 3, 81);                       /* D3 F3 */
+    tap_step(m, 12), tap_step(m, 13);
+    pad(m, 1, 0), pad(m, 3, 0);
+    CHECK(rfmv_seq_find(m, 0, 12, 50) >= 0 && rfmv_seq_find(m, 0, 12, 53) >= 0 && rfmv_seq_find(m, 0, 13, 53) >= 0);
+    CHECK(m->seq.nlast == 2 && m->seq.last_note[0] == 50 && m->seq.last_note[1] == 53);
+    rfmv_seq_step_clear(m, 0, 12), rfmv_seq_step_clear(m, 0, 13);
+    pad(m, 0, 100), pad(m, 0, 0);
+    pad(m, 4, 70), pad(m, 4, 0);                        /* (one after the other: the last one, G3) */
+    CHECK(m->seq.nlast == 1 && m->seq.last_note[0] == 55);
     /* hold a step, pads in and out of it (not recorded, still sounding) */
     step(m, 8, 1);                                      /* empty: G3 goes in at once */
     CHECK(rfmv_seq_find(m, 0, 8, 55) >= 0);
@@ -169,7 +198,7 @@ static void test_model(void)
     step(m, 8, 0);
     hi = rfmv_seq_range(m, 0, 8, &lo);
     CHECK(hi - lo == 2 && m->seq.notes[lo].note == 48 && m->seq.notes[lo + 1].note == 52);
-    CHECK(m->seq.cur_note == 55);                       /* (the last pad) */
+    CHECK(m->seq.nlast == 2 && m->seq.last_note[0] == 48 && m->seq.last_note[1] == 52);   /* (the edited step's) */
     /* up to RFM_MOVE_SEQ_POLY notes a step */
     for (i = 0; i < 12; i++)
         rfmv_seq_note_put(m, 0, 10, 60 + i, 100, 24, 0);
@@ -180,14 +209,42 @@ static void test_model(void)
     hi = rfmv_seq_range(m, 0, 8, &lo);
     CHECK(m->seq.notes[lo].len == 4 * 24 && m->seq.notes[lo + 1].len == 4 * 24);
     CHECK(rfmv_seq_find(m, 0, 11, 55) < 0);              /* (the second step added nothing) */
-    /* hold + jog: the length by steps; Shift + jog: a 6th of a step */
+    /* hold + jog: the length by 2 ticks (Move: 10 % of a step); Shift + jog: whole steps */
     step(m, 8, 1), jog(m, -2);
     hi = rfmv_seq_range(m, 0, 8, &lo);
+    CHECK(m->seq.notes[lo].len == 4 * 24 - 4);
+    button(m, MR_CC_SHIFT, 1), jog(m, -1), button(m, MR_CC_SHIFT, 0);
     CHECK(m->seq.notes[lo].len == 2 * 24);
-    button(m, MR_CC_SHIFT, 1), jog(m, 1), button(m, MR_CC_SHIFT, 0);
-    CHECK(m->seq.notes[lo].len == 2 * 24 + 4);
     step(m, 8, 0);
-    CHECK(rfmv_seq_find(m, 0, 8, 48) >= 0);             /* (edited while held: no toggle on release) */
+    CHECK(rfmv_seq_find(m, 0, 8, 48) >= 0);             /* (edited while held: not cleared on release) */
+    /* hold a step (Move): the volume knob = velocity, Left / Right = nudge (Shift: a tick), Up / Down = transpose
+     * (Shift: an octave); none of them leaves the step's notes cleared on release */
+    rfmv_seq_note_put(m, 0, 5, 60, 100, 24, 0), rfmv_seq_note_put(m, 0, 5, 64, 50, 24, 0);
+    clear();
+    mst = m->master;
+    step(m, 5, 1);
+    knob(m, 8, 5);
+    hi = rfmv_seq_range(m, 0, 5, &lo);
+    CHECK(m->seq.notes[lo].vel == 105 && m->seq.notes[lo + 1].vel == 55 && m->master == mst);   /* (not MASTER) */
+    knob(m, 8, 40);
+    CHECK(m->seq.notes[lo].vel == 127);
+    press(m, MR_CC_RIGHT);
+    CHECK(m->seq.notes[lo].micro == 2 && m->seq.page == 0);
+    button(m, MR_CC_SHIFT, 1), press(m, MR_CC_LEFT), button(m, MR_CC_SHIFT, 0);
+    CHECK(m->seq.notes[lo].micro == 1);
+    for (i = 0; i < 10; i++)
+        press(m, MR_CC_RIGHT);
+    CHECK(m->seq.notes[lo].micro == 11);                /* (at most +11: the step's own) */
+    press(m, MR_CC_UP);
+    CHECK(rfmv_seq_find(m, 0, 5, 61) >= 0 && rfmv_seq_find(m, 0, 5, 65) >= 0 && rfmv_seq_find(m, 0, 5, 60) < 0);
+    button(m, MR_CC_SHIFT, 1), press(m, MR_CC_DOWN), button(m, MR_CC_SHIFT, 0);
+    CHECK(rfmv_seq_find(m, 0, 5, 49) >= 0 && rfmv_seq_find(m, 0, 5, 53) >= 0 && m->s.octave == 0);
+    CHECK(m->seq.notes[rfmv_seq_find(m, 0, 5, 49)].micro == 11 && m->seq.notes[rfmv_seq_find(m, 0, 5, 53)].vel == 95);
+    step(m, 5, 0);
+    CHECK(rfmv_seq_range(m, 0, 5, &lo) - lo == 2);
+    rfmv_seq_step_clear(m, 0, 5);
+    knob(m, 8, -2);
+    CHECK(m->master == mst - 32);                         /* (no step held: MASTER again) */
     /* lengths and pages: Loop + step 4 = 4 pages; Left / Right page; Shift + Loop doubles */
     button(m, MR_CC_LOOP, 1), tap_step(m, 3), button(m, MR_CC_LOOP, 0);
     CHECK(m->seq.len[0] == 64);
@@ -198,7 +255,7 @@ static void test_model(void)
     CHECK(rfmv_seq_find(m, 0, 33, 48) >= 0);
     press(m, MR_CC_RIGHT), press(m, MR_CC_RIGHT);
     CHECK(m->seq.page == 3);                            /* (the clip's last page) */
-    button(m, MR_CC_SHIFT, 1), press(m, MR_CC_LOOP), button(m, MR_CC_SHIFT, 0);
+    button(m, MR_CC_SHIFT, 1), tap_step(m, 14), button(m, MR_CC_SHIFT, 0);   /* Shift + step 15: double (Move) */
     CHECK(m->seq.len[0] == 128 && rfmv_seq_find(m, 0, 33 + 64, 48) >= 0 && rfmv_seq_find(m, 0, 8 + 64, 52) >= 0);
     button(m, MR_CC_LOOP, 1), tap_step(m, 15), button(m, MR_CC_LOOP, 0);
     CHECK(m->seq.len[0] == 256);
@@ -207,11 +264,21 @@ static void test_model(void)
     button(m, MR_CC_LOOP, 1), tap_step(m, 0), button(m, MR_CC_LOOP, 0);
     CHECK(m->seq.len[0] == 16 && m->seq.page == 0);
     CHECK(rfmv_seq_find(m, 0, 33, 48) >= 0);            /* (past the end: kept, not played) */
+    /* Loop held + jog (Move): a page a detent; Shift: a step */
+    button(m, MR_CC_LOOP, 1), jog(m, 2), button(m, MR_CC_LOOP, 0);
+    CHECK(m->seq.len[0] == 48);
+    button(m, MR_CC_LOOP, 1), button(m, MR_CC_SHIFT, 1), jog(m, -3), button(m, MR_CC_SHIFT, 0), button(m, MR_CC_LOOP, 0);
+    CHECK(m->seq.len[0] == 45);
+    press(m, MR_CC_UNDO);                               /* (one Loop hold, one undo) */
+    CHECK(m->seq.len[0] == 48);
+    button(m, MR_CC_LOOP, 1), jog(m, -9), button(m, MR_CC_LOOP, 0);
+    CHECK(m->seq.len[0] == 16 && m->seq.page == 0);
     /* steps past the clip's end do nothing */
     m->seq.len[0] = 8;
     clear();
+    i = m->seq.nnotes;
     tap_step(m, 12);
-    CHECK(rfmv_seq_find(m, 0, 12, m->seq.cur_note) < 0);
+    CHECK(m->seq.nnotes == i);
     /* Track 4 held + step: the track; + jog: its channel */
     track(m, 3, 1);
     tap_step(m, 5);
@@ -232,14 +299,14 @@ static void test_playback(void)
     int i, ons;
     fresh(m);
     pad(m, 0, 100), pad(m, 0, 0);                       /* C3 */
-    tap_step(m, 0), tap_step(m, 4);
-    pad(m, 2, 80), pad(m, 2, 0);                        /* E3 on step 5 too, velocity 80 */
+    tap_step(m, 0);
+    pad(m, 0, 100), pad(m, 2, 80);                      /* C3 and E3 (velocity 80) held: step 5 */
     tap_step(m, 4);
+    pad(m, 0, 0), pad(m, 2, 0);
     m->seq.notes[rfmv_seq_find(m, 0, 4, 52)].micro = 6;   /* a quarter step late */
     clear();
     CHECK(rfm_move_seq_bpm10(m) == 1200 && !rfm_move_seq_following(m));
-    press(m, MR_CC_PLAY);
-    CHECK(m->seq.start_pending == 1 && nact == 0);
+    CHECK(m->seq.start_pending == 1 && nact == 0);      /* (the first step started the transport, Move) */
     adv(m, 2 * 16 * FPS);                               /* two bars */
     CHECK(m->seq.playing);
     CHECK(find_midi(0x90, 48, 100, &at) && at == 0);
@@ -367,8 +434,8 @@ static void test_external(void)
         adv(m, RATE);
         CHECK(m->seq.tl <= tl + 3 && rfm_move_seq_following(m));   /* no clock: no ticks, no timeout */
     }
-    /* Shift + step 5 cycles the clock source */
-    button(m, MR_CC_SHIFT, 1), tap_step(m, 4), button(m, MR_CC_SHIFT, 0);
+    /* Shift + step 3 cycles the clock source */
+    button(m, MR_CC_SHIFT, 1), tap_step(m, 2), button(m, MR_CC_SHIFT, 0);
     CHECK(m->seq.clock_mode == RFM_MOVE_CLOCK_AUTO);
 }
 
@@ -394,9 +461,12 @@ static void test_launch(void)
     CHECK(m->seq.tr[0].queued == 1 && m->seq.tr[0].active == 0 && nact == 0);
     adv(m, 12 * FPS);
     CHECK(m->seq.tr[0].active == 1 && find_midi(0x90, 62, 100, &at) && at == 16 * FPS && !find_midi(0x90, 60, -1, NULL));
-    /* press the playing clip: it stops at the next bar */
+    /* press the playing clip: it plays on (Move); an empty slot in the track: it stops at the next bar, the slot
+     * selected */
     pad(m, 16, 100), pad(m, 16, 0);
-    CHECK(m->seq.tr[0].queued == SEQ_STOP);
+    CHECK(m->seq.tr[0].queued == SEQ_NONE && m->seq.tr[0].active == 1);
+    pad(m, 8, 100), pad(m, 8, 0);                       /* track 1, scene 3: empty */
+    CHECK(m->seq.tr[0].queued == SEQ_STOP && m->seq.tr[0].sel == 2);
     adv(m, 16 * FPS);
     CHECK(m->seq.tr[0].active == -1);
     /* a scene: step 2 launches scene 2 (tracks without a clip there stop: track 3's long note ends) */
@@ -421,11 +491,15 @@ static void test_launch(void)
     press(m, MR_CC_MUTE);
     button(m, MR_CC_MUTE, 1), tap_step(m, 1), button(m, MR_CC_MUTE, 0);
     CHECK(!m->seq.tr[0].mute && !m->seq.tr[1].mute);
-    /* stopped, a clip press makes it the track's clip at once; Shift + clip only selects */
+    /* stopped, a clip press makes it the track's clip at once and starts the transport (Move); Shift + clip only
+     * selects; an empty slot, stopped: the track plays nothing */
     rfm_move_seq_play(m, 0);
     CHECK(stuck() == 0);
     pad(m, 24, 100), pad(m, 24, 0);                     /* track 1, scene 1 */
-    CHECK(m->seq.tr[0].active == 0);
+    CHECK(m->seq.tr[0].active == 0 && m->seq.start_pending == 1);
+    rfm_move_seq_play(m, 0);
+    pad(m, 0, 100), pad(m, 0, 0);                       /* track 1, scene 4: empty */
+    CHECK(m->seq.tr[0].active == -1 && m->seq.tr[0].sel == 3 && !m->seq.start_pending);
     button(m, MR_CC_SHIFT, 1), pad(m, 17, 100), pad(m, 17, 0), button(m, MR_CC_SHIFT, 0);   /* track 2 scene 2 */
     CHECK(m->seq.sel_track == 1 && m->seq.tr[1].sel == 1);
     /* paging: Right = tracks 9-16, Down = scenes 2-5 */
@@ -519,8 +593,10 @@ static void test_record(void)
     rfm_move_t *m = &M;
     int i, lo, hi;
     fresh(m);
-    press(m, MR_CC_REC);                                /* armed, the transport starts */
-    CHECK(m->seq.rec && m->seq.start_pending == 1);
+    press(m, MR_CC_REC);                                /* armed, a bar's count-in (Move), then the transport */
+    CHECK(m->seq.rec && m->seq.start_pending == 3);
+    adv(m, 16 * FPS);
+    CHECK(!m->seq.playing && m->seq.start_pending == 3 && m->seq.count_in == 1);
     adv(m, (3 * 24 + 5) * FPT + 1);                    /* tick 77: step 4 + 5 ticks */
     CHECK(rfmv_seq_now_tick(m) == 77);
     pad(m, 1, 90);                                      /* D3 */
@@ -540,8 +616,8 @@ static void test_record(void)
     CHECK(m->seq.nnotes == 0);
     button(m, MR_CC_SHIFT, 1), press(m, MR_CC_UNDO), button(m, MR_CC_SHIFT, 0);
     CHECK(m->seq.nnotes == 2);
-    /* quantize the clip: Shift + Capture */
-    button(m, MR_CC_SHIFT, 1), press(m, MR_CC_CAPTURE), button(m, MR_CC_SHIFT, 0);
+    /* quantize the clip: Shift + step 16 (Move) */
+    button(m, MR_CC_SHIFT, 1), tap_step(m, 15), button(m, MR_CC_SHIFT, 0);
     hi = rfmv_seq_clip_range(m, 0, &lo);
     for (i = lo; i < hi; i++)
         CHECK(m->seq.notes[i].micro == 0);
@@ -552,8 +628,8 @@ static void test_record(void)
     CHECK(!m->seq.playing && !m->seq.rec && nnotes_clip(m, 0) == 3);
     pad(m, 5, 0);
     CHECK(stuck() == 0);
-    /* fixed velocity (Shift + step 2): steps and recordings at 127 */
-    button(m, MR_CC_SHIFT, 1), tap_step(m, 1), button(m, MR_CC_SHIFT, 0);
+    /* fixed velocity (Shift + step 10, Move's Full Velocity): steps and recordings at 127 */
+    button(m, MR_CC_SHIFT, 1), tap_step(m, 9), button(m, MR_CC_SHIFT, 0);
     CHECK(m->seq.fixed_vel);
     pad(m, 7, 20), pad(m, 7, 0);
     tap_step(m, 12);
@@ -562,11 +638,12 @@ static void test_record(void)
     fresh(m);
     press(m, MR_CC_MENU);
     press(m, MR_CC_REC);
-    rfm_move_seq_play(m, 0);                            /* (Rec started it: stop, then arm again) */
+    press(m, MR_CC_REC);                                /* (off in the count-in: no start) */
+    CHECK(!m->seq.rec && !m->seq.start_pending);
     press(m, MR_CC_REC);
     pad(m, 17, 100), pad(m, 17, 0);                     /* track 2, scene 2: empty */
     CHECK(m->seq.tr[1].queued == 1 && m->seq.tr[1].grow == 2);
-    adv(m, FPT);                                        /* T 0: it starts */
+    adv(m, 16 * FPS + FPT);                             /* the count-in, then T 0: it starts */
     CHECK(m->seq.tr[1].active == 1 && m->seq.tr[1].grow == 1);
     press(m, MR_CC_MENU);                               /* track view, track 2 (selected by the press) */
     CHECK(m->seq.sel_track == 1);
@@ -593,6 +670,7 @@ static void test_record(void)
     pad(m, 8, 80), adv(m, FPS / 2), pad(m, 8, 0);       /* (pad 8 = F3) two steps after */
     press(m, MR_CC_CAPTURE);
     CHECK(m->seq.msg == SEQ_MSG_CAPTURED && m->seq.tr[0].active == 0 && m->seq.len[0] == 16);
+    CHECK(m->seq.start_pending == 1);                   /* (Move: the transport starts with it) */
     CHECK(rfmv_seq_find(m, 0, 0, 60) >= 0 && rfmv_seq_find(m, 0, 2, 53) >= 0 && nnotes_clip(m, 0) == 2);
     CHECK(m->seq.notes[rfmv_seq_find(m, 0, 2, 53)].len == 12);
     press(m, MR_CC_CAPTURE);                            /* nothing new: nothing */
@@ -607,6 +685,19 @@ static void test_record(void)
     CHECK(m->seq.tr[0].active == 1 && m->seq.len[SEQ_CLIP(0, 1)] == 32);
     CHECK(rfmv_seq_find(m, SEQ_CLIP(0, 1), 4, 52) >= 0 && rfmv_seq_find(m, SEQ_CLIP(0, 1), 20, 55) >= 0);
     CHECK(rfmv_seq_clip_pos(m, 0) == (int)((m->seq.T - 16 * 24) % (32 * 24)) / 24);
+    /* Shift + Capture (Move): the capture forgotten */
+    pad(m, 2, 100), adv(m, FPS), pad(m, 2, 0);
+    CHECK(m->seq.ncap > 0);
+    button(m, MR_CC_SHIFT, 1), press(m, MR_CC_CAPTURE), button(m, MR_CC_SHIFT, 0);
+    CHECK(m->seq.ncap == 0 && m->seq.msg == SEQ_MSG_CAPCLEAR);
+    press(m, MR_CC_CAPTURE);
+    CHECK(m->seq.msg == SEQ_MSG_NOCLIP);
+    /* Shift + Play (Move): every clip again from its start, at once */
+    CHECK(m->seq.T > 24 * 16);
+    button(m, MR_CC_SHIFT, 1), press(m, MR_CC_PLAY), button(m, MR_CC_SHIFT, 0);
+    CHECK(!m->seq.playing && m->seq.start_pending == 1 && m->seq.tr[0].active == 1 && stuck() == 0);
+    adv(m, 5 * FPS + 1);
+    CHECK(m->seq.playing && m->seq.T == 5 * 24 && rfmv_seq_clip_pos(m, 0) == 5);
     rfm_move_seq_play(m, 0);
     CHECK(stuck() == 0);
 }
@@ -618,10 +709,9 @@ static void test_edits(void)
     uint64_t at;
     int lo, hi;
     fresh(m);
-    pad(m, 0, 100), pad(m, 0, 0);
+    pad(m, 0, 100), pad(m, 2, 90);                      /* a chord, then step 1 */
     tap_step(m, 0);
-    pad(m, 2, 90), pad(m, 2, 0);
-    tap_step(m, 0);
+    pad(m, 0, 0), pad(m, 2, 0);
     CHECK(nnotes_clip(m, 0) == 2);
     /* Copy + step 1, then step 9: pasted */
     button(m, MR_CC_COPY, 1), tap_step(m, 0), tap_step(m, 8), tap_step(m, 12), button(m, MR_CC_COPY, 0);
@@ -719,6 +809,44 @@ static void test_edits(void)
         while (rfmv_seq_undo(m)) {}
         CHECK(m->seq.un == 0);
     }
+    /* Move's copy: Copy + step, Copy released, then a step: pasted there (once) */
+    fresh(m);
+    rfmv_seq_note_put(m, 0, 0, 60, 100, 24, 0);
+    button(m, MR_CC_COPY, 1), tap_step(m, 0), button(m, MR_CC_COPY, 0);
+    CHECK(m->seq.paste == 1 && m->seq.clip_kind == 1 && m->seq.msg == SEQ_MSG_COPIED);
+    tap_step(m, 5);
+    CHECK(rfmv_seq_find(m, 0, 5, 60) >= 0 && !m->seq.paste && m->seq.msg == SEQ_MSG_PASTED);
+    tap_step(m, 6);                                     /* (then step entry again: the root, C3) */
+    CHECK(rfmv_seq_find(m, 0, 6, 60) < 0 && rfmv_seq_find(m, 0, 6, 48) >= 0);
+    /* Copy alone with a copy waiting: dropped (Move: Copy again clears the clipboard) */
+    button(m, MR_CC_COPY, 1), tap_step(m, 0), button(m, MR_CC_COPY, 0);
+    press(m, MR_CC_COPY);
+    CHECK(!m->seq.paste && m->seq.clip_kind == 0 && m->seq.msg == SEQ_MSG_CLEARED);
+    tap_step(m, 7);
+    CHECK(rfmv_seq_find(m, 0, 7, 60) < 0);
+    /* Copy alone (Move): the clip duplicated into the track's next empty slot, selected and playing */
+    press(m, MR_CC_COPY);
+    CHECK(m->seq.msg == SEQ_MSG_DUP && nnotes_clip(m, SEQ_CLIP(0, 1)) == nnotes_clip(m, 0) && nnotes_clip(m, 0) == 4);
+    CHECK(m->seq.tr[0].sel == 1 && m->seq.tr[0].active == 1 && m->seq.len[SEQ_CLIP(0, 1)] == m->seq.len[0]);
+    press(m, MR_CC_UNDO);
+    CHECK(nnotes_clip(m, SEQ_CLIP(0, 1)) == 0);
+    button(m, MR_CC_SHIFT, 1), press(m, MR_CC_UNDO), button(m, MR_CC_SHIFT, 0);
+    /* session: Copy + clip, released, then a clip: pasted */
+    press(m, MR_CC_MENU);
+    button(m, MR_CC_COPY, 1), pad(m, 24, 100), pad(m, 24, 0), button(m, MR_CC_COPY, 0);
+    CHECK(m->seq.paste && m->seq.clip_kind == 2);
+    pad(m, 26, 100), pad(m, 26, 0);
+    CHECK(nnotes_clip(m, SEQ_CLIP(2, 0)) == 4 && !m->seq.paste && m->seq.tr[2].queued == SEQ_NONE);
+    /* Delete alone (Move): the selected track's clip deleted (a cut: undoable, pasteable) */
+    press(m, MR_CC_MENU);
+    CHECK(m->seq.sel_track == 0 && m->seq.tr[0].sel == 1);
+    press(m, MR_CC_DELETE);
+    CHECK(!rfmv_seq_clip_used(m, SEQ_CLIP(0, 1)) && m->seq.cut && m->seq.msg == SEQ_MSG_CUT);
+    press(m, MR_CC_UNDO);
+    CHECK(nnotes_clip(m, SEQ_CLIP(0, 1)) == 4);
+    step(m, 3, 1), press(m, MR_CC_DELETE), step(m, 3, 0);   /* (with a step held: nothing) */
+    CHECK(nnotes_clip(m, SEQ_CLIP(0, 1)) == 4 + 1);
+    CHECK(stuck() == 0);
 }
 
 /* ================================================================ scale and root on the Move === */
@@ -1031,9 +1159,25 @@ static void write_pbm(const char *path, const uint8_t *packed)
     fclose(f);
 }
 
-#define GOLD_TRACK 0x478a5380u
-#define GOLD_SESSION 0x82f0c587u
+#define GOLD_TRACK 0xea422869u
+#define GOLD_SESSION 0x9c6e574au
 #define GOLD_PROJECTS 0x1304e3e5u
+
+/* the pads as the Move shows them (8 x 4, top row first), for a look at the held step's colours */
+static void write_ppm_pads(const char *path, int pads[32][3])
+{
+    FILE *f = fopen(path, "w");
+    int x, y;
+    if (!f)
+        return;
+    fprintf(f, "P3\n%d %d\n255\n", 8 * 24, 4 * 24);
+    for (y = 0; y < 4 * 24; y++)
+        for (x = 0; x < 8 * 24; x++) {
+            const int p = (3 - y / 24) * 8 + x / 24, edge = x % 24 < 2 || y % 24 < 2;
+            fprintf(f, "%d %d %d\n", edge ? 20 : pads[p][0], edge ? 20 : pads[p][1], edge ? 20 : pads[p][2]);
+        }
+    fclose(f);
+}
 
 static void test_screens_leds(void)
 {
@@ -1047,11 +1191,10 @@ static void test_screens_leds(void)
     track(m, 3, 1), track(m, 3, 0);
     /* track view: a C-E-G chord on step 1, notes on 5 and 9, playing at bar 1 step 6, step 1 held */
     pad(m, 0, 100), pad(m, 0, 0);
-    tap_step(m, 0), tap_step(m, 4), tap_step(m, 8);
-    pad(m, 2, 100), pad(m, 2, 0);
+    tap_step(m, 4), tap_step(m, 8);
+    pad(m, 0, 100), pad(m, 2, 100), pad(m, 4, 100);
     tap_step(m, 0);
-    pad(m, 4, 100), pad(m, 4, 0);
-    tap_step(m, 0);
+    pad(m, 0, 0), pad(m, 2, 0), pad(m, 4, 0);
     rfmv_seq_lock_set(m, 0, 0, 16, 99);
     rfm_move_seq_play(m, 1);
     adv(m, 5 * FPS + 10);
@@ -1061,27 +1204,47 @@ static void test_screens_leds(void)
     write_pbm("move_seq_track.pbm", out);
     printf("screen seq track: %08x\n", h);
     CHECKF(GOLD_TRACK == 0 || h == GOLD_TRACK, "track view %08x, golden %08x", h, GOLD_TRACK);
-    /* the step LEDs: the held step white, the playhead, the notes */
+    /* the step LEDs (Move's): the held step in the track's colour, the playhead green, notes white, empty steps
+     * the track's colour dim */
     rfm_move_leds_invalidate(m);
     n = rfm_move_leds(m, leds, RFM_MOVE_NLEDS);
     for (i = 0; i < n; i++)
         if (!leds[i].cc && leds[i].number >= MR_NOTE_STEP0 && leds[i].number < MR_NOTE_STEP0 + 16) {
             const int s = leds[i].number - MR_NOTE_STEP0;
             if (s == 0)
-                CHECK(leds[i].r == 255 && leds[i].g == 255 && leds[i].b == 255);
+                CHECK(leds[i].r == 255 && leds[i].g == 42 && leds[i].b == 42);
             if (s == 5)
-                CHECK(leds[i].r == 199 && leds[i].g == 199);   /* the playhead */
-            if (s == 4 || s == 8)                       /* notes, not the current one (G3): track 1's colour, dim */
-                CHECK(leds[i].r == 255 * 56 / 256 && leds[i].g == 42 * 56 / 256);
+                CHECK(leds[i].r == 0 && leds[i].g == 255 && leds[i].b == 0);   /* the playhead */
+            if (s == 4 || s == 8)
+                CHECK(leds[i].r == 255 && leds[i].g == 255 && leds[i].b == 255);
+            if (s == 1)
+                CHECK(leds[i].r == 255 * 28 / 256 && leds[i].g == 42 * 28 / 256);
             steps_lit += leds[i].r || leds[i].g || leds[i].b;
         }
     CHECK(steps_lit == 16);
+    /* the pads with step 1 held: C3 (the root), E3, G3 bright white; the rest their layout colours, dim (the
+     * other roots dim red, in-scale notes dim white) */
+    {
+        int pads[32][3], k;
+        memset(pads, 0, sizeof pads);
+        for (i = 0; i < n; i++)
+            if (!leds[i].cc && leds[i].number >= MR_NOTE_PAD0 && leds[i].number < MR_NOTE_PAD0 + 32)
+                k = leds[i].number - MR_NOTE_PAD0, pads[k][0] = leds[i].r, pads[k][1] = leds[i].g, pads[k][2] = leds[i].b;
+        CHECK(pads[0][0] == 255 && pads[0][1] == 255 && pads[0][2] == 255);   /* C3: the root, in the step */
+        CHECK(pads[2][0] == 255 && pads[2][1] == 255 && pads[4][2] == 255);
+        CHECK(pads[1][0] < 40 && pads[1][0] == pads[1][1]);                   /* D3: dim white */
+        CHECK(pads[7][0] > pads[7][1] && pads[7][0] < 110);                    /* C4: a root not in the step, dim red */
+        write_ppm_pads("move_seq_held_pads.ppm", pads);
+    }
     step(m, 0, 0);
     /* session view: clips on tracks 1-3, one queued, one recording */
     rfmv_seq_note_put(m, SEQ_CLIP(1, 0), 0, 60, 100, 24, 0);
     rfmv_seq_note_put(m, SEQ_CLIP(1, 1), 0, 60, 100, 24, 0);
     rfmv_seq_note_put(m, SEQ_CLIP(2, 2), 0, 60, 100, 24, 0);
     rfmv_seq_launch(m, 2, 2);
+    rfmv_seq_note_put(m, SEQ_CLIP(4, 5), 0, 60, 100, 24, 0);   /* track 5: muted, a clip in scene 6 */
+    rfmv_seq_mute(m, 4, 1);
+    m->seq.tr[5].grow = 2, rfmv_seq_launch(m, 5, 1);    /* track 6: to record into scene 2 at the bar */
     press(m, MR_CC_MENU);
     rfm_move_screen(m, NULL, out);
     h = fnv(out, MR_SCREEN_BYTES);
@@ -1091,10 +1254,14 @@ static void test_screens_leds(void)
     rfm_move_leds_invalidate(m);
     n = rfm_move_leds(m, leds, RFM_MOVE_NLEDS);
     for (i = 0; i < n; i++) {
-        if (!leds[i].cc && leds[i].number == MR_NOTE_PAD0 + 17)       /* track 2 scene 2: has content, dim */
-            CHECK(leds[i].r == 255 * 48 / 256 && leds[i].g == 128 * 48 / 256);
-        if (!leds[i].cc && leds[i].number == MR_NOTE_PAD0 + 24)       /* track 1 scene 1: playing */
-            CHECK(leds[i].r > 100);
+        if (!leds[i].cc && leds[i].number == MR_NOTE_PAD0 + 17)       /* track 2 scene 2: has content */
+            CHECK(leds[i].r == 255 * 110 / 256 && leds[i].g == 128 * 110 / 256);
+        if (!leds[i].cc && leds[i].number == MR_NOTE_PAD0 + 24)       /* track 1 scene 1: playing, selected: white */
+            CHECK(leds[i].r > 100 && leds[i].r == leds[i].g && leds[i].g == leds[i].b);
+        if (!leds[i].cc && leds[i].number == MR_NOTE_PAD0 + 10)       /* track 3 scene 3: queued: green (blinking) */
+            CHECK(leds[i].r == 0 && leds[i].g > 0);
+        if (!leds[i].cc && leds[i].number == MR_NOTE_PAD0 + 25)       /* track 2 scene 1: playing: its colour */
+            CHECK(leds[i].r > leds[i].b && leds[i].g > 0);
         if (leds[i].cc && leds[i].number == MR_CC_PLAY)
             CHECK(leds[i].g == 255 && leds[i].r == 0);
         if (leds[i].cc && leds[i].number == MR_CC_MENU)
