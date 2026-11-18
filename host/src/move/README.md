@@ -271,6 +271,11 @@ the screen's corner while it records. (Tap tempo: Shift + step 5.)
 **Shift + step** (the Move's printed functions, its manual's numbers; a menu opens on the screen, the same Shift +
 step or Back closes it):
 
+**The Shift menus** (all but Projects) take only the screen, the knobs (the volume knob where it uses it), the jog,
+Back and Session (Menu), which close them; the pads and steps keep doing what the mode under them does, so you can
+play while one is open (the owner's). Projects mode keeps its pad grid. The held-Track menus are not Shift menus:
+their pads and steps stay as they are.
+
 | Step | Function |
 |---|---|
 | 1 Set Overview | the project grid |
@@ -279,10 +284,10 @@ step or Back closes it):
 | 5 Tempo | each press is a tap (tap tempo: the average of up to 4 taps) and opens the menu: the tempo at 4x; the jog 1 BPM (Shift, or knob 2: 0.1); following the firmware's clock: locked (a padlock, EXT; taps ignored) |
 | 6 Metronome | on / off (off at first): a click a beat, the bar's first higher (`RFM_MOVE_ACT_CLICK`, frame-stamped; the web player plays it after the volume, never into a recording); also in the count-in |
 | 7 Groove | menu: the groove, 5 % a detent (Shift: 1 %), 0..150 %: the off 16ths late, 100 % a triplet swing (Move's). Knob 2: GLOBAL (the project's groove, the default) or TRACK (the track's own, starting from the global one) |
-| 8 Layout | menu: the pads' top row picks the layout (the jog too) |
-| 9 Keys & Scales | menu: row 2's pads the scale (knob 2 too), the top row the layout, the jog the root. Knob 3: GLOBAL (the project's key and scale, the default; a new project starts with MIDI mode's) or TRACK (the track's own) |
+| 8 Layout | menu: the jog or knob 1 the layout |
+| 9 Keys & Scales | menu: the jog or knob 1 the root, knob 2 the scale, knob 4 the layout. Knob 3: GLOBAL (the project's key and scale, the default; a new project starts with MIDI mode's) or TRACK (the track's own) |
 | 10 Velocity | menu, sticky (Back or Shift + step 10 closes it): the jog the option, DYNAMIC (as played), FIXED (every pad at the level), SOFT (a light touch plays louder), HARD (it takes a firmer one); knob 1 the level 1..127 (FIXED's). The screen: the name big, the curve (played in, out), the level big with its bar (dotted while not FIXED). Every pad that plays goes through it, in every mode (MIDI notes, FM-1 keys, the sequencer's live notes, recordings and step entry). A setting (saved with the others), not the project's; its icon LED is full while FIXED |
-| 11 Repeat (arp) | menu: the track's arp, FIZZ's ARP (its defaults: 1/8, two octaves, QUANT 1/16). The jog turns its pages. Page 1: knobs PATTERN (UP .. AS PLAYED, 17), RATE (1/1 .. 1/64 of a bar), RANGE (octaves), CHANCE, MODE (OFF, ON, 1-ST, ONCE, HOLD), GATE, OCT DIST, QUANT (when a run starts: at once, or the next 1/n of the song's bars); the pattern's walk drawn. Pages 2 and 3: the MOD lane (x as played, . rest, - tie, R repeat, < lowest -oct, > highest +oct, " power chord, # every held note, 1..6 the n-th played) and the TRANSPOSE lane (-48..+48): the steps pick a lane step, knob 1 its value, knob 2 RESET (NORM, NOTE: a new note restarts it, MPAT / TPAT: as that lane comes round), knob 4 the lane's length. On, the track's pads play through it; recording, its notes go into the clip with their timing and length |
+| 11 Repeat (arp) | menu: the track's arp, FIZZ's ARP (its defaults: 1/8, two octaves, QUANT 1/16). The jog turns its pages. Page 1: knobs PATTERN (UP .. AS PLAYED, 17), RATE (1/1 .. 1/64 of a bar), RANGE (octaves), CHANCE, MODE (OFF, ON, 1-ST, ONCE, HOLD), GATE, OCT DIST, QUANT (when a run starts: at once, or the next 1/n of the song's bars); the pattern's walk drawn. Pages 2 and 3: the MOD lane (x as played, . rest, - tie, R repeat, < lowest -oct, > highest +oct, " power chord, # every held note, 1..6 the n-th played) and the TRANSPOSE lane (-48..+48): knob 3 picks a lane step, knob 1 its value, knob 2 RESET (NORM, NOTE: a new note restarts it, MPAT / TPAT: as that lane comes round), knob 4 the lane's length. On, the track's pads play through it; recording, its notes go into the clip with their timing and length |
 | 14 New Clip | the track's next empty slot gets a new clip, selected |
 | 15 Double Loop | double the loop |
 | 16 Quantize | the clip's micro timing quantized by the Workflow amount (100 %: on the grid) |

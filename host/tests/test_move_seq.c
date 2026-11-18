@@ -1897,14 +1897,15 @@ static void test_controls(void)
     rfm_move_seq_set_clock(m, RFM_MOVE_CLOCK_AUTO);
     m->seq.following = 0;
     press(m, MR_CC_BACK);
-    /* Shift + step 8 / 9: Layout, Keys & Scales (the pads pick; the jog the root) */
+    /* Shift + step 8 / 9: Layout, Keys & Scales (knobs and the jog; the pads play on, the owner's) */
     button(m, MR_CC_SHIFT, 1), tap_step(m, 7), button(m, MR_CC_SHIFT, 0);
     clear();
+    knob(m, 0, 3 * RFM_MOVE_LIST_TICKS);
     pad(m, 27, 100), pad(m, 27, 0);
-    CHECK(m->seq.smenu == RFM_MOVE_SM_LAYOUT && m->s.layout == RFM_MOVE_LAYOUT_OCTAVE && count_kind(RFM_MOVE_ACT_MIDI) == 0);
+    CHECK(m->seq.smenu == RFM_MOVE_SM_LAYOUT && m->s.layout == RFM_MOVE_LAYOUT_OCTAVE && count_kind(RFM_MOVE_ACT_MIDI) == 2);
     button(m, MR_CC_SHIFT, 1), tap_step(m, 8), button(m, MR_CC_SHIFT, 0);
-    pad(m, 17, 100), pad(m, 17, 0), jog(m, 2);
-    CHECK(m->seq.smenu == RFM_MOVE_SM_KEYS && m->s.scale == 1 && m->s.root == 2);
+    knob(m, 1, RFM_MOVE_LIST_TICKS), knob(m, 3, -3 * RFM_MOVE_LIST_TICKS), jog(m, 2);
+    CHECK(m->seq.smenu == RFM_MOVE_SM_KEYS && m->s.scale == 1 && m->s.root == 2 && m->s.layout == RFM_MOVE_LAYOUT_SCALE);
     rest(m);
     rfm_move_screen(m, NULL, out);
     write_pbm("move_seq_keys.pbm", out);
@@ -1975,7 +1976,10 @@ static void test_controls(void)
         CHECK(m->seq.page == 2 && m->seq.len[c] == 16);
         press(m, MR_CC_LOOP);                           /* (page edit off: the ghost page shown stays, for a step) */
         tap_step(m, 4);                                 /* page 3, step 5: the clip is 3 pages now */
-        CHECK(m->seq.len[c] == 48 && rfmv_seq_find(m, c, 36, 48) >= 0);
+        {
+            int lo2;
+            CHECK(m->seq.len[c] == 48 && rfmv_seq_range(m, c, 36, &lo2) > lo2);   /* (the last notes played) */
+        }
         press(m, MR_CC_RIGHT);
         CHECK(m->seq.page == 0 && m->seq.len[c] == 48);   /* (round the 3 pages) */
         press(m, MR_CC_LOOP), press(m, MR_CC_RIGHT), press(m, MR_CC_RIGHT), press(m, MR_CC_RIGHT), press(m, MR_CC_LOOP);
@@ -2251,14 +2255,14 @@ static void test_round2(void)
         knob(m, 4, RFM_MOVE_LIST_TICKS), knob(m, 1, 3 * RFM_MOVE_LIST_TICKS), knob(m, 2, -RFM_MOVE_LIST_TICKS), knob(m, 7, -10 * RFM_MOVE_LIST_TICKS);   /* ON, 1/16, RANGE 1, QUANT off */
         jog(m, 1);
         CHECK(m->seq.arp_page == 1);
-        tap_step(m, 1), knob(m, 0, RFM_MOVE_AL_REST * RFM_MOVE_LIST_TICKS);
-        tap_step(m, 2), knob(m, 0, RFM_MOVE_AL_CHORD * RFM_MOVE_LIST_TICKS);
+        knob(m, 2, RFM_MOVE_LIST_TICKS), knob(m, 0, RFM_MOVE_AL_REST * RFM_MOVE_LIST_TICKS);   /* (knob 3: the lane step) */
+        knob(m, 2, RFM_MOVE_LIST_TICKS), knob(m, 0, RFM_MOVE_AL_CHORD * RFM_MOVE_LIST_TICKS);
         knob(m, 3, -13);                                /* (the lane's length: 3) */
         CHECK(ap->lane[0][1] == RFM_MOVE_AL_REST && ap->lane[0][2] == RFM_MOVE_AL_CHORD && ap->mlen == 3 && ap->quant == 0);
         rest(m);
         rfm_move_screen(m, NULL, (uint8_t[MR_SCREEN_BYTES]){ 0 });
         jog(m, 1);                                      /* the TRANSPOSE lane: step 1 +12 */
-        tap_step(m, 0), knob(m, 0, 12);
+        knob(m, 2, -2 * RFM_MOVE_LIST_TICKS), knob(m, 0, 12);
         CHECK(m->seq.arp_page == 2 && ap->lane[1][0] == 12);
         knob(m, 0, -12);
         press(m, MR_CC_BACK);

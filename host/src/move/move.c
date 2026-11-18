@@ -468,8 +468,9 @@ static void on_pad(rfm_move_t *m, int p, int vel, uint32_t now)
     m->pad_down[p] = 1;
     vel = rfm_move_vel(&m->s, vel);                     /* (the velocity setting: every pad that plays, any mode) */
     h->kind = H_NONE;
-    if (fm1_seq_layer(m) && (m->seq.projects || m->seq.smenu == RFM_MOVE_SM_LAYOUT || m->seq.smenu == RFM_MOVE_SM_KEYS)) {
-        h->kind = H_MENU;                               /* (FM-1 mode, a sequencer menu opened with Track 1: its pads) */
+    if (fm1_seq_layer(m) && m->seq.projects) {
+        h->kind = H_MENU;                               /* (projects mode: its grid. The Shift menus leave the pads to
+                                                         * the mode, the owner's) */
         rfmv_seq_pad(m, p, vel, now);
         return;
     }
@@ -541,9 +542,6 @@ static void on_step(rfm_move_t *m, int s, int down, uint32_t now)
             m->s.channel = (uint8_t)s;
             changed(m);
         }
-    } else if (fm1_seq_layer(m) && m->seq.smenu == RFM_MOVE_SM_ARP && m->seq.arp_page) {
-        h->kind = H_MENU;                               /* (the arp's lanes: a lane step) */
-        rfmv_seq_step(m, s, 1, now);
     } else if (track_held(m, 3) && m->s.mode != RFM_MOVE_MODE_SEQ) {
         h->kind = H_SEQ;                                /* (Track 4 held, any mode: the steps are the 16 tracks) */
         rfmv_seq_step(m, s, 1, now);
@@ -598,10 +596,11 @@ static void on_button(rfm_move_t *m, int cc, int down, uint32_t now)
             fm1_shift(m, 0, cc, 1, now);
         return;
     }
-    if (m->s.mode != RFM_MOVE_MODE_SEQ && cc == MR_CC_BACK &&
+    if (m->s.mode != RFM_MOVE_MODE_SEQ && (cc == MR_CC_BACK || cc == MR_CC_MENU) &&
         (m->seq.smenu || m->seq.projects || m->seq.loop_latch || m->seq.shift_lock)) {
-        if (down)                                       /* (a sequencer layer open: Back closes it, not the FM-1's SEQ) */
-            rfmv_seq_button(m, cc, 1, now);
+        if (down)                                       /* (a sequencer layer open: Back or Session closes it, not the
+                                                         * FM-1's SEQ / HOME) */
+            rfmv_seq_button(m, MR_CC_BACK, 1, now);
         return;
     }
     if (m->s.mode == RFM_MOVE_MODE_SEQ && cc >= 0 && cc < 128 && (m->btn[cc].kind == H_NONE || m->btn[cc].kind == H_MENU)) {

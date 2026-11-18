@@ -360,10 +360,6 @@ void rfmv_seq_pad(rfm_move_t *m, int p, int vel, uint32_t now)
         return;
     }
     h->kind = H_MENU;
-    if ((q->smenu == RFM_MOVE_SM_LAYOUT || q->smenu == RFM_MOVE_SM_KEYS) && !q->projects) {
-        rfmv_pick_layout(m, p);                         /* (the Layout / Keys & Scales menus: the pads pick) */
-        return;
-    }
     if (q->projects) {                                  /* the grid: top-left = project 1 */
         const int slot = (3 - p / 8) * 8 + p % 8;
         if (q->mods & SEQ_M_DELETE) {
@@ -759,10 +755,6 @@ void rfmv_seq_step(rfm_move_t *m, int s, int down, uint32_t now)
         }
         return;
     }
-    if (q->smenu == RFM_MOVE_SM_ARP && q->arp_page) {   /* the arp's lanes: a step of the lane */
-        q->arp_sel = (uint8_t)s;
-        return;
-    }
     if (q->mods & SEQ_M_MUTE) {                         /* Mute + step: track 1..16 */
         q->mods_used |= SEQ_M_MUTE;
         rfmv_seq_mute(m, s, !q->tr[s].mute);
@@ -1042,6 +1034,8 @@ int rfmv_seq_button(rfm_move_t *m, int cc, int down, uint32_t now)
     case MR_CC_MENU:
         if (q->projects)
             q->projects = 0;
+        else if (q->smenu)
+            layer_close(m, LY_MENU);                    /* (a Shift menu: Session closes it, as Back) */
         else
             q->view = (uint8_t)!q->view;
         return 1;
@@ -1297,10 +1291,10 @@ static int smenu_list(const rfm_move_seq_t *q, int k)
     case RFM_MOVE_SM_WORKFLOW: return k == 0 || k == 1;
     case RFM_MOVE_SM_GROOVE: return k == 1;
     case RFM_MOVE_SM_LAYOUT: return k == 0;
-    case RFM_MOVE_SM_KEYS: return k <= 2;
+    case RFM_MOVE_SM_KEYS: return k <= 3;
     case RFM_MOVE_SM_ARP:
         if (q->arp_page)
-            return (k == 0 && q->arp_page == 1) || k == 1;
+            return (k == 0 && q->arp_page == 1) || k == 1 || k == 2;
         return k == 0 || k == 1 || k == 2 || k == 4 || k == 7;
     case RFM_MOVE_SM_REC: return k <= 1;
     default: return 0;
@@ -1363,12 +1357,16 @@ static void smenu_turn(rfm_move_t *m, int k, int d)
             t->own = (uint8_t)(d > 0 ? t->own | 2 : t->own & ~2);
             load_track(m);
             rfmv_changed(m);
+        } else if (k == 3) {                            /* knob 4: the layout (the pads play, the owner's) */
+            const int l = clampi(m->s.layout + d, 0, 3);
+            if (l != m->s.layout)
+                m->s.layout = (uint8_t)l, rfmv_changed(m);
         }
         rfmv_seq_sync(m);
         break;
     case RFM_MOVE_SM_ARP:                               /* FIZZ's ARP: the jog the page; page 1: PATTERN RATE RANGE
                                                          * CHANCE MODE GATE OCT DIST QUANT; pages 2, 3: the MOD and
-                                                         * TRANSPOSE lanes (the steps pick a lane step; knob 1 its
+                                                         * TRANSPOSE lanes (knob 3 picks a lane step; knob 1 its
                                                          * value, knob 2 RESET, knob 4 the lane's length) */
         if (k < 0) {
             q->arp_page = (uint8_t)clampi(q->arp_page + d, 0, 2);
@@ -1381,6 +1379,8 @@ static void smenu_turn(rfm_move_t *m, int k, int d)
                                                          : clampi(a->lane[L][q->arp_sel & 15] + d, 0, RFM_MOVE_AL_N - 1));
             else if (k == 1)
                 a->reset = (uint8_t)clampi(a->reset + d, 0, RFM_MOVE_AR_N - 1);
+            else if (k == 2)                            /* knob 3: the lane step (the steps play, the owner's) */
+                q->arp_sel = (uint8_t)clampi(q->arp_sel + d, 0, RFM_MOVE_ARP_LANE - 1);
             else if (k == 3) {
                 uint8_t *len = L ? &a->tlen : &a->mlen;
                 *len = (uint8_t)clampi(*len + d, 1, 16);

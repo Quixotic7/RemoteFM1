@@ -1320,6 +1320,23 @@ static void test_mode_only_by_tap(void)
     CHECK(ok);
 }
 
+/* the Shift menus take the screen, knobs, jog, Back and Session only: the pads and steps play on (the owner's) */
+static void test_menus_leave_pads(void)
+{
+    static rfm_move_t m;
+    rfm_move_init(&m, NULL, on_act, NULL);
+    track(&m, 0, 1), step(&m, 8, 1), step(&m, 8, 0), now_ms += 400, track(&m, 0, 0);   /* Keys & Scales over FM-1 */
+    CHECK(m.seq.smenu == RFM_MOVE_SM_KEYS && m.s.mode == RFM_MOVE_MODE_FM1);
+    clear();
+    pad(&m, pad_of(1, 0), 100), pad(&m, pad_of(1, 0), 0);
+    step(&m, 0, 1), step(&m, 0, 0);
+    CHECK(count(RFM_MOVE_ACT_KEY) >= 4 && m.seq.smenu == RFM_MOVE_SM_KEYS);   /* (a key and a step-key, down and up) */
+    knob(&m, 1, RFM_MOVE_LIST_TICKS);
+    CHECK(m.s.scale == 1);
+    button(&m, MR_CC_MENU, 1), button(&m, MR_CC_MENU, 0);   /* Session closes it (not the FM-1's HOME) */
+    CHECK(!m.seq.smenu && !has(RFM_MOVE_ACT_BTN, RFM_MOVE_B_HOME, 1, 0));
+}
+
 int main(void)
 {
     test_fm1_pads();
@@ -1338,5 +1355,6 @@ int main(void)
     test_track1_anywhere();
     test_velocity();
     test_mode_only_by_tap();
+    test_menus_leave_pads();
     return check_done("move");
 }
