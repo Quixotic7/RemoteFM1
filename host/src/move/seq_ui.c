@@ -58,7 +58,7 @@ static int root_note(const rfm_move_t *m) { return clampi(48 + m->s.root + 12 * 
 static void clip_delete(rfm_move_t *m, int clip);
 
 /* the layers Back closes, the latest first */
-enum { LY_MENU = 1, LY_PROJ, LY_LOOP, LY_SHIFT, LY_CLIP };
+enum { LY_MENU = 1, LY_PROJ, LY_LOOP, LY_SHIFT, LY_CLIP, LY_PAGE };
 static void layer(rfm_move_seq_t *q, int id)
 {
     int i, k = 0;
@@ -77,6 +77,7 @@ static int layer_on(const rfm_move_seq_t *q, int id)
     case LY_LOOP: return q->loop_latch != 0;
     case LY_SHIFT: return q->shift_lock != 0;
     case LY_CLIP: return q->clip_kind && (q->cut || q->paste);
+    case LY_PAGE: return q->pg_kind != 0;
     default: return 0;
     }
 }
@@ -89,6 +90,7 @@ static void layer_close(rfm_move_t *m, int id)
     case LY_LOOP: q->loop_latch = 0, q->mods &= (uint8_t)~SEQ_M_LOOP, rfmv_pop_let(m, POP_LOOP, 0); break;
     case LY_SHIFT: q->shift_lock = 0, q->mods &= (uint8_t)~SEQ_M_SHIFT; break;
     case LY_CLIP: q->paste = 0, q->cut = 0, q->clip_kind = 0; break;
+    case LY_PAGE: q->pg_kind = 0; break;
     default: break;
     }
 }
@@ -256,15 +258,24 @@ void rfmv_seq_sync(rfm_move_t *m)
         return;
     q->tr[q->sel_track].layout = m->s.layout;
     memcpy(q->tr[q->sel_track].cc, m->s.cc, sizeof m->s.cc);
+    if (q->tr[q->sel_track].own & 2)                    /* the key and scale: the track's own, or the project's */
+        q->tr[q->sel_track].root = m->s.root, q->tr[q->sel_track].scale = m->s.scale;
+    else
+        q->root = m->s.root, q->scale = m->s.scale;
 }
+static void load_track(rfm_move_t *m);
+void rfmv_seq_load_track(rfm_move_t *m) { load_track(m); }
 static void load_track(rfm_move_t *m)
 {
     rfm_move_seq_t *q = Q(m);
     if (!q->in_seq)
         return;
-    if (m->s.layout != q->tr[q->sel_track].layout || memcmp(m->s.cc, q->tr[q->sel_track].cc, sizeof m->s.cc)) {
-        m->s.layout = q->tr[q->sel_track].layout;
-        memcpy(m->s.cc, q->tr[q->sel_track].cc, sizeof m->s.cc);
+    {
+        const rfm_move_track_t *t = &q->tr[q->sel_track];
+        m->s.layout = t->layout;
+        memcpy(m->s.cc, t->cc, sizeof m->s.cc);
+        m->s.root = (t->own & 2) ? t->root : q->root;
+        m->s.scale = (t->own & 2) ? t->scale : q->scale;
     }
 }
 void rfmv_seq_enter(rfm_move_t *m)
@@ -272,7 +283,7 @@ void rfmv_seq_enter(rfm_move_t *m)
     rfm_move_seq_t *q = Q(m);
     if (q->in_seq)
         return;
-    q->stash_layout = m->s.layout;
+    q->stash_layout = m->s.layout, q->stash_root = m->s.root, q->stash_scale = m->s.scale;
     memcpy(q->stash_cc, m->s.cc, sizeof m->s.cc);
     q->in_seq = 1;
     load_track(m);
@@ -284,7 +295,7 @@ void rfmv_seq_leave(rfm_move_t *m)
         return;
     rfmv_seq_sync(m);
     q->in_seq = 0;
-    m->s.layout = q->stash_layout;
+    m->s.layout = q->stash_layout, m->s.root = q->stash_root, m->s.scale = q->stash_scale;
     memcpy(m->s.cc, q->stash_cc, sizeof m->s.cc);
 }
 void rfmv_seq_select(rfm_move_t *m, int track)
@@ -300,31 +311,6 @@ void rfmv_seq_select(rfm_move_t *m, int track)
     load_track(m);
     rfmv_seq_dirty(m);
 }
-/* Track 1..4: the bank's tracks (selected; held: its settings). Shift + Track n: bank n (tracks 4n-3 .. 4n);
- * Mute + Track n: mute it (Move's) */
-void rfmv_seq_track_button(rfm_move_t *m, int t, int down, uint32_t now)
-{
-    rfm_move_seq_t *q = Q(m);
-    (void)now;
-    if (!down || q->projects)
-        return;
-    if (q->mods & SEQ_M_SHIFT) {
-        q->mods_used |= SEQ_M_SHIFT;
-        q->bank = (uint8_t)t;
-        rfmv_seq_select(m, t * 4 + q->sel_track % 4);
-        rfmv_pop(m, POP_TRACK, q->sel_track);
-        return;
-    }
-    if (q->mods & SEQ_M_MUTE) {
-        const int tr = q->bank * 4 + t;
-        q->mods_used |= SEQ_M_MUTE;
-        rfmv_seq_mute(m, tr, !q->tr[tr].mute);
-        return;
-    }
-    rfmv_menu(m, MENU_TRACK, q->bank * 4 + t);
-    rfmv_seq_select(m, q->bank * 4 + t);
-}
-
 /* ================================================================ pads === */
 void rfmv_seq_pad(rfm_move_t *m, int p, int vel, uint32_t now)
 {
@@ -484,6 +470,63 @@ static void grow_to(rfm_move_t *m, int clip, int abs)
         rfmv_seq_loop_set(m, clip, lo, (abs / RFM_MOVE_SEQ_PAGE + 1) * RFM_MOVE_SEQ_PAGE - lo);
 }
 
+/* ---- Loop mode's pages: Delete + a page with notes cuts it (an X), Copy + one copies it (dashed), either + an
+ * empty page pastes the page clipboard there (a pasted cut empties it) */
+static int page_full(const rfm_move_t *m, int clip, int pg)
+{
+    int lo, hi = rfmv_seq_clip_range(m, clip, &lo), i;
+    for (i = lo; i < hi; i++)
+        if (m->seq.notes[i].step / RFM_MOVE_SEQ_PAGE == pg)
+            return 1;
+    hi = rfmv_seq_clip_lock_range(m, clip, &lo);
+    for (i = lo; i < hi; i++)
+        if (m->seq.locks[i].step / RFM_MOVE_SEQ_PAGE == pg)
+            return 1;
+    return 0;
+}
+static void page_edit(rfm_move_t *m, int clip, int pg, int del)
+{
+    rfm_move_seq_t *q = Q(m);
+    const int a = pg * RFM_MOVE_SEQ_PAGE;
+    int lo, hi, i;
+    if (page_full(m, clip, pg)) {                       /* into the page clipboard (Delete: and gone) */
+        q->pg_nn = q->pg_nl = 0;
+        hi = rfmv_seq_clip_range(m, clip, &lo);
+        for (i = lo; i < hi; i++)
+            if (q->notes[i].step / RFM_MOVE_SEQ_PAGE == pg && q->pg_nn < sizeof q->pg_notes / sizeof q->pg_notes[0])
+                q->pg_notes[q->pg_nn] = q->notes[i], q->pg_notes[q->pg_nn++].step -= (uint8_t)a;
+        hi = rfmv_seq_clip_lock_range(m, clip, &lo);
+        for (i = lo; i < hi; i++)
+            if (q->locks[i].step / RFM_MOVE_SEQ_PAGE == pg && q->pg_nl < sizeof q->pg_locks / sizeof q->pg_locks[0])
+                q->pg_locks[q->pg_nl] = q->locks[i], q->pg_locks[q->pg_nl++].step -= (uint8_t)a;
+        q->pg_kind = (uint8_t)(del ? 2 : 1), q->pg_src = (uint8_t)pg, q->pg_clip = (uint8_t)clip;
+        if (del) {
+            rfmv_seq_group(m);
+            for (i = a; i < a + RFM_MOVE_SEQ_PAGE; i++)
+                rfmv_seq_step_clear(m, clip, i);
+        }
+        layer(q, LY_PAGE);
+        return;
+    }
+    if (!q->pg_kind)
+        return;
+    rfmv_seq_group(m);                                  /* an empty page: the clipboard pasted */
+    for (i = 0; i < q->pg_nn; i++) {
+        const rfm_move_note_t *n = &q->pg_notes[i];
+        rfmv_seq_note_put(m, clip, a + n->step, n->note, n->vel, n->len, n->micro);
+    }
+    for (i = 0; i < q->pg_nl; i++)
+        rfmv_seq_lock_set(m, clip, a + q->pg_locks[i].step, q->pg_locks[i].cc, q->pg_locks[i].val);
+    if (q->pg_kind == 2)
+        q->pg_kind = 0;
+    ensure_active(m);
+}
+int rfmv_seq_src_page(const rfm_move_t *m, int clip, int pg)   /* 1 copied, 2 cut, 0 */
+{
+    const rfm_move_seq_t *q = &m->seq;
+    return q->pg_kind && q->pg_clip == clip && q->pg_src == pg ? q->pg_kind : 0;
+}
+
 /* the clipboard's source is marked (a step or a clip: dashed when copied, an X when cut) */
 static int src_shown(const rfm_move_seq_t *q, int kind)
 {
@@ -522,6 +565,20 @@ void rfmv_seq_step(rfm_move_t *m, int s, int down, uint32_t now)
     if (!down) {
         if (q->loop_first == s)
             q->loop_first = -1;
+        if (q->tstep_held & (1u << s)) {                /* Track 4 held, a track's step: tap select, double tap
+                                                         * solo, hold mute */
+            q->tstep_held &= ~(1u << s);
+            if (rfmv_now_ms(m) - q->step_t[s] >= RFM_MOVE_SEQ_HOLD_MS)
+                rfmv_seq_mute(m, s, !q->tr[s].mute), q->tstep_tap = -1;
+            else if (q->tstep_tap == s && now - q->tstep_tap_ms < 400)
+                rfmv_seq_solo(m, s, !q->tr[s].solo), q->tstep_tap = -1;
+            else {
+                rfmv_menu(m, MENU_TRACK, s);
+                rfmv_seq_select(m, s);
+                q->tstep_tap = (int8_t)s, q->tstep_tap_ms = now;
+            }
+            return;
+        }
         if (q->step_held & bit) {
             int lo;
             const int has = rfmv_seq_range(m, clip, abs, &lo) > lo;
@@ -586,10 +643,17 @@ void rfmv_seq_step(rfm_move_t *m, int s, int down, uint32_t now)
             rfmv_seq_group(m);
             rfmv_seq_track_copy(m, q->clip_src, s);
             q->paste = 0, q->clip_kind = 0;
-        } else {
-            rfmv_menu(m, MENU_TRACK, s);
-            rfmv_seq_select(m, s);
+        } else {                                        /* (its release decides: a tap selects, a double tap
+                                                         * solos, a hold mutes) */
+            q->tstep_held |= 1u << s;
+            q->step_t[s] = rfmv_now_ms(m);
         }
+        return;
+    }
+    if ((q->mods & SEQ_M_LOOP) && (q->mods & (SEQ_M_DELETE | SEQ_M_COPY)) && !q->view) {   /* Loop on: Delete / Copy
+                                                         * work on pages as on steps (their own clipboard) */
+        page_edit(m, clip, s, (q->mods & SEQ_M_DELETE) != 0);
+        q->mods_used |= (uint8_t)(SEQ_M_LOOP | (q->mods & (SEQ_M_DELETE | SEQ_M_COPY)));
         return;
     }
     if ((q->mods & SEQ_M_COPY) && !q->view) {           /* Copy + step (the owner's, as Delete): a step with notes
@@ -608,8 +672,16 @@ void rfmv_seq_step(rfm_move_t *m, int s, int down, uint32_t now)
     }
     if (q->mods & SEQ_M_SHIFT) {                        /* the shortcuts */
         q->mods_used |= SEQ_M_SHIFT;
+        if (s == SH_TEMPO) {                            /* Shift + step 5: the tempo menu, and each press a tap (tap
+                                                         * tempo) */
+            rfmv_seq_tap(m, now);
+            q->smenu = RFM_MOVE_SM_TEMPO;
+            layer(q, LY_MENU);
+            return;
+        }
         if (sh_menu(s)) {                               /* a menu: open (again: closed) */
             q->smenu = (uint8_t)(q->smenu == sh_menu(s) ? 0 : sh_menu(s));
+            q->arp_page = 0;
             if (q->smenu)
                 layer(q, LY_MENU);
             rfmv_menu(m, MENU_NONE, 0);
@@ -656,6 +728,10 @@ void rfmv_seq_step(rfm_move_t *m, int s, int down, uint32_t now)
             break;
         default: break;
         }
+        return;
+    }
+    if (q->smenu == RFM_MOVE_SM_ARP && q->arp_page) {   /* the arp's lanes: a step of the lane */
+        q->arp_sel = (uint8_t)s;
         return;
     }
     if (q->mods & SEQ_M_MUTE) {                         /* Mute + step: track 1..16 */
@@ -943,7 +1019,7 @@ int rfmv_seq_button(rfm_move_t *m, int cc, int down, uint32_t now)
         }
         {
             int id;
-            for (id = LY_MENU; id <= LY_CLIP; id++)        /* (one opened some other way) */
+            for (id = LY_MENU; id <= LY_PAGE; id++)        /* (one opened some other way) */
                 if (layer_on(q, id)) {
                     layer_close(m, id);
                     return 1;
@@ -1014,12 +1090,9 @@ int rfmv_seq_button(rfm_move_t *m, int cc, int down, uint32_t now)
             rfmv_seq_msg(m, SEQ_MSG_NOCLIP);
         return 1;
     case MR_CC_SAMPLE:
-        if (q->mods & SEQ_M_SHIFT) {                    /* Shift + Sample: tap tempo */
-            q->mods_used |= SEQ_M_SHIFT;
-            rfmv_seq_tap(m, now);
-            if (!q->following)
-                rfmv_pop(m, POP_TEMPO, 0);
-        } else
+        if (q->mods & SEQ_M_SHIFT)
+            q->mods_used |= SEQ_M_SHIFT;                /* (Shift + Sample: nothing; the Move has none) */
+        else
             rfmv_seq_audio_rec(m);                      /* the audio loop: armed, recording, done at the next bar */
         return 1;
     case MR_CC_UNDO:
@@ -1189,9 +1262,16 @@ static void smenu_turn(rfm_move_t *m, int k, int d)
         if (!q->following && k <= 1)                    /* (Move: Shift + the wheel, or knob 2: fine) */
             rfm_move_seq_set_bpm(m, q->bpm10 + d * (k == 1 || (q->mods & SEQ_M_SHIFT) ? 1 : 10));
         break;
-    case RFM_MOVE_SM_GROOVE:
-        if (k <= 0)                                     /* (Move: Shift fine; ours: 5 % a detent, Shift 1 %) */
-            t->groove = (uint8_t)clampi(t->groove + d * ((q->mods & SEQ_M_SHIFT) ? 1 : 5), 0, 150);
+    case RFM_MOVE_SM_GROOVE:                            /* the jog: the amount; knob 2: GLOBAL (the project's) or
+                                                         * TRACK (its own) */
+        if (k <= 0) {                                   /* (Move: Shift fine; ours: 5 % a detent, Shift 1 %) */
+            uint8_t *g = (t->own & 1) ? &t->groove : &q->groove;
+            *g = (uint8_t)clampi(*g + d * ((q->mods & SEQ_M_SHIFT) ? 1 : 5), 0, 150);
+        } else if (k == 1 && (d > 0) != !!(t->own & 1)) {
+            if (d > 0)
+                t->groove = q->groove;                  /* (its own starts from the global one) */
+            t->own = (uint8_t)(d > 0 ? t->own | 1 : t->own & ~1);
+        }
         break;
     case RFM_MOVE_SM_LAYOUT:
         if (k <= 0) {
@@ -1208,10 +1288,38 @@ static void smenu_turn(rfm_move_t *m, int k, int d)
             const int sc2 = clampi(m->s.scale + d, 0, RFM_MOVE_NSCALES - 1);
             if (sc2 != m->s.scale)
                 m->s.scale = (uint8_t)sc2, rfmv_changed(m);
+        } else if (k == 2 && (d > 0) != !!(t->own & 2)) {   /* knob 3: GLOBAL or TRACK (its own key and scale) */
+            rfmv_seq_sync(m);
+            if (d > 0)
+                t->root = q->root, t->scale = q->scale;
+            t->own = (uint8_t)(d > 0 ? t->own | 2 : t->own & ~2);
+            load_track(m);
+            rfmv_changed(m);
         }
+        rfmv_seq_sync(m);
         break;
-    case RFM_MOVE_SM_ARP:                               /* FIZZ's ARP: PATTERN RATE RANGE CHANCE MODE GATE OCT DIST */
-        switch (k < 0 ? 0 : k) {
+    case RFM_MOVE_SM_ARP:                               /* FIZZ's ARP: the jog the page; page 1: PATTERN RATE RANGE
+                                                         * CHANCE MODE GATE OCT DIST QUANT; pages 2, 3: the MOD and
+                                                         * TRANSPOSE lanes (the steps pick a lane step; knob 1 its
+                                                         * value, knob 2 RESET, knob 4 the lane's length) */
+        if (k < 0) {
+            q->arp_page = (uint8_t)clampi(q->arp_page + d, 0, 2);
+            break;
+        }
+        if (q->arp_page) {
+            const int L = q->arp_page - 1;
+            if (k == 0)
+                a->lane[L][q->arp_sel & 15] = (int8_t)(L ? clampi(a->lane[L][q->arp_sel & 15] + d, -48, 48)
+                                                         : clampi(a->lane[L][q->arp_sel & 15] + d, 0, RFM_MOVE_AL_N - 1));
+            else if (k == 1)
+                a->reset = (uint8_t)clampi(a->reset + d, 0, RFM_MOVE_AR_N - 1);
+            else if (k == 3) {
+                uint8_t *len = L ? &a->tlen : &a->mlen;
+                *len = (uint8_t)clampi(*len + d, 1, 16);
+            }
+            break;
+        }
+        switch (k) {
         case 0: a->pat = (uint8_t)clampi(a->pat + d, 0, RFM_MOVE_AP_N - 1); break;
         case 1: a->rate = (uint8_t)clampi(a->rate + d, 0, RFM_MOVE_ARP_RATES - 1); break;
         case 2: a->range = (uint8_t)clampi(a->range + d, 1, 8); break;
@@ -1223,6 +1331,7 @@ static void smenu_turn(rfm_move_t *m, int k, int d)
             break;
         case 5: a->gate = (uint8_t)clampi(a->gate + d * 5, 2, 200); break;
         case 6: a->odist = (int8_t)clampi(a->odist + d, -24, 24); break;
+        case 7: a->quant = (uint8_t)clampi(a->quant + d, 0, 16); break;
         default: break;
         }
         break;
@@ -1493,7 +1602,9 @@ void rfmv_seq_leds(const rfm_move_t *m, rgb_t c[L_WHITE0], uint8_t w[13])
             v = i == 0 ? sc(RFMV_WHITE, 96) : RFMV_OFF;
         else if (t4 || (q->mods & SEQ_M_MUTE)) {        /* the tracks */
             const int used = rfmv_seq_track_used(m, i);
-            if (q->tr[i].mute)
+            if (q->tr[i].solo)
+                v = sc((rgb_t){ 40, 90, 255 }, t4 && i == q->sel_track ? 256 : 140);   /* soloed: blue (Move's) */
+            else if (q->tr[i].mute)
                 v = sc(RFMV_RED, t4 && i == q->sel_track ? 256 : 48);
             else if (i == q->sel_track)
                 v = TRACK_RGB[i];
@@ -1506,6 +1617,8 @@ void rfmv_seq_leds(const rfm_move_t *m, rgb_t c[L_WHITE0], uint8_t w[13])
             for (k = lo; k < hi && !notes; k++)
                 notes = q->notes[k].step / RFM_MOVE_SEQ_PAGE == i;
             v = i == q->page ? RFMV_WHITE : i >= a && i <= b ? tc : notes ? sc(RFMV_WHITE, 48) : sc(RFMV_WHITE, 6);
+            if (rfmv_seq_src_page(m, clip, i))           /* the page clipboard's source: cut red, copied blinking */
+                v = rfmv_seq_src_page(m, clip, i) == 2 ? sc(RFMV_RED, bl ? 220 : 60) : sc(RFMV_WHITE, bl ? 256 : 30);
         } else if (q->mods & SEQ_M_SHIFT) {             /* the shortcuts */
             if (i == SH_PROJECTS || i == SH_CLOCK || i == SH_FIXVEL || i == SH_DOUBLE || i == SH_QUANT || sh_menu(i) ||
                 i == SH_METRO || i == SH_NEWCLIP)
@@ -1548,11 +1661,6 @@ void rfmv_seq_leds(const rfm_move_t *m, rgb_t c[L_WHITE0], uint8_t w[13])
         c[L_STEP0 + i] = v;
     }
     /* Play, Rec, Sample (the beat) */
-    for (i = 0; i < 4; i++) {                           /* the Track buttons: the bank's tracks (selected full,
-                                                         * the others dim, muted dimmer) */
-        const int tr = q->bank * 4 + i;
-        c[L_TRACK0 + i] = sc(TRACK_RGB[tr], tr == q->sel_track ? 256 : q->tr[tr].mute ? 12 : 48);
-    }
     c[L_PLAY] = q->playing ? RFMV_GREEN : q->start_pending ? sc(RFMV_GREEN, bl ? 256 : 24) : sc(RFMV_WHITE, 40);
     c[L_REC] = q->start_pending == 3 || q->srec == 1 ? sc(RFMV_RED, bl ? 256 : 30)   /* (count-in, Capture armed) */
              : q->rec || q->srec == 2 || q->steprec ? RFMV_RED : sc(RFMV_RED, 30);
@@ -1881,9 +1989,10 @@ static void smenu_screen(const rfm_move_t *m, mr_canvas_t *cv)
     }
     case RFM_MOVE_SM_GROOVE:                            /* two 16ths, the second late by the groove */
         mr_gfx_rect(cv, 8, 10, 4, 26, 1, 1);
-        mr_gfx_rect(cv, 40 + t->groove * 32 / 300, 10, 4, 26, 1, 1);
+        mr_gfx_rect(cv, 40 + rfmv_seq_groove_of(m, q->sel_track) * 32 / 300, 10, 4, 26, 1, 1);
         mr_gfx_rect(cv, 40, 38, 1, 3, 1, 1);
-        snprintf(b, sizeof b, "GROOVE %d%%", t->groove), row2(cv, 44, b);
+        rfmv_big(cv, 80, 14, (t->own & 1) ? "TRK" : "GLB", 2, 1);   /* (whose: the track's own or the project's) */
+        snprintf(b, sizeof b, "GROOVE %d%%", rfmv_seq_groove_of(m, q->sel_track)), row2(cv, 44, b);
         break;
     case RFM_MOVE_SM_LAYOUT:
         for (i = 0; i < 4; i++)
@@ -1899,8 +2008,36 @@ static void smenu_screen(const rfm_move_t *m, mr_canvas_t *cv)
             const int sharp = (0x54A >> i) & 1;
             mr_gfx_rect(cv, 4 + i * 10, 34, 8, sharp ? 6 : 12, 1, i == m->s.root);
         }
+        row2(cv, 48, (t->own & 2) ? "TRACK" : "GLOBAL");
         break;
-    case RFM_MOVE_SM_ARP: {                             /* the pattern's walk over C E G, the mode, the rate */
+    case RFM_MOVE_SM_ARP:
+        if (q->arp_page) {                              /* a lane: its 16 steps (past its length dotted, the picked
+                                                         * one underlined), RESET and the length */
+            static const char *const RS[RFM_MOVE_AR_N] = { "NORM", "NOTE", "MPAT", "TPAT" };
+            static const char MODC[RFM_MOVE_AL_N1 + 1] = "x.-R<>\"#";
+            const rfm_move_arp_t *a = &t->arp;
+            const int L = q->arp_page - 1, len = L ? a->tlen : a->mlen;
+            rfmv_big(cv, 2, 2, L ? "TRANS" : "MOD", 2, 1);
+            snprintf(b, sizeof b, "%s %d", RS[a->reset % RFM_MOVE_AR_N], len), rfmv_big(cv, 68, 2, b, 2, 1);
+            for (i = 0; i < RFM_MOVE_ARP_LANE; i++) {
+                const int x = i * 8, v = a->lane[L][i];
+                if (i >= len) {
+                    rfmv_dotted(cv, x, 24, 7, 28);
+                    continue;
+                }
+                if (L) {                                /* transpose: a bar up or down from the middle */
+                    const int h = clampi(v, -48, 48) * 13 / 48;
+                    mr_gfx_rect(cv, x, 38 - (h > 0 ? h : 0), 7, h > 0 ? h : h < 0 ? -h : 1, 1, 1);
+                } else {
+                    char c[2] = { v < RFM_MOVE_AL_N1 ? MODC[v] : (char)('1' + v - RFM_MOVE_AL_N1), 0 };
+                    mr_gfx_text(cv, x + 1, 34, c, 1);
+                }
+                if (i == q->arp_sel)
+                    mr_gfx_rect(cv, x, 54, 7, 2, 1, 1);
+            }
+            break;
+        }
+    {                             /* the pattern's walk over C E G, the mode, the rate */
         const rfm_move_arp_t *a = &t->arp;
         uint8_t walk[32];
         int n = 0, x;
@@ -1926,6 +2063,8 @@ static void smenu_screen(const rfm_move_t *m, mr_canvas_t *cv)
         rfmv_big(cv, 50, 2, AP_NAMES[a->pat % RFM_MOVE_AP_N], 2, 1);
         snprintf(b, sizeof b, "1/%d", rfmv_seq_arp_rate_of(a->rate)), rfmv_big(cv, 50, 21, b, 2, 1);
         snprintf(b, sizeof b, "%s x%d", AM_NAMES[a->mode % RFM_MOVE_AM_N], a->range), row2(cv, 40, b);
+        if (a->quant)
+            snprintf(b, sizeof b, "Q1/%d", rfmv_seq_arp_rate_of(a->quant - 1)), mr_gfx_text(cv, 92, 56, b, 1);
         break;
     }
     case RFM_MOVE_SM_REC: {                             /* the mode's picture, its name, the style */

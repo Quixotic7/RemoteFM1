@@ -27,7 +27,7 @@ rfmv_rgb_t rfmv_add(rfmv_rgb_t a, rfmv_rgb_t b);
 rfmv_rgb_t rfmv_midi_pad(const rfm_move_t *m, int p, rfmv_rgb_t mode);
 rfmv_rgb_t rfmv_layout_pad(const rfm_move_t *m, int p, rfmv_rgb_t mode);   /* .. as if not pressed */
 int rfmv_track_held(const rfm_move_t *m, int t);
-int rfmv_seq_trk_held(const rfm_move_t *m);            /* the sequencer: a Track button held (its track's settings) */
+int rfmv_seq_trk_held(const rfm_move_t *m);            /* the sequencer: Track 4 held (the tracks, the track's settings) */
 
 /* actions (stamped with m->seq.frame) */
 void rfmv_emit(rfm_move_t *m, uint8_t kind, int index, int down, int vel, int value);
@@ -114,6 +114,9 @@ void rfmv_seq_release(rfm_move_t *m, int track);       /* the track's sounding n
 void rfmv_seq_launch(rfm_move_t *m, int track, int scene);   /* scene -1: stop the track */
 void rfmv_seq_launch_scene(rfm_move_t *m, int scene);
 void rfmv_seq_mute(rfm_move_t *m, int track, int on);
+void rfmv_seq_solo(rfm_move_t *m, int track, int on);
+int rfmv_seq_groove_of(const rfm_move_t *m, int track);   /* Global (the project's) or the track's own */
+int rfmv_seq_audible(const rfm_move_t *m, int track);  /* not muted, and soloed if any track is */
 int rfmv_seq_now_tick(const rfm_move_t *m);            /* the song tick now (rounded to the nearest) */
 int rfmv_seq_clip_pos(const rfm_move_t *m, int track); /* the active clip's step now, -1 not playing */
 int rfmv_seq_clip_tick(const rfm_move_t *m, int track);   /* .. its tick in the clip now, -1 */
@@ -125,11 +128,11 @@ void rfmv_seq_tap(rfm_move_t *m, uint32_t now_ms);
 void rfmv_seq_sample(rfm_move_t *m);                   /* Record (Capture mode, stopped): arm / done at the nearest bar */
 void rfmv_seq_audio_rec(rfm_move_t *m);                /* Sample: the audio loop armed / ended at the next bar */
 void rfmv_seq_ui_poll(rfm_move_t *m);
-void rfmv_seq_track_button(rfm_move_t *m, int t, int down, uint32_t now);   /* Track 1..4 in the sequencer */
 void rfmv_seq_select(rfm_move_t *m, int track);        /* a track selected: its layout and CC numbers in */
 void rfmv_seq_enter(rfm_move_t *m);                    /* Sequencer mode entered / left: the settings swapped */
 void rfmv_seq_leave(rfm_move_t *m);
-void rfmv_seq_sync(rfm_move_t *m);                     /* the selected track's layout and CC numbers from the settings */
+void rfmv_seq_sync(rfm_move_t *m);
+void rfmv_seq_load_track(rfm_move_t *m);              /* .. and back (the selected track's, or Global's) */                     /* the selected track's layout and CC numbers from the settings */
 void rfmv_seq_arp_default(rfm_move_arp_t *a);
 int rfmv_seq_arp_rate_of(int i);                       /* the arp's RATE: notes a bar */
 int rfmv_seq_arp_on(rfm_move_t *m, int note, int vel); /* the selected track's arp takes a pad note: 1 */
@@ -153,6 +156,7 @@ enum { SEQ_MSG_NONE = 0, SEQ_MSG_NOCLIP, SEQ_MSG_FULL, SEQ_MSG_LOADFAIL, SEQ_MSG
 void rfmv_seq_ui_release(rfm_move_t *m);
 int rfmv_seq_src_step(const rfm_move_t *m, int clip, int abs);   /* the clipboard's source: 1 copied, 2 cut, 0 */
 int rfmv_seq_src_clip(const rfm_move_t *m, int clip);
+int rfmv_seq_src_page(const rfm_move_t *m, int clip, int pg);   /* Loop mode's page clipboard: 1 copied, 2 cut */
 int rfmv_pick_layout(rfm_move_t *m, int p);
 int rfmv_seq_len_index(int len);                       /* the TRIG page's lengths: the nearest, the length of */
 int rfmv_seq_len_of(int i);

@@ -163,9 +163,19 @@ enum { RFM_MOVE_AP_UP, RFM_MOVE_AP_DN, RFM_MOVE_AP_UPDN, RFM_MOVE_AP_DNUP, RFM_M
        RFM_MOVE_AP_LO2, RFM_MOVE_AP_RAND, RFM_MOVE_AP_ROTH, RFM_MOVE_AP_RONC, RFM_MOVE_AP_ASP, RFM_MOVE_AP_N };
 enum { RFM_MOVE_AM_OFF, RFM_MOVE_AM_ON, RFM_MOVE_AM_1ST, RFM_MOVE_AM_ONCE, RFM_MOVE_AM_HOLD, RFM_MOVE_AM_N };
 #define RFM_MOVE_ARP_RATES 16
+#define RFM_MOVE_ARP_LANE 16                            /* the arp's MOD and TRANSPOSE lanes' steps */
+enum { RFM_MOVE_AR_NORM, RFM_MOVE_AR_NOTE, RFM_MOVE_AR_MPAT, RFM_MOVE_AR_TPAT, RFM_MOVE_AR_N };   /* RESET */
+/* the MOD lane's values (FIZZ's): as played, rest, tie, repeat, lowest -oct, highest +oct, power chord, every held
+ * note, then the n-th note played (1..6) */
+enum { RFM_MOVE_AL_PLAY, RFM_MOVE_AL_REST, RFM_MOVE_AL_TIE, RFM_MOVE_AL_REPEAT, RFM_MOVE_AL_LO, RFM_MOVE_AL_HI,
+       RFM_MOVE_AL_PWR, RFM_MOVE_AL_CHORD, RFM_MOVE_AL_N1, RFM_MOVE_AL_N = RFM_MOVE_AL_N1 + 6 };
 typedef struct {
     uint8_t pat, rate, range, chance, mode, gate;       /* RFM_MOVE_AP_*, 0..15, 1..8, 0..100, RFM_MOVE_AM_*, 2..200 % */
     int8_t odist;                                       /* the octaves' step, -24..24 semitones */
+    uint8_t quant;                                      /* when a run starts: 0 at once, n: the 1/rate(n-1) grid */
+    uint8_t reset;                                      /* RFM_MOVE_AR_* */
+    uint8_t mlen, tlen;                                 /* the lanes' lengths 1..16 */
+    int8_t lane[2][RFM_MOVE_ARP_LANE];                  /* 0 MOD (RFM_MOVE_AL_*), 1 TRANSPOSE (-48..48) */
 } rfm_move_arp_t;
 /* Shift + step (Ableton Move's printed functions, Move manual: step 1 Set Overview, 2 Setup, 3 Workflow Settings,
  * 5 Tempo, 6 Metronome, 7 Groove, 8 Layout (16 Pitches), 9 Keys & Scales, 10 Full Velocity, 11 Repeat (Arp),
@@ -181,13 +191,16 @@ enum { RFM_MOVE_FN_NONE, RFM_MOVE_FN_RESTART, RFM_MOVE_FN_REVERSE, RFM_MOVE_FN_F
 #define RFM_MOVE_SEQ_BPM10_MIN 200                      /* 20.0 .. 300.0 BPM */
 #define RFM_MOVE_SEQ_BPM10_MAX 3000
 #define RFM_MOVE_PROJECTS 32
-#define RFM_MOVE_PROJECT_VERSION 2                      /* (version 1 blobs load too) */
+#define RFM_MOVE_PROJECT_VERSION 3                      /* (versions 1 and 2 load too) */
 #define RFM_MOVE_AUTOSAVE_MS 2000                       /* an edited project is saved this long after the last edit */
 /* the blob: header 24, tracks 16 x 4, clip lengths 256 x 2, notes 2 + n x 7, locks 2 + n x 4, (version 2) loop
  * starts 256, clips made 32, track rates 16, grooves 16, arps 16 x 7, FNV-1a 4 */
-#define RFM_MOVE_ARP_BYTES 7                            /* a track's arp: pattern rate range chance mode gate odist */
-#define RFM_MOVE_PROJECT_EXT (RFM_MOVE_SEQ_CLIPS + RFM_MOVE_SEQ_CLIPS / 8 + \
-                              RFM_MOVE_SEQ_TRACKS * (2 + RFM_MOVE_ARP_BYTES + 1 + RFM_MOVE_NBANKS * RFM_MOVE_NKNOBS))
+#define RFM_MOVE_ARP_BYTES_V2 7                         /* a track's arp in version 2: pattern rate range chance mode
+                                                         * gate odist */
+#define RFM_MOVE_ARP_BYTES (RFM_MOVE_ARP_BYTES_V2 + 4 + 2 * RFM_MOVE_ARP_LANE)   /* + quant reset mlen tlen, the lanes */
+#define RFM_MOVE_PROJECT_EXT_V2 (RFM_MOVE_SEQ_CLIPS + RFM_MOVE_SEQ_CLIPS / 8 + \
+                                 RFM_MOVE_SEQ_TRACKS * (2 + RFM_MOVE_ARP_BYTES_V2 + 1 + RFM_MOVE_NBANKS * RFM_MOVE_NKNOBS))
+#define RFM_MOVE_PROJECT_EXT (RFM_MOVE_PROJECT_EXT_V2 + RFM_MOVE_SEQ_TRACKS * (RFM_MOVE_ARP_BYTES - RFM_MOVE_ARP_BYTES_V2 + 4))
 #define RFM_MOVE_PROJECT_FIXED (24 + RFM_MOVE_SEQ_TRACKS * 4 + RFM_MOVE_SEQ_CLIPS * 2 + 2 + 2 + RFM_MOVE_PROJECT_EXT + 4)
 #define RFM_MOVE_PROJECT_MAX (RFM_MOVE_PROJECT_FIXED + RFM_MOVE_SEQ_NOTES * 7 + RFM_MOVE_SEQ_LOCKS * 4)
 enum { RFM_MOVE_CLOCK_AUTO = 0, RFM_MOVE_CLOCK_INTERNAL = 1, RFM_MOVE_CLOCK_EXTERNAL = 2 };
@@ -214,6 +227,10 @@ typedef struct {
     uint8_t groove;                                     /* (saved) Move's groove 0..150 %: 100 = a triplet swing */
     rfm_move_arp_t arp;                                 /* (saved) */
     uint8_t layout;                                     /* (saved) the pads' layout on this track */
+    uint8_t own;                                        /* (saved) bits: 1 its own groove, 2 its own key and scale
+                                                         * (else the project's: Global) */
+    uint8_t root, scale;                                /* (saved) its own key and scale */
+    uint8_t solo;                                       /* (saved) */
     uint8_t cc[RFM_MOVE_NBANKS][RFM_MOVE_NKNOBS];       /* (saved) its knobs' CC numbers, bank by bank */
     int32_t t0;                                         /* the song tick the active clip started at */
     /* the playhead (the engine's) */
@@ -268,6 +285,18 @@ typedef struct {
     uint32_t rng;                                       /* chance, random functions */
     uint32_t lead_us;                                   /* the host runs the clock this far ahead of what sounds */
     uint8_t metro;                                      /* the metronome (off at first) */
+    uint8_t groove, root, scale;                        /* (saved) the project's (Global) groove, key and scale */
+    uint8_t arp_page, arp_sel;                          /* the arp menu's page (0 ARP, 1 its MOD lane, 2 TRANSPOSE),
+                                                         * the lane step selected */
+    uint32_t tstep_held;                                /* Track 4 held: the track steps down (tap / hold / double) */
+    int8_t tstep_tap;                                   /* .. the last tapped, for a double tap */
+    uint32_t tstep_tap_ms;
+    /* Loop mode's pages: their own clipboard (cut / copy / paste a page as a step) */
+    uint8_t pg_kind, pg_src;                            /* 0 empty, 1 copied, 2 cut; the page it came from */
+    uint8_t pg_clip;
+    uint16_t pg_nn, pg_nl;
+    rfm_move_note_t pg_notes[RFM_MOVE_SEQ_POLY * RFM_MOVE_SEQ_PAGE];
+    rfm_move_lock_t pg_locks[RFM_MOVE_SEQ_PAGE * 40];
     uint8_t rec_mode, rec_style;                        /* (saved) RFM_MOVE_RM_*, RFM_MOVE_RS_* */
     uint8_t steprec;                                    /* Step mode on: the cursor's step gets what is played */
     int16_t step_cur;                                   /* .. the cursor (a step of the edited clip) */
@@ -283,11 +312,14 @@ typedef struct {
                                                          * Loop's latch, Shift's lock, the clipboard's marks) */
     uint8_t in_seq;                                     /* the settings hold the selected track's layout / CCs */
     uint8_t stash_layout, stash_cc[RFM_MOVE_NBANKS][RFM_MOVE_NKNOBS];   /* .. MIDI / Control mode's, meanwhile */
+    uint8_t stash_root, stash_scale;
     uint32_t shift_ms;                                  /* .. its last press */
     /* the arp (the selected track's pads) */
     uint8_t arp_n, arp_down, arp_run, arp_track, arp_nseq, arp_last;
     uint8_t arp_pitch[8], arp_vel[8], arp_ord[8], arp_seq[32];
-    uint16_t arp_pos, arp_oct, arp_steps;
+    uint16_t arp_pos, arp_oct, arp_steps, arp_mpos, arp_tpos;
+    uint8_t arp_lastn, arp_lastp[8];
+    uint8_t jr_n, jr_clip[8], jr_note[8];              /* the arp's notes just recorded (not played twice) */
     int32_t arp_next, arp_k, arp_t0;
     uint16_t rec_group;
     rfm_move_recnote_t recn[RFM_MOVE_NPADS];            /* notes being recorded, by pad */

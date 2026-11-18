@@ -4,7 +4,7 @@
  * host stores them in (the core asks with actions; it never does IO). A blob may come from a file someone sent:
  * rfm_move_project_check reads nothing past n and accepts only a blob every field of which is in range.
  *
- *   0  "RMSQ"  4 version (2; 1 loads: no extension)  5 flags (0)  6 bpm10 u16  8 clock mode  9 fixed velocity  10 selected track
+ *   0  "RMSQ"  4 version (3; 2 loads: a shorter arp, no per-track key; 1 loads: no extension)  5 flags (0)  6 bpm10 u16  8 clock mode  9 fixed velocity  10 selected track
  *   11 tracks (16)  12 scenes (16)  13 record mode (RFM_MOVE_RM_*)  14 record style (RFM_MOVE_RS_*)  15..23 zero
  *   24 16 tracks x { channel 0..15, mute 0/1, active clip 0..15 or 255, edited clip 0..15 }
  *   88 256 clip lengths u16 (1..256 steps), clip id = track * 16 + scene
@@ -52,6 +52,7 @@ int rfm_move_project_save(rfm_move_t *m, uint8_t *out, uint32_t cap)
     w16(p + 6, q->bpm10);
     p[8] = q->clock_mode, p[9] = q->fixed_vel, p[10] = q->sel_track;
     p[13] = q->rec_mode, p[14] = q->rec_style;          /* (version 2) */
+    p[15] = q->groove, p[16] = q->root, p[17] = q->scale;   /* (version 3: the Global groove, key and scale) */
     p[11] = RFM_MOVE_SEQ_TRACKS, p[12] = RFM_MOVE_SEQ_SCENES;
     p += HDR;
     for (i = 0; i < RFM_MOVE_SEQ_TRACKS; i++, p += 4)
@@ -77,10 +78,13 @@ int rfm_move_project_save(rfm_move_t *m, uint8_t *out, uint32_t cap)
     for (i = 0; i < RFM_MOVE_SEQ_TRACKS; i++, p += RFM_MOVE_ARP_BYTES) {
         const rfm_move_arp_t *a = &q->tr[i].arp;
         p[0] = a->pat, p[1] = a->rate, p[2] = a->range, p[3] = a->chance, p[4] = a->mode, p[5] = a->gate;
-        p[6] = (uint8_t)a->odist;
+        p[6] = (uint8_t)a->odist, p[7] = a->quant, p[8] = a->reset, p[9] = a->mlen, p[10] = a->tlen;
+        memcpy(p + 11, a->lane, sizeof a->lane);
     }
     for (i = 0; i < RFM_MOVE_SEQ_TRACKS; i++, p += 1 + sizeof q->tr[i].cc)
         p[0] = q->tr[i].layout, memcpy(p + 1, q->tr[i].cc, sizeof q->tr[i].cc);
+    for (i = 0; i < RFM_MOVE_SEQ_TRACKS; i++, p += 4)
+        p[0] = q->tr[i].own, p[1] = q->tr[i].root, p[2] = q->tr[i].scale, p[3] = q->tr[i].solo;
     w32(p, fnv(out, (uint32_t)(p - out)));
     p += 4;
     return (int)(p - out);
@@ -103,7 +107,7 @@ static int trig_ok(int cc, int v)
 /* every check; q NULL: only check. 0 ok */
 static int parse(const uint8_t *b, uint32_t n, rfm_move_seq_t *q)
 {
-    uint32_t nn, nl, offl, i, prev, ext, fixed;
+    uint32_t nn, nl, offl, i, prev, ext, fixed, ab;
     const uint8_t *p, *x;
     int ver;
     if (!b || n < 5 || n > RFM_MOVE_PROJECT_MAX)
@@ -111,9 +115,10 @@ static int parse(const uint8_t *b, uint32_t n, rfm_move_seq_t *q)
     if (memcmp(b, "RMSQ", 4))
         return -1;
     ver = b[4];
-    if (ver != 1 && ver != RFM_MOVE_PROJECT_VERSION)
+    if (ver < 1 || ver > RFM_MOVE_PROJECT_VERSION)
         return -2;
-    ext = ver >= 2 ? RFM_MOVE_PROJECT_EXT : 0;
+    ext = ver >= 3 ? RFM_MOVE_PROJECT_EXT : ver == 2 ? RFM_MOVE_PROJECT_EXT_V2 : 0;
+    ab = ver >= 3 ? RFM_MOVE_ARP_BYTES : RFM_MOVE_ARP_BYTES_V2;   /* (an arp's bytes) */
     fixed = RFM_MOVE_PROJECT_FIXED - RFM_MOVE_PROJECT_EXT + ext;
     if (n < fixed)
         return -1;
@@ -132,7 +137,8 @@ static int parse(const uint8_t *b, uint32_t n, rfm_move_seq_t *q)
     if (r32(b + n - 4) != fnv(b, n - 4))
         return -5;
     if (r16(b + 6) < RFM_MOVE_SEQ_BPM10_MIN || r16(b + 6) > RFM_MOVE_SEQ_BPM10_MAX || b[8] > RFM_MOVE_CLOCK_EXTERNAL ||
-        b[9] > 1 || b[10] >= RFM_MOVE_SEQ_TRACKS || b[13] >= RFM_MOVE_RM_N || b[14] >= RFM_MOVE_RS_N)
+        b[9] > 1 || b[10] >= RFM_MOVE_SEQ_TRACKS || b[13] >= RFM_MOVE_RM_N || b[14] >= RFM_MOVE_RS_N || b[15] > 150 ||
+        b[16] > 11 || b[17] >= RFM_MOVE_NSCALES)
         return -6;
     for (i = 0, p = b + OFF_TRACKS; i < RFM_MOVE_SEQ_TRACKS; i++, p += 4)
         if (p[0] > 15 || p[1] > 1 || (p[2] != 255 && p[2] >= RFM_MOVE_SEQ_SCENES) || p[3] >= RFM_MOVE_SEQ_SCENES)
@@ -169,14 +175,29 @@ static int parse(const uint8_t *b, uint32_t n, rfm_move_seq_t *q)
                 return -9;
         for (i = 0; i < RFM_MOVE_SEQ_TRACKS; i++) {
             const uint8_t *r = x + RFM_MOVE_SEQ_CLIPS + RFM_MOVE_SEQ_CLIPS / 8;
-            const uint8_t *a = r + 2 * RFM_MOVE_SEQ_TRACKS + i * RFM_MOVE_ARP_BYTES;
+            const uint8_t *a = r + 2 * RFM_MOVE_SEQ_TRACKS + i * ab;
+            int k;
             if (r[i] >= RFM_MOVE_SEQ_RATES || r[RFM_MOVE_SEQ_TRACKS + i] > 150 || a[0] >= RFM_MOVE_AP_N ||
                 a[1] >= RFM_MOVE_ARP_RATES || a[2] < 1 || a[2] > 8 || a[3] > 100 || a[4] >= RFM_MOVE_AM_N || a[5] < 2 ||
                 a[5] > 200 || (int8_t)a[6] < -24 || (int8_t)a[6] > 24)
                 return -9;
+            if (ver >= 3) {                             /* quant reset mlen tlen, the lanes */
+                if (a[7] > 16 || a[8] >= RFM_MOVE_AR_N || a[9] < 1 || a[9] > 16 || a[10] < 1 || a[10] > 16)
+                    return -9;
+                for (k = 0; k < RFM_MOVE_ARP_LANE; k++)
+                    if (a[11 + k] >= RFM_MOVE_AL_N || (int8_t)a[11 + RFM_MOVE_ARP_LANE + k] < -48 ||
+                        (int8_t)a[11 + RFM_MOVE_ARP_LANE + k] > 48)
+                        return -9;
+            }
         }
+        if (ver >= 3)
+            for (i = 0; i < RFM_MOVE_SEQ_TRACKS; i++) { /* (own, root, scale, solo) */
+                const uint8_t *o = x + RFM_MOVE_PROJECT_EXT_V2 + (RFM_MOVE_ARP_BYTES - RFM_MOVE_ARP_BYTES_V2) * RFM_MOVE_SEQ_TRACKS + i * 4;
+                if (o[0] > 3 || o[1] > 11 || o[2] >= RFM_MOVE_NSCALES || o[3] > 1)
+                    return -9;
+            }
         for (i = 0; i < RFM_MOVE_SEQ_TRACKS; i++) {      /* (each track's layout and CC numbers) */
-            const uint8_t *l = x + RFM_MOVE_SEQ_CLIPS + RFM_MOVE_SEQ_CLIPS / 8 + RFM_MOVE_SEQ_TRACKS * (2 + RFM_MOVE_ARP_BYTES) +
+            const uint8_t *l = x + RFM_MOVE_SEQ_CLIPS + RFM_MOVE_SEQ_CLIPS / 8 + RFM_MOVE_SEQ_TRACKS * (2 + ab) +
                                i * (1 + RFM_MOVE_NBANKS * RFM_MOVE_NKNOBS);
             int k;
             if (l[0] > RFM_MOVE_LAYOUT_OCTAVE)
@@ -190,6 +211,8 @@ static int parse(const uint8_t *b, uint32_t n, rfm_move_seq_t *q)
         return 0;
     q->bpm10 = (uint16_t)r16(b + 6), q->clock_mode = b[8], q->fixed_vel = b[9], q->sel_track = b[10];
     q->rec_mode = b[13], q->rec_style = b[14];
+    if (ver >= 3)                                       /* (older: the key and scale MIDI mode has now) */
+        q->groove = b[15], q->root = b[16], q->scale = b[17];
     for (i = 0, p = b + OFF_TRACKS; i < RFM_MOVE_SEQ_TRACKS; i++, p += 4) {
         q->tr[i].ch = p[0], q->tr[i].mute = p[1], q->tr[i].active = (int8_t)(p[2] == 255 ? -1 : p[2]);
         q->tr[i].sel = (int8_t)p[3];
@@ -211,18 +234,29 @@ static int parse(const uint8_t *b, uint32_t n, rfm_move_seq_t *q)
         memcpy(q->made, x + RFM_MOVE_SEQ_CLIPS, sizeof q->made);
         for (i = 0; i < RFM_MOVE_SEQ_TRACKS; i++) {
             const uint8_t *r = x + RFM_MOVE_SEQ_CLIPS + RFM_MOVE_SEQ_CLIPS / 8;
-            const uint8_t *a = r + 2 * RFM_MOVE_SEQ_TRACKS + i * RFM_MOVE_ARP_BYTES;
+            const uint8_t *a = r + 2 * RFM_MOVE_SEQ_TRACKS + i * ab;
             rfm_move_arp_t *o = &q->tr[i].arp;
             q->tr[i].rate = r[i], q->tr[i].groove = r[RFM_MOVE_SEQ_TRACKS + i];
             o->pat = a[0], o->rate = a[1], o->range = a[2], o->chance = a[3], o->mode = a[4], o->gate = a[5];
             o->odist = (int8_t)a[6];
+            if (ver >= 3) {
+                o->quant = a[7], o->reset = a[8], o->mlen = a[9], o->tlen = a[10];
+                memcpy(o->lane, a + 11, sizeof o->lane);
+            }
+            if (ver == 2 && q->tr[i].groove)
+                q->tr[i].own |= 1;                      /* (version 2's grooves were the tracks' own) */
         }
         for (i = 0; i < RFM_MOVE_SEQ_TRACKS; i++) {
-            const uint8_t *l = x + RFM_MOVE_SEQ_CLIPS + RFM_MOVE_SEQ_CLIPS / 8 + RFM_MOVE_SEQ_TRACKS * (2 + RFM_MOVE_ARP_BYTES) +
+            const uint8_t *l = x + RFM_MOVE_SEQ_CLIPS + RFM_MOVE_SEQ_CLIPS / 8 + RFM_MOVE_SEQ_TRACKS * (2 + ab) +
                                i * (1 + RFM_MOVE_NBANKS * RFM_MOVE_NKNOBS);
             q->tr[i].layout = l[0];
             memcpy(q->tr[i].cc, l + 1, sizeof q->tr[i].cc);
         }
+        if (ver >= 3)
+            for (i = 0; i < RFM_MOVE_SEQ_TRACKS; i++) {
+                const uint8_t *o = x + RFM_MOVE_PROJECT_EXT_V2 + (RFM_MOVE_ARP_BYTES - RFM_MOVE_ARP_BYTES_V2) * RFM_MOVE_SEQ_TRACKS + i * 4;
+                q->tr[i].own = o[0], q->tr[i].root = o[1], q->tr[i].scale = o[2], q->tr[i].solo = o[3];
+            }
     } else {                                            /* version 1: loops from step 1, clips with notes, 1/16 */
         memset(q->lstart, 0, sizeof q->lstart);
         memset(q->made, 0, sizeof q->made);
@@ -310,10 +344,7 @@ int rfm_move_project_load(rfm_move_t *m, int slot, const uint8_t *b, uint32_t n)
     if (q->clock_mode == RFM_MOVE_CLOCK_INTERNAL)
         q->following = 0;
     q->bank = (uint8_t)(q->sel_track / 4);
-    if (q->in_seq) {                                    /* (the selected track's layout and CC numbers) */
-        m->s.layout = q->tr[q->sel_track].layout;
-        memcpy(m->s.cc, q->tr[q->sel_track].cc, sizeof m->s.cc);
-    }
+    rfmv_seq_load_track(m);                             /* (the selected track's layout, CC numbers, key) */
     q->proj_cur = (int8_t)slot, q->proj_pending = -1, q->projects = 0;
     q->dirty = 0;
     info_live(q, &q->info[slot]);

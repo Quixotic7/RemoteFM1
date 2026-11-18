@@ -359,7 +359,7 @@ int rfmv_pick_layout(rfm_move_t *m, int p)
 
 static int midi_mode(const rfm_move_t *m) { return m->s.mode != RFM_MOVE_MODE_FM1; }
 int rfmv_track_held(const rfm_move_t *m, int t) { return (m->track_held >> t) & 1; }
-int rfmv_seq_trk_held(const rfm_move_t *m) { return m->s.mode == RFM_MOVE_MODE_SEQ && (m->track_held & 15) != 0; }
+int rfmv_seq_trk_held(const rfm_move_t *m) { return m->s.mode == RFM_MOVE_MODE_SEQ && rfmv_track_held(m, 3); }
 #define track_held(m, t) rfmv_track_held(m, t)
 static int cc_mode(const rfm_move_t *m) { return m->s.mode == RFM_MOVE_MODE_CONTROL || m->s.mode == RFM_MOVE_MODE_SEQ; }
 
@@ -380,8 +380,8 @@ static void on_pad(rfm_move_t *m, int p, int vel, uint32_t now)
         return;
     m->pad_down[p] = 1;
     h->kind = H_NONE;
-    if ((track_held(m, 1) && m->s.mode != RFM_MOVE_MODE_SEQ) || rfmv_seq_trk_held(m)) {   /* Track 2 held (the
-                                                         * sequencer: any Track button): the layout, the scale */
+    if (track_held(m, 1) || rfmv_seq_trk_held(m)) {    /* Track 2 held (the sequencer: Track 4): the layout, the
+                                                         * scale */
         h->kind = H_MENU;
         rfmv_pick_layout(m, p);
         return;
@@ -434,7 +434,7 @@ static void on_step(rfm_move_t *m, int s, int down, uint32_t now)
     }
     if (h->kind != H_NONE)
         return;
-    if (track_held(m, 1) && m->s.mode != RFM_MOVE_MODE_SEQ) {   /* Track 2 held: steps 1..16 = the MIDI channel */
+    if (track_held(m, 1)) {                             /* Track 2 held: steps 1..16 = the MIDI channel */
         h->kind = H_MENU;
         rfmv_menu(m, MENU_CHANNEL, s);
         if (m->s.channel != s) {
@@ -456,12 +456,6 @@ static void on_button(rfm_move_t *m, int cc, int down, uint32_t now)
     int b;
     if (cc >= MR_CC_TRACK4 && cc <= MR_CC_TRACK1) {
         const int t = MR_CC_TRACK1 - cc;
-        if (m->s.mode == RFM_MOVE_MODE_SEQ) {           /* the sequencer: the Track buttons are its tracks (a bank
-                                                         * of 4; Shift + Track n: bank n) */
-            m->track_held = (uint8_t)(down ? m->track_held | 1u << t : m->track_held & ~(1u << t));
-            rfmv_seq_track_button(m, t, down, now);
-            return;
-        }
         if (down) {
             rfm_move_set_mode(m, t);
             rfmv_menu(m, MENU_NONE, 0);
@@ -555,7 +549,7 @@ static void on_jog(rfm_move_t *m, int d, uint32_t now)
 {
     if (!d)
         return;
-    if (track_held(m, 1) && m->s.mode != RFM_MOVE_MODE_SEQ) {   /* Track 2 held: the root */
+    if (track_held(m, 1)) {                             /* Track 2 held: the root */
         const int r = ((m->s.root + d) % 12 + 12) % 12;
         rfmv_menu(m, MENU_ROOT, r);
         if (r != m->s.root) {
@@ -747,7 +741,7 @@ rgb_t rfmv_layout_pad(const rfm_move_t *m, int p, rgb_t mode)
 static void wanted(const rfm_move_t *m, uint8_t w[RFM_MOVE_NLEDS][3])
 {
     const rgb_t mode = MODE_RGB[m->s.mode & 3];
-    const int t2 = track_held(m, 1) && m->s.mode != RFM_MOVE_MODE_SEQ, fm1 = !midi_mode(m);
+    const int t2 = track_held(m, 1), fm1 = !midi_mode(m);
     rgb_t c[L_WHITE0];
     uint8_t wv[13];
     int i;

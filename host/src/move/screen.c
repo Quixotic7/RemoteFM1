@@ -463,7 +463,12 @@ static void loop_popup(const rfm_move_t *m, mr_canvas_t *cv)
         fill(cv, x0, 24, 1, 7, 1), fill(cv, x1 - 1 > x0 ? x1 - 1 : x0, 24, 1, 7, 1);
     }
     for (i = 0; i < RFM_MOVE_SEQ_PAGES; i++) {
-        mr_gfx_rect(cv, 4 + i * 7 + 1, 34, 6, 12, 1, i >= pa && i <= pb);
+        if (rfmv_seq_src_page(m, SEQ_CLIP(q->sel_track, q->tr[q->sel_track].sel), i) == 2)
+            rfmv_xbox(cv, 4 + i * 7 + 1, 34, 6, 12);    /* (the page cut) */
+        else if (rfmv_seq_src_page(m, SEQ_CLIP(q->sel_track, q->tr[q->sel_track].sel), i) == 1)
+            rfmv_dotted(cv, 4 + i * 7 + 1, 34, 6, 12);  /* (copied) */
+        else
+            mr_gfx_rect(cv, 4 + i * 7 + 1, 34, 6, 12, 1, i >= pa && i <= pb);
         if (i == q->page)
             fill(cv, 4 + i * 7 + 1, 49, 6, 2, 1);
     }
@@ -835,8 +840,6 @@ void rfm_move_screen(rfm_move_t *m, const uint16_t *rgb565, uint8_t out[MR_SCREE
         thumb_from(m, rgb565);
     mr_gfx_clear(&cv, 0);
     for (t = 1; t < 4 && !rfmv_track_held(m, t); t++) {}   /* (Track 1 has no menu: FM-1 mode stays in view) */
-    if (m->s.mode == RFM_MOVE_MODE_SEQ)
-        t = rfmv_seq_trk_held(m) ? 3 : 4;               /* (the sequencer: any Track button, its track's menu) */
     if (t < 4) {
         held_menu(m, &cv, t);
         mr_gfx_pack(&cv, out);
