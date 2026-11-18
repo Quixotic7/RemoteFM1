@@ -2020,7 +2020,9 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
     w.T().out.length = 0;
     w.clock.advance(1000);
     ok(w.types().includes(0x88), "MoveLink: PING every second");
-    w.dev(L.frame(L.MR.D_STATUS, new Uint8Array(32)));
+    ok(w.link.core.battery === -1, "MoveLink: the Move's battery unknown before its first STATUS");
+    { const st = new Uint8Array(32); st[4] = 57; st[5] = 0; w.dev(L.frame(L.MR.D_STATUS, st)); }
+    ok(w.link.core.battery === 57 && w.link.status.battery === 57, "MoveLink: STATUS byte 4 (battery 57) into the core (the Global Settings menu)");
 
     // settings: Track 2 (MIDI mode), its layout and a note to the firmware's MIDI in; kept in prefs
     w.input(cc(42, 127), cc(42, 0));

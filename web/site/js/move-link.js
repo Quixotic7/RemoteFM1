@@ -332,7 +332,12 @@ export class MoveLink {
     if (type === MR.D_HELLO) return this.onHello(parseHello(p));
     if (type === MR.D_BYE) return this.onBye(p.length ? p[0] : 0);
     if (type === MR.D_PONG) { this.stats.pongs++; return; }
-    if (type === MR.D_STATUS) { if (p.length >= 32) this.status = { battery: p[4], jacks: p[6], ledPending: u16(p, 24) }; return; }
+    if (type === MR.D_STATUS) {
+      if (p.length < 32) return;
+      this.status = { battery: p[4], power: p[5], jacks: p[6], ledPending: u16(p, 24) };
+      if (this.core && this.core.setBattery(p[4], p[5])) this.screenSoon();   // (the Global Settings menu shows it)
+      return;
+    }
     if (type !== MR.D_INPUT || !this.live) return;
     this.pump();
     const c = this.o.controls, now = this.now() >>> 0;

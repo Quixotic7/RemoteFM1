@@ -36,6 +36,7 @@ static int sh_menu(int s)                               /* the menu a Shift + st
     case SH_KEYS: return RFM_MOVE_SM_KEYS;
     case SH_ARP: return RFM_MOVE_SM_ARP;
     case SH_FIXVEL: return RFM_MOVE_SM_VEL;
+    case SH_CLOCK: return RFM_MOVE_SM_GLOBAL;
     default: return 0;
     }
 }
@@ -59,7 +60,7 @@ void rfmv_shift_icons(const rfm_move_t *m, uint8_t icon[16])
 
 static int sh_step(int menu)
 {
-    static const int8_t S[] = { -1, SH_WORKFLOW, SH_TEMPO, SH_GROOVE, SH_LAYOUT, SH_KEYS, SH_ARP, -1, SH_FIXVEL };
+    static const int8_t S[] = { -1, SH_WORKFLOW, SH_TEMPO, SH_GROOVE, SH_LAYOUT, SH_KEYS, SH_ARP, -1, SH_FIXVEL, SH_CLOCK };
     return menu > 0 && menu < (int)sizeof S ? S[menu] : -1;
 }
 
@@ -747,10 +748,6 @@ void rfmv_seq_step(rfm_move_t *m, int s, int down, uint32_t now)
             if (rfmv_seq_clip_double(m, clip) == 0)
                 rfmv_seq_msg(m, SEQ_MSG_DOUBLE);
             break;
-        case SH_CLOCK:
-            rfm_move_seq_set_clock(m, (q->clock_mode + 1) % 3);
-            rfmv_seq_msg(m, SEQ_MSG_CLK_AUTO + q->clock_mode % 3);
-            break;
         default: break;
         }
         return;
@@ -1297,6 +1294,7 @@ static int smenu_list(const rfm_move_seq_t *q, int k)
             return (k == 0 && q->arp_page == 1) || k == 1 || k == 2;
         return k == 0 || k == 1 || k == 2 || k == 4 || k == 7;
     case RFM_MOVE_SM_REC: return k <= 1;
+    case RFM_MOVE_SM_GLOBAL: return k <= 1;
     default: return 0;
     }
 }
@@ -1402,6 +1400,15 @@ static void smenu_turn(rfm_move_t *m, int k, int d)
         case 7: a->quant = (uint8_t)clampi(a->quant + d, 0, 16); break;
         default: break;
         }
+        break;
+    case RFM_MOVE_SM_GLOBAL:                            /* the jog or knob 1: the clock source; knob 2: the velocity
+                                                         * option; knob 3: its level */
+        if (k <= 0)
+            rfm_move_seq_set_clock(m, clampi(q->clock_mode + d, 0, 2));
+        else if (k == 1)
+            m->s.vel_mode = (uint8_t)clampi(m->s.vel_mode + d, 0, RFM_MOVE_VEL_N - 1), rfmv_changed(m);
+        else if (k == 2)
+            m->s.vel_level = (uint8_t)clampi(m->s.vel_level + d, 1, 127), rfmv_changed(m);
         break;
     case RFM_MOVE_SM_VEL:                               /* the jog: the option (1:1, four); knob 1: the level */
         if (k < 0)
@@ -2157,6 +2164,27 @@ static void smenu_screen(const rfm_move_t *m, mr_canvas_t *cv)
         snprintf(b, sizeof b, "%s x%d", AM_NAMES[a->mode % RFM_MOVE_AM_N], a->range), row2(cv, 40, b);
         if (a->quant)
             snprintf(b, sizeof b, "Q1/%d", rfmv_seq_arp_rate_of(a->quant - 1)), mr_gfx_text(cv, 92, 56, b, 1);
+        break;
+    }
+    case RFM_MOVE_SM_GLOBAL: {                          /* the Move's battery on top (an icon filled, the %; "--"
+                                                         * until its first STATUS), then the settings */
+        static const char *const CK[3] = { "AUTO", "INT", "EXT" };
+        const int bt = m->battery;
+        mr_gfx_rect(cv, 2, 1, 24, 12, 1, 0);
+        mr_gfx_rect(cv, 26, 4, 3, 6, 1, 1);
+        if (bt > 0)
+            mr_gfx_rect(cv, 4, 3, (bt * 20 + 99) / 100, 8, 1, 1);
+        if (bt >= 0)
+            snprintf(b, sizeof b, "%d%%", bt);
+        else
+            snprintf(b, sizeof b, "--");
+        rfmv_big(cv, 34, 1, b, 2, 1);
+        if (m->power & 0x08)
+            mr_gfx_text(cv, 96, 4, "PWR", 1);           /* (the power button held) */
+        mr_gfx_rect(cv, 0, 16, 128, 1, 1, 1);
+        snprintf(b, sizeof b, "CLOCK %s%s", CK[q->clock_mode % 3], q->following ? "*" : ""), row2(cv, 20, b);
+        snprintf(b, sizeof b, "VEL %s", rfm_move_vel_name(m->s.vel_mode)), row2(cv, 38, b);
+        snprintf(b, sizeof b, "%d", m->s.vel_level), mr_gfx_text(cv, 104, 52, b, 1);
         break;
     }
     case RFM_MOVE_SM_VEL: {                             /* the curve (played in, out: FIXED a flat line), the

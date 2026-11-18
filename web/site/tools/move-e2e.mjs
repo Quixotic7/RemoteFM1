@@ -224,6 +224,8 @@ try {
   ok(typeof (await js("JSON.parse(localStorage.getItem('remotefm1-player')).move")) === "string", "the Move's settings kept in the page's prefs");
   await press("cc 43 127\ncc 43 0", 300);
   ok((await js("FM1Move.core.state().mode")) === 0, "Track 1: FM-1 mode again");
+  ok(await untilNode(async () => (await js("FM1Move.core.battery")) === (await js("FM1Move.status && FM1Move.status.battery")), 2000) &&
+     (await js("FM1Move.core.battery")) >= 0, `the simulator's STATUS: its battery in the core (${await js("FM1Move.core.battery")})`);
 
   // 3b. Track 4: the sequencer, timed by the audio clock; 8 bars of 16ths at 120 BPM; the engine-side arrival of each
   await press("cc 40 127\ncc 40 0", 300);

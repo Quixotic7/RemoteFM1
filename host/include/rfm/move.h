@@ -199,7 +199,7 @@ typedef struct {
  * 5 Tempo, 6 Metronome, 7 Groove, 8 Layout (16 Pitches), 9 Keys & Scales, 10 Velocity (a menu), 11 Repeat (Arp),
  * 14 New Clip, 15 Double Loop, 16 Quantize); the menus they open (rfm_move_seq_t.smenu) */
 enum { RFM_MOVE_SM_NONE, RFM_MOVE_SM_WORKFLOW, RFM_MOVE_SM_TEMPO, RFM_MOVE_SM_GROOVE, RFM_MOVE_SM_LAYOUT,
-       RFM_MOVE_SM_KEYS, RFM_MOVE_SM_ARP, RFM_MOVE_SM_REC, RFM_MOVE_SM_VEL };
+       RFM_MOVE_SM_KEYS, RFM_MOVE_SM_ARP, RFM_MOVE_SM_REC, RFM_MOVE_SM_VEL, RFM_MOVE_SM_GLOBAL };
 /* the record settings (Shift + Record; saved): what Record does, and how a live take meets what is there */
 enum { RFM_MOVE_RM_CAPTURE, RFM_MOVE_RM_RECORD, RFM_MOVE_RM_STEP, RFM_MOVE_RM_N };
 enum { RFM_MOVE_RS_OVERDUB, RFM_MOVE_RS_REPLACE, RFM_MOVE_RS_N };
@@ -417,6 +417,8 @@ typedef struct {
     uint8_t track_held;                                 /* bit t: Track t + 1 held */
     uint8_t cc_val[RFM_MOVE_NBANKS][RFM_MOVE_NKNOBS];   /* Control mode's values (not saved), 64 at first */
     uint16_t master;                                    /* MASTER as the host last said or the volume knob set */
+    int16_t battery;                                    /* the Move's battery, 0..100 %, from its STATUS; -1 not yet */
+    uint8_t power;                                      /* its power bits (STATUS byte 5; bit 3: the power button held) */
     int8_t edit_pad;                                    /* the drum pad the jog wheel is editing, -1 none */
     uint8_t shift_down;                                 /* Shift is down (MIDI mode: Shift + step 9) */
     int8_t knob_acc[RFM_MOVE_NKNOBS];
@@ -453,6 +455,9 @@ void rfm_move_release_all(rfm_move_t *m);
 void rfm_move_set_mode(rfm_move_t *m, int mode);       /* as a Track button does (releases all on a change) */
 void rfm_move_set_scale(rfm_move_t *m, int scale, int root);
 void rfm_move_set_master(rfm_move_t *m, int value);    /* MASTER as the host has it (the volume knob moves from it) */
+/* the Move's battery from Move Remote's STATUS (battery8, byte 4, as the surface reports it: taken as a percentage,
+ * clamped to 100; power8, byte 5); shown in the Global Settings menu. Returns 1 when it changed (a redraw) */
+int rfm_move_set_battery(rfm_move_t *m, int battery, int power_bits);
 /* a knob's label from the firmware (fm1core labels: by encoder, RFM_MOVE_E_MASTER for MASTER); NULL or "" = default */
 void rfm_move_set_label(rfm_move_t *m, int enc, const char *text);
 /* the panel's wiring (FM1P_KEYMAP_INIT's shape: id at [row][col], rows 1..4 = LED lines 0..3); NULL = the FM-1's */

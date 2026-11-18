@@ -94,6 +94,7 @@ static void step(rfm_move_t *m, int s, int down) { raw(m, down ? 0x90 : 0x80, (u
 static void tap_step(rfm_move_t *m, int s) { step(m, s, 1), step(m, s, 0); }
 static void button(rfm_move_t *m, int cc, int down) { raw(m, 0xB0, (uint8_t)cc, down ? 127 : 0); }
 static void write_pbm(const char *path, const uint8_t *packed);
+static int px_at(const uint8_t *packed, int x, int y);
 static void press(rfm_move_t *m, int cc) { button(m, cc, 1), button(m, cc, 0); }
 static void knob(rfm_move_t *m, int k, int d) { raw(m, 0xB0, (uint8_t)(MR_CC_KNOB1 + k), (uint8_t)(d & 127)); }
 static void jog(rfm_move_t *m, int d) { raw(m, 0xB0, MR_CC_JOG, (uint8_t)(d & 127)); }
@@ -489,9 +490,31 @@ static void test_external(void)
         adv(m, RATE);
         CHECK(m->seq.tl <= tl + 3 && rfm_move_seq_following(m));   /* no clock: no ticks, no timeout */
     }
-    /* Shift + step 2 (Move's Setup) cycles the clock source */
+    /* Shift + step 2 (Move's Setup): the Global Settings menu, sticky: the jog the clock source, knob 2 the velocity
+     * option, knob 3 its level; the Move's battery on top ("--" until its first STATUS) */
     button(m, MR_CC_SHIFT, 1), tap_step(m, 1), button(m, MR_CC_SHIFT, 0);
+    CHECK(m->seq.smenu == RFM_MOVE_SM_GLOBAL && m->seq.clock_mode == RFM_MOVE_CLOCK_EXTERNAL);
+    jog(m, -2);
     CHECK(m->seq.clock_mode == RFM_MOVE_CLOCK_AUTO);
+    knob(m, 1, RFM_MOVE_LIST_TICKS), knob(m, 2, -7);
+    CHECK(m->s.vel_mode == RFM_MOVE_VEL_FIXED && m->s.vel_level == 120);
+    {
+        uint8_t out[MR_SCREEN_BYTES];
+        m->seq.msg = 0;
+        rfm_move_screen(m, NULL, out);
+        CHECK(m->battery == -1 && !px_at(out, 10, 6));  /* ("--": the icon empty) */
+        CHECK(rfm_move_set_battery(m, 63, 0) == 1 && rfm_move_set_battery(m, 63, 0) == 0);
+        CHECK(rfm_move_set_battery(m, 120, 0) == 1 && m->battery == 100);   /* (clamped) */
+        rfm_move_set_battery(m, 63, 0);
+        rfm_move_screen(m, NULL, out);
+        write_pbm("move_seq_global.pbm", out);
+        CHECK(px_at(out, 2, 1) && px_at(out, 10, 6) && !px_at(out, 20, 6));   /* (the icon 63 % filled) */
+    }
+    m->s.vel_mode = RFM_MOVE_VEL_DYNAMIC, m->s.vel_level = 127;
+    tap_step(m, 1);                                     /* (a plain step: the mode's, the menu stays) */
+    CHECK(m->seq.smenu == RFM_MOVE_SM_GLOBAL);
+    press(m, MR_CC_BACK);
+    CHECK(!m->seq.smenu);
 }
 
 /* ================================================================ launching, scenes, mutes, note-offs === */
@@ -1995,12 +2018,13 @@ static void test_controls(void)
     CHECK(m->seq.shift_lock && (m->seq.mods & SEQ_M_SHIFT));
     i = m->seq.clock_mode;
     tap_step(m, 1);
-    CHECK(m->seq.clock_mode == (i + 1) % 3);
+    CHECK(m->seq.smenu == RFM_MOVE_SM_GLOBAL);
     press(m, MR_CC_SHIFT);
     CHECK(!m->seq.shift_lock && !(m->seq.mods & SEQ_M_SHIFT));
     now_ms += 1000;
     tap_step(m, 1);
-    CHECK(m->seq.clock_mode == (i + 1) % 3);            /* (a step again) */
+    CHECK(m->seq.clock_mode == i && m->seq.smenu == RFM_MOVE_SM_GLOBAL);   /* (a step again) */
+    press(m, MR_CC_BACK);
     rfm_move_seq_set_clock(m, RFM_MOVE_CLOCK_AUTO);
     (void)lo;
 }

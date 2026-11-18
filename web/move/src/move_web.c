@@ -113,6 +113,8 @@ EMSCRIPTEN_KEEPALIVE int mw_set_scale(mw_t *w, int scale, int root)
 }
 EMSCRIPTEN_KEEPALIVE void mw_set_master(mw_t *w, int v) { rfm_move_set_master(&w->m, v); }
 EMSCRIPTEN_KEEPALIVE int mw_master(const mw_t *w) { return w->m.master; }
+EMSCRIPTEN_KEEPALIVE int mw_set_battery(mw_t *w, int battery, int power) { return rfm_move_set_battery(&w->m, battery, power); }
+EMSCRIPTEN_KEEPALIVE int mw_battery(const mw_t *w) { return w->m.battery; }
 EMSCRIPTEN_KEEPALIVE void mw_set_label(mw_t *w, int enc, const char *text) { rfm_move_set_label(&w->m, enc, text); }
 /* keymap: 66 int8 (6 rows x 11), or NULL for the FM-1's */
 EMSCRIPTEN_KEEPALIVE void mw_set_keymap(mw_t *w, const int8_t *km)

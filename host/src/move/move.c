@@ -332,6 +332,14 @@ void rfm_move_set_scale(rfm_move_t *m, int scale, int root)
 }
 
 void rfm_move_set_master(rfm_move_t *m, int value) { m->master = (uint16_t)clampi(value, 0, 1023); }
+int rfm_move_set_battery(rfm_move_t *m, int battery, int power_bits)
+{
+    const int b = battery < 0 ? -1 : clampi(battery, 0, 100);
+    if (b == m->battery && (uint8_t)power_bits == m->power)
+        return 0;
+    m->battery = (int16_t)b, m->power = (uint8_t)power_bits;
+    return 1;
+}
 
 void rfm_move_set_label(rfm_move_t *m, int enc, const char *text)
 {
@@ -365,6 +373,7 @@ void rfm_move_init(rfm_move_t *m, const rfm_move_settings_t *settings, rfm_move_
         for (k = 0; k < RFM_MOVE_NKNOBS; k++)
             m->cc_val[b][k] = 64;
     m->master = 768;
+    m->battery = -1;
     m->edit_pad = -1;
     m->touched = -1;
     rfm_move_set_keymap(m, NULL);

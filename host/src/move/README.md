@@ -279,7 +279,7 @@ their pads and steps stay as they are.
 | Step | Function |
 |---|---|
 | 1 Set Overview | the project grid |
-| 2 Setup | the clock source (AUTO, INT, EXT) |
+| 2 Global Settings | menu, sticky (Back, Session or Shift + step 2 closes it): on top the Move's battery (an icon filled, the %; "--" until its first STATUS; "PWR" while the power button is held), then the jog or knob 1 the clock source (AUTO, INT, EXT; * following), knob 2 the velocity option, knob 3 its level (as the Velocity menu). The battery is Move Remote's STATUS byte 4, as the surface reports it (taken as 0..100 %, clamped); the host passes it with `rfm_move_set_battery` (the web page on every STATUS). No power bit is known to mean charging, so none is shown |
 | 3 Workflow Settings | menu: the jog the track's MIDI channel, knob 2 its rate, knob 3 Quantize's amount (5 % a detent) |
 | 5 Tempo | each press is a tap (tap tempo: the average of up to 4 taps) and opens the menu: the tempo at 4x; the jog 1 BPM (Shift, or knob 2: 0.1); following the firmware's clock: locked (a padlock, EXT; taps ignored) |
 | 6 Metronome | on / off (off at first): a click a beat, the bar's first higher (`RFM_MOVE_ACT_CLICK`, frame-stamped; the web player plays it after the volume, never into a recording); also in the count-in |

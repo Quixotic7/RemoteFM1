@@ -126,6 +126,9 @@ export class MoveCore {
   setScale(scale, root) { return this._acts(this.M._mw_set_scale(this.w, scale | 0, root | 0)); }
   setMaster(v) { this.M._mw_set_master(this.w, v | 0); }
   get master() { return this.M._mw_master(this.w); }
+  // the Move's battery from its STATUS (byte 4, byte 5 the power bits): true when it changed (redraw); -1 unknown
+  setBattery(battery, power) { return !!this.M._mw_set_battery(this.w, battery | 0, power | 0); }
+  get battery() { return this.M._mw_battery(this.w); }
   // enc: matrix encoder 0..6, 7 MASTER; text "" or null: the default name
   setLabel(enc, text) {
     const M = this.M, s = String(text || "").slice(0, 16), n = M.lengthBytesUTF8(s) + 1, p = M._malloc(n);
