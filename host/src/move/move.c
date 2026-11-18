@@ -880,6 +880,23 @@ const rgb_t MODE_RGB[4] = { { 0xc4, 0x3a, 0xff }, { 0xc8, 0xff, 0x2a }, { 0x1a, 
 const rgb_t BANK_RGB[4] = { { 0x1a, 0xe4, 0xff }, { 0xff, 0xb0, 0x2a }, { 0xc4, 0x3a, 0xff }, { 0xc8, 0xff, 0x2a } };
 const rgb_t WHITE = { 255, 255, 255 }, GREEN = { 0, 255, 0 }, RED = { 255, 0, 0 };
 const rgb_t OFF = { 0, 0, 0 };
+static const rgb_t MENU_KNOB = { 255, 72, 0 };         /* a menu's knobs (the owner's): deep orange, no mode's or bank's */
+
+/* a held Track's (its menu or layer shown) or an open menu's knobs: a bit each; -1 none (the knobs as they are) */
+int rfmv_menu_knobs(const rfm_move_t *m)
+{
+    if (m->seq.projects)
+        return 0x01;                                    /* (knob 1: the colour) */
+    if (rfmv_hold_shown(m, 1))
+        return 0x03;                                    /* (Track 2: root, scale) */
+    if (rfmv_hold_shown(m, 2) || rfmv_hold_shown(m, 3))
+        return 0xFF;                                    /* (Track 3: the CC numbers; Track 4: the track's settings) */
+    if (m->seq.smenu)
+        return rfmv_seq_menu_knobs(m);
+    if (rfmv_hold_shown(m, 0))
+        return 0;                                       /* (Track 1: the Shift layer, no knobs) */
+    return -1;
+}
 static const rgb_t PINK = { 0xff, 0x7a, 0xa8 };
 #define FLOOR 24                                        /* a mapped key's glow while its FM-1 LED is off (/256) */
 #define DIM 32                                          /* an unselected choice (/256) */
@@ -1014,6 +1031,12 @@ static void wanted(const rfm_move_t *m, uint8_t w[RFM_MOVE_NLEDS][3])
         rfmv_proj_leds(m, c, wv);
     else if (m->s.mode == RFM_MOVE_MODE_SEQ && !t2)    /* Sequencer mode takes over all but the Track LEDs */
         rfmv_seq_leds(m, c, wv);
+    {
+        const int mk = rfmv_menu_knobs(m);              /* a menu or a held Track: only its knobs, its colour */
+        if (mk >= 0)
+            for (i = 0; i < RFM_MOVE_NKNOBS; i++)
+                c[L_RING0 + i] = !(mk >> i & 1) ? OFF : sc(MENU_KNOB, m->touched == i ? 256 : 110);
+    }
     for (i = 0; i < L_WHITE0; i++)
         w[i][0] = c[i].r, w[i][1] = c[i].g, w[i][2] = c[i].b;
     for (i = 0; i < 13; i++)

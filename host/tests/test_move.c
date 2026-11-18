@@ -1337,6 +1337,43 @@ static void test_menus_leave_pads(void)
     CHECK(!m.seq.smenu && !has(RFM_MOVE_ACT_BTN, RFM_MOVE_B_HOME, 1, 0));
 }
 
+/* a held Track (its menu or layer) or a Shift menu: only the knobs it uses lit, in the menu colour (deep orange, no
+ * mode's or bank's); the others off; back as they were after; written on change only */
+static void ring_of(rfm_move_t *m, int k, uint8_t rgb[3])
+{
+    static rfm_move_led_t out[RFM_MOVE_NLEDS];
+    int i, n;
+    rfm_move_leds_invalidate(m);
+    n = rfm_move_leds(m, out, RFM_MOVE_NLEDS);
+    for (i = 0; i < n; i++)
+        if (out[i].cc && out[i].number == MR_CC_KNOB1 + k)
+            rgb[0] = out[i].r, rgb[1] = out[i].g, rgb[2] = out[i].b;
+}
+static void test_menu_knob_leds(void)
+{
+    static rfm_move_t m;
+    static rfm_move_led_t out[RFM_MOVE_NLEDS];
+    uint8_t a[3] = { 0 }, b[3] = { 0 }, n0[3] = { 0 }, n4[3] = { 0 };
+    int k;
+    rfm_move_init(&m, NULL, on_act, NULL);
+    ring_of(&m, 0, n0), ring_of(&m, 4, n4);             /* (FM-1 mode: the knobs as they are) */
+    track(&m, 1, 1), ms(&m, RFM_MOVE_TAP_MS);           /* Track 2 held: knobs 1, 2 (root, scale) */
+    ring_of(&m, 0, a), ring_of(&m, 4, b);
+    CHECK(a[0] == 255 * 110 / 256 && a[1] == 72 * 110 / 256 && a[2] == 0 && !b[0] && !b[1] && !b[2]);
+    CHECK(rfm_move_leds(&m, out, RFM_MOVE_NLEDS) == 0);   /* (written once) */
+    now_ms += 400, track(&m, 1, 0);
+    ring_of(&m, 0, a), ring_of(&m, 4, b);
+    CHECK(!memcmp(a, n0, 3) && !memcmp(b, n4, 3));       /* (as they were) */
+    track(&m, 0, 1), step(&m, 9, 1), step(&m, 9, 0), now_ms += 400, track(&m, 0, 0);   /* the Velocity menu: knob 1 */
+    for (k = 0; k < 8; k++) {
+        ring_of(&m, k, a);
+        CHECK(k == 0 ? a[0] && a[1] && !a[2] : !a[0] && !a[1] && !a[2]);
+    }
+    button(&m, MR_CC_BACK, 1), button(&m, MR_CC_BACK, 0);
+    ring_of(&m, 0, a);
+    CHECK(!memcmp(a, n0, 3));
+}
+
 int main(void)
 {
     test_fm1_pads();
@@ -1356,5 +1393,6 @@ int main(void)
     test_velocity();
     test_mode_only_by_tap();
     test_menus_leave_pads();
+    test_menu_knob_leds();
     return check_done("move");
 }

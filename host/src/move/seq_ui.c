@@ -1299,6 +1299,24 @@ static int smenu_list(const rfm_move_seq_t *q, int k)
     }
 }
 
+/* the knobs a Shift menu uses (bit k: knob k + 1; their ring LEDs lit in the menu colour, the others off) */
+int rfmv_seq_menu_knobs(const rfm_move_t *m)
+{
+    const rfm_move_seq_t *q = &m->seq;
+    switch (q->smenu) {
+    case RFM_MOVE_SM_WORKFLOW: return 0x07;
+    case RFM_MOVE_SM_TEMPO: return q->following ? 0 : 0x03;
+    case RFM_MOVE_SM_GROOVE: return 0x03;
+    case RFM_MOVE_SM_LAYOUT: return 0x01;
+    case RFM_MOVE_SM_KEYS: return 0x0F;
+    case RFM_MOVE_SM_ARP: return q->arp_page ? 0x0F : 0xFF;
+    case RFM_MOVE_SM_REC: return 0x03;
+    case RFM_MOVE_SM_VEL: return 0x01;
+    case RFM_MOVE_SM_GLOBAL: return 0x07;
+    default: return 0;
+    }
+}
+
 static void smenu_turn(rfm_move_t *m, int k, int d)
 {
     rfm_move_seq_t *q = Q(m);

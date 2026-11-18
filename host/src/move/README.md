@@ -276,6 +276,13 @@ Back and Session (Menu), which close them; the pads and steps keep doing what th
 play while one is open (the owner's). Projects mode keeps its pad grid. The held-Track menus are not Shift menus:
 their pads and steps stay as they are.
 
+**Knob LEDs in a menu**: while a held Track's menu or layer is shown, or a Shift menu or projects mode is open, only
+the knobs it uses are lit, in the menu colour (deep orange, 255 72 0, which no mode or bank uses; full while touched),
+the others off; the knobs' own colours come back when it ends. Each menu declares its knobs (`rfmv_menu_knobs`,
+`rfmv_seq_menu_knobs`): Track 2 knobs 1-2, Track 3 and Track 4 all 8, Track 1's Shift layer none, projects knob 1,
+Workflow 1-3, Tempo 1-2 (none while following), Groove 1-2, Layout 1, Keys & Scales 1-4, the arp all 8 (its lanes
+1-4), Record 1-2, Velocity 1, Global Settings 1-3.
+
 | Step | Function |
 |---|---|
 | 1 Set Overview | the project grid |

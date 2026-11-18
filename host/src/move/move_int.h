@@ -58,7 +58,9 @@ enum { MENU_NONE = 0, MENU_LAYOUT, MENU_SCALE, MENU_ROOT, MENU_CHANNEL, MENU_CC,
 uint32_t rfmv_now_ms(const rfm_move_t *m);             /* the sequencer clock's ms (what popups time out on) */
 void rfmv_pop(rfm_move_t *m, int kind, int i);          /* a popup up (again) now */
 void rfmv_pop_let(rfm_move_t *m, int kind, int i);      /* its control let go: it drops RFM_MOVE_POPUP_MS from now */
-int rfmv_pop_up(const rfm_move_t *m, int kind);         /* that popup is up now */
+int rfmv_pop_up(const rfm_move_t *m, int kind);
+int rfmv_seq_menu_knobs(const rfm_move_t *m);           /* the knobs the open Shift menu uses (a bit each) */
+int rfmv_menu_knobs(const rfm_move_t *m);               /* a menu's or a held Track's knobs (a bit each); -1 none */         /* that popup is up now */
 void rfmv_menu(rfm_move_t *m, int what, int i);         /* a held Track button's menu: what changed */
 int rfmv_big(mr_canvas_t *cv, int x, int y, const char *s, int k, int on);   /* font5x7 at k x; returns the end x */
 int rfmv_big_w(const char *s, int k);                   /* .. its width */
