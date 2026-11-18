@@ -106,9 +106,25 @@ const char *rfm_move_enc_name(int e) { return e >= 0 && e < 8 ? ENC_NAMES[e] : "
 
 int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 
+/* the velocity option d along the jog's order (Dynamic, Fixed, Soft, Linear, Hard); into Fixed from another: the
+ * level the last velocity played (the owner's) */
+void rfmv_vel_step(rfm_move_t *m, int d)
+{
+    static const uint8_t ORDER[RFM_MOVE_VEL_N] = { RFM_MOVE_VEL_DYNAMIC, RFM_MOVE_VEL_FIXED, RFM_MOVE_VEL_SOFT,
+                                                   RFM_MOVE_VEL_LINEAR, RFM_MOVE_VEL_HARD };
+    int i, at = 0;
+    for (i = 0; i < RFM_MOVE_VEL_N; i++)
+        if (ORDER[i] == m->s.vel_mode)
+            at = i;
+    at = clampi(at + d, 0, RFM_MOVE_VEL_N - 1);
+    if (ORDER[at] == RFM_MOVE_VEL_FIXED && m->s.vel_mode != RFM_MOVE_VEL_FIXED && m->vel_last)
+        m->s.vel_level = m->vel_last;
+    m->s.vel_mode = ORDER[at];
+}
+
 const char *rfm_move_vel_name(int v)
 {
-    static const char *const N[RFM_MOVE_VEL_N] = { "DYNAMIC", "FIXED", "SOFT", "HARD" };
+    static const char *const N[RFM_MOVE_VEL_N] = { "DYNAMIC", "FIXED", "SOFT", "HARD", "LINEAR" };
     return v >= 0 && v < RFM_MOVE_VEL_N ? N[v] : "?";
 }
 
@@ -476,6 +492,7 @@ static void on_pad(rfm_move_t *m, int p, int vel, uint32_t now)
         return;
     m->pad_down[p] = 1;
     vel = rfm_move_vel(&m->s, vel);                     /* (the velocity setting: every pad that plays, any mode) */
+    m->vel_last = (uint8_t)vel;
     h->kind = H_NONE;
     if (fm1_seq_layer(m) && m->seq.projects) {
         h->kind = H_MENU;                               /* (projects mode: its grid. The Shift menus leave the pads to

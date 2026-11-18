@@ -117,8 +117,9 @@ typedef struct {
     uint8_t midi_view;                                  /* MIDI mode's screen: RFM_MOVE_MV_* */
     uint8_t vel_mode, vel_level;                        /* the pads' velocity: RFM_MOVE_VEL_*; FIXED's level 1..127 */
 } rfm_move_settings_t;
-enum { RFM_MOVE_VEL_DYNAMIC, RFM_MOVE_VEL_FIXED, RFM_MOVE_VEL_SOFT, RFM_MOVE_VEL_HARD, RFM_MOVE_VEL_N };
-const char *rfm_move_vel_name(int v);                   /* "DYNAMIC", "FIXED", "SOFT", "HARD" */
+enum { RFM_MOVE_VEL_DYNAMIC, RFM_MOVE_VEL_FIXED, RFM_MOVE_VEL_SOFT, RFM_MOVE_VEL_HARD, RFM_MOVE_VEL_LINEAR, RFM_MOVE_VEL_N };
+/* (the jog's order: Dynamic, Fixed, Soft, Linear, Hard; LINEAR came last, so older settings keep their values) */
+const char *rfm_move_vel_name(int v);                   /* "DYNAMIC", "FIXED", "SOFT", "HARD", "LINEAR" */
 int rfm_move_vel(const rfm_move_settings_t *s, int v);  /* a pad's velocity 1..127 through the setting */
 #define RFM_MOVE_LIST_TICKS 5                           /* a list-type menu knob (scale, root, layout ..): ticks an item */
 #define RFM_MOVE_KNOB_TICKS 2                           /* the Move's knob ticks an FM-1 encoder detent (the jog: 1) */
@@ -421,6 +422,7 @@ typedef struct {
     uint8_t track_held;                                 /* bit t: Track t + 1 held */
     uint8_t cc_val[RFM_MOVE_NBANKS][RFM_MOVE_NKNOBS];   /* Control mode's values (not saved), 64 at first */
     uint16_t master;                                    /* MASTER as the host last said or the volume knob set */
+    uint8_t vel_last;                                   /* the last velocity a pad played (Fixed starts from it) */
     int16_t battery;                                    /* the Move's battery, 0..100 %, from its STATUS; -1 not yet */
     uint8_t power;                                      /* its power bits (STATUS byte 5; bit 3: the power button held) */
     int8_t edit_pad;                                    /* the drum pad the jog wheel is editing, -1 none */

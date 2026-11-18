@@ -59,6 +59,7 @@ void rfmv_pop(rfm_move_t *m, int kind, int i);          /* a popup up (again) no
 void rfmv_pop_let(rfm_move_t *m, int kind, int i);      /* its control let go: it drops RFM_MOVE_POPUP_MS from now */
 int rfmv_pop_up(const rfm_move_t *m, int kind);
 int rfmv_seq_menu_knobs(const rfm_move_t *m);
+void rfmv_vel_step(rfm_move_t *m, int d);              /* the velocity option along the jog's order */
 void rfmv_tcase(const char *s, char *o, int cap);       /* Title Case ("CUTOFF" -> "Cutoff") */
 void rfmv_keys_menu(const rfm_move_t *m, mr_canvas_t *cv, int glob);   /* the key / scale screen (-1: channels) */
 int rfmv_seq_msg_info(const rfm_move_t *m, const char **a, const char **b, int *icon);   /* the message up: its id */

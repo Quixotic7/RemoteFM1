@@ -730,8 +730,16 @@ static void test_record(void)
      * FIXED: steps and recordings at the level */
     button(m, MR_CC_SHIFT, 1), tap_step(m, 9), button(m, MR_CC_SHIFT, 0);
     CHECK(m->seq.smenu == RFM_MOVE_SM_VEL && m->s.vel_mode == RFM_MOVE_VEL_DYNAMIC);
-    jog(m, 1);
-    knob(m, 0, -27);
+    pad(m, 6, 83), pad(m, 6, 0);                       /* (the last velocity played: 83) */
+    jog(m, 1);                                          /* Fixed: from the last velocity played (the owner's) */
+    CHECK(m->s.vel_mode == RFM_MOVE_VEL_FIXED && m->s.vel_level == 83);
+    jog(m, 2);                                          /* (the jog's order: Dynamic Fixed Soft Linear Hard) */
+    CHECK(m->s.vel_mode == RFM_MOVE_VEL_LINEAR && rfm_move_vel(&m->s, 40) == 40);
+    jog(m, 1), jog(m, 1);
+    CHECK(m->s.vel_mode == RFM_MOVE_VEL_HARD);
+    jog(m, -3);
+    CHECK(m->s.vel_mode == RFM_MOVE_VEL_FIXED && m->s.vel_level == 83);   /* (Soft played nothing new) */
+    knob(m, 0, 17);
     CHECK(m->seq.smenu == RFM_MOVE_SM_VEL && m->s.vel_mode == RFM_MOVE_VEL_FIXED && m->s.vel_level == 100);
     {
         uint8_t ic[16];

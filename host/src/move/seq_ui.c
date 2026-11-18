@@ -1511,13 +1511,13 @@ static void smenu_turn(rfm_move_t *m, int k, int d)
         if (k <= 0)
             rfm_move_seq_set_clock(m, clampi(q->clock_mode + d, 0, 2));
         else if (k == 1)
-            m->s.vel_mode = (uint8_t)clampi(m->s.vel_mode + d, 0, RFM_MOVE_VEL_N - 1), rfmv_changed(m);
+            rfmv_vel_step(m, d), rfmv_changed(m);
         else if (k == 2)
             m->s.vel_level = (uint8_t)clampi(m->s.vel_level + d, 1, 127), rfmv_changed(m);
         break;
-    case RFM_MOVE_SM_VEL:                               /* the jog: the option (1:1, four); knob 1: the level */
+    case RFM_MOVE_SM_VEL:                               /* the jog: the option (1:1, five); knob 1: the level */
         if (k < 0)
-            m->s.vel_mode = (uint8_t)clampi(m->s.vel_mode + d, 0, RFM_MOVE_VEL_N - 1);
+            rfmv_vel_step(m, d);
         else if (k == 0)
             m->s.vel_level = (uint8_t)clampi(m->s.vel_level + d, 1, 127);
         rfmv_changed(m);
