@@ -106,11 +106,11 @@ enum { RFM_S_DISCOVER = 0, RFM_S_STARTING, RFM_S_ACTIVE, RFM_S_STOPPING, RFM_S_S
  * PANEL_R and anything at all may be this late; the unit's keepalive is at least RFM_TCP_KEEPALIVE_MS (the
  * connection's end ends a session anyway) */
 #define RFM_TCP_START_MS 5000u
-#define RFM_TCP_HEARTBEAT_MS 6000u
-#define RFM_TCP_LOST_MS 8000u
+#define RFM_TCP_HEARTBEAT_MS 6000u                       /* (not used since 1d: no heartbeat over TCP) */
+#define RFM_TCP_LOST_MS 10000u
 #define RFM_TCP_ACK_MIN_MS 5000u
 #define RFM_TCP_KEEPALIVE_MS 10000u
-#define RFM_TCP_WIRE_CAP 16384u                          /* framed TILES bytes unacknowledged over TCP */
+#define RFM_TCP_WIRE_CAP 24576u                          /* framed TILES bytes unacknowledged over TCP: 2 frames */
 
 typedef struct {
     uint32_t fps;                                       /* 20 */
@@ -190,6 +190,9 @@ typedef struct {
     uint32_t rate;                                      /* a paced link's body bytes a second (0: not paced) */
     uint32_t tcp;                                       /* 1: the frame link is TCP (the Wi-Fi build) */
     uint32_t panel_ev, panel_ev_bad;                    /* PANEL_EV messages taken (TCP), malformed */
+    uint32_t draw_us_max;                               /* the longest draw_us a FRAME_ACK gave */
+    uint32_t panel_r_gap_max;                           /* the longest ms between PANEL_Rs in an active session */
+    uint32_t reset_reason;                              /* the last shadow reset's reason (FRAME_ACK bits 4..7) */
 } rfm_session_stats_t;                                  /* (all uint32: web/remote reads it as an array) */
 
 typedef struct rfm_session rfm_session_t;

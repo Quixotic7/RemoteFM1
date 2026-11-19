@@ -10,6 +10,12 @@ network, and measure RemoteFM1's bulk framing over TCP (docs/PROTOCOL.md section
                                                       then WIFI GET until the FM-1 has an address or gives up
   wifi_probe.py status [--port NAME]                  the network's state over USB (WIFI GET, the networks kept)
   wifi_probe.py forget [--port NAME] [K|all]          forget network K (0: the most recent) or all of them
+  wifi_probe.py watch  [--port NAME] [--every 1] [--seconds N] [--log FILE.jsonl]
+                                                      WIFI DIAG over USB every second while a host (the Move) drives
+                                                      the unit over TCP: a line a second (the main loop, the socket
+                                                      task, whole frames, PANEL_R, TCP's input, the session's starts
+                                                      and ends, lwIP's retransmissions and drops), JSON to FILE
+  wifi_probe.py mode   [--port NAME] whole|direct     whole frames over TCP (the default) or as they come (an A/B)
   wifi_probe.py find   [--timeout S] [--to ADDR]      UDP discovery ("RFM1?" to port 7741, broadcast): the FM-1s
   wifi_probe.py bench  [HOST] [--tcp-port 7740] [--sink-kb N] [--source-kb N] [--echo N] [--json FILE]
                                                       over TCP: HELLO, ECHO round trips, SINK (STATS confirms what
@@ -35,11 +41,19 @@ import m0_bench as mb  # noqa: E402  (the SysEx codec, HELLO_R / STATS_R parsers
 
 TCP_PORT, UDP_PORT = 7740, 7741                  # proto/rfm1.h RFM_NET_TCP_PORT, RFM_NET_UDP_PORT
 WIFI, WIFI_R = 0x17, 0x57                        # RFM_WIFI, RFM_WIFI_R
-W_GET, W_SET, W_FORGET, W_SAVED = 0, 1, 2, 3
+W_GET, W_SET, W_FORGET, W_SAVED, W_DIAG, W_MODE = 0, 1, 2, 3, 4, 5
 CAP_WIFI = 1 << 12
 STATES = ["off", "starting", "on (no network)", "joining", "getting an address", "connected", "failed"]
 STATUS = ["ok", "bad request", "not over this link (USB only)", "busy"]
 NET_STATS = "accepts closes replaced rx_bytes tx_bytes rx_full tx_eagain udp_in udp_out polls open_fail".split()
+# WIFI DIAG (op 4; docs/WIFI.md "Diagnostics"): after the sockets' counters, a version byte (1), then these u32s.
+# _max / _min / h* since the last DIAG (the unit starts them again at every DIAG); the others since the start.
+DIAG_LOOP = ("ms turn_max_us h_lt250us h_lt1ms h_lt4ms h_lt16ms h_lt64ms h_ge64ms outside_max_us net_gap_max_ms "
+             "frame_us_max frame_us_last frame_turns_max frames_whole frames_over panel_r panel_r_gap_max_ms "
+             "tx_drop rx_full_ms_max rx_full_events sess_starts end_host end_keepalive end_conn last_reset mode").split()
+DIAG_TCP = ("nrtx_events nrtx_max rto_max_ms snd_wnd_min rcv_wnd_min persist_events tx_pending_max tcp_xmit "
+            "tcp_recv tcp_drop tcp_memerr link_recv link_drop pbuf_err").split()
+RESET_WHY = ["-", "power-on", "audio end", "SESSION", "panel drawn by another"]
 BK_HDR = 10
 
 
@@ -108,6 +122,11 @@ def parse_wifi_r(b):
         r["saved"] = nets
     elif len(b) >= n + 44:
         r["net"] = dict(zip(NET_STATS, struct.unpack_from("<11I", b, n)))
+        n += 44
+        nl, nt = len(DIAG_LOOP), len(DIAG_TCP)
+        if op in (W_DIAG, W_MODE) and len(b) >= n + 1 + 4 * (nl + nt) and b[n] == 1:
+            v = struct.unpack_from(f"<{nl + nt}I", b, n + 1)
+            r["diag"] = dict(zip(DIAG_LOOP + DIAG_TCP, v))
     return r
 
 
@@ -152,6 +171,14 @@ def selftest():
     d = parse_discovery(b"RFM1!\nname=FM-1 1F2D\nid=FM-1_72900\nport=7740\nip=192.168.1.42\n")
     assert d == {"name": "FM-1 1F2D", "id": "FM-1_72900", "port": "7740", "ip": "192.168.1.42"}, d
     assert parse_discovery(b"nope") is None
+    r3 = bytearray(r)
+    r3[0] = W_DIAG
+    nd = len(DIAG_LOOP) + len(DIAG_TCP)
+    r3 += bytes([1]) + struct.pack(f"<{nd}I", *range(100, 100 + nd))
+    w3 = parse_wifi_r(bytes(r3))
+    assert w3["diag"]["ms"] == 100 and w3["diag"]["mode"] == 125 and w3["diag"]["pbuf_err"] == 100 + nd - 1, w3["diag"]
+    w3["diag"]["last_reset"] = 3
+    assert "reset SESSION" in diag_line(w3["diag"], None, w3)
     print("wifi_probe selftest ok")
 
 
@@ -254,6 +281,70 @@ def cmd_status(a):
         w = usb_wifi(link, bytes([W_GET]))
         if w and "net" in w:
             print("  sockets: " + ", ".join(f"{k} {v}" for k, v in w["net"].items()))
+    finally:
+        link.close()
+    return 0
+
+
+def diag_line(d, prev, w):
+    """one line of the watch: this second's maxima, the counters' change since the last line"""
+    dd = lambda k: d[k] - (prev[k] if prev else d[k])
+    h = "/".join(str(d[k]) for k in ("h_lt250us", "h_lt1ms", "h_lt4ms", "h_lt16ms", "h_lt64ms", "h_ge64ms"))
+    return (f"{d['ms'] / 1000:9.1f}s turn {d['turn_max_us'] / 1000:6.1f}ms [{h}] out {d['outside_max_us'] / 1000:5.1f}ms "
+            f"net {d['net_gap_max_ms']:4d}ms | frame {d['frame_us_max'] / 1000:5.1f}ms/{d['frame_turns_max']}t "
+            f"+{dd('frames_whole')}w +{dd('frames_over')}o | PANEL_R +{dd('panel_r')} gap {d['panel_r_gap_max_ms']:5d}ms "
+            f"txdrop +{dd('tx_drop')} | rxfull {d['rx_full_ms_max']:5d}ms +{dd('rx_full_events')} | "
+            f"sess +{dd('sess_starts')} end h{dd('end_host')}/k{dd('end_keepalive')}/c{dd('end_conn')} "
+            f"reset {RESET_WHY[d['last_reset']] if d['last_reset'] < len(RESET_WHY) else d['last_reset']} | "
+            f"rexmit +{dd('nrtx_events')} x{d['nrtx_max']} rto {d['rto_max_ms']}ms wnd s{d['snd_wnd_min']}/r{d['rcv_wnd_min']} "
+            f"persist +{dd('persist_events')} txq {d['tx_pending_max']} | tcp +{dd('tcp_xmit')}/+{dd('tcp_recv')} "
+            f"drop +{dd('tcp_drop')} mem +{dd('tcp_memerr')} | link +{dd('link_recv')} drop +{dd('link_drop')} "
+            f"pbuf +{dd('pbuf_err')} | heap {w['heap_used']}/{w['heap_peak']}")
+
+
+def cmd_watch(a):
+    """WIFI DIAG every a.every seconds over USB while a host drives the unit over TCP; a line each, and a JSON
+    record each to a.log (one per line)"""
+    link = usb_link(a.port)
+    log = open(a.log, "a") if a.log else None
+    prev = None
+    end = time.monotonic() + a.seconds if a.seconds else None
+    try:
+        print("watch: maxima per line (turn: the main loop's longest turn, [turns < 0.25/1/4/16/64 ms/longer], out: "
+              "fm1-base between the app's turns, net: the socket task's longest absence), counters as +change")
+        while end is None or time.monotonic() < end:
+            t0 = time.monotonic()
+            w = usb_wifi(link, bytes([W_DIAG]), timeout=1.0)
+            if not w or "diag" not in w:
+                print(f"{time.strftime('%H:%M:%S')} no DIAG answer (not the diagnostic build, or USB busy)")
+            else:
+                d = w["diag"]
+                print(time.strftime("%H:%M:%S") + " " + diag_line(d, prev, w), flush=True)
+                if log:
+                    log.write(json.dumps({"t": time.time(), "diag": d, "net": w.get("net"), "heap_used": w["heap_used"],
+                                          "heap_peak": w["heap_peak"], "rssi": w["rssi"], "host": w["host_connected"]})
+                              + "\n")
+                    log.flush()
+                prev = d
+            time.sleep(max(0.0, a.every - (time.monotonic() - t0)))
+    except KeyboardInterrupt:
+        pass
+    finally:
+        link.close()
+        if log:
+            log.close()
+    return 0
+
+
+def cmd_mode(a):
+    """WIFI MODE: whole frames over TCP (the default) or frames as they come (an A/B, until the unit restarts)"""
+    link = usb_link(a.port)
+    try:
+        w = usb_wifi(link, bytes([W_MODE, 1 if a.mode == "whole" else 0]))
+        if not w or w["status_code"]:
+            print(f"wifi_probe: MODE refused ({w['status'] if w else 'no answer'})")
+            return 1
+        print(f"frames over TCP: {'whole' if w['diag']['mode'] else 'as they come'}")
     finally:
         link.close()
     return 0
@@ -516,6 +607,14 @@ def main():
     p = sub.add_parser("forget")
     p.add_argument("--port", default="")
     p.add_argument("which", nargs="?", default="0")
+    p = sub.add_parser("watch", help="WIFI DIAG every second over USB while a host drives the unit over TCP")
+    p.add_argument("--port", default="")
+    p.add_argument("--every", type=float, default=1.0)
+    p.add_argument("--seconds", type=float, default=0.0, help="0: until Ctrl-C")
+    p.add_argument("--log", default="", help="a JSON record per line appended here")
+    p = sub.add_parser("mode", help="whole frames over TCP (default) or as they come")
+    p.add_argument("--port", default="")
+    p.add_argument("mode", choices=["whole", "direct"])
     p = sub.add_parser("find")
     p.add_argument("--timeout", type=float, default=2.0)
     p.add_argument("--to", default=None, help="a broadcast or unicast address instead of 255.255.255.255")
@@ -539,6 +638,10 @@ def main():
         return cmd_forget(a)
     if a.cmd == "find":
         return cmd_find(a)
+    if a.cmd == "watch":
+        return cmd_watch(a)
+    if a.cmd == "mode":
+        return cmd_mode(a)
     if a.cmd == "bench":
         return cmd_bench(a)
     ap.print_help()

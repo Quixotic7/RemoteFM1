@@ -32,7 +32,7 @@ const STAT_NAMES = ['frames', 'msgs', 'tiles', 'rects', 'body_bytes', 'wire_byte
     'wire_in_flight', 'reduced', 'refined', 'inexact', 'lossy', 'hold', 'held', 'midi_in', 'midi_in_bytes',
     'midi_in_bad', 'touch_sent', 'touch', 'audio', 'audio_rate', 'audio_blocks', 'audio_wire', 'audio_dropped',
     'audio_buffer_ms', 'audio_fill_ms', 'audio_unit_blocks', 'audio_lost', 'audio_underruns', 'audio_skipped',
-    'slow', 'rate', 'tcp', 'panel_ev', 'panel_ev_bad'];
+    'slow', 'rate', 'tcp', 'panel_ev', 'panel_ev_bad', 'draw_us_max', 'panel_r_gap_max', 'reset_reason'];
 
 // A port that may be an FM-1: its name says so. Updater ports are never touched (as host/src/macos/coremidi.c).
 export function isCandidatePortName(name) {

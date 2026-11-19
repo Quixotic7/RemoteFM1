@@ -1511,7 +1511,7 @@ static void test_tcp(void)
                 wmax = st.wire_in_flight;
         }
     }
-    CHECKF(wmax <= RFM_NET_FRAME_MAX, "%u bytes unacknowledged at most", wmax);
+    CHECKF(wmax <= RFM_TCP_WIRE_CAP, "%u bytes unacknowledged at most", wmax);
     CHECK(run_until_converged(&h, u, img, 6000));
     rfm_session_stats(h.s, &st);
     rfm_fake_stats(u, &fs);
@@ -1698,6 +1698,24 @@ static void test_tcp_stalls(void)
            "sessions %u (unit %u), lost %u, shadow resets %u, keepalive expired %u", st.sessions,
            fs.sessions_started, st.lost, st.shadow_resets, fs.keepalive_expired);
     CHECKF(st.frames > 200 && st.acks + 2u >= st.frames, "frames %u acks %u", st.frames, st.acks);
+    /* SESSION's ACK later than start_ms (a 6 s stall right after it): the host looks again (HELLO) and sends SESSION a
+     * second time; the unit restarts twice, the host counts the ACKs (TCP keeps them in order): no "shadow reset" */
+    rfm_session_restart(h.s, h.now);
+    for (k = 0; k < 400 && rfm_session_state(h.s) != RFM_S_STARTING; k++)
+        step(&h, 1);
+    h.stall_until = h.now + 6000;
+    step(&h, 9000);
+    for (t = 0; t < 40; t++) {
+        fr_ui(img, 1000 + t);
+        rfm_session_set_frame(h.s, img);
+        step(&h, 50);
+    }
+    CHECK(run_until_converged(&h, h.f[0], img, 6000));
+    rfm_session_stats(h.s, &st);
+    rfm_fake_stats(h.f[0], &fs);
+    CHECKF(rfm_session_state(h.s) == RFM_S_ACTIVE && st.shadow_resets == 0 && fs.sessions_started >= 3,
+           "state %s, shadow resets %u, the unit's sessions %u", rfm_session_state_name(rfm_session_state(h.s)),
+           st.shadow_resets, fs.sessions_started);
     /* a unit that really went quiet (the connection up): given up after RFM_TCP_LOST_MS, not before */
     h.stall_until = h.now + 100000;
     for (k = 0; k < RFM_TCP_HEARTBEAT_MS - 200; k += 100)

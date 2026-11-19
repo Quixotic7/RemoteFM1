@@ -136,6 +136,8 @@ static inline uint32_t rfm_pal_row_bytes(uint32_t w, uint32_t n) { return (w * r
 /* FRAME_ACK body: frame16 status8 draw_us32 bytes32 pending8 */
 #define RFM_ACK_LEN 12u
 enum { RFM_ACK_DECODE_ERR = 1u << 0, RFM_ACK_SHADOW_RESET = 1u << 1 };
+/* (the Wi-Fi build) FRAME_ACK status bits 4..7 with SHADOW_RESET: why */
+enum { RFM_ACK_REASON_POWER = 1, RFM_ACK_REASON_AUDIO = 2, RFM_ACK_REASON_SESSION = 3, RFM_ACK_REASON_LCD = 4 };
 
 /* PANEL_R body: keys32 buttons16 enc[7] int16 master16 battery_mv16 flags8 */
 #define RFM_PANEL_KEYS 0u
@@ -171,7 +173,7 @@ enum { RFM_ACK_DECODE_ERR = 1u << 0, RFM_ACK_SHADOW_RESET = 1u << 1 };
 #define RFM_NET_TCP_PORT 7740u
 #define RFM_NET_UDP_PORT 7741u
 #define RFM_NET_FRAME_MAX 16384u        /* RFM_CAP_NET_FRAMES: a frame's TILES messages (bodies + 2 each) kept whole */
-enum { RFM_WIFI_GET = 0, RFM_WIFI_SET = 1, RFM_WIFI_FORGET = 2, RFM_WIFI_SAVED = 3 };
+enum { RFM_WIFI_GET = 0, RFM_WIFI_SET = 1, RFM_WIFI_FORGET = 2, RFM_WIFI_SAVED = 3, RFM_WIFI_DIAG = 4, RFM_WIFI_MODE = 5 };
 enum { RFM_WIFI_OK = 0, RFM_WIFI_BAD = 1, RFM_WIFI_NOT_HERE = 2, RFM_WIFI_BUSY = 3 };
 #define RFM_WIFI_SSID_MAX 32u
 #define RFM_WIFI_PASS_MAX 63u

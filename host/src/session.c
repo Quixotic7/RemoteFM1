@@ -18,6 +18,7 @@ typedef struct link {
     char name[64];
     rfm_rx_t *rx;
     uint32_t tx_seq;
+    uint32_t acks_due;                                  /* (TCP) SESSIONs sent on this stream not yet acknowledged */
     int hello_got, hello_ok;
     rfm_hello_t hello;
     struct rfm_session *s;
@@ -165,7 +166,8 @@ static void send_session(rfm_session_t *s, int start)
     uint8_t b[RFM_SESSION_LEN];
     rfm_build_session(b, start, !start ? 0u : s->tcp && s->cfg.keepalive_ms ? max_u(s->cfg.keepalive_ms, RFM_TCP_KEEPALIVE_MS)
                                                                          : s->cfg.keepalive_ms);
-    send_msg(s, s->frame_link, RFM_SESSION, b, RFM_SESSION_LEN);
+    if (!send_msg(s, s->frame_link, RFM_SESSION, b, RFM_SESSION_LEN) && s->tcp)
+        s->links[s->frame_link].acks_due++;             /* (TCP is in order: the last ACK answers the last SESSION) */
     s->t_sent = s->now;
 }
 
@@ -394,15 +396,14 @@ static int decide(rfm_session_t *s)
         s->budget = s->cfg.budget ? s->cfg.budget : RFM_BUDGET_TCP_BPS / (s->cfg.fps ? s->cfg.fps : 20u);
         if ((s->hello.caps & RFM_CAP_NET_FRAMES) && s->budget > RFM_NET_FRAME_MAX - 2048u)
             s->budget = RFM_NET_FRAME_MAX - 2048u;      /* (a frame the unit keeps whole: shown at once) */
-        /* what is unacknowledged stays within what the unit drains without its TCP input filling: one frame, and a
-         * second only while the first is small (the newest screen is encoded when a frame goes: never a stale one
-         * queued behind a stall) */
+        /* at most RFM_TCP_WIRE_CAP unacknowledged: two frames (the newest screen is encoded when a frame goes: never a
+         * stale one queued behind a stall) */
         s->wire_cap = RFM_TCP_WIRE_CAP;
         s->wire_frame_max = RFM_BK_HDR_LEN * (s->budget / s->body_max + 2u) + RFM_TILES_HDR * (s->budget / s->body_max + 2u) +
                             s->budget + RFM_RECT_HDR + 2u * RFM_TILE * RFM_TILE;
         s->start_ms = max_u(s->start_ms, RFM_TCP_START_MS);
-        if (s->heartbeat_ms)
-            s->heartbeat_ms = max_u(s->heartbeat_ms, RFM_TCP_HEARTBEAT_MS);
+        s->heartbeat_ms = 0;                            /* (a late PANEL_R over a live connection is a stall: the
+                                                         * unit says so in PANEL_R when its session is gone) */
         s->lost_ms = max_u(s->lost_ms, RFM_TCP_LOST_MS);
     } else {
         const uint32_t bps = s->tcp ? RFM_BUDGET_TCP_BPS
@@ -488,9 +489,16 @@ static void on_frame_ack(rfm_session_t *s, const rfm_frame_ack_t *a)
         logf_(s, "FRAME_ACK %u: decode error: resending the screen", a->frame);
         rfm_screen_invalidate(s->screen);
     }
+    if (a->draw_us > s->st.draw_us_max)
+        s->st.draw_us_max = a->draw_us;
+    if (a->status & RFM_ACK_SHADOW_RESET)
+        s->st.reset_reason = a->status >> 4;            /* (the Wi-Fi build: RFM_ACK_REASON_*; 0 unknown) */
     if ((a->status & RFM_ACK_SHADOW_RESET) && !s->expect_reset) {
+        static const char *const WHY[5] = {"(no reason given)", "the unit started (power-on)", "its audio mode ended",
+                                           "a SESSION start", "something else drew on its panel"};
         s->st.shadow_resets++;
-        logf_(s, "FRAME_ACK %u: the unit's shadow was reset: new session", a->frame);
+        logf_(s, "FRAME_ACK %u: the unit's shadow was reset, %s: new session", a->frame,
+              WHY[(a->status >> 4) < 5u ? (a->status >> 4) : 0u]);
         enter_starting(s, "shadow reset");
         return;
     }
@@ -514,6 +522,9 @@ static void on_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
             logf_(s, "link %s: \"%s\" proto %u answered: not RemoteFM1 v2", l->name, l->hello.name, l->hello.proto);
         break;
     case RFM_ACK:
+        if (l->kind == RFM_LINK_TCP && l->acks_due && --l->acks_due)
+            return;                                     /* (an earlier SESSION's ACK: the unit restarted for it, and
+                                                         * restarts again for the one still unanswered) */
         if (l->id != s->frame_link)
             return;
         if (s->state == RFM_S_STARTING)
@@ -585,6 +596,8 @@ static void on_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
         if (!ours || rfm_parse_panel_r(b, n, &p))
             return;
         s->st.panel_r++;
+        if ((p.flags & RFM_PANEL_F_SESSION) && s->state == RFM_S_ACTIVE && s->now - s->last_panel_r > s->st.panel_r_gap_max)
+            s->st.panel_r_gap_max = s->now - s->last_panel_r;
         if (p.flags & RFM_PANEL_F_SESSION)
             s->last_panel_r = s->now;
         if (!(p.flags & RFM_PANEL_F_SESSION)) {
@@ -720,6 +733,7 @@ void rfm_session_link_reset(rfm_session_t *s, int id, uint32_t now)
     l = &s->links[id];
     rfm_rx_reset(l->rx);
     l->tx_seq = 0;
+    l->acks_due = 0;
     l->alive = 1;
     l->hello_got = l->hello_ok = 0;
     if (id == s->frame_link || id == s->midi_link)

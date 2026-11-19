@@ -124,6 +124,32 @@ and the screen while Wi-Fi works, discovery through the owner's router, and that
   USB's timeouts (PANEL_R 1.6 s, SESSION resent after 400 ms: a second start restarted the unit's session, "shadow
   reset"). libremotefm1 now waits TCP's stalls out (PROTOCOL.md section 10, `RFM_TCP_*`); test_session test_tcp_stalls
   and the simulator's `stall MS` (RemoteFM14Move's fm1wifi_e2e.sh) reproduce it.
+- **1c on the unit was worse than 1b** (2026-11-19: ack 350 ms, PANEL_R gaps of 6 s, sessions restarting): see
+  "Diagnostics" below; 1d decodes a kept frame in 4 KB slices, sends 2 frames of 10 KB in flight again, never
+  restarts a session over TCP for a late PANEL_R, and counts SESSION's ACKs.
 - **Not done:** mDNS (`fm1-XXXX.local`, `_remotefm1._tcp`): lwIP's responder is in the SDK (`apps/mdns`) but not built
   by fm1-base (its options, its sources, its RAM: a patch to fm1-base); the UDP responder is the discovery. The
   screen's rate on the unit (no shadow: rectangles go to the panel row by row as they are decoded) is to be measured.
+
+## Diagnostics (1d)
+
+`tools/wifi_probe.py watch [--log trace.jsonl]` asks WIFI DIAG over USB every second while a host (the Move) drives the
+unit over TCP, and prints a line a second:
+
+- **turn**: the main loop's longest turn this second (the app's own: decoding, blitting, replies), and a histogram of
+  turns (< 0.25 / 1 / 4 / 16 / 64 ms / longer); **out**: the longest time fm1-base's loop kept the app waiting; **net**:
+  the longest the socket task did not run (it runs only inside plat_yield, every 250 us of the app's turns).
+- **frame**: the longest a kept frame took from its END to the last slice drawn, and in how many turns; +w whole
+  frames, +o frames too long to keep.
+- **PANEL_R**: how many went to TCP this second and the longest gap between two in a session (500 ms when well);
+  **txdrop**: messages TCP's ring had no room for.
+- **rxfull**: the longest stretch TCP's input ring was (nearly) full, and how often.
+- **sess**: session starts; ends by the host (h), the keepalive (k), the connection (c); **reset**: the last shadow
+  reset's reason.
+- **rexmit**: lwIP's retransmission episodes on the connection, the most retries in a row, the longest RTO; **wnd**:
+  the smallest send / receive windows; **persist**: zero-window probes begun; **txq**: the most bytes waiting to go;
+  **tcp / link**: segments out / in, drops, out-of-memory, the pbuf pool's failures. **heap**: used / peak.
+
+`wifi_probe.py mode direct` turns whole frames off (until the unit restarts), `mode whole` on again: an A/B without a
+flash. The Move's `/api/status` fm1 adds `draw_us_max` (the longest FRAME_ACK draw time), `panel_r_gap_max`,
+`shadow_resets`, `reset_reason` and `wifi_rx_ms_max` (the longest silence on the connection).

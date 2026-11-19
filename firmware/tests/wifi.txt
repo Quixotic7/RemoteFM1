@@ -64,6 +64,11 @@ rf session net 1 3000
 expect rf_session 1
 expect rf_session_t 3
 expect rf_n_net_46 1
+# WIFI DIAG (04): the sockets' counters, then a version byte, 26 x u32 of the loop's, 14 x u32 of lwIP's
+rf send usb 17 04
+expect rf_wifi_op 4
+expect rf_wifi_status 0
+expect rf_wifi_tail 205
 # whole frames over TCP: a frame's first message shows nothing, its END shows all of it at once
 wait 50
 rf snap
@@ -76,6 +81,20 @@ wait 30
 expect rf_n_net_52 1
 expect rf_screen_ok 1
 expect rf_decode_errs 0
+# WIFI MODE 0 (05 00): frames as they come (an A/B on the unit): the first message shows at once
+rf send usb 17 05 00
+expect rf_wifi_status 0
+rf snap
+rf tiles net 1 more fill:0,0,60,60,001F
+wait 20
+expect rf_screen_snap 0
+rf tiles net 1 end fill:60,60,60,60,FFE0
+wait 20
+expect rf_screen_ok 1
+rf send usb 17 05 01
+expect rf_wifi_status 0
+rf send usb 17 05 07
+expect rf_wifi_status 1
 # the panel's events in a TCP session: PANEL_EV, the same MIDI bytes as the other transports' plain MIDI, none to USB
 out
 key 5 down

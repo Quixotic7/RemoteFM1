@@ -31,6 +31,11 @@
 #define RFN_SA_LEN(a) ((void)0)
 #else
 #include "lwip/sockets.h"
+#include "lwip/api.h"
+#include "lwip/tcp.h"
+#include "lwip/stats.h"
+#include "lwip/memp.h"
+#include "lwip/priv/sockets_priv.h"
 #define RFN_SA_LEN(a) ((a).sin_len = sizeof(a))
 #endif
 #include "rfm_net.h"
@@ -44,6 +49,8 @@ static int rn_ls = -1, rn_us = -1;                /* listening, discovery */
 static uint16_t rn_tcp_port, rn_udp_port;
 static char rn_info[200];
 static rfn_stats_t rn_st;
+static rfn_diag_t rn_dg = {0, 0, 0, 0xFFFFFFFFu, 0xFFFFFFFFu, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+static uint8_t rn_nrtx_was, rn_persist_was;
 #ifdef PLAT_HOST
 static int rn_fake;                               /* rfn_test_connect: a host without a socket */
 #endif
@@ -80,6 +87,59 @@ int rfn_up(void) { return rn_cs >= 0; }
 uint32_t rfn_conn_id(void) { return rn_conn; }
 uint16_t rfn_port(void) { return rn_tcp_port; }
 void rfn_stats(rfn_stats_t *s) { *s = rn_st; }
+
+static void rn_sample(void)                       /* (every turn) the connection as lwIP keeps it */
+{
+    uint32_t p = rn_tx_w - rn_tx_r;
+    if (p > rn_dg.tx_pending_max)
+        rn_dg.tx_pending_max = p;
+#ifndef PLAT_HOST
+    if (rn_cs >= 0) {
+        struct lwip_sock *k = lwip_socket_dbg_get_socket(rn_cs);
+        struct tcp_pcb *t = k && k->conn && NETCONNTYPE_GROUP(k->conn->type) == NETCONN_TCP ? k->conn->pcb.tcp : 0;
+        if (t) {                                  /* (read only, between the stack's turns: a diagnostic) */
+            if (t->nrtx && !rn_nrtx_was)
+                rn_dg.nrtx_events++;
+            rn_nrtx_was = t->nrtx;
+            if (t->nrtx > rn_dg.nrtx_max)
+                rn_dg.nrtx_max = t->nrtx;
+            if (t->rto > 0 && (uint32_t)t->rto * TCP_SLOW_INTERVAL > rn_dg.rto_max_ms)
+                rn_dg.rto_max_ms = (uint32_t)t->rto * TCP_SLOW_INTERVAL;
+            if (t->snd_wnd < rn_dg.snd_wnd_min)
+                rn_dg.snd_wnd_min = t->snd_wnd;
+            if (t->rcv_wnd < rn_dg.rcv_wnd_min)
+                rn_dg.rcv_wnd_min = t->rcv_wnd;
+            if (t->persist_backoff && !rn_persist_was)
+                rn_dg.persist_events++;
+            rn_persist_was = t->persist_backoff;
+        }
+    }
+#endif
+}
+
+void rfn_diag(rfn_diag_t *d, int clear)
+{
+    *d = rn_dg;
+#if !defined(PLAT_HOST) && LWIP_STATS
+    d->tcp_xmit = lwip_stats.tcp.xmit;
+    d->tcp_recv = lwip_stats.tcp.recv;
+    d->tcp_drop = lwip_stats.tcp.drop;
+    d->tcp_memerr = lwip_stats.tcp.memerr;
+    d->link_recv = lwip_stats.link.recv;
+    d->link_drop = lwip_stats.link.drop + lwip_stats.link.memerr;
+#if MEMP_STATS
+    d->pbuf_err = lwip_stats.memp[MEMP_PBUF_POOL] ? lwip_stats.memp[MEMP_PBUF_POOL]->err : 0u;
+#endif
+#endif
+    if (d->snd_wnd_min == 0xFFFFFFFFu)
+        d->snd_wnd_min = 0;
+    if (d->rcv_wnd_min == 0xFFFFFFFFu)
+        d->rcv_wnd_min = 0;
+    if (clear) {
+        rn_dg.nrtx_max = rn_dg.rto_max_ms = rn_dg.tx_pending_max = 0;
+        rn_dg.snd_wnd_min = rn_dg.rcv_wnd_min = 0xFFFFFFFFu;
+    }
+}
 
 uint32_t rfn_rx_read(uint8_t *dst, uint32_t n)
 {
@@ -233,6 +293,7 @@ int rfn_poll(void)
     struct timeval tv = {0, 0};
     int mx = -1, did = 0, n;
     rn_st.polls++;
+    rn_sample();
     if (rn_ls < 0 && rn_open() < 0)
         return -1;
     FD_ZERO(&rd);

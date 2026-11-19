@@ -111,7 +111,11 @@ static struct {
     uint8_t audio;                          /* the session is an audio one (AUDIO_MODE on) */
     /* counters */
     uint32_t frames, decode_errs, bad, sessions, lcd_lost, held_frames, hold_timeouts;
+    uint32_t end_host, end_keepalive;       /* sessions ended by SESSION 0, by the keepalive */
+    uint8_t last_reset;                     /* the last shadow reset's reason (RFA_RESET_*) */
 } rfa;
+/* why the shadow was reset (the next FRAME_ACK's status bit1; with RFA_ACK_REASON, its reason in bits 4..7) */
+enum { RFA_RESET_POWER = 1, RFA_RESET_AUDIO = 2, RFA_RESET_SESSION = 3, RFA_RESET_LCD = 4 };
 
 static void rfm_app_init(uint16_t *fb, uint16_t *stage, uint32_t stage_px, const rfm_lcd_ops_t *lcd)
 {
@@ -120,7 +124,7 @@ static void rfm_app_init(uint16_t *fb, uint16_t *stage, uint32_t stage_px, const
     rfa.draw.ctx = &rfa.push;
     rfm_push_init(&rfa.push, fb, stage, stage_px, lcd);
     rfa.master = rfa.master_sent = -1;
-    rfa.shadow_reset = 1;                               /* the device restarted: a host's model is invalid */
+    rfa.shadow_reset = RFA_RESET_POWER;                               /* the device restarted: a host's model is invalid */
 }
 
 static void rfm_app_audio_init(rfm_au_t *au) { rfa.au = au; }
@@ -183,6 +187,10 @@ static void rfa_frame_ack(uint32_t t, uint32_t frame, uint32_t status, uint32_t 
     uint8_t b[RFM_ACK_LEN];
     if (rfa.shadow_reset) {
         status |= RFM_ACK_SHADOW_RESET;
+#ifdef RFA_ACK_REASON
+        status |= (uint32_t)rfa.shadow_reset << 4;      /* (the Wi-Fi build: docs/PROTOCOL.md section 10) */
+#endif
+        rfa.last_reset = rfa.shadow_reset;
         rfa.shadow_reset = 0;
     }
     rfa_wr16(b, frame);
@@ -271,7 +279,7 @@ static void rfa_audio_end(int repaint)
     rfm_draw_clear(&rfa.draw, 0x0000u);                 /* (the ring may have been the shadow's last rows) */
     if (repaint) {
         rfa.flush = 1;
-        rfa.shadow_reset = 1;
+        rfa.shadow_reset = RFA_RESET_AUDIO;
     }
 }
 
@@ -305,7 +313,7 @@ static void rfa_session_start(uint32_t t, uint32_t keepalive)
     rfa_push_reset(0);
     rfm_draw_clear(&rfa.draw, 0x0000u);                 /* the shadow black, all of it dirty */
     rfa.flush = 1;                                      /* and the panel black, without an END */
-    rfa.shadow_reset = 1;
+    rfa.shadow_reset = RFA_RESET_SESSION;
     rfa_leds_off();
     rfa_session_changed(1);
 }
@@ -324,6 +332,7 @@ static void rfa_cmd_session(uint32_t t, const uint8_t *b, uint32_t len)
         rfa_master_send();                              /* MASTER always when a session starts */
     } else {
         rfa_session_end();
+        rfa.end_host++;
         rfa_tx(t, RFM_ACK, b, 0);
     }
 }
@@ -570,8 +579,10 @@ static void rfa_push_done(void)
 static void rfm_app_poll(uint32_t now_ms)
 {
     rfa.now = now_ms;
-    if (rfa.session && rfa.keepalive && now_ms - rfa.last_rx >= rfa.keepalive)
+    if (rfa.session && rfa.keepalive && now_ms - rfa.last_rx >= rfa.keepalive) {
         rfa_session_end();
+        rfa.end_keepalive++;
+    }
     if (rfa.push.active) {
         if (!rfm_push_step(&rfa.push))
             rfa_push_done();
@@ -609,7 +620,7 @@ static void rfm_app_lcd_lost(void)
 {
     rfa.lcd_lost++;
     if (!rfa.draw.fb) {                                 /* no shadow to repaint from: the host's model is gone */
-        rfa.shadow_reset = 1;
+        rfa.shadow_reset = RFA_RESET_LCD;
         return;
     }
     rfa_push_reset(rfa.session);                        /* the ENDs stay queued: the repaint answers them */

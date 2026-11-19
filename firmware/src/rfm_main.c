@@ -61,6 +61,7 @@
 #define RF_NT 4u
 #define RF_IS_NET(t) ((t) == RF_T_NET)
 #define RF_CAP_NET (RFM_CAP_WIFI | RFM_CAP_PANEL_EV | RFM_CAP_NET_FRAMES)
+#define RFA_ACK_REASON 1                    /* FRAME_ACK status bits 4..7: why the shadow was reset (rfm_app.c) */
 #else
 #define RF_NT 3u
 #define RF_IS_NET(t) 0
@@ -254,6 +255,7 @@ static uint32_t rf_ble_room(void) { return plat_midi_out_room(TO_BLE_HOST); }
 
 #if FM1B_WIFI
 static uint32_t rf_net_seq;                         /* the frames sent on the TCP transport (bulk's seq) */
+static void rf_dg_panel_r(void);                    /* (rfm_wifi.c: WIFI DIAG, a PANEL_R handed to TCP) */
 static void rf_net_kick(void);                      /* the socket task's turn soon (src/rfm_wifi.c, at the end) */
 static void rf_big_init(void);
 static void rf_net_init(void);
@@ -352,6 +354,8 @@ static int rf_try(uint32_t t, uint32_t cmd, const uint8_t *body, uint32_t n)
         rf_net_seq++;
         rf_raw_tx[t] += RF_BK_HDR + n;
         rf_net_kick();
+        if (cmd == RFM_PANEL_R)
+            rf_dg_panel_r();
 #endif
     } else {
         rf_em_t e;
@@ -1170,23 +1174,52 @@ RF_BIG(uint8_t, rf_net_tx, RF_NET_TX_N);
  * together when its END arrives, so the frame reaches the panel at once; FRAME_ACK follows as before. A frame longer
  * than this goes on as it comes (decoded as before: the oldest kept first). Other messages pass at once. */
 RF_BIG(uint8_t, rf_net_frame, RF_NET_FRAME_N);
-static uint32_t rf_nf_n, rf_nf_frames, rf_nf_over;
+static uint32_t rf_nf_n, rf_nf_rd, rf_nf_frames, rf_nf_over;
+static uint8_t rf_nf_ready;                         /* a whole frame kept: decoded a slice a turn (rf_nf_step) */
+static uint8_t rf_nf_on = 1;                        /* WIFI MODE: 1 whole frames (the default), 0 as they come */
+static uint32_t rf_nf_t0, rf_nf_us_max, rf_nf_us_last, rf_nf_turns_max;   /* (WIFI DIAG) */
 static void rf_on_msg(void *ctx, uint32_t cmd, const uint8_t *body, uint32_t len);
-static void rf_nf_flush(void)
+#define RF_NF_SLICE 4096u                           /* bytes of kept TILES decoded a turn: the radio's tasks (plat_yield
+                                                     * every 250 us) are never kept waiting longer than the vendor
+                                                     * input's own turns keep them (1c decoded a whole frame at once) */
+static uint32_t rf_nf_turns;
+static void rf_nf_step(void)                        /* (every turn) a slice of the kept frame */
 {
-    uint32_t k = 0;
-    while (k + 2u <= rf_nf_n) {
-        const uint32_t n = (uint32_t)rf_net_frame[k] | (uint32_t)rf_net_frame[k + 1u] << 8;
-        rf_on_msg((void *)(uintptr_t)RF_T_NET, RFM_TILES, rf_net_frame + k + 2u, n);
-        k += 2u + n;
+    uint32_t done = 0;
+    if (!rf_nf_ready)
+        return;
+    rf_nf_turns++;
+    while (rf_nf_rd + 2u <= rf_nf_n && done < RF_NF_SLICE) {
+        const uint32_t n = (uint32_t)rf_net_frame[rf_nf_rd] | (uint32_t)rf_net_frame[rf_nf_rd + 1u] << 8;
+        rf_on_msg((void *)(uintptr_t)RF_T_NET, RFM_TILES, rf_net_frame + rf_nf_rd + 2u, n);
+        rf_nf_rd += 2u + n;
+        done += n;
     }
-    rf_nf_n = 0;
+    if (rf_nf_rd + 2u > rf_nf_n) {
+        rf_nf_us_last = (rf_ticks() - rf_nf_t0) / PLAT_TICKS_PER_US;
+        if (rf_nf_us_last > rf_nf_us_max)
+            rf_nf_us_max = rf_nf_us_last;
+        if (rf_nf_turns > rf_nf_turns_max)
+            rf_nf_turns_max = rf_nf_turns;
+        rf_nf_ready = 0;
+        rf_nf_n = rf_nf_rd = 0;
+    }
+}
+static void rf_nf_flush(void)                       /* (a frame too long, or kept tiles in front of a new session) */
+{
+    if (!rf_nf_ready) {
+        rf_nf_ready = 1;
+        rf_nf_t0 = rf_ticks();
+        rf_nf_turns = 0;
+    }
+    while (rf_nf_ready)
+        rf_nf_step();
 }
 #define RF_NET_GRACE_MS 4000u
 static void rf_net_on_msg(void *ctx, uint32_t cmd, const uint8_t *b, uint32_t len)
 {
     uint32_t i;
-    if (cmd == RFM_TILES && rfa.session && rfa.st == RF_T_NET && !rfa.audio && len >= RFM_TILES_HDR) {
+    if (cmd == RFM_TILES && rf_nf_on && rfa.session && rfa.st == RF_T_NET && !rfa.audio && len >= RFM_TILES_HDR) {
         if (rf_nf_n + 2u + len > RF_NET_FRAME_N) {
             rf_nf_flush();                          /* (a frame longer than the buffer: as it comes) */
             rf_nf_over++;
@@ -1199,16 +1232,20 @@ static void rf_net_on_msg(void *ctx, uint32_t cmd, const uint8_t *b, uint32_t le
             rf_nf_n += 2u + len;
             if (b[2] & RFM_TILES_F_END) {
                 rf_nf_frames++;
-                rf_nf_flush();                      /* the whole frame, at once */
+                rf_nf_ready = 1;                    /* the whole frame: decoded from the next turn, a slice a turn,
+                                                     * TCP's input left waiting meanwhile */
+                rf_nf_t0 = rf_ticks();
+                rf_nf_turns = 0;
             }
             return;
         }
     }
     if (cmd == RFM_SESSION)
-        rf_nf_n = 0;                                /* (tiles kept from before: the old session's) */
+        rf_nf_n = rf_nf_rd = rf_nf_ready = 0;       /* (tiles kept from before: the old session's) */
     rf_on_msg(ctx, cmd, b, len);
 }
 static uint32_t rf_net_conn;                        /* rfn_conn_id as the parser last saw it */
+static uint32_t rf_dg_conn_ends;                    /* (WIFI DIAG) sessions ended by the connection's end */
 static void rf_net_conn_check(void)                 /* a new host, or the old one gone: the parser and its session */
 {
     if (rfn_conn_id() == rf_net_conn)
@@ -1219,7 +1256,8 @@ static void rf_net_conn_check(void)                 /* a new host, or the old on
     rf_bk_net.have_fseq = 0;
     rf_body_reset_seq(&rf_bk_net.b);
     rf_net_seq = 0;
-    rf_nf_n = 0;
+    rf_nf_n = rf_nf_rd = rf_nf_ready = 0;
+    rf_dg_conn_ends += rfa.session && rfa.st == RF_T_NET;
     if (rfa.session && rfa.st == RF_T_NET) {
         rfm_app_usb_lost();                         /* (as a USB unplug ends a USB session) */
         rf_scr_hold = plat_ms() + RF_NET_GRACE_MS;  /* the host's last screen stays a moment: a host that connects
@@ -1262,7 +1300,8 @@ static void rf_rx_step(void)
 #if FM1B_WIFI
     rf_net_conn_check();
     rf_bk_net.b.now_ms = rf_bk.b.now_ms;
-    for (k = 0; k < 16 && rfn_rx_avail() && !rfm_app_rx_wait(RF_T_NET); k++) {   /* TCP (a 4 KB turn at most) */
+    rf_nf_step();                                   /* (a kept frame: a slice of it, and no more input meanwhile) */
+    for (k = 0; k < 16 && !rf_nf_ready && rfn_rx_avail() && !rfm_app_rx_wait(RF_T_NET); k++) {   /* TCP (4 KB a turn) */
         uint8_t b[256];
         n = rfn_rx_read(b, sizeof b);
         rf_bk_feed(&rf_bk_net, b, n);
@@ -1531,6 +1570,8 @@ static void rf_poll(void)                           /* USB served, timed */
 
 #if FM1B_WIFI
 static void rf_net_turn(void);                      /* (below) */
+static void rf_dg_turn(uint32_t us);                /* (rfm_wifi.c: WIFI DIAG) */
+static void rf_dg_run(uint32_t ticks);
 #endif
 static uint32_t rf_last_ms;
 static void rf_turn(void)                           /* one turn: USB, the rings, the push, the replies */
@@ -1560,12 +1601,18 @@ static void rf_turn(void)                           /* one turn: USB, the rings,
     t0 = rf_ticks() - t0;
     if (!rf_pass_slow && t0 > rf_loop_max)
         rf_loop_max = t0;
+#if FM1B_WIFI
+    rf_dg_turn(t0 / PLAT_TICKS_PER_US);
+#endif
 }
 
 /* turns for RF_SLICE_US (one in the simulator), Bluetooth's tasks every quarter of a millisecond */
 static void rf_run(void)
 {
     uint32_t t0 = rf_ticks(), y = t0;
+#if FM1B_WIFI
+    rf_dg_run(t0);                                  /* (WIFI DIAG: the time fm1-base's own loop took between) */
+#endif
     do {
         rf_turn();
         if (rf_ticks() - y >= 250u * PLAT_TICKS_PER_US) {

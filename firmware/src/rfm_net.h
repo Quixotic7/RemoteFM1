@@ -32,6 +32,16 @@ typedef struct {
     uint32_t accepts, closes, replaced, rx_bytes, tx_bytes, rx_full, tx_eagain, udp_in, udp_out, polls, open_fail;
 } rfn_stats_t;
 void rfn_stats(rfn_stats_t *s);
+/* diagnostics (WIFI DIAG; docs/WIFI.md): the host's TCP connection as lwIP keeps it, sampled at every turn of the
+ * sockets (the FM-1 only; the simulator: zeros but tx_pending_max): retransmission episodes (nrtx going above 0) and the
+ * most retries in a row, the longest retransmission timeout (ms), the smallest send / receive windows, zero-window
+ * probes begun; lwIP's own counters (TCP and link segments, drops, out of memory; the pbuf pool's failures); the most
+ * bytes waiting in tx. Maxima and minima start again when read with clear */
+typedef struct {
+    uint32_t nrtx_events, nrtx_max, rto_max_ms, snd_wnd_min, rcv_wnd_min, persist_events, tx_pending_max;
+    uint32_t tcp_xmit, tcp_recv, tcp_drop, tcp_memerr, link_recv, link_drop, pbuf_err;
+} rfn_diag_t;
+void rfn_diag(rfn_diag_t *d, int clear);
 /* the FM-1: the task (plat_net_task(rfn_task, 0, "rfm_net")); it waits in rfn_wait (the app's, src/rfm_main.c: the
  * shim's semaphore, which the main loop posts) between turns */
 void rfn_task(void *arg);

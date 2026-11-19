@@ -536,6 +536,12 @@ TCP ended). Over TCP:
   straddle a stall; its FRAME_ACK follows. A longer frame goes on as it comes. libremotefm1 keeps a TCP frame to 14,000
   bytes of tiles and at most 16 KB of TILES unacknowledged (one frame in flight), so the unit's TCP input never fills
   and the newest screen is the one sent after a stall.
+- **Why the shadow was reset** (the Wi-Fi build): a FRAME_ACK with `status` bit1 carries the reason in bits 4..7: 1
+  power-on, 2 the audio mode ended, 3 a SESSION start, 4 something else drew on the panel (`RFM_ACK_REASON_*`). Other
+  builds leave bits 4..7 at 0. libremotefm1 logs it ("the unit's shadow was reset, a SESSION start") and keeps it in
+  `stats.reset_reason`.
+- **A kept frame** is decoded at most 4 KB of TILES bodies a turn of the unit's loop, TCP's input left waiting
+  meanwhile, so the radio's tasks are never held up longer than by any other turn.
 - **The connection's end** ends a TCP session; the unit keeps the host's last screen 4 s before its own screens come
   back, so a host that connects again at once (a Wi-Fi hiccup) takes over without them flashing in between.
 - **TCP's stalls.** A segment lost on the radio is resent by TCP a second or more later (lwIP's 500 ms timers on the
@@ -574,6 +580,8 @@ address it remembers. libremotefm1 reads the answer with `rfm_parse_discovery`.
 | 1 SET | `01 ssid_len8 ssid pass_len8 pass` | join this network (SSID 1..32 bytes, password 0..63; 0: an open network). The FM-1 keeps it (fm1-base's store, six networks, the most recent first) once it has joined, and joins the networks kept at every start and again after a drop. USB only (SysEx or bulk) |
 | 2 FORGET | `02 k8` | forget network `k` (0 the most recent), `FF` all of them. USB only |
 | 3 SAVED | `03` | the state and the networks kept |
+| 4 DIAG | `04` | GET's reply, then the diagnostics (docs/WIFI.md "Diagnostics"): a version byte (1), 26 × u32 of the main loop, the whole frames, PANEL_R, TCP's input and the session, 14 × u32 of lwIP's view of the connection; the maxima start again at every DIAG |
+| 5 MODE | `05 m` | 1: whole frames over TCP (the default), 0: decoded as they come (an A/B; until the unit restarts). The reply is DIAG's |
 
 WIFI_R body (little endian): `op8 status8 state8 rssi8(signed) ip[4] tcp_port16 udp_port16 host8 saved8
 heap_used32 heap_peak32 heap_size32 app_heap16 rx_frames16`, then `ssid_len8 ssid` (the network joined or being
