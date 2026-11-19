@@ -165,7 +165,7 @@ try {
   await shot("fantasy-sheet");
   await js(`(document.querySelector(".fw-card").click(), true)`);
   await sleep(500);
-  ok(await js(`!!document.querySelector('.card[data-id="fscart"] .fantasy-badge') && document.querySelectorAll(".card .fantasy-badge").length === 1`), "the firmware browser: the catalog card has the badge (and no other card)");
+  ok(await js(`!!document.querySelector('.fb-tile[data-id="fscart"] .fb-fan-tag') && document.querySelectorAll(".fb-tile .fb-fan-tag").length === 1`), "the firmware browser: the catalog card has the badge (and no other card)");
   await shot("fantasy-browser");
   await esc(); await sleep(300);
   await js(`(document.querySelector(".fw-card.slim").click(), true)`);

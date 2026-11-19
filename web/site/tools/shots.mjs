@@ -67,7 +67,7 @@ const openLocal = [`document.getElementById("fw-btn").click()`, `new Promise((r)
   dt.items.add(new File([b], "FM-1.fwsc")); inp.files = dt.files; inp.dispatchEvent(new Event("change", { bubbles: true })); })`];
 const FELUCCA_162 = { felucca: { version: "1.6.2", pkg: "fw/felucca-1.6.2.fwsc", release: "https://github.com/hugelton/Felucca/releases/tag/v1.6.2" } };
 const openBrowserAt = (id) => [`document.getElementById("fw-btn").click()`,
-  `new Promise((r) => setTimeout(r, 300)).then(() => { const c = document.querySelector('.card[data-id="${id}"]'); if (c) c.scrollIntoView({ block: "center" }); })`];
+  `new Promise((r) => setTimeout(r, 300)).then(() => { const c = document.querySelector('.fb-tile[data-id="${id}"], .card[data-id="${id}"]'); if (c) c.scrollIntoView({ block: "center" }); })`];
 const filterTo = (k) => `document.querySelector('.engine-filter [data-engine="${k}"]').click()`;
 const engineSection = `(() => { document.getElementById("corner").click(); return new Promise((r) => setTimeout(() => {
   const hd = [...document.querySelectorAll(".sheet h3.heading")].find((x) => /^Engine/.test(x.textContent)); if (hd) hd.scrollIntoView({ block: "start" }); r(); }, 400)); })()`;
