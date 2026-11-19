@@ -19,7 +19,7 @@ set -euo pipefail
 
 FIZZ_VERSION=0.13.0
 FIZZ_COMMIT=5695049baf299d04496dac181986d07da6e9d559      # (tag v0.13.0)
-FM1VST_COMMIT=0227906467ef572f343d240fa73d747947c4cbaa    # (branch rfm1-cpu2: fm1_add_rfm1 WANTS cpu2, core-glue/common/rfm1_cpu2.h)
+FM1VST_COMMIT=4f153094574b25787aa39a5a406d44b5b6f962c6    # (branch rfm1-cpu2: fm1_add_rfm1 WANTS cpu2 rd1, rfm1_cpu2.h, rfm1_ext.h)
 FELUCCA_BSP_COMMIT=2cd696a2b94341077303e9132bb4be3d0a87ebcf   # (FIZZ's firmware/fm1-base 934e40d's bsp)
 # the package identity a FIZZ unit of this release answers (fm1-base tools/build.py --release: fm1.toml's id_prefix
 # FM-1_46 + major, minor, patch as two digits each), checked below against FIZZ's site/firmware/releases.json

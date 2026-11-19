@@ -72,9 +72,9 @@ set(FIZZ_MEMORY_MIB 16 CACHE STRING "the .rfm1's fixed memory")
 # cpu2 (FM1VST docs/RFM1.md): core 1's half of the voices on a host thread where the host has one (fizz_unit.c);
 # FIZZ_CPU2 OFF (build_fizz.sh FIZZ_CPU2=0): the file without it, every voice in qd_app_audio, as before
 option(FIZZ_CPU2 "core 1 on a host thread (fm1_add_rfm1 WANTS cpu2)" ON)
-set(_qd_wants "")
+set(_qd_wants WANTS rd1)       # readouts (FM1VST docs/RFM1.md "Readouts (rd1)": fizz_unit.c)
 if(FIZZ_CPU2)
-    set(_qd_wants WANTS cpu2)
+    list(APPEND _qd_wants cpu2)
 endif()
 fm1_add_rfm1(fizz
     AUTHORS "Michael P Jones (Quixotic7)"
