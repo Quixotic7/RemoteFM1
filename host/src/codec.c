@@ -262,6 +262,78 @@ uint32_t rfm_midi_msg_len(uint8_t st)
     return (st & 0xE0u) == 0xC0u ? 2u : 3u;             /* Cx Dx: 2, the other channel messages 3 */
 }
 
+int rfm_parse_panel_ev(const uint8_t *b, uint32_t n)
+{
+    uint32_t k = 0;
+    if (!b || !n || n > RFM_PANEL_EV_MAX)
+        return -1;
+    while (k < n) {
+        uint32_t m = b[k] >= 0xF0u ? 0u : rfm_midi_msg_len(b[k]), i;
+        if (!m || k + m > n)
+            return -1;
+        for (i = 1; i < m; i++)
+            if (b[k + i] & 0x80u)
+                return -1;
+        k += m;
+    }
+    return 0;
+}
+
+static void disc_copy(char *dst, uint32_t cap, const uint8_t *v, uint32_t n)
+{
+    uint32_t i;
+    for (i = 0; i < n && i + 1u < cap; i++)
+        dst[i] = (char)(v[i] >= 0x20u && v[i] < 0x7Fu ? v[i] : '?');
+    dst[i] = 0;
+}
+
+int rfm_parse_discovery(const uint8_t *b, uint32_t n, rfm_net_info_t *o)
+{
+    uint32_t k = 6;
+    memset(o, 0, sizeof *o);
+    o->port = RFM_NET_TCP_PORT;
+    if (!b || n < 6 || memcmp(b, "RFM1!\n", 6))
+        return -1;
+    while (k < n) {
+        uint32_t e = k, eq = 0, kl, vl;
+        const uint8_t *v;
+        while (e < n && b[e] != '\n')
+            e++;
+        while (k + eq < e && b[k + eq] != '=')
+            eq++;
+        if (k + eq < e) {
+            kl = eq;
+            v = b + k + eq + 1u;
+            vl = e - (k + eq + 1u);
+            if (vl && v[vl - 1u] == '\r')
+                vl--;
+#define DK(s) (kl == sizeof s - 1u && !memcmp(b + k, s, kl))
+            if (DK("name"))
+                disc_copy(o->name, sizeof o->name, v, vl);
+            else if (DK("id"))
+                disc_copy(o->id, sizeof o->id, v, vl);
+            else if (DK("ver"))
+                disc_copy(o->ver, sizeof o->ver, v, vl);
+            else if (DK("ip"))
+                disc_copy(o->ip, sizeof o->ip, v, vl);
+            else if (DK("port") || DK("busy") || DK("session")) {
+                uint32_t x = 0, i;
+                for (i = 0; i < vl && i < 6u && v[i] >= '0' && v[i] <= '9'; i++)
+                    x = x * 10u + (uint32_t)(v[i] - '0');
+                if (DK("port"))
+                    o->port = x && x < 65536u ? (uint16_t)x : (uint16_t)RFM_NET_TCP_PORT;
+                else if (DK("busy"))
+                    o->busy = x ? 1 : 0;
+                else
+                    o->session = x ? 1 : 0;
+            }
+#undef DK
+        }
+        k = e + 1u;
+    }
+    return 0;
+}
+
 int rfm_parse_midi_in(const uint8_t *b, uint32_t n)
 {
     uint32_t k = 0;
@@ -440,7 +512,7 @@ static void midi_byte(rfm_rx_t *r, uint8_t c)
 void rfm_rx_feed(rfm_rx_t *r, const uint8_t *p, uint32_t n)
 {
     uint32_t i;
-    if (r->kind == RFM_LINK_BK) {
+    if (r->kind != RFM_LINK_SX) {                       /* bulk, or the bulk framing over TCP */
         rf_bk_feed(&r->bk, p, n);
         return;
     }

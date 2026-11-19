@@ -229,7 +229,8 @@ what differs.
 ### Panel events: plain MIDI (0.2: always; the standalone build: only in a session)
 
 They go to the session's MIDI port: USB-MIDI (EP1) for a session over USB SysEx or bulk, Bluetooth MIDI for a session
-over Bluetooth. 0.2 also sends them with no session, to USB (when configured) and to a connected Bluetooth computer.
+over Bluetooth. A session over TCP (the Wi-Fi build, section 10) has no MIDI port: the same bytes come as PANEL_EV
+(`0x56`) messages on the session's stream. 0.2 also sends them with no session, to USB (when configured) and to a connected Bluetooth computer.
 **The standalone build sends them only during a session**: without one, its keys send the instrument's notes (on its
 MIDI channel, with velocity, to USB and Bluetooth at once) and its knobs its CCs, not these events. They wait in a
 short queue (256 events) when a port has no room, and are dropped when nobody is connected.
@@ -520,20 +521,36 @@ TCP ended). Over TCP:
 
 - HELLO_R: `transports` bit6 (`RFM_TR_NET`) while a host is connected; `bk_rx_ring32` / `bk_tx_ring32` are the TCP
   transport's rings (8192 / 8192); `bk_body_max16` 4096 (the build's RAM: the vendor pair has the same maximum, its
-  rings 2048); `caps` 0x162C (no shadow, no COPY, no HOLD, no Bluetooth audio; bit12).
+  rings 2048); `caps` 0x362C (no shadow, no COPY, no HOLD, no Bluetooth audio; bit12 WIFI, bit13 PANEL_EV). The
+  phase-0 spike (2e2d2ce) said 0x162C: no PANEL_EV.
 - M0's diagnostics (section 5) work as on the vendor pair. STATS_R asked over TCP gives the TCP transport's counters
   in the bulk fields (`bk_rx_msgs` .. `bk_frame_gaps`, `bk_rx_ps`, `bk_tx_ps`). SOURCE's DATA: at most 4096 bytes a
   message.
-- A session over TCP: SESSION, LEDS, TILES, FRAME_ACK, PANEL_R (PANEL_REQ, TOUCH's flags) and MIDI_IN work as on
-  the vendor pair (a host paces it as USB bulk: 2 frames in flight). Not yet (phase 1): the panel's events (keys,
-  buttons, encoders, MASTER: plain MIDI on the session's port on the other transports) are dropped in a TCP session,
-  as TCP has no MIDI port; a message to carry them is phase 1's. A USB reset or unplug does not end a TCP session;
-  the connection's end does.
+- A session over TCP: SESSION, LEDS, TILES, FRAME_ACK, PANEL_R (PANEL_REQ, TOUCH's flags), TOUCH and MIDI_IN work as
+  on the vendor pair (a host need not pace it: 2 frames in flight; libremotefm1 budgets `RFM_BUDGET_TCP_BPS`, 300,000
+  B/s, of the 494,000 measured). A USB reset or unplug does not end a TCP session; the connection's end does (and a
+  new connection, which replaces it).
+- **PANEL_EV** (`0x56`, device → host; units with `caps` bit13 `RFM_CAP_PANEL_EV`): the panel's events in a session
+  over TCP, which has no MIDI port. Body: 1..`RFM_PANEL_EV_MAX` (96) bytes, the events exactly as section 4's plain
+  MIDI (`9F/8F 53+k`, `AF 53+k p`, `9E/8E b`, `BE 16+e 64+d`, `BE 07 / BE 27` MASTER), whole channel messages with
+  their status byte (no running status), in the order they happened. Their meaning, TOUCH's velocity and pressure, the
+  encoder splitting, MASTER's deadband and its message at a session's start are section 4's.
+  - The unit sends what its event queue (256) holds as soon as TCP's ring has room, up to 32 events a message; a
+    burst waits in the queue, never dropped while the host reads. Nothing goes to USB or Bluetooth meanwhile (a TCP
+    session owns the panel). With no session, the panel's events go where they always went (USB, Bluetooth).
+  - They travel in the same stream as PANEL_R, so a PANEL_R never overtakes an event (on USB it can: section 4's
+    settle time still applies, harmlessly).
+  - A host takes PANEL_EV only on the session's link; it feeds each message to the same decoder as the MIDI link's
+    events (libremotefm1: `rfm_panel_midi`). A unit without bit13 (the phase-0 spike) sends none: its panel reaches a
+    host only by PANEL_R.
+  - Bytes, a key 5 down at velocity 100 then encoder 3 one detent clockwise: `'R' 'F' 56 00 06 00 <seq32> 9F 3A 64 BE
+    13 41`.
 
 **Discovery.** A UDP datagram that starts `RFM1?` (5 bytes) sent to port 7741 (`RFM_NET_UDP_PORT`), broadcast or to
 the FM-1's address, is answered to its sender with `RFM1!\n` and key=value lines: `name` ("FM-1 XXXX", the unit's
 Bluetooth name in its other builds), `id` (the identity), `ver`, `port` (7740), `ip`, `busy` (1: a host is connected),
-`session` (1: in a session). No mDNS yet.
+`session` (1: in a session). No mDNS (lwIP's responder is not in fm1-base's build): a host broadcasts, or asks an
+address it remembers. libremotefm1 reads the answer with `rfm_parse_discovery`.
 
 **WIFI** (`0x17`) / **WIFI_R** (`0x57`): the network. Request body: `op8 ...`.
 

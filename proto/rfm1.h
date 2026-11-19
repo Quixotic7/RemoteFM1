@@ -36,6 +36,8 @@ enum {
     RFM_SOURCE_DONE = 0x50, RFM_FRAME_ACK = 0x52, RFM_PANEL_R = 0x53,
     RFM_MIDI_IN = 0x54,                 /* 0.3: the TRS jack's MIDI in, forwarded in a session (RFM_CAP_MIDI_IN) */
     RFM_AUDIO_R = 0x55,                 /* 0.3.6: the audio mode's state and its buffer (RFM_CAP_BLE_AUDIO) */
+    RFM_PANEL_EV = 0x56,                /* the panel's events as MIDI bytes, in a session on a link without a MIDI port
+                                         * (TCP: the Wi-Fi build, RFM_CAP_PANEL_EV; docs/PROTOCOL.md section 10) */
     RFM_WIFI_R = 0x57                   /* the Wi-Fi build: WIFI's reply (docs/PROTOCOL.md section 10) */
 };
 
@@ -67,7 +69,8 @@ enum {
     RFM_CAP_MIDI_IN = 1u << 9,          /* 0.3: the TRS jack's MIDI in comes to the host in a session (MIDI_IN) */
     RFM_CAP_TOUCH = 1u << 10,           /* 0.3.1: TOUCH: the keys' real velocity and their pressure as poly aftertouch */
     RFM_CAP_BLE_AUDIO = 1u << 11,       /* 0.3.6: AUDIO_MODE / AUDIO: the host's sound over the session's link, no screen */
-    RFM_CAP_WIFI = 1u << 12             /* the Wi-Fi build: WIFI (0x17), the bulk framing over TCP (section 10) */
+    RFM_CAP_WIFI = 1u << 12,            /* the Wi-Fi build: WIFI (0x17), the bulk framing over TCP (section 10) */
+    RFM_CAP_PANEL_EV = 1u << 13         /* a session over TCP sends the panel's events as PANEL_EV (section 10) */
 };
 
 /* TOUCH body (host -> device, in a session; no reply): flags8. A session starts with 0 (velocity 100, no
@@ -147,6 +150,11 @@ enum { RFM_ACK_DECODE_ERR = 1u << 0, RFM_ACK_SHADOW_RESET = 1u << 1 };
 /* MIDI_IN body (device -> host, in a session): whole MIDI messages, each with its status byte (no running status, no
  * SysEx): channel messages (2 or 3 bytes) and real time (F8 FA FB FC: 1 byte), in the order they came; 1..64 bytes */
 #define RFM_MIDI_IN_MAX 64u
+
+/* PANEL_EV body (device -> host, in a session over TCP): the panel's events exactly as the plain MIDI of section 4
+ * (9F/8F keys, AF pressure, 9E/8E buttons, BE encoders and MASTER), whole messages with their status, in the order
+ * they happened; 1..96 bytes */
+#define RFM_PANEL_EV_MAX 96u
 
 /* panel events as plain MIDI (docs/PROTOCOL.md section 4) */
 #define RFM_MIDI_KEY_CH 15u             /* channel 16, zero-based */

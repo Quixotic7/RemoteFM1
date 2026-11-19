@@ -4,8 +4,19 @@
  * caller gives it links (a write function each), feeds it the bytes each link received, and calls poll() with a
  * millisecond clock. Everything happens inside those calls.
  *
- * Links: RFM_LINK_SX (a MIDI port pair: SysEx out; in: SysEx and the panel's channel messages) and RFM_LINK_BK
- * (the vendor bulk pipe). The back end adds every candidate; the session finds the unit by HELLO only.
+ * Links: RFM_LINK_SX (a MIDI port pair: SysEx out; in: SysEx and the panel's channel messages), RFM_LINK_BK
+ * (the vendor bulk pipe) and RFM_LINK_TCP (the Wi-Fi build: the bulk framing over a TCP connection to the unit, port
+ * RFM_NET_TCP_PORT; the panel's events come on it as PANEL_EV). The back end adds every candidate; the session finds
+ * the unit by HELLO only.
+ *
+ * TCP (docs/PROTOCOL.md section 10): the back end owns the socket (connect, non-blocking writes that never drop a
+ * byte: a write it cannot take whole is a failure, the link is then dead until rfm_session_link_reset); the session
+ * frames, never paces (a reliable stream: RFM_BUDGET_TCP_BPS, max_frames_in_flight), and takes the panel from
+ * PANEL_EV. A TCP frame link is preferred to a SysEx one (a bulk link of the same unit first). Reconnecting: on a
+ * close or an error the back end calls rfm_session_remove_link (or keeps the id and, once connected again,
+ * rfm_session_link_reset); the session goes back to DISCOVER (the rescan callback is the moment to reconnect) and
+ * starts a new session when HELLO answers on the new connection. Discovery on the LAN (UDP "RFM1?") is the back
+ * end's too: rfm_parse_discovery reads the answers.
  *
  *   DISCOVER  HELLO on every link; within hello_ms, every link that answered "RemoteFM1" proto 2 counts. The first
  *             SX link that answered carries the panel events; the frame link (the session transport) is a BK link
@@ -70,7 +81,7 @@
 extern "C" {
 #endif
 
-enum { RFM_T_AUTO = 0, RFM_T_MIDI = 1, RFM_T_BULK = 2 };
+enum { RFM_T_AUTO = 0, RFM_T_MIDI = 1, RFM_T_BULK = 2, RFM_T_TCP = 3 };
 enum { RFM_S_DISCOVER = 0, RFM_S_STARTING, RFM_S_ACTIVE, RFM_S_STOPPING, RFM_S_STOPPED };
 #define RFM_MAX_LINKS 16
 #define RFM_BLE_FPS 20u                                 /* Bluetooth pacing (above) */
@@ -166,6 +177,8 @@ typedef struct {
     uint32_t audio_buffer_ms, audio_fill_ms, audio_unit_blocks, audio_lost, audio_underruns, audio_skipped;
     uint32_t slow;                                      /* 1: the frame link is paced as a slow link (cfg.slow_link) */
     uint32_t rate;                                      /* a paced link's body bytes a second (0: not paced) */
+    uint32_t tcp;                                       /* 1: the frame link is TCP (the Wi-Fi build) */
+    uint32_t panel_ev, panel_ev_bad;                    /* PANEL_EV messages taken (TCP), malformed */
 } rfm_session_stats_t;                                  /* (all uint32: web/remote reads it as an array) */
 
 typedef struct rfm_session rfm_session_t;
@@ -174,6 +187,9 @@ void rfm_session_free(rfm_session_t *s);
 
 int rfm_session_add_link(rfm_session_t *s, int kind, rfm_write_fn write, void *ctx, const char *name);  /* id, -1 */
 void rfm_session_remove_link(rfm_session_t *s, int id, uint32_t now_ms);
+/* the link's byte stream started afresh (a TCP link reconnected: a new connection; a link whose write failed is alive
+ * again): its parser and sequence numbers reset; a session on it is gone (the unit ended it), so DISCOVER */
+void rfm_session_link_reset(rfm_session_t *s, int id, uint32_t now_ms);
 void rfm_session_rx(rfm_session_t *s, int id, const uint8_t *p, uint32_t n, uint32_t now_ms);
 void rfm_session_poll(rfm_session_t *s, uint32_t now_ms);
 

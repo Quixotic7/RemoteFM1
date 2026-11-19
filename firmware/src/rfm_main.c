@@ -60,7 +60,7 @@
 #define RF_T_NET 3u
 #define RF_NT 4u
 #define RF_IS_NET(t) ((t) == RF_T_NET)
-#define RF_CAP_NET RFM_CAP_WIFI
+#define RF_CAP_NET (RFM_CAP_WIFI | RFM_CAP_PANEL_EV)
 #else
 #define RF_NT 3u
 #define RF_IS_NET(t) 0
@@ -517,12 +517,48 @@ static void rfa_midi(uint32_t st, uint32_t d1, uint32_t d2)
         rf_ev_at_n++, rf_ev_at_last = d2;
     rf_ev_put((st >> 4) | st << 8 | d1 << 16 | d2 << 24);   /* cable 0, CIN = the status */
 }
+#if FM1B_WIFI
+/* a session over TCP (no MIDI port): the queued events as PANEL_EV, the same MIDI bytes in the same order, as many as
+ * fit a message (32 events), when the TCP ring has room now; what finds no room waits in the queue (docs/PROTOCOL.md
+ * section 10) */
+static uint32_t rf_ev_net_msgs;
+static void rf_ev_net(void)
+{
+    uint8_t b[RFM_PANEL_EV_MAX];
+    while (rf_ev_r != rf_ev_w) {
+        uint32_t n = 0, k = rf_ev_r;
+        int r;
+        while (k != rf_ev_w) {
+            const uint32_t pkt = rf_evq[k % RF_EVQ], st = (pkt >> 8) & 0xFFu, len = (st & 0xE0u) == 0xC0u ? 2u : 3u;
+            if (n + len > RFM_PANEL_EV_MAX)
+                break;
+            b[n++] = (uint8_t)st;
+            b[n++] = (uint8_t)(pkt >> 16 & 0x7Fu);
+            if (len == 3u)
+                b[n++] = (uint8_t)(pkt >> 24 & 0x7Fu);
+            k++;
+        }
+        r = rf_try(RF_T_NET, RFM_PANEL_EV, b, n);
+        if (!r)
+            return;                                     /* no room now: the next turn */
+        if (r < 0)
+            rf_ev_drop += k - rf_ev_r;                  /* (the host went: the session ends with it) */
+        else
+            rf_ev_net_msgs++;
+        rf_ev_r = k;
+    }
+}
+#endif
 static void rf_ev_flush(void)
 {
     uint32_t to;
-    if (rfa.session && RF_IS_NET(rfa.st))
-        to = 0u;                                        /* (a session over TCP: no MIDI port yet, docs/WIFI.md) */
-    else if (rfa.session)
+#if FM1B_WIFI
+    if (rfa.session && RF_IS_NET(rfa.st)) {
+        rf_ev_net();                                    /* (TCP has no MIDI port: PANEL_EV) */
+        return;
+    }
+#endif
+    if (rfa.session)
         to = rfa.st == RF_T_BLE ? (plat_ble_connected() ? TO_BLE_HOST : 0u) : (rp_usb_cfg() ? TO_USB : 0u);
     else
         to = (rp_usb_out() ? TO_USB : 0u) | (plat_ble_connected() ? TO_BLE_HOST : 0u);

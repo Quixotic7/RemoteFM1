@@ -162,7 +162,7 @@ static void rf_wifi_info(void)                      /* discovery's answer (after
     p = s_put(p, "\nver=");
     p = s_put(p, APP_VERSION);
     p = s_put(p, "\nport=");
-    p = s_int(p, RFM_NET_TCP_PORT);
+    p = s_int(p, rfn_port());                     /* (RFM_NET_TCP_PORT; the simulator's rf serve: its own) */
     p = s_put(p, "\nip=");
     p = rf_put_ip(p, plat_wifi_ip());
     p = s_put(p, "\nbusy=");

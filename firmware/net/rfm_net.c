@@ -73,6 +73,7 @@ int rfn_up(void) { return rn_cs >= 0 || rn_fake; }
 int rfn_up(void) { return rn_cs >= 0; }
 #endif
 uint32_t rfn_conn_id(void) { return rn_conn; }
+uint16_t rfn_port(void) { return rn_tcp_port; }
 void rfn_stats(rfn_stats_t *s) { *s = rn_st; }
 
 uint32_t rfn_rx_read(uint8_t *dst, uint32_t n)

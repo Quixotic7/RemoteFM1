@@ -5,7 +5,8 @@
  * keepalive loss (a deaf unit), a lost FRAME_ACK, a decode error, stop, transports; Bluetooth MIDI's pacing on a
  * slow link that loses what overflows the unit's input; Bluetooth's whole screen changes (HOLD): a moving source
  * shows only screens that were submitted, an older unit gets no HOLD, a stall, the option turned off mid-change; a
- * slow link that is not Bluetooth (cfg.slow_link: the Ableton Move's USB-A) paced the same way. */
+ * slow link that is not Bluetooth (cfg.slow_link: the Ableton Move's USB-A) paced the same way; the Wi-Fi build over
+ * TCP (RFM_LINK_TCP): a session, the screen unpaced, the panel's events as PANEL_EV, reconnects. */
 #include <stdlib.h>
 #include <string.h>
 
@@ -41,6 +42,8 @@ static int w(void *ctx, const uint8_t *p, uint32_t n)
     hl_t *l = (hl_t *)ctx;
     if (l->kind == RFM_LINK_SX)
         rfm_fake_rx_sx(l->h->f[l->fake], p, n, l->h->now);
+    else if (l->kind == RFM_LINK_TCP && l->id < 0)
+        return 0;                                       /* (a TCP link not connected: nothing arrives) */
     else
         rfm_fake_rx_bk(l->h->f[l->fake], p, n, l->h->now);
     return 0;
@@ -125,6 +128,8 @@ static void step(h_t *h, uint32_t ms)
             hl_t *l = &h->links[i];
             uint32_t n;
             rfm_fake_poll(h->f[l->fake], h->now);
+            if (l->id < 0)
+                continue;                               /* (a TCP link not connected) */
             n = l->kind == RFM_LINK_SX ? rfm_fake_take_sx(h->f[l->fake], buf, sizeof buf)
                                        : rfm_fake_take_bk(h->f[l->fake], buf, sizeof buf);
             if (n)
@@ -1452,6 +1457,187 @@ static void test_slow_link(int slow)
     }
 }
 
+/* the Wi-Fi build over TCP: one TCP link (the Ableton Move's), no MIDI port. The session runs on it unpaced (TCP's
+ * budget, 2 frames in flight), the panel's events arrive as PANEL_EV (batched), PANEL_R repairs as on the other
+ * links; the connection reset by the unit (a new connection, rfm_session_link_reset) and closed and connected again
+ * (remove, add) each come back to a new session whose screen converges */
+static void test_tcp(void)
+{
+    static uint16_t img[FR_N];
+    h_t h;
+    rfm_session_cfg_t sc;
+    rfm_fake_cfg_t fc;
+    rfm_session_stats_t st;
+    rfm_fake_stats_t fs;
+    rfm_fake_t *u;
+    hl_t *tl;
+    uint32_t i, t, seed = 11;
+    int got_key = 0, got_btn = 0, got_enc = 0, got_master = 0, got_up = 0, repaired = 0;
+    rfm_session_cfg_default(&sc);
+    sc.keepalive_ms = 3000;
+    setup(&h, &sc);
+    default_fake(&fc);
+    fc.tcp = 1;
+    fc.bk_body_max = 4096;                              /* (the Wi-Fi build's) */
+    fc.bk_rate_bps = 494000;                            /* (measured on the owner's FM-1) */
+    h.f[0] = rfm_fake_new(&fc);
+    h.nf = 1;
+    u = h.f[0];
+    tl = &h.links[0];
+    tl->h = &h;
+    tl->fake = 0;
+    tl->kind = RFM_LINK_TCP;
+    tl->id = rfm_session_add_link(h.s, RFM_LINK_TCP, w, tl, "tcp 10.0.0.165:7740");
+    h.nl = 1;
+    step(&h, 50);
+    CHECK(rfm_session_state(h.s) == RFM_S_ACTIVE && rfm_fake_session(u) == 2);
+    CHECK(rfm_session_link_kind(h.s, rfm_session_frame_link(h.s)) == RFM_LINK_TCP);
+    CHECK(rfm_session_midi_link(h.s) == tl->id);
+    CHECKF(rfm_session_budget(h.s) == RFM_BUDGET_TCP_BPS / 20u, "budget %u", rfm_session_budget(h.s));
+    rfm_session_stats(h.s, &st);
+    CHECK(st.tcp == 1 && st.ble == 0 && st.slow == 0 && st.rate == 0 && st.wire_cap == 0 && st.frame_ms == 50u);
+    CHECK((rfm_session_hello(h.s)->caps & (RFM_CAP_WIFI | RFM_CAP_PANEL_EV)) == (RFM_CAP_WIFI | RFM_CAP_PANEL_EV));
+    /* the screen: full-screen noise for 2 s, then still; converges with 2 in flight, never paced */
+    for (t = 0; t < 40; t++) {
+        fr_noise(img, &seed);
+        rfm_session_set_frame(h.s, img);
+        step(&h, 50);
+    }
+    CHECK(run_until_converged(&h, u, img, 3000));
+    rfm_session_stats(h.s, &st);
+    rfm_fake_stats(u, &fs);
+    CHECKF(h.max_in_flight == 2 && fs.decode_errs == 0 && st.ack_timeouts == 0 && st.hold == 0 && st.reduced == 0,
+           "in flight %u, decode errors %u, timeouts %u, hold %u, reduced %u", h.max_in_flight, fs.decode_errs,
+           st.ack_timeouts, st.hold, st.reduced);
+    CHECKF(st.frames >= 30, "%u frames in 2 s of noise", st.frames);
+    /* the panel: PANEL_EV, as the MIDI link's events */
+    step(&h, 600);
+    h.nev = 0;
+    rfm_fake_key_vel(u, 5, 1, 90);
+    rfm_fake_button(u, 9, 1);
+    rfm_fake_enc(u, 3, -2);
+    rfm_fake_master(u, 777);
+    step(&h, 2);
+    for (i = 0; i < h.nev; i++) {
+        const rfm_event_t *e = &h.ev[i];
+        got_key |= e->type == RFM_EV_KEY && e->index == 5 && e->value == 1 && e->source == RFM_EVS_MIDI && e->vel == 90;
+        got_btn |= e->type == RFM_EV_BUTTON && e->index == 9 && e->value == 1;
+        got_enc |= e->type == RFM_EV_ENC && e->index == 3 && e->value == -2;
+        got_master |= e->type == RFM_EV_MASTER && e->value == 777;
+    }
+    CHECKF(got_key && got_btn && got_enc && got_master, "key %d button %d enc %d master %d (%u events)", got_key,
+           got_btn, got_enc, got_master, h.nev);
+    rfm_session_stats(h.s, &st);
+    rfm_fake_stats(u, &fs);
+    CHECKF(st.panel_ev >= 1 && st.panel_ev == fs.panel_ev && st.panel_ev_bad == 0, "PANEL_EV %u (unit %u), bad %u",
+           st.panel_ev, fs.panel_ev, st.panel_ev_bad);
+    h.nev = 0;
+    for (i = 0; i < 27; i++)                            /* a burst: more than one PANEL_EV's worth, in order */
+        rfm_fake_key(u, i, 1);
+    for (i = 0; i < 27; i++)
+        rfm_fake_key(u, i, 0);
+    step(&h, 2);
+    for (i = 0; i < h.nev; i++)
+        got_up += h.ev[i].type == RFM_EV_KEY && h.ev[i].value == 0 && h.ev[i].source == RFM_EVS_MIDI;
+    CHECKF(got_up == 27 && rfm_session_panel(h.s)->keys == 0, "%d key ups, keys 0x%x", got_up,
+           rfm_session_panel(h.s)->keys);
+    h.nev = 0;
+    rfm_fake_drop_midi(u, 1);
+    rfm_fake_key(u, 7, 1);                              /* lost: PANEL_R repairs it, as on the other links */
+    step(&h, 600);
+    for (i = 0; i < h.nev; i++)
+        repaired |= h.ev[i].type == RFM_EV_KEY && h.ev[i].index == 7 && h.ev[i].value == 1 &&
+                    h.ev[i].source == RFM_EVS_RESYNC;
+    CHECK(repaired);
+    rfm_fake_key(u, 7, 0);
+    /* the unit drops the connection and the back end connects again (the same link id, its stream afresh) */
+    rfm_fake_tcp_reset(u);
+    rfm_session_link_reset(h.s, tl->id, h.now);
+    step(&h, 10);
+    rfm_session_stats(h.s, &st);
+    CHECK(st.lost >= 1);
+    step(&h, 300);
+    rfm_session_stats(h.s, &st);
+    CHECKF(rfm_session_state(h.s) == RFM_S_ACTIVE && rfm_fake_session(u) == 2 && st.sessions == 2,
+           "state %s, unit session %d, sessions %u", rfm_session_state_name(rfm_session_state(h.s)),
+           rfm_fake_session(u), st.sessions);
+    CHECK(run_until_converged(&h, u, img, 2000));
+    /* closed (the FM-1 switched off), nothing for 3 s, then connected again as a new link */
+    rfm_fake_tcp_reset(u);
+    rfm_session_remove_link(h.s, tl->id, h.now);
+    tl->id = -1;
+    step(&h, 3000);
+    CHECK(rfm_session_state(h.s) == RFM_S_DISCOVER);
+    CHECK(h.rescans >= 1);                              /* (the moment a back end reconnects) */
+    tl->id = rfm_session_add_link(h.s, RFM_LINK_TCP, w, tl, "tcp again");
+    step(&h, 1200);
+    rfm_session_stats(h.s, &st);
+    CHECKF(rfm_session_state(h.s) == RFM_S_ACTIVE && st.sessions == 3, "state %s, sessions %u",
+           rfm_session_state_name(rfm_session_state(h.s)), st.sessions);
+    CHECK(run_until_converged(&h, u, img, 2000));
+    h.nev = 0;
+    rfm_fake_button(u, 2, 1);
+    step(&h, 2);
+    CHECK(h.nev >= 1 && h.ev[h.nev - 1].type == RFM_EV_BUTTON && h.ev[h.nev - 1].index == 2);
+    /* stop: SESSION 0 over TCP */
+    rfm_session_stop(h.s, h.now);
+    step(&h, 20);
+    CHECK(rfm_session_state(h.s) == RFM_S_STOPPED && rfm_fake_session(u) == 0);
+    teardown(&h);
+}
+
+/* the Ableton Move's case: an FM-1 on its USB-A (a SysEx link, slow_link) and another on Wi-Fi (TCP). With both, the
+ * TCP one is chosen, even when its HELLO_R comes after the USB one's; TCP gone: the USB-A unit; TCP back (the back
+ * end restarts discovery): the TCP one again */
+static void test_tcp_over_usb(void)
+{
+    h_t h;
+    rfm_session_cfg_t sc;
+    rfm_fake_cfg_t fc;
+    hl_t *tl;
+    rfm_session_cfg_default(&sc);
+    sc.slow_link = 1;
+    setup(&h, &sc);
+    default_fake(&fc);
+    fc.has_bulk = 0;
+    fc.sx_rate_bps = 8000;                              /* (the USB-A bridge: its answers come late) */
+    add_fake(&h, &fc);                                  /* f[0]: USB-A */
+    default_fake(&fc);
+    fc.tcp = 1;
+    fc.bk_rate_bps = 494000;
+    h.f[1] = rfm_fake_new(&fc);
+    h.nf = 2;
+    tl = &h.links[h.nl++];
+    tl->h = &h;
+    tl->fake = 1;
+    tl->kind = RFM_LINK_TCP;
+    tl->id = rfm_session_add_link(h.s, RFM_LINK_TCP, w, tl, "tcp");
+    step(&h, 400);
+    CHECKF(rfm_session_state(h.s) == RFM_S_ACTIVE && rfm_session_frame_link(h.s) == tl->id, "state %s, frame link %d",
+           rfm_session_state_name(rfm_session_state(h.s)), rfm_session_frame_link(h.s));
+    CHECK(rfm_fake_session(h.f[1]) == 2 && rfm_fake_session(h.f[0]) == 0);
+    /* the Wi-Fi unit gone: the USB-A one, paced as the slow link */
+    rfm_fake_tcp_reset(h.f[1]);
+    rfm_session_remove_link(h.s, tl->id, h.now);
+    tl->id = -1;
+    step(&h, 3000);
+    {
+        rfm_session_stats_t st;
+        rfm_session_stats(h.s, &st);
+        CHECKF(rfm_session_state(h.s) == RFM_S_ACTIVE && rfm_fake_session(h.f[0]) == 1 && st.slow == 1 && st.tcp == 0,
+               "state %s, USB-A unit session %d, slow %u", rfm_session_state_name(rfm_session_state(h.s)),
+               rfm_fake_session(h.f[0]), st.slow);
+    }
+    /* back on Wi-Fi: the back end adds the link and restarts discovery; the Wi-Fi unit wins again */
+    tl->id = rfm_session_add_link(h.s, RFM_LINK_TCP, w, tl, "tcp");
+    rfm_session_restart(h.s, h.now);
+    step(&h, 3000);
+    CHECKF(rfm_session_state(h.s) == RFM_S_ACTIVE && rfm_session_frame_link(h.s) == tl->id &&
+           rfm_fake_session(h.f[1]) == 2, "state %s, frame link %d", rfm_session_state_name(rfm_session_state(h.s)),
+           rfm_session_frame_link(h.s));
+    teardown(&h);
+}
+
 int main(void)
 {
     test_discovery_and_frames();
@@ -1471,5 +1657,7 @@ int main(void)
     test_usb_before_bluetooth();
     test_slow_link(1);
     test_slow_link(0);
+    test_tcp();
+    test_tcp_over_usb();
     return check_done("test_session");
 }

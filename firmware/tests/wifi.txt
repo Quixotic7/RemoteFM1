@@ -36,8 +36,8 @@ expect rf_net_up 1
 rf hello net
 expect rf_n_net_41 1
 expect rf_hello_ident 1
-# caps: no shadow (0x62C) and WIFI (bit12)
-expect rf_hello_caps 5676
+# caps: no shadow (0x62C), WIFI (bit12) and PANEL_EV (bit13)
+expect rf_hello_caps 13868
 # transports: bit6, a host on TCP
 expect rf_hello_transports >63
 # ECHO, STATS, SINK and SOURCE as on the vendor pair
@@ -64,6 +64,41 @@ rf session net 1 3000
 expect rf_session 1
 expect rf_session_t 3
 expect rf_n_net_46 1
+# the panel's events in a TCP session: PANEL_EV, the same MIDI bytes as the other transports' plain MIDI, none to USB
+out
+key 5 down
+wait 20
+expect rf_n_net_56 >0
+expect rf_ev_net_b0 159
+expect rf_ev_net_b1 58
+expect rf_ev_net_b2 100
+expect_no_out USB 9F 3A 64
+key 5 up
+wait 20
+expect rf_ev_net_b0 143
+expect rf_ev_net_b1 58
+press SEL
+wait 20
+expect rf_ev_net_b0 158
+expect rf_ev_net_b1 3
+expect rf_ev_net_b2 127
+release SEL
+spin K2 3
+wait 20
+expect rf_ev_net_b0 190
+expect rf_ev_net_b1 19
+expect rf_ev_net_b2 67
+master 1000
+wait 20
+expect rf_ev_net_b0 190
+expect rf_ev_net_b1 7
+expect rf_ev_net_b3 190
+expect rf_ev_net_b4 39
+# a burst (16 keys down and up, 96 bytes) arrives whole, in messages of at most 96 bytes
+strum 0 15 1
+wait 50
+expect rf_ev_net_bad 0
+expect rf_ev_net_n >115
 rf net close
 wait 10
 expect rf_session 0

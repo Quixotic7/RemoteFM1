@@ -17,7 +17,9 @@
 extern "C" {
 #endif
 
-enum { RFM_LINK_SX = 0, RFM_LINK_BK = 1 };
+/* RFM_LINK_TCP (the Wi-Fi build, docs/PROTOCOL.md section 10): the bulk framing over a TCP stream; a new connection
+ * starts its sequence numbers from 0 both ways (rfm_rx_reset) */
+enum { RFM_LINK_SX = 0, RFM_LINK_BK = 1, RFM_LINK_TCP = 2 };
 
 #define RFM_BK_HDR_LEN 10u
 #define RFM_SX_OVERHEAD 6u                              /* F0 7D 52 46 cmd .. F7 */
@@ -103,6 +105,19 @@ uint32_t rfm_midi_msg_len(uint8_t status);              /* 1..3; 0 for a byte no
 int rfm_parse_midi_in(const uint8_t *b, uint32_t n);    /* 0: 1..RFM_MIDI_IN_MAX bytes of whole messages; else -1 */
 uint32_t rfm_build_midi_in(uint8_t *body, const uint8_t *msgs, uint32_t n);   /* (the fake): n bytes, as they are */
 
+/* PANEL_EV (RFM_CAP_PANEL_EV, a session over TCP): the panel's events as section 4's MIDI channel messages */
+int rfm_parse_panel_ev(const uint8_t *b, uint32_t n);   /* 0: 1..RFM_PANEL_EV_MAX bytes of whole channel messages */
+
+/* discovery (the Wi-Fi build): the answer to a UDP "RFM1?" (RFM_NET_DISCOVER) on RFM_NET_UDP_PORT, "RFM1!\n" and
+ * key=value lines (name, id, ver, port, ip, busy, session); unknown keys are skipped */
+#define RFM_NET_DISCOVER "RFM1?"
+typedef struct {
+    char name[24], id[16], ver[16], ip[16];
+    uint16_t port;                                      /* RFM_NET_TCP_PORT if not given */
+    uint8_t busy, session;                              /* a host is connected; in a session */
+} rfm_net_info_t;
+int rfm_parse_discovery(const uint8_t *b, uint32_t n, rfm_net_info_t *out);   /* 0 ok, -1 not an answer */
+
 /* TILES header: frame16 flags8 nrects8 */
 void rfm_tiles_header(uint8_t *body, uint16_t frame, uint8_t flags, uint8_t nrects);
 
@@ -115,7 +130,7 @@ typedef struct {
 } rfm_rx_stats_t;
 
 typedef struct rfm_rx rfm_rx_t;
-/* kind RFM_LINK_SX or RFM_LINK_BK; body_cap: the longest body kept (longer: counted as bad and dropped) */
+/* kind RFM_LINK_SX, RFM_LINK_BK or RFM_LINK_TCP (the bulk framing); body_cap: the longest body kept (longer: counted as bad and dropped) */
 rfm_rx_t *rfm_rx_new(int kind, uint32_t body_cap, rfm_msg_fn on_msg, rfm_midi_fn on_midi, void *ctx);
 void rfm_rx_free(rfm_rx_t *r);
 void rfm_rx_feed(rfm_rx_t *r, const uint8_t *p, uint32_t n);

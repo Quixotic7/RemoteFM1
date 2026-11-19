@@ -60,6 +60,9 @@ struct rfm_fake {
     uint16_t au_seq;
     int16_t au_pcm[8192];
     uint32_t au_n;
+    /* cfg.tcp: the panel's events waiting for a PANEL_EV (sent when the host takes the bulk side, or when full) */
+    uint8_t ev[RFM_PANEL_EV_MAX];
+    uint32_t nev;
 };
 
 static void send_audio_r(rfm_fake_t *f, int link);
@@ -145,6 +148,15 @@ static void reply(rfm_fake_t *f, int link, uint8_t cmd, const uint8_t *body, uin
     out_put(f, link, buf, len);
 }
 
+static void ev_flush(rfm_fake_t *f)
+{
+    if (!f->nev)
+        return;
+    reply(f, RFM_LINK_BK, RFM_PANEL_EV, f->ev, f->nev);
+    f->st.panel_ev++;
+    f->nev = 0;
+}
+
 static void midi3(rfm_fake_t *f, uint8_t a, uint8_t b, uint8_t c)
 {
     uint8_t m[3];
@@ -153,6 +165,15 @@ static void midi3(rfm_fake_t *f, uint8_t a, uint8_t b, uint8_t c)
     m[2] = c;
     if (f->drop_midi) {
         f->drop_midi--;
+        return;
+    }
+    if (f->cfg.tcp) {                                   /* the Wi-Fi build: TCP has no MIDI port */
+        if (f->session != 1 + RFM_LINK_BK)
+            return;                                     /* (no USB host here: nobody listens) */
+        if (f->nev + 3u > RFM_PANEL_EV_MAX)
+            ev_flush(f);
+        memcpy(f->ev + f->nev, m, 3);
+        f->nev += 3u;
         return;
     }
     out_put(f, RFM_LINK_SX, m, 3);
@@ -203,7 +224,8 @@ static void on_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
         h.proto = f->cfg.proto;
         strncpy(h.ver, "fake", 8);
         h.transports = (uint8_t)(1u | (f->cfg.has_bulk ? 2u : 0u) |
-                                 (f->cfg.ble ? RFM_TR_BLE | RFM_TR_BLE_HEARD : 0u));
+                                 (f->cfg.ble ? RFM_TR_BLE | RFM_TR_BLE_HEARD : 0u) |
+                                 (f->cfg.tcp && link == RFM_LINK_BK ? RFM_TR_NET : 0u));
         h.sxq = (uint16_t)(f->cfg.ble == 1 && link == RFM_LINK_SX ? 128u : 1024u - 64u);  /* firmware/src/rfm_main.c */
         h.usb_mode = 1;
         h.lcd_baud = 2;
@@ -215,7 +237,8 @@ static void on_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
         h.screen_h = RFM_H;
         h.caps = RFM_CAP_SHADOW | RFM_CAP_COPY | RFM_CAP_RLE | RFM_CAP_PAL | RFM_CAP_BATTERY | RFM_CAP_PLAY_GREEN |
                  RFM_CAP_LED5 | (f->cfg.hold ? RFM_CAP_HOLD : 0u) | (f->cfg.midi_in ? RFM_CAP_MIDI_IN : 0u) |
-                 (f->cfg.touch ? RFM_CAP_TOUCH : 0u) | (f->cfg.audio ? RFM_CAP_BLE_AUDIO : 0u);
+                 (f->cfg.touch ? RFM_CAP_TOUCH : 0u) | (f->cfg.audio ? RFM_CAP_BLE_AUDIO : 0u) |
+                 (f->cfg.tcp ? RFM_CAP_WIFI | RFM_CAP_PANEL_EV : 0u);
         h.max_in_flight = RFM_FRAMES_IN_FLIGHT;
         h.session = f->session ? 1 : 0;
         strncpy(h.fw_ver, "m1-fake", 8);
@@ -435,7 +458,27 @@ void rfm_fake_rx_bk(rfm_fake_t *f, const uint8_t *p, uint32_t n, uint32_t now)
 }
 
 uint32_t rfm_fake_take_sx(rfm_fake_t *f, uint8_t *out, uint32_t cap) { return out_take(&f->out[0], out, cap); }
-uint32_t rfm_fake_take_bk(rfm_fake_t *f, uint8_t *out, uint32_t cap) { return out_take(&f->out[1], out, cap); }
+uint32_t rfm_fake_take_bk(rfm_fake_t *f, uint8_t *out, uint32_t cap)
+{
+    ev_flush(f);                                        /* (cfg.tcp: the events since the last turn, one message) */
+    return out_take(&f->out[1], out, cap);
+}
+
+void rfm_fake_tcp_reset(rfm_fake_t *f)
+{
+    rfm_rx_reset(f->rx[RFM_LINK_BK]);
+    f->out[1].r = f->out[1].w = 0;
+    f->bk_seq = 0;
+    f->nev = 0;
+    f->st.tcp_resets++;
+    if (f->session == 1 + RFM_LINK_BK) {
+        audio_end(f, 0);
+        f->session = 0;
+        f->held = 0;
+        f->nacks = 0;
+        f->st.sessions_ended++;
+    }
+}
 
 void rfm_fake_poll(rfm_fake_t *f, uint32_t now)
 {

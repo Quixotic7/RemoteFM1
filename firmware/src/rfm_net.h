@@ -24,6 +24,7 @@ int rfn_tx_write(const uint8_t *a, uint32_t na, const uint8_t *b, uint32_t nb); 
 uint32_t rfn_tx_pending(void);                  /* bytes not yet given to TCP */
 int rfn_up(void);                               /* a host is connected */
 uint32_t rfn_conn_id(void);                     /* changes with every connection and every close */
+uint16_t rfn_port(void);                        /* the TCP port served (RFM_NET_TCP_PORT; the simulator's own) */
 uint32_t rfn_rx_size(void), rfn_tx_size(void);
 int rfn_poll(void);                             /* the sockets' turn: > 0 something moved, 0 idle, < 0 not open */
 void rfn_close(void);                           /* the host let go (the app's wish) */

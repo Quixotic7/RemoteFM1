@@ -1,4 +1,4 @@
-# RemoteFM1 Wi-Fi (phase 0: a test build)
+# RemoteFM1 Wi-Fi (phase 1: a test build)
 
 An FM-1 as the panel of a host on the same network (an Ableton Move first) without a USB cable: RemoteFM1's bulk
 framing over TCP. This is the spike: the firmware joins a network, serves the bulk framing on TCP port 7740 and
@@ -105,10 +105,20 @@ Needs the FM-1: that it boots and joins (JieLi's library with RemoteFM1's RAM us
 heap's peak (WIFI GET), TCP throughput and latency on the chip (lwIP's 2.9 KB send buffer bounds SOURCE), the audio
 and the screen while Wi-Fi works, discovery through the owner's router, and that USB and the updater still work.
 
-## Phase 1 (what a real session over TCP still needs)
+## Phase 1: a whole panel session over TCP (2026-11-19)
 
-- The panel's events over TCP: a message carrying them (as MIDI_IN carries the jack's MIDI), libremotefm1's
-  `RFM_LINK_TCP` reading it; everything else of a session already runs over TCP.
-- mDNS (`fm1-XXXX.local`, `_remotefm1._tcp`): lwIP's responder is in the SDK (`apps/mdns`) but not built by fm1-base
-  (its options and sources): a patch; discovery is the UDP responder until then.
-- A shadow-less session's pacing for the host (caps 0x162C: no COPY, no HOLD), and the screen's rate measured.
+- **The panel's events:** PANEL_EV (`0x56`, PROTOCOL.md section 10; caps bit13 `RFM_CAP_PANEL_EV`, caps 0x362C):
+  in a session over TCP the event queue (`rf_evq`, 256) goes out as PANEL_EV messages of up to 32 events (96 bytes,
+  the same MIDI bytes as section 4) when TCP's ring has room; nothing more in RAM (the message is built on the
+  stack). Flash +176 B (551,016), RAM and the pool unchanged (128,320 / 305,988), `tools/wifi_layout.py` passes.
+- **libremotefm1:** `RFM_LINK_TCP` (host/include/rfm/session.h): the bulk framing on a socket the back end owns, no
+  pacing (`RFM_BUDGET_TCP_BPS` 300,000 B/s, 2 frames in flight), PANEL_EV into the panel decoder, preferred to a
+  SysEx link (a TCP link that has not answered HELLO yet is waited for), `rfm_session_link_reset` for a reconnect,
+  `rfm_parse_discovery` for the UDP answers; the fake unit's `cfg.tcp` (host/tests/test_session.c test_tcp,
+  test_tcp_over_usb).
+- **The simulator** answers discovery with the port it serves (`rf serve 30 7745`: port=7745) and takes the panel
+  from standard input while serving (`rf serve SECONDS PORT stdin`: key, press, release, spin, master, drop, end), so
+  a host's end-to-end test drives it (RemoteFM14Move's tests/fm1wifi_e2e.sh).
+- **Not done:** mDNS (`fm1-XXXX.local`, `_remotefm1._tcp`): lwIP's responder is in the SDK (`apps/mdns`) but not built
+  by fm1-base (its options, its sources, its RAM: a patch to fm1-base); the UDP responder is the discovery. The
+  screen's rate on the unit (no shadow: rectangles go to the panel row by row as they are decoded) is to be measured.

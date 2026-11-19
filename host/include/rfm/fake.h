@@ -42,6 +42,11 @@ typedef struct {
     int audio;                                          /* 1 (default): HELLO_R caps has RFM_CAP_BLE_AUDIO and
                                                          * AUDIO_MODE works (AUDIO_R; TILES drawn, never shown, while
                                                          * on; AUDIO blocks counted and decoded, rfm_fake_audio) */
+    int tcp;                                            /* 1: the Wi-Fi build (docs/PROTOCOL.md section 10): the bulk
+                                                         * side is TCP (HELLO_R caps RFM_CAP_WIFI | RFM_CAP_PANEL_EV,
+                                                         * transports bit6), and in a session on it the panel's events
+                                                         * go as PANEL_EV there (batched until the host takes them),
+                                                         * not as MIDI; rfm_fake_tcp_reset: a new connection */
     int tiles_outside_session;                          /* 1 (default): TILES / LEDS outside a session are still
                                                          * drawn and acknowledged (FRAME_ACK says shadow reset after
                                                          * a reboot); 0: ignored, no FRAME_ACK */
@@ -57,6 +62,7 @@ typedef struct {
                                                          * the shadow */
     uint32_t audio_modes, audio_blocks, audio_bad, audio_gaps;   /* AUDIO_MODE taken; AUDIO blocks in the mode,
                                                          * malformed, seq gaps */
+    uint32_t panel_ev, tcp_resets;                      /* (cfg.tcp) PANEL_EV messages sent; connections started */
 } rfm_fake_stats_t;
 
 typedef struct rfm_fake rfm_fake_t;
@@ -79,6 +85,10 @@ uint32_t rfm_fake_touch(const rfm_fake_t *f);           /* RFM_TOUCH_F_* in forc
 void rfm_fake_button(rfm_fake_t *f, uint32_t b, int down);
 void rfm_fake_enc(rfm_fake_t *f, uint32_t e, int32_t detents);
 void rfm_fake_master(rfm_fake_t *f, uint32_t adc);
+
+/* (cfg.tcp) the host's TCP connection closed, or a new one accepted: its parser and sequence numbers start afresh,
+ * what was queued for it is gone, and a session on it ends (as the Wi-Fi build has it) */
+void rfm_fake_tcp_reset(rfm_fake_t *f);
 
 /* faults */
 void rfm_fake_reboot(rfm_fake_t *f);
