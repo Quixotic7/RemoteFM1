@@ -40,8 +40,8 @@ typedef struct {
     uint8_t type, d1, d2, rsv;               /* SA_LE_*, the note / CC, the velocity / value */
 } sa_lev_t;
 _Static_assert(sizeof(sa_lev_t) == 8u, "8 bytes an event (the SysEx dump's too)");
-static sa_lev_t sa_lpool[SA_LPOOL] PLAT_POOL;
-static sa_lev_t sa_take[SA_TAKE] PLAT_POOL;
+RF_BIG(sa_lev_t, sa_lpool, SA_LPOOL);           /* (app.h: the pool, or the Wi-Fi heap) */
+RF_BIG(sa_lev_t, sa_take, SA_TAKE);
 
 static struct {
     uint16_t at[SA_LOOPS], n[SA_LOOPS];

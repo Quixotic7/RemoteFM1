@@ -51,7 +51,21 @@
  * The LEDs, the panel's events and MIDI_IN go on as in any session. */
 
 #define RF_T_BLE 2u                         /* SysEx over Bluetooth MIDI (remote_proto.h: RF_T_SX 0, RF_T_BK 1) */
+#if FM1B_WIFI
+/* the Wi-Fi build (fm1-wifi.toml, docs/PROTOCOL.md section 10): the bulk framing over TCP, a fourth transport. Its
+ * bytes go through net/rfm_net.c's rings (src/rfm_net.h): the socket code runs in a task of the shim's, the parser and
+ * the replies here, as the vendor pair's. One host at a time; a new connection starts the parser (and any session on
+ * the network) afresh */
+#include "rfm_net.h"
+#define RF_T_NET 3u
+#define RF_NT 4u
+#define RF_IS_NET(t) ((t) == RF_T_NET)
+#define RF_CAP_NET RFM_CAP_WIFI
+#else
 #define RF_NT 3u
+#define RF_IS_NET(t) 0
+#define RF_CAP_NET 0u
+#endif
 #define RF_SXQ_RESERVE 64u                  /* USB SysEx send packets RemoteFM1 never takes: the updater's replies */
 #define RF_SLICE_US 2000u                   /* a turn of the app's loop before fm1-base's main loop has its own */
 /* the app's buffers in the pool (bytes), each smaller for a build short of RAM (the WiFi one), HELLO_R saying so */
@@ -73,7 +87,7 @@
 #define RFA_CAPS (RFM_CAP_SHADOW | RFM_CAP_COPY | RFM_CAP_RLE | RFM_CAP_PAL | RFM_CAP_PLAY_GREEN | RFM_CAP_HOLD | \
                   RFM_CAP_BLE_FAST | RFM_CAP_MIDI_IN | RFM_CAP_TOUCH)  /* (the radio's settings: fm1.toml ble_dle, ble_2m, ble_rx_bufs) */
 #else
-#define RFA_CAPS (RFM_CAP_RLE | RFM_CAP_PAL | RFM_CAP_PLAY_GREEN | RFM_CAP_MIDI_IN | RFM_CAP_TOUCH)
+#define RFA_CAPS (RFM_CAP_RLE | RFM_CAP_PAL | RFM_CAP_PLAY_GREEN | RFM_CAP_MIDI_IN | RFM_CAP_TOUCH | RF_CAP_NET)
 #endif
 #ifdef RING_PUBLISH
 #define RFM_AU_PUBLISH() RING_PUBLISH()             /* (rfm_audio.h: the render reads the ring in the interrupt) */
@@ -131,7 +145,7 @@ static void hs_init(void);
 #endif
 
 /* ------------------------------------------------------------------ USB SysEx in: the tap --- */
-static uint8_t rf_mrx[RF_MRX_N] PLAT_POOL;          /* RemoteFM1's SysEx from USB, F0 .. F7, as it came */
+RF_BIG(uint8_t, rf_mrx, RF_MRX_N);                  /* RemoteFM1's SysEx from USB, F0 .. F7, as it came */
 static volatile uint32_t mrx_w, mrx_r;
 static volatile uint32_t rf_drain_t;                /* ticks: the main loop last drained the rings */
 static uint32_t rf_mrx_ovf, rf_sx_held, rf_midi_drop;
@@ -238,12 +252,30 @@ static uint8_t rf_heard;                            /* bit t: a message came ove
 static uint32_t rf_sx_packets(uint32_t n) { return (6u + rf_packed_len(n) + 2u) / 3u; }
 static uint32_t rf_ble_room(void) { return plat_midi_out_room(TO_BLE_HOST); }
 
+#if FM1B_WIFI
+static uint32_t rf_net_seq;                         /* the frames sent on the TCP transport (bulk's seq) */
+static void rf_net_kick(void);                      /* the socket task's turn soon (src/rfm_wifi.c, at the end) */
+static void rf_big_init(void);
+static void rf_net_init(void);
+#ifdef PLAT_HOST
+static int hs_net_pump(void);                       /* (rfm_host.c: the simulated host takes what TCP carried) */
+#endif
+static int rf_up(uint32_t t)
+{
+    return t == RF_T_NET ? rfn_up() : t == RF_T_BLE ? plat_ble_connected() : rp_usb_cfg();
+}
+#else
 static int rf_up(uint32_t t) { return t == RF_T_BLE ? plat_ble_connected() : rp_usb_cfg(); }
+#endif
 
 static int rf_room(uint32_t t, uint32_t n)          /* a message with an n-byte body fits now */
 {
     if (t == RF_T_BK)
         return rp_bk_room() >= RF_BK_HDR + n;
+#if FM1B_WIFI
+    if (t == RF_T_NET)
+        return rfn_tx_room() >= RF_BK_HDR + n;
+#endif
     if (t == RF_T_BLE)
         return rf_ble_room() >= rf_sx_packets(n);
     return rp_sx_room() >= rf_sx_packets(n) + RF_SXQ_RESERVE;
@@ -255,6 +287,10 @@ static uint32_t rf_body_cap(uint32_t t)
     uint32_t pk = t == RF_T_BLE ? BLE_OUT_Q : SXQ - RF_SXQ_RESERVE, wire;
     if (t == RF_T_BK)
         return rp_bk_tx_n() - RF_BK_HDR;
+#if FM1B_WIFI
+    if (t == RF_T_NET)
+        return rfn_tx_size() - RF_BK_HDR;
+#endif
     wire = 3u * pk - 6u;                            /* F0 7D 52 46 cmd .. F7 */
     return wire / 8u * 7u + (wire % 8u ? wire % 8u - 1u : 0u);
 }
@@ -307,6 +343,16 @@ static int rf_try(uint32_t t, uint32_t cmd, const uint8_t *body, uint32_t n)
             return 0;
         rf_bk_seq++;
         rf_raw_tx[t] += RF_BK_HDR + n;
+#if FM1B_WIFI
+    } else if (t == RF_T_NET) {
+        uint8_t h[RF_BK_HDR];
+        rf_bk_header(h, cmd, n, rf_net_seq);
+        if (rfn_tx_write(h, RF_BK_HDR, body, n) != 1)
+            return 0;
+        rf_net_seq++;
+        rf_raw_tx[t] += RF_BK_HDR + n;
+        rf_net_kick();
+#endif
     } else {
         rf_em_t e;
         e.t = t;
@@ -390,6 +436,18 @@ static void rf_send_ms(uint32_t t, uint32_t cmd, const uint8_t *body, uint32_t n
         }
         rp_service();
         rp_wdt();
+#if FM1B_WIFI
+        if (t == RF_T_NET) {                        /* the socket task's turns (fm1-base: plat_yield runs WiFi's) */
+            rf_net_kick();
+#ifdef PLAT_HOST
+            if (hs_net_pump())
+                continue;                           /* (the simulator: its host took some) */
+#else
+            plat_yield();
+            continue;
+#endif
+        }
+#endif
 #ifdef PLAT_HOST
         rf_tx_drop[t]++;                            /* (the simulator's rings never fill) */
         return;
@@ -415,9 +473,10 @@ static uint32_t rf_au_peak_seen;
 #endif
 
 #define RF_STAGE_PX (RFM_W * 16u)
-static uint16_t rf_stage[RF_STAGE_PX] PLAT_POOL;        /* the push's rows of a narrow rectangle */
+RF_BIG(uint16_t, rf_stage, RF_STAGE_PX);                /* the push's rows of a narrow rectangle */
 static uint32_t rf_tiles_m0, rf_tile_bytes, rf_src_us;
-static uint32_t rf_ps[8];                               /* per second: polls main, (isr), usb permille, loops, raw rx/tx */
+static uint32_t rf_ps[10];                              /* per second: polls main, (isr), usb permille, loops, raw rx/tx
+                                                         * (SysEx, bulk, TCP) */
 static uint32_t rf_polls, rf_poll_ticks, rf_loops;
 static uint32_t rf_scr_hold;                            /* plat_ms until which the waiting screen keeps off the panel */
 static uint8_t rf_scr_full = 1;                         /* the waiting screen: draw all of it */
@@ -436,7 +495,8 @@ static int rfa_tx(uint32_t t, uint32_t cmd, const uint8_t *body, uint32_t n)
 /* the panel's events: a queue in front of the MIDI rings, so a burst waits instead of being dropped; to the session's
  * port, or with no session to USB and a Bluetooth computer that listens */
 #define RF_EVQ 256u
-static uint32_t rf_evq[RF_EVQ], rf_ev_w, rf_ev_r, rf_ev_drop;
+RF_BIGB(uint32_t, rf_evq, RF_EVQ);
+static uint32_t rf_ev_w, rf_ev_r, rf_ev_drop;
 static void rf_ev_put(uint32_t pkt)                     /* (the standalone instrument's notes too: sa_main.c) */
 {
     if (rf_ev_w - rf_ev_r >= RF_EVQ) {
@@ -460,7 +520,9 @@ static void rfa_midi(uint32_t st, uint32_t d1, uint32_t d2)
 static void rf_ev_flush(void)
 {
     uint32_t to;
-    if (rfa.session)
+    if (rfa.session && RF_IS_NET(rfa.st))
+        to = 0u;                                        /* (a session over TCP: no MIDI port yet, docs/WIFI.md) */
+    else if (rfa.session)
         to = rfa.st == RF_T_BLE ? (plat_ble_connected() ? TO_BLE_HOST : 0u) : (rp_usb_cfg() ? TO_USB : 0u);
     else
         to = (rp_usb_out() ? TO_USB : 0u) | (plat_ble_connected() ? TO_BLE_HOST : 0u);
@@ -625,6 +687,10 @@ static void rfa_hello_dev(uint8_t *h, uint32_t t)
 {
     h[25] = (uint8_t)((rp_usb_cfg() ? 1u : 0u) | 2u | (uint32_t)(rf_heard & 3u) << 2 |
                       (plat_ble_connected() ? 0x10u : 0u) | (rf_heard & 4u ? 0x20u : 0u));
+#if FM1B_WIFI
+    if (rfn_up())
+        h[25] |= RFM_TR_NET;                        /* a host on TCP */
+#endif
     h[26] = 1;                                      /* the main loop polls USB */
 #ifdef LCD_BAUD
     h[27] = LCD_BAUD;
@@ -635,6 +701,12 @@ static void rfa_hello_dev(uint8_t *h, uint32_t t)
     rf_wr16(h + 29, t == RF_T_BLE ? BLE_OUT_Q : SXQ - RF_SXQ_RESERVE);
     rf_wr32(h + 31, rp_bk_rx_n());
     rf_wr32(h + 35, rp_bk_tx_n());
+#if FM1B_WIFI
+    if (t == RF_T_NET) {                            /* (asked over TCP: its rings) */
+        rf_wr32(h + 31, rfn_rx_size());
+        rf_wr32(h + 35, rfn_tx_size());
+    }
+#endif
     rf_wr16(h + 39, RF_SX_BODY_MAX);
     rf_wr16(h + 41, RF_BK_RX_MAX);
 }
@@ -737,7 +809,8 @@ static void rf_stats_send(uint32_t t)
     v[RF_ST_UPTIME_MS] = plat_ms();
     for (k = 0; k < 2u; k++) {
         uint32_t o = k ? RF_ST_BK_RX_MSGS - RF_ST_SX_RX_MSGS : 0u;
-        s = &rf_st[t == RF_T_BLE && !k ? RF_T_BLE : k];   /* (asked over Bluetooth: its SysEx counts) */
+        s = &rf_st[t == RF_T_BLE && !k ? RF_T_BLE : RF_IS_NET(t) && k ? t : k];   /* (asked over Bluetooth: its
+                                                     * SysEx counts; over TCP: TCP's in the bulk ones) */
         v[RF_ST_SX_RX_MSGS + o] = s->rx_msgs;
         v[RF_ST_SX_SINK_MSGS + o] = s->sink_msgs;
         v[RF_ST_SX_SINK_BYTES + o] = s->sink_bytes;
@@ -754,8 +827,8 @@ static void rf_stats_send(uint32_t t)
     v[RF_ST_SX_HELD] = rf_sx_held;
     v[RF_ST_BK_OVF] = 0;                            /* bulk is held (NAK), never dropped */
     v[RF_ST_BK_HELD] = c[RC_EP3_HELD];
-    v[RF_ST_BK_SYNC] = rf_st[RF_T_BK].sync;
-    v[RF_ST_BK_FRAME_GAPS] = rf_st[RF_T_BK].frame_gaps;
+    v[RF_ST_BK_SYNC] = rf_st[RF_IS_NET(t) ? t : RF_T_BK].sync;
+    v[RF_ST_BK_FRAME_GAPS] = rf_st[RF_IS_NET(t) ? t : RF_T_BK].frame_gaps;
     v[RF_ST_POLLS_MAIN_PS] = rf_ps[0];
     v[RF_ST_POLLS_ISR_PS] = rf_ps[1];
     v[RF_ST_USB_PERMILLE] = rf_ps[2];
@@ -773,8 +846,8 @@ static void rf_stats_send(uint32_t t)
     v[RF_ST_SRC_US] = rf_src_us;
     v[RF_ST_SX_RX_PS] = rf_ps[4];
     v[RF_ST_SX_TX_PS] = rf_ps[5];
-    v[RF_ST_BK_RX_PS] = rf_ps[6];
-    v[RF_ST_BK_TX_PS] = rf_ps[7];
+    v[RF_ST_BK_RX_PS] = RF_IS_NET(t) ? rf_ps[8] : rf_ps[6];
+    v[RF_ST_BK_TX_PS] = RF_IS_NET(t) ? rf_ps[9] : rf_ps[7];
     v[RF_ST_USB_CINF] = rf_cinf;
     v[RF_ST_USB_RX_BAD] = 0;                        /* (felucca-bsp's usb.c does not count them) */
     v[RF_ST_LOOP_MAX_US] = rf_loop_max / PLAT_TICKS_PER_US;
@@ -794,6 +867,9 @@ static void rf_stats_send(uint32_t t)
 
 static rf_sx_t rf_sx[2];                            /* the SysEx parsers: USB's (0), Bluetooth's (1) */
 static rf_bk_t rf_bk;
+#if FM1B_WIFI
+static rf_bk_t rf_bk_net;                           /* the TCP transport's */
+#endif
 #define RF_SXP(t) (&rf_sx[(t) == RF_T_BLE])
 
 static void rf_stats_reset(void)
@@ -808,6 +884,10 @@ static void rf_stats_reset(void)
     rf_body_reset_seq(&rf_sx[1].b);
     rf_body_reset_seq(&rf_bk.b);
     rf_bk.have_fseq = 0;
+#if FM1B_WIFI
+    rf_body_reset_seq(&rf_bk_net.b);
+    rf_bk_net.have_fseq = 0;
+#endif
     rf_mrx_ovf = rf_sx_held = rf_midi_drop = 0;
     rf_tiles_m0 = rf_tile_bytes = rf_src_us = 0;
     rf_cinf = 0;
@@ -816,7 +896,7 @@ static void rf_stats_reset(void)
 }
 
 /* SOURCE: DATA messages as fast as the transport takes them */
-static uint8_t rf_gen[RF_GEN_MAX + 8u] PLAT_POOL;
+RF_BIG(uint8_t, rf_gen, RF_GEN_MAX + 8u);
 static struct {
     uint8_t on, t;
     uint32_t left, msg_len, seq, msgs, bytes, t0, last_ok;
@@ -836,7 +916,7 @@ static void rf_src_done(uint32_t aborted)
 
 static void rf_src_start(uint32_t t, const uint8_t *body, uint32_t len)
 {
-    uint32_t max = t == RF_T_BK ? RF_BK_SRC_MAX : RF_SX_SRC_MAX, cap = rf_body_cap(t), ml;
+    uint32_t max = t == RF_T_BK || RF_IS_NET(t) ? RF_BK_SRC_MAX : RF_SX_SRC_MAX, cap = rf_body_cap(t), ml;
     if (max > RF_GEN_MAX)
         max = RF_GEN_MAX;
     if (len < 6u) {
@@ -963,6 +1043,12 @@ static void rf_blit_bench(uint32_t t, const uint8_t *body, uint32_t len)
 }
 #endif
 
+#if FM1B_WIFI
+static void rf_wifi_cmd(uint32_t t, const uint8_t *body, uint32_t len);   /* (below) */
+#endif
+/* SA_LOOP's and SA_INFO's replies (one at a time: rf_send copies them out before the next command) */
+#define RF_REPLY_N (SA_LOOP_REPLY > SA_INFO_REPLY ? SA_LOOP_REPLY : SA_INFO_REPLY)
+RF_BIG(uint8_t, rf_reply_b, RF_REPLY_N);
 /* every command rfm_app.c does not take: M0's diagnostics (PROTOCOL.md section 5) */
 static void rfa_diag(uint32_t t, uint32_t cmd, const uint8_t *body, uint32_t len)
 {
@@ -988,17 +1074,22 @@ static void rfa_diag(uint32_t t, uint32_t cmd, const uint8_t *body, uint32_t len
         break;
     }
     case RF_SA_LOOP: {                              /* the standalone's loops (sa/sa_loop.c) */
-        static uint8_t b[SA_LOOP_REPLY] PLAT_POOL;
+        uint8_t *b = rf_reply_b;
         rf_send(t, RF_SA_LOOP_R, b, sa_loop_cmd(body, len, b));
         break;
     }
     case RF_SA_INFO: {                              /* the standalone's user banks (sa/sa_ubank.c) */
-        static uint8_t b[SA_INFO_REPLY] PLAT_POOL;
+        uint8_t *b = rf_reply_b;
         uint32_t n = sa_info_cmd(body, len, b, t, sa_standalone());
         if (n)                                      /* (DELETE's comes when written: sa_ub_ack) */
             rf_send(t, RF_SA_INFO_R, b, n);
         break;
     }
+#if FM1B_WIFI
+    case RFM_WIFI:                                  /* the network: state, credentials (docs/PROTOCOL.md section 10) */
+        rf_wifi_cmd(t, body, len);
+        break;
+#endif
     case RF_TILE:
         if (!rfm_app_tile_m0(body, len)) {
             rf_st[t].bad++;
@@ -1027,8 +1118,31 @@ static void rf_on_msg(void *ctx, uint32_t cmd, const uint8_t *body, uint32_t len
 }
 
 /* ------------------------------------------------------------------ in: the rings into the parsers --- */
+#if FM1B_WIFI
+static uint8_t (*rf_sx_buf)[RF_SX_BODY_MAX];         /* (app.h RF_BIG: the Wi-Fi heap) */
+#else
 static uint8_t rf_sx_buf[2][RF_SX_BODY_MAX] PLAT_POOL;
-static uint8_t rf_bk_buf[RF_BK_RX_MAX] PLAT_POOL;
+#endif
+RF_BIG(uint8_t, rf_bk_buf, RF_BK_RX_MAX);
+#if FM1B_WIFI
+RF_BIG(uint8_t, rf_bk_net_buf, RF_BK_RX_MAX);
+RF_BIG(uint8_t, rf_net_rx, RF_NET_RX_N);
+RF_BIG(uint8_t, rf_net_tx, RF_NET_TX_N);
+static uint32_t rf_net_conn;                        /* rfn_conn_id as the parser last saw it */
+static void rf_net_conn_check(void)                 /* a new host, or the old one gone: the parser and its session */
+{
+    if (rfn_conn_id() == rf_net_conn)
+        return;
+    rf_net_conn = rfn_conn_id();
+    rf_bk_net.hn = 0;
+    rf_bk_net.in_body = 0;
+    rf_bk_net.have_fseq = 0;
+    rf_body_reset_seq(&rf_bk_net.b);
+    rf_net_seq = 0;
+    if (rfa.session && rfa.st == RF_T_NET)
+        rfm_app_usb_lost();                         /* (as a USB unplug ends a USB session) */
+}
+#endif
 static uint32_t rf_ble_other;                       /* packets in that are not SysEx (Bluetooth MIDI): left */
 
 static void rf_rx_step(void)
@@ -1060,6 +1174,17 @@ static void rf_rx_step(void)
         rf_raw_rx[RF_T_BK] += n;
         got += n;
     }
+#if FM1B_WIFI
+    rf_net_conn_check();
+    rf_bk_net.b.now_ms = rf_bk.b.now_ms;
+    for (k = 0; k < 16 && rfn_rx_avail() && !rfm_app_rx_wait(RF_T_NET); k++) {   /* TCP (a 4 KB turn at most) */
+        uint8_t b[256];
+        n = rfn_rx_read(b, sizeof b);
+        rf_bk_feed(&rf_bk_net, b, n);
+        rf_raw_rx[RF_T_NET] += n;
+        got += n;
+    }
+#endif
     for (k = 0; k < 64 && !rfm_app_rx_wait(RF_T_BLE); k++) {   /* Bluetooth (and what is left of USB MIDI in) */
         uint32_t f = plat_lock(), cin;              /* (usb.c empties the USB part from its context, rf_ep1_room,
                                                      * except USB HOST's) */
@@ -1145,7 +1270,8 @@ static void rf_ms_step(void)
         touch = 1;
     }
     rfm_app_panel(keys, btns, steps, master, touch ? vel : 0, touch ? press : 0);
-    if (rfa.session && rfa.st != RF_T_BLE && (rp_usb_resets() != rf_usb_resets_seen || !rp_usb_live()))
+    if (rfa.session && rfa.st != RF_T_BLE && !RF_IS_NET(rfa.st) &&
+        (rp_usb_resets() != rf_usb_resets_seen || !rp_usb_live()))
         rfm_app_usb_lost();                         /* a bus reset, or the host went away / asleep */
     rf_usb_resets_seen = rp_usb_resets();
     if (rf_ble_was && !plat_ble_connected()) {      /* a Bluetooth computer gone: its session, its half message */
@@ -1196,6 +1322,9 @@ static uint32_t rf_errs(uint32_t t)
                                                        t == RF_T_SX ? rf_mrx_ovf : 0u);
 }
 
+#if FM1B_WIFI
+static void rf_wifi_line(char *d);                  /* (below) */
+#endif
 static void rf_lines(void)
 {
     char *p;
@@ -1217,6 +1346,9 @@ static void rf_lines(void)
         s_put(p, !rp_usb_cfg() ? "NO HOST" : !rp_usb_live() ? "IDLE" : "HOST CONNECTED");
     }
     rf_want[4][0] = 0;
+#if FM1B_WIFI
+    rf_wifi_line(rf_want[4]);
+#endif
     if (FM1B_BLE) {
         char n[12];
         int st = plat_ble_state();
@@ -1293,6 +1425,10 @@ static void rf_second_step(void)
     rf_ps[5] = rf_raw_tx[RF_T_SX] + rf_raw_tx[RF_T_BLE] - tx[RF_T_SX] - tx[RF_T_BLE];
     rf_ps[6] = rf_raw_rx[RF_T_BK] - rx[RF_T_BK];
     rf_ps[7] = rf_raw_tx[RF_T_BK] - tx[RF_T_BK];
+#if FM1B_WIFI
+    rf_ps[8] = rf_raw_rx[RF_T_NET] - rx[RF_T_NET];
+    rf_ps[9] = rf_raw_tx[RF_T_NET] - tx[RF_T_NET];
+#endif
     for (k = 0; k < RF_NT; k++) {
         rx[k] = rf_raw_rx[k];
         tx[k] = rf_raw_tx[k];
@@ -1308,6 +1444,9 @@ static void rf_poll(void)                           /* USB served, timed */
     rf_polls++;
 }
 
+#if FM1B_WIFI
+static void rf_net_turn(void);                      /* (below) */
+#endif
 static uint32_t rf_last_ms;
 static void rf_turn(void)                           /* one turn: USB, the rings, the push, the replies */
 {
@@ -1326,6 +1465,9 @@ static void rf_turn(void)                           /* one turn: USB, the rings,
 #endif
     rf_poll();
     rf_src_step();
+#if FM1B_WIFI
+    rf_net_turn();
+#endif
     rf_bp_flush();
     rf_ev_flush();
     rf_trs_flush();
@@ -1358,9 +1500,14 @@ static int rf_c1_start = -2;                        /* plat_cpu2_set(1) at app_i
 #endif
 void app_init(void)
 {
+#if FM1B_WIFI
+    rf_big_init();                                  /* (first: the buffers the rest uses, from the Wi-Fi heap) */
+    rf_body_init(&rf_bk_net.b, &rf_st[RF_T_NET], rf_bk_net_buf, RF_BK_RX_MAX, rf_on_msg, (void *)(uintptr_t)RF_T_NET);
+    rf_net_init();
+#endif
     rf_body_init(&rf_sx[0].b, &rf_st[RF_T_SX], rf_sx_buf[0], RF_SX_BODY_MAX, rf_on_msg, (void *)(uintptr_t)RF_T_SX);
     rf_body_init(&rf_sx[1].b, &rf_st[RF_T_BLE], rf_sx_buf[1], RF_SX_BODY_MAX, rf_on_msg, (void *)(uintptr_t)RF_T_BLE);
-    rf_body_init(&rf_bk.b, &rf_st[RF_T_BK], rf_bk_buf, sizeof rf_bk_buf, rf_on_msg, (void *)(uintptr_t)RF_T_BK);
+    rf_body_init(&rf_bk.b, &rf_st[RF_T_BK], rf_bk_buf, RF_BK_RX_MAX, rf_on_msg, (void *)(uintptr_t)RF_T_BK);
 #if RFM_SHADOW
     rfm_app_init(rf_shadow, rf_stage, RF_STAGE_PX, &RF_LCD);
     rf_au.slot = RF_AU_RING;
@@ -1410,6 +1557,16 @@ void app_ui_init(void)
     rf_wait_btns = 0xFFFFFFFFu;
     sa_ui_init();                                   /* the keys' velocity sensing on, standalone (sa_main.c) */
     sa_ui_lost();
+#if FM1B_WIFI
+    {
+        static uint8_t on;
+        if (!on) {                                  /* Wi-Fi on once, after the first screen: it joins the networks
+                                                     * kept (fm1-base device/wifi.c), and joins again when one drops */
+            on = 1;
+            plat_wifi_on(1);
+        }
+    }
+#endif
 }
 
 void app_frame(void)
@@ -1428,6 +1585,9 @@ void app_input_only(void)
 
 void app_say(const char *a, const char *b) { (void)a, (void)b; }   /* (no UI of its own to speak) */
 
+#if FM1B_WIFI
+#include "rfm_wifi.c"
+#endif
 #ifdef PLAT_HOST
 #include "rfm_host.c"
 #else

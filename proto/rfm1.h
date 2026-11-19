@@ -30,11 +30,13 @@ enum {
     RFM_TOUCH = 0x14,                   /* 0.3.1: the keys' velocity / pressure in the panel events (RFM_CAP_TOUCH) */
     RFM_AUDIO_MODE = 0x15,              /* 0.3.6: Bluetooth audio, no screen: on / off (RFM_CAP_BLE_AUDIO) */
     RFM_AUDIO = 0x16,                   /* 0.3.6: a block of the host's sound (IMA ADPCM) in that mode */
+    RFM_WIFI = 0x17,                    /* the Wi-Fi build (RFM_CAP_WIFI): op8 ...: the network's state, set, forget */
     RFM_HELLO_R = 0x41, RFM_DATA = 0x43, RFM_ECHO_R = 0x44, RFM_STATS_R = 0x45, RFM_ACK = 0x46, RFM_BLIT_R = 0x47,
     RFM_SA_BENCH_R = 0x49,
     RFM_SOURCE_DONE = 0x50, RFM_FRAME_ACK = 0x52, RFM_PANEL_R = 0x53,
     RFM_MIDI_IN = 0x54,                 /* 0.3: the TRS jack's MIDI in, forwarded in a session (RFM_CAP_MIDI_IN) */
-    RFM_AUDIO_R = 0x55                  /* 0.3.6: the audio mode's state and its buffer (RFM_CAP_BLE_AUDIO) */
+    RFM_AUDIO_R = 0x55,                 /* 0.3.6: the audio mode's state and its buffer (RFM_CAP_BLE_AUDIO) */
+    RFM_WIFI_R = 0x57                   /* the Wi-Fi build: WIFI's reply (docs/PROTOCOL.md section 10) */
 };
 
 /* HELLO_R: M0's 51 bytes (firmware/src/remote_proto.h), of which: */
@@ -46,7 +48,8 @@ enum {
     RFM_TR_SX_HEARD = 1u << 2,          /* RemoteFM1 SysEx heard over USB */
     RFM_TR_BK_HEARD = 1u << 3,          /* bulk heard */
     RFM_TR_BLE = 1u << 4,               /* 0.2: a Bluetooth computer connected */
-    RFM_TR_BLE_HEARD = 1u << 5          /* 0.2: RemoteFM1 SysEx heard over Bluetooth */
+    RFM_TR_BLE_HEARD = 1u << 5,         /* 0.2: RemoteFM1 SysEx heard over Bluetooth */
+    RFM_TR_NET = 1u << 6                /* the Wi-Fi build: a host connected over TCP (docs/PROTOCOL.md section 10) */
 };
 /* then: */
 #define RFM_HELLO_SCREEN_W 51u          /* u16 */
@@ -63,7 +66,8 @@ enum {
     RFM_CAP_BLE_FAST = 1u << 8,         /* 0.2.2: Bluetooth at 2M, long link packets, MTU 247: ~35 KB/s, ~9 KB in flight clean */
     RFM_CAP_MIDI_IN = 1u << 9,          /* 0.3: the TRS jack's MIDI in comes to the host in a session (MIDI_IN) */
     RFM_CAP_TOUCH = 1u << 10,           /* 0.3.1: TOUCH: the keys' real velocity and their pressure as poly aftertouch */
-    RFM_CAP_BLE_AUDIO = 1u << 11        /* 0.3.6: AUDIO_MODE / AUDIO: the host's sound over the session's link, no screen */
+    RFM_CAP_BLE_AUDIO = 1u << 11,       /* 0.3.6: AUDIO_MODE / AUDIO: the host's sound over the session's link, no screen */
+    RFM_CAP_WIFI = 1u << 12             /* the Wi-Fi build: WIFI (0x17), the bulk framing over TCP (section 10) */
 };
 
 /* TOUCH body (host -> device, in a session; no reply): flags8. A session starts with 0 (velocity 100, no
@@ -152,6 +156,15 @@ enum { RFM_ACK_DECODE_ERR = 1u << 0, RFM_ACK_SHADOW_RESET = 1u << 1 };
 #define RFM_MIDI_BTN_CH 14u             /* channel 15: note = matrix button id */
 #define RFM_MIDI_BTN_VEL 127u
 #define RFM_MIDI_ENC_CC0 16u            /* encoder e -> CC 16 + e on channel 15, value 64 + detents */
+/* the Wi-Fi build (docs/PROTOCOL.md section 10): the bulk framing over TCP on RFM_NET_TCP_PORT, one host at a time;
+ * a UDP datagram "RFM1?" to RFM_NET_UDP_PORT (broadcast) is answered with "RFM1!" and key=value lines */
+#define RFM_NET_TCP_PORT 7740u
+#define RFM_NET_UDP_PORT 7741u
+enum { RFM_WIFI_GET = 0, RFM_WIFI_SET = 1, RFM_WIFI_FORGET = 2, RFM_WIFI_SAVED = 3 };
+enum { RFM_WIFI_OK = 0, RFM_WIFI_BAD = 1, RFM_WIFI_NOT_HERE = 2, RFM_WIFI_BUSY = 3 };
+#define RFM_WIFI_SSID_MAX 32u
+#define RFM_WIFI_PASS_MAX 63u
+#define RFM_WIFI_R_SSID 30u             /* WIFI_R: the fixed part's length; ssid_len8 ssid, why_len8 why follow */
 #define RFM_MIDI_MASTER_MSB 7u          /* v14 = adc << 4: CC 7 = v14 >> 7, then CC 39 = v14 & 0x7F */
 #define RFM_MIDI_MASTER_LSB 39u
 

@@ -59,7 +59,7 @@ static struct {
     uint32_t hblock, hash[2];
     sab_result_t r[SA_BENCH_ROWS];
 } sab;
-static int32_t sab_lr[2u * SA_BENCH_FRAMES] PLAT_POOL;
+RF_BIG(int32_t, sab_lr, 2u * SA_BENCH_FRAMES);
 
 static uint32_t sab_cores_max(void)
 {

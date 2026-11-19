@@ -180,7 +180,7 @@ static struct {
 /* ------------------------------------------------------------------ the render's queue --- */
 enum { SA_EV_ON, SA_EV_OFF, SA_EV_CC, SA_EV_BEND, SA_EV_AT, SA_EV_ALLOFF, SA_EV_SOUNDOFF, SA_EV_CLICK };
 #define SA_EVQ 256u
-static uint32_t sa_evq[SA_EVQ] PLAT_POOL;
+RF_BIG(uint32_t, sa_evq, SA_EVQ);
 static volatile uint32_t sa_ev_w, sa_ev_r;
 static void sa_ev(uint32_t type, uint32_t a, uint32_t b)
 {
@@ -196,13 +196,13 @@ static void sa_ev(uint32_t type, uint32_t a, uint32_t b)
 
 static int sa_bench_busy(void) { return sab.state == 1u || sab.state == 2u || sab.hstate == 1u || sab.hstate == 2u; }
 
-static int32_t sa_mono[APP_BLOCK] PLAT_POOL;
+RF_BIG(int32_t, sa_mono, APP_BLOCK);
 static float sa_lim_g = 1.0f;
 static volatile uint32_t sa_peak_q15;        /* the output's peak since the screen last read it (Q15) */
 static uint32_t sa_clips;                    /* samples the soft knee had to bend (the simulator's checks) */
 #define SA_SCOPE_N 512u                      /* the Scope view's samples: every other one of the synth's sum (before
                                               * the limiter and MASTER), Q15 of full scale, clamped */
-static int16_t sa_scope[SA_SCOPE_N] PLAT_POOL;
+RF_BIG(int16_t, sa_scope, SA_SCOPE_N);
 static volatile uint32_t sa_scope_w;
 
 /* the metronome's click (sa_loop.c): a short decaying sine (a two-pole resonator), 1.6 kHz on a bar's first beat,

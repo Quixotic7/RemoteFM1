@@ -17,7 +17,12 @@
 #else
 #define SA_POOL __attribute__((section(".pool")))   /* fm1-base's pool: RAM, zeroed at boot */
 #endif
+#if defined(RF_WIFI_O2) && !defined(PLAT_HOST)
+#define FM6_SIN_ATTR __attribute__((section(".ram_bss")))   /* the Wi-Fi build (fm1-wifi.toml o2_cflags): RAMTEXT's
+                                         * rest, as the pool before the Wi-Fi heap is full (app.h RF_LOW) */
+#else
 #define FM6_SIN_ATTR SA_POOL             /* the sine is read every sample: RAM (filled by fm6_tables_init) */
+#endif
 #if defined(__APPLE__)
 /* saadet places its DSP code in sections of its own (".dsp_text", ".audio_text": fm1-base's app.ld, patched, puts
  * them in .text); a Mac's Mach-O wants "segment,section" names, so the simulator and the tests drop them */

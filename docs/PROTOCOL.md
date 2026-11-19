@@ -499,3 +499,54 @@ has the numbers and what each host needs.
   (5 cents), so a host clock a little fast or slow keeps the buffer near `buffer_ms`. TILES in the mode are
   acknowledged at once and dropped (not drawn: the ring is the shadow's last rows on the FM-1); HOLD is ignored.
 - Bytes, over SysEx: on at 22,050 Hz with a 120 ms buffer: `F0 7D 52 46 15 <01 00 02 78 00 packed> F7`.
+
+## 10. The Wi-Fi build (a test build: `firmware/fm1-wifi.toml`, docs/WIFI.md; `caps` bit12 `RFM_CAP_WIFI`)
+
+A separate package (`./build.sh --wifi`, identity `FM-1_72900`, HELLO_R `identity` "FM-1_729"): Wi-Fi instead of
+Bluetooth and USB audio. USB (SysEx, the vendor pair, the updater) works as in the other builds.
+
+**TCP.** The FM-1 listens on port 7740 (`RFM_NET_TCP_PORT`) and carries the bulk framing over the stream, byte for
+byte as on the vendor pair: `'R' 'F' <cmd> 00 <len16> <seq32> <body>`. One host at a time: a new connection replaces
+the one before (closed), and each connection starts afresh (its `seq` from 0 both ways, the parser empty, a session on
+TCP ended). Over TCP:
+
+- HELLO_R: `transports` bit6 (`RFM_TR_NET`) while a host is connected; `bk_rx_ring32` / `bk_tx_ring32` are the TCP
+  transport's rings (8192 / 8192); `bk_body_max16` 4096 (the build's RAM: the vendor pair has the same maximum, its
+  rings 2048); `caps` 0x162C (no shadow, no COPY, no HOLD, no Bluetooth audio; bit12).
+- M0's diagnostics (section 5) work as on the vendor pair. STATS_R asked over TCP gives the TCP transport's counters
+  in the bulk fields (`bk_rx_msgs` .. `bk_frame_gaps`, `bk_rx_ps`, `bk_tx_ps`). SOURCE's DATA: at most 4096 bytes a
+  message.
+- A session over TCP: SESSION, LEDS, TILES, FRAME_ACK, PANEL_R (PANEL_REQ, TOUCH's flags) and MIDI_IN work as on
+  the vendor pair (a host paces it as USB bulk: 2 frames in flight). Not yet (phase 1): the panel's events (keys,
+  buttons, encoders, MASTER: plain MIDI on the session's port on the other transports) are dropped in a TCP session,
+  as TCP has no MIDI port; a message to carry them is phase 1's. A USB reset or unplug does not end a TCP session;
+  the connection's end does.
+
+**Discovery.** A UDP datagram that starts `RFM1?` (5 bytes) sent to port 7741 (`RFM_NET_UDP_PORT`), broadcast or to
+the FM-1's address, is answered to its sender with `RFM1!\n` and key=value lines: `name` ("FM-1 XXXX", the unit's
+Bluetooth name in its other builds), `id` (the identity), `ver`, `port` (7740), `ip`, `busy` (1: a host is connected),
+`session` (1: in a session). No mDNS yet.
+
+**WIFI** (`0x17`) / **WIFI_R** (`0x57`): the network. Request body: `op8 ...`.
+
+| op | request | what it does |
+|---|---|---|
+| 0 GET | `00` (or empty) | the state |
+| 1 SET | `01 ssid_len8 ssid pass_len8 pass` | join this network (SSID 1..32 bytes, password 0..63; 0: an open network). The FM-1 keeps it (fm1-base's store, six networks, the most recent first) once it has joined, and joins the networks kept at every start and again after a drop. USB only (SysEx or bulk) |
+| 2 FORGET | `02 k8` | forget network `k` (0 the most recent), `FF` all of them. USB only |
+| 3 SAVED | `03` | the state and the networks kept |
+
+WIFI_R body (little endian): `op8 status8 state8 rssi8(signed) ip[4] tcp_port16 udp_port16 host8 saved8
+heap_used32 heap_peak32 heap_size32 app_heap16 rx_frames16`, then `ssid_len8 ssid` (the network joined or being
+joined), `why_len8 why` (state 6: "not found", "could not join", "no address"...), then for SAVED `n8` and `n` times
+`len8 ssid`, for the others the sockets' counters, 11 × u32: accepts, closes, replaced, rx_bytes, tx_bytes, rx_full,
+tx_eagain, udp_in, udp_out, polls, open_fail.
+
+- `status`: 0 done, 1 a bad request, 2 not over this link (SET and FORGET from the network itself), 3 busy.
+- `state`: 0 off, 1 starting, 2 on with no network, 3 joining, 4 asking for an address, 5 connected, 6 failed.
+- `ip`: a.b.c.d in that order (0 unless connected). `host`: 1 while a host is on TCP. `saved`: networks kept.
+- `heap_*`: the Wi-Fi heap (fm1-base's shim): bytes in use, the most ever, its size; `app_heap` (16-byte units):
+  RemoteFM1's own share of it, taken at start. `rx_frames`: frames the radio heard in the last second (anyone's).
+- The password is never sent back, shown or logged.
+- A unit without the Wi-Fi build ignores `0x17` (counted as a bad message, no reply): a host checks `caps` bit12.
+- Bytes, over SysEx: GET: `F0 7D 52 46 17 00 00 F7`.

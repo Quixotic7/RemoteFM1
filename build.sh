@@ -10,6 +10,10 @@
 #   ./build.sh --host               the host simulator: firmware/build/host/remotefm1_host (tests/run_tests.sh)
 #   ./build.sh --bench [--no-ble]   the FM6 bench build: firmware/build/remotefm1[-usb]-bench.fwsc, which measures the
 #                                   standalone DX7 at boot (firmware/sa/sa_bench.c; firmware/tools/sa_bench.py reads it)
+#   ./build.sh --wifi [--host] [--release X.Y.Z]   RemoteFM1 Wi-Fi (docs/WIFI.md): firmware/ copied to build/app-wifi
+#                                   with firmware/fm1-wifi.toml as its fm1.toml (wifi = true: no Bluetooth, no USB
+#                                   audio; the TCP server in firmware/net/), the package firmware/build/remotefm1-wifi
+#                                   [-X.Y.Z].fwsc (identity FM-1_72900), or the simulator build/host/remotefm1-wifi_host
 #   BOARD=smk37 [MODEL=pro|elite|mke] ./build.sh [--no-ble] [--host] [--release X.Y.Z]   the M-Vave SMK-37
 #                                   (docs/SMK37.md): firmware/build/remotefm1-smk37[-elite|-mke][-usb][-X.Y.Z].fwsc, or
 #                                   the simulator build/host/remotefm1-smk37[...]_host; the SMK's own patch series
@@ -24,9 +28,10 @@ set -e
 cd "$(dirname "$0")"
 ROOT="$PWD"
 BENCH=0
+WIFI=0
 for a in "$@"; do
     shift
-    if [ "$a" = --bench ]; then BENCH=1; else set -- "$@" "$a"; fi
+    if [ "$a" = --bench ]; then BENCH=1; elif [ "$a" = --wifi ]; then WIFI=1; else set -- "$@" "$a"; fi
 done
 [ $BENCH = 0 ] || export SA_BENCH=1                     # (firmware/tools/gen_sa_config.py; SA_BENCH=1 ./build.sh
                                                         # --host: the simulator with the bench at boot)
@@ -80,6 +85,34 @@ smk37) SMK=1 ;;
 *) echo "build.sh: BOARD=$BOARD: fm1 or smk37"; exit 1 ;;
 esac
 APPDIR=firmware
+if [ $WIFI = 1 ]; then
+    # RemoteFM1 Wi-Fi (docs/WIFI.md): the app as it is, with fm1-wifi.toml as its fm1.toml, in a copy of its own (so
+    # firmware/ and the USB / Bluetooth build stay as they are); the package and the simulator copied back to
+    # firmware/build/
+    [ $BENCH = 0 ] && [ $SMK = 0 ] || { echo "build.sh: --wifi is the FM-1's, without --bench"; exit 1; }
+    case " $* " in *" --no-ble "* | *" --web "* | *" --rfm1 "*) echo "build.sh: --wifi: not with --no-ble, --web or --rfm1"; exit 1 ;; esac
+    APPDIR="$ROOT/build/app-wifi"
+    mkdir -p "$APPDIR" "$ROOT/build/proto"
+    rsync -a --delete --checksum proto/ "$ROOT/build/proto/"   # (the app's "../../proto/rfm1.h", beside the copy)
+    rsync -a --delete --checksum --exclude /build/ --exclude /patches/ firmware/ "$APPDIR/"
+    cp -p firmware/fm1-wifi.toml "$APPDIR/fm1.toml"
+    "$PY" "$B/tools/build.py" "$APPDIR" "$@"
+    case " $* " in
+    *" --host "*) ;;
+    *) "$PY" tools/wifi_layout.py "$APPDIR/build/remotefm1-wifi.elf" ||   # (the pool as examples/wifi's)
+           { echo "build.sh: --wifi: the layout check failed (the package is not copied)"; exit 1; } ;;
+    esac
+    mkdir -p firmware/build/host
+    for f in "$APPDIR"/build/remotefm1-wifi*.fwsc; do
+        [ ! -f "$f" ] || cp -p "$f" firmware/build/
+    done
+    for f in "$APPDIR"/build/host/remotefm1-wifi*_host; do   # (a new file, not over the old one: macOS kills a binary
+        [ ! -f "$f" ] || { cp -p "$f" "firmware/build/host/.$(basename "$f")" &&   # rewritten in place)
+                           mv -f "firmware/build/host/.$(basename "$f")" "firmware/build/host/$(basename "$f")"; }
+    done
+    echo "(RemoteFM1 Wi-Fi: the package and simulator copied to firmware/build/)"
+    exit 0
+fi
 if [ $SMK = 1 ]; then
     [ $BENCH = 0 ] || { echo "build.sh: --bench is the FM-1's"; exit 1; }
     export FM1B_USB_HOST=0                              # (fm1.toml usb_host: the FM-1's only, not tried on the SMK)

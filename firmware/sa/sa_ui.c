@@ -368,8 +368,8 @@ static void sa_paint_octave(void)
 
 static void sa_paint_host(void)
 {
-    static const char *const TR[3] = {"USB", "USB BULK", "BLUETOOTH"};
-    const char *tr = TR[ui.host_t < 3u ? ui.host_t : 0u];
+    static const char *const TR[4] = {"USB", "USB BULK", "BLUETOOTH", "WI-FI"};   /* (RF_T_*; 3: the Wi-Fi build's) */
+    const char *tr = TR[ui.host_t < 4u ? ui.host_t : 0u];
     int32_t i, w;
     sg_chip_text((SG_W - 100) / 2, 8, 100, 22, 0, "PANEL MODE", UC(A4), UC(ON));
     sg_text_sh((SG_W - sg_text_w("HOST", 5)) / 2, 52, 5, "HOST", UC(A2), 4, UC(D2));

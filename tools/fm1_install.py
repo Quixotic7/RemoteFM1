@@ -58,6 +58,7 @@ OFFICIAL = {
 # be cut short, so it is refused here before the FM-1 is asked anything
 APP_HI = 0x93000
 # RemoteFM1's package identity (fm1-base's scheme, firmware/fm1.toml id_prefix): FM-1_7200 a development build,
+# (the Wi-Fi build, firmware/fm1-wifi.toml: FM-1_72900 a development build, FM-1_729XXYYZZ release X.Y.Z)
 # FM-1_72XXYYZZ release X.Y.Z, since 0.3.7. 0.2 to 0.3.6 were FM-1_52XXYYZZ (dev FM-1_5200), still read as RemoteFM1:
 # 52 moved to 72 as QUADRO numbers its releases FM-1_52XXYYZZ too. 0.1 answered as M-VAVE's V15 (FM-1_015), and
 # cannot be told from it here
@@ -77,6 +78,11 @@ def describe_identity(text):
         if re.fullmatch(r"0\d\d", num):
             return f"running M-VAVE's official {model} V{int(num)}"
         return f"running (an {model})"
+    if text == "FM-1_72900":                     # the Wi-Fi build (firmware/fm1-wifi.toml, docs/WIFI.md)
+        return "running RemoteFM1 Wi-Fi (a development build)"
+    m = re.fullmatch(r"FM-1_729(\d\d)(\d\d)(\d\d)", text)
+    if m:
+        return f"running RemoteFM1 Wi-Fi {int(m[1])}.{int(m[2])}.{int(m[3])}"
     if text in ("FM-1_5200", "FM-1_7200"):
         return "running RemoteFM1 (a development build)"
     m = re.fullmatch(r"FM-1_[57]2(\d\d)(\d\d)(\d\d)", text)

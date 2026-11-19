@@ -1,0 +1,77 @@
+# SPDX-License-Identifier: MPL-2.0
+# The Wi-Fi build (./build.sh --wifi --host; docs/WIFI.md) in fm1-base's host simulator: WIFI over USB SysEx (state,
+# a network set and joined, the networks kept, forget), and RemoteFM1's bulk framing on the TCP transport through
+# net/rfm_net.c's rings (HELLO, ECHO, SINK, SOURCE, STATS, a SESSION ended by the host's going), as tools/wifi_probe.py
+# drives them on an FM-1. tests/run_tests.sh runs it (firmware/build/host/remotefm1-wifi_host).
+# fm1-base's simulator: Wi-Fi on 0.5 s after asked, "Home" kept (joined 1.5 s later, an address 0.5 s after that)
+wait 300
+rf wifi get
+expect rf_wifi_op 0
+expect rf_wifi_status 0
+# the app's buffers from the Wi-Fi heap (app.h RF_BIG): at least the rings and the loops' pool
+expect rf_wifi_heap >60000
+wait 3000
+rf wifi get
+expect rf_wifi_state 5
+expect rf_wifi_ip_last 42
+expect rf_wifi_host 0
+# the sockets' counters follow the SSID and the reason (11 x u32)
+expect rf_wifi_tail 44
+# a network set: accepted, joined (the simulator's join), and kept
+rf wifi set Cafe secret-pass
+expect rf_wifi_op 1
+expect rf_wifi_status 0
+wait 3000
+rf wifi saved
+expect rf_wifi_op 3
+expect rf_wifi_saved >0
+# a bad SET (no SSID): refused
+rf send usb 17 01 00 00
+expect rf_wifi_status 1
+# HELLO over TCP: none before a host connects
+rf hello net
+expect rf_n_net_41 0
+rf net connect
+expect rf_net_up 1
+rf hello net
+expect rf_n_net_41 1
+expect rf_hello_ident 1
+# caps: no shadow (0x62C) and WIFI (bit12)
+expect rf_hello_caps 5676
+# transports: bit6, a host on TCP
+expect rf_hello_transports >63
+# ECHO, STATS, SINK and SOURCE as on the vendor pair
+rf send net 04 01 02 03 04 05
+expect rf_n_net_44 1
+rf send net 05
+expect rf_n_net_45 1
+rf send net 02 00 00 00 00 41 42 43 44 DA 03 00 00
+rf send net 02 01 00 00 00 41 42 43 44 DA 03 00 00
+expect rf_bad_net 0
+rf send net 03 00 10 00 00 00 04
+wait 50
+expect rf_n_net_43 >3
+expect rf_n_net_50 1
+# WIFI over TCP: GET answers; SET is USB's only
+rf send net 17 00
+expect rf_n_net_57 1
+expect rf_wifi_host 1
+rf send net 17 01 04 48 6F 6D 65 00
+expect rf_n_net_57 2
+expect rf_wifi_status 2
+# a SESSION over TCP, ended when the host goes
+rf session net 1 3000
+expect rf_session 1
+expect rf_session_t 3
+expect rf_n_net_46 1
+rf net close
+wait 10
+expect rf_session 0
+expect rf_net_up 0
+# fm1-base's networks kept compact in OBJ_RF (src/rfm_store.c), and read back whole
+rf wfstore
+expect rf_wfstore 1
+# forget them all
+rf wifi forget all
+rf wifi get
+expect rf_wifi_saved 0

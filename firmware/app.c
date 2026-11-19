@@ -17,11 +17,16 @@
  *   src/rfm_main.c       the app: its transports (USB SysEx, USB bulk, Bluetooth SysEx), the LEDs, the panel, the
  *                        hand-over screen's lines, M0's diagnostics, the contract with the platform
  *   src/rfm_dev.c        what only the FM-1 has (usb.c's rings, the panel's DMA), or
- *   src/rfm_host.c       the host simulator's stand-ins for those, and its commands and checks (tests/) */
+ *   src/rfm_host.c       the host simulator's stand-ins for those, and its commands and checks (tests/)
+ *   src/rfm_wifi.c       the Wi-Fi build's (fm1-wifi.toml): the network's state and credentials (WIFI), the TCP
+ *                        transport's task and rings (net/rfm_net.c), the big buffers from the Wi-Fi heap */
 #include "remote_proto.h"
 #include "rfm_draw.c"
 #include "rfm_push.c"
 #include "rfm_store.c"
 #include "sa/sa_bench.c"
 #include "sa/sa_main.c"
+#if FM1B_WIFI && defined(PLAT_HOST)
+#include "net/rfm_net.c"                         /* (the Wi-Fi build's sockets: on the FM-1 a unit of its own, fm1.toml net) */
+#endif
 #include "rfm_main.c"
