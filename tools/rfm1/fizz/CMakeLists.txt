@@ -69,8 +69,16 @@ set_source_files_properties(${_qd_pvg_abs} TARGET_DIRECTORY core_fizz_obj PROPER
 
 # the .rfm1: FIZZ's licence texts and its third parties' (fm1_add_rfm1 adds FM1VST's, Emscripten's and musl's)
 set(FIZZ_MEMORY_MIB 16 CACHE STRING "the .rfm1's fixed memory")
+# cpu2 (FM1VST docs/RFM1.md): core 1's half of the voices on a host thread where the host has one (fizz_unit.c);
+# FIZZ_CPU2 OFF (build_fizz.sh FIZZ_CPU2=0): the file without it, every voice in qd_app_audio, as before
+option(FIZZ_CPU2 "core 1 on a host thread (fm1_add_rfm1 WANTS cpu2)" ON)
+set(_qd_wants "")
+if(FIZZ_CPU2)
+    set(_qd_wants WANTS cpu2)
+endif()
 fm1_add_rfm1(fizz
     AUTHORS "Michael P Jones (Quixotic7)"
+    ${_qd_wants}
     MEMORY_MIB ${FIZZ_MEMORY_MIB}
     # (the asserts' __FILE__: the trees' names, not this machine's paths, so a build elsewhere gives the same file)
     FLAGS -ffile-prefix-map=${FIZZ_DIR}=FIZZ -ffile-prefix-map=${FM1VST_DIR}=FM1VST
