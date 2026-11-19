@@ -75,3 +75,9 @@ that a password can use any printable character. Lower case comes first because 
    EDIT to show or hide. The alternative is Elasticat's exact set (SHIFT held for the second set only, with symbols
    reached by SELECT / KN1 turning). Also: should the keybed's characters on the keys stay at scale 1 (10 px capitals,
    as Elasticat's), which is under the ~12 px rule, given that the typed character also shows at scale 2 in the field?
+
+## The owner's decisions (2026-11-19)
+1. Failed join wording: best guess (WRONG PASSWORD when a password was just typed and the network was heard in the last scan, else COULD NOT JOIN); no fm1-base patch.
+2. Keep the KN1 on/off toggle on the WI-FI row (the up-to-15 s calibration freeze is accepted).
+3. Password entry: the mockup's layers (FX/SEL/ENV/LFO = abc/ABC/123/#+=, EDIT show/hide, OCT- delete, OCT+ join).
+4. Key characters stay 10 px on the drawn keys (the typed character shows at 20 px in the field).
