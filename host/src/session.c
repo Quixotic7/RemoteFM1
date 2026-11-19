@@ -637,9 +637,12 @@ static void on_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
 /* ---------------------------------------------------------------- API ---- */
 int rfm_session_send(rfm_session_t *s, int id, uint8_t cmd, const uint8_t *body, uint32_t n)
 {
+    int r;
     if (id < 0 || id >= RFM_MAX_LINKS || n > RFM_SX_BODY_MAX)
         return -1;
-    return send_msg(s, id, cmd, body, n);
+    r = send_msg(s, id, cmd, body, n);
+    memset(s->tx, 0, sizeof s->tx);                    /* (no copy left here: a WIFI SET carries a password) */
+    return r;
 }
 
 int rfm_session_hello_link(rfm_session_t *s, int id)

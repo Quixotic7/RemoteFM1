@@ -233,7 +233,7 @@ static void wf_init(rfm_fake_t *f)
             c3 = c2 ? strchr(c2, ':') : NULL;
             if (c3)
                 *c3++ = 0;
-            strncpy(f->wf.nets[f->wf.nnets].ssid, tmp, 32);
+            memcpy(f->wf.nets[f->wf.nnets].ssid, tmp, strlen(tmp) < 32u ? strlen(tmp) : 32u);
             f->wf.nets[f->wf.nnets].rssi = atoi(c1);
             f->wf.nets[f->wf.nnets].secured = c2 ? atoi(c2) : 1;
             f->wf.nets[f->wf.nnets].ch = c3 ? atoi(c3) : 6;

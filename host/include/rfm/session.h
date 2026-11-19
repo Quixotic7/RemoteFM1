@@ -236,7 +236,7 @@ int rfm_session_link_kind(const rfm_session_t *s, int id);
 /* a message of the caller's own on link id, outside the session's (e.g. WIFI to the unit on a USB SysEx link while
  * the session runs over TCP): framed for the link, not paced. 0 sent, -1 no such link or the write failed. The
  * reply comes to cb.msg */
-int rfm_session_send(rfm_session_t *s, int id, uint8_t cmd, const uint8_t *body, uint32_t n);
+int rfm_session_send(rfm_session_t *s, int id, uint8_t cmd, const uint8_t *body, uint32_t n);   /* (its framed copy wiped) */
 /* HELLO on link id now (its HELLO_R updates rfm_session_link_hello); 0 sent */
 int rfm_session_hello_link(rfm_session_t *s, int id);
 /* the HELLO_R a link last gave, if it was RemoteFM1 v2 (NULL: none yet); *age_ms: since it came (with now_ms) */
