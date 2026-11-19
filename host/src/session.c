@@ -42,6 +42,9 @@ struct rfm_session {
     uint32_t nfl, max_in_flight;
     uint32_t cur_body, cur_msgs, cur_wire;              /* the frame being emitted */
     int ble;                                            /* the frame link is Bluetooth: paced for it */
+    int slow;                                           /* cfg.slow_link on a SysEx frame link that is not Bluetooth */
+    int paced;                                          /* ble || slow: Bluetooth's pacing */
+    uint32_t rate;                                      /* body bytes a second while paced */
     uint32_t fperiod, wire_cap, wire_frame_max;         /* the frame period; the cap on unacknowledged TILES bytes
                                                          * (0: none) and the largest frame sent under it */
     uint32_t start_ms, heartbeat_ms, lost_ms;           /* cfg's, raised for Bluetooth */
@@ -84,6 +87,8 @@ void rfm_session_cfg_default(rfm_session_cfg_t *c)
     c->key_touch = RFM_TOUCH_F_VEL | RFM_TOUCH_F_PRESS;
     c->audio_div = RFM_AUDIO_DIV_DEFAULT;
     c->audio_buffer_ms = RFM_AUDIO_BUF_MS_DEFAULT;
+    c->slow_bps = RFM_SLOW_BPS_DEFAULT;
+    c->slow_wire_cap = RFM_SLOW_WIRE_CAP_DEFAULT;
 }
 
 static void logf_(rfm_session_t *s, const char *fmt, ...)
@@ -181,10 +186,10 @@ static void emit_tiles(void *ctx, const uint8_t *body, uint32_t n, int last)
     s->st.msgs++;
 }
 
-/* whole screen changes (HOLD): a Bluetooth frame link, the option on, a unit that has it */
+/* whole screen changes (HOLD): a paced frame link (Bluetooth or cfg.slow_link), the option on, a unit that has it */
 static int hold_on(const rfm_session_t *s)
 {
-    return s->frame_link >= 0 && s->ble && s->cfg.ble_hold && (s->hello.caps & RFM_CAP_HOLD);
+    return s->frame_link >= 0 && s->paced && s->cfg.ble_hold && (s->hello.caps & RFM_CAP_HOLD);
 }
 
 /* ---------------------------------------------------------------- states ---- */
@@ -288,13 +293,14 @@ static uint32_t wire_in_flight(const rfm_session_t *s)
     return n;
 }
 
-/* Bluetooth's rate, body bytes a second: a budget is 100 ms of it (RFM_BUDGET_BLE_BPS by default) */
-static uint32_t ble_rate(const rfm_session_t *s) { return s->budget * 10u; }
+/* a paced link's rate, body bytes a second: Bluetooth's budget is 100 ms of it (RFM_BUDGET_BLE_BPS by default);
+ * a slow link's is cfg.slow_bps */
+static uint32_t ble_rate(const rfm_session_t *s) { return s->rate ? s->rate : 1u; }
 
-/* the oldest frame's FRAME_ACK is late: over Bluetooth it scales with what is queued ahead of it at the rate */
+/* the oldest frame's FRAME_ACK is late: over a paced link it scales with what is queued ahead of it at the rate */
 static uint32_t ack_timeout(const rfm_session_t *s)
 {
-    if (!s->ble)
+    if (!s->paced)
         return s->cfg.ack_timeout_ms;
     return max_u(max_u(s->cfg.ack_timeout_ms, RFM_BLE_ACK_MIN_MS), 500u + 3000u * wire_in_flight(s) / ble_rate(s));
 }
@@ -344,18 +350,32 @@ static int decide(rfm_session_t *s)
             s->body_max = RFM_SX_BODY_MAX;
     }
     s->ble = s->links[frame].kind == RFM_LINK_SX && rfm_hello_is_ble(&s->hello);
+    s->slow = s->links[frame].kind == RFM_LINK_SX && !s->ble && s->cfg.slow_link;
+    s->paced = s->ble || s->slow;
     s->fperiod = s->period;
     s->wire_cap = 0;
+    s->rate = 0;
     s->start_ms = s->cfg.start_ms;
     s->heartbeat_ms = s->cfg.heartbeat_ms;
     s->lost_ms = s->cfg.lost_ms;
-    if (s->ble) {
+    if (s->paced) {
         s->fperiod = max_u(s->period, 1000u / RFM_BLE_FPS);
-        const int fast = (s->hello.caps & RFM_CAP_BLE_FAST) != 0;
-        s->budget = s->cfg.budget ? s->cfg.budget : (fast ? RFM_BUDGET_BLE_FAST_BPS : RFM_BUDGET_BLE_BPS) / 10u;
-        if (s->budget > (fast ? RFM_BLE_FAST_BUDGET_MAX : RFM_BLE_BUDGET_MAX))
-            s->budget = fast ? RFM_BLE_FAST_BUDGET_MAX : RFM_BLE_BUDGET_MAX;
-        s->wire_cap = fast ? RFM_BLE_FAST_WIRE_CAP : RFM_BLE_WIRE_CAP;
+        if (s->ble) {
+            const int fast = (s->hello.caps & RFM_CAP_BLE_FAST) != 0;
+            s->budget = s->cfg.budget ? s->cfg.budget : (fast ? RFM_BUDGET_BLE_FAST_BPS : RFM_BUDGET_BLE_BPS) / 10u;
+            if (s->budget > (fast ? RFM_BLE_FAST_BUDGET_MAX : RFM_BLE_BUDGET_MAX))
+                s->budget = fast ? RFM_BLE_FAST_BUDGET_MAX : RFM_BLE_BUDGET_MAX;
+            s->wire_cap = fast ? RFM_BLE_FAST_WIRE_CAP : RFM_BLE_WIRE_CAP;
+            s->rate = s->budget * 10u;
+        } else {                                        /* the slow link: its own rate and cap */
+            s->rate = s->cfg.slow_bps ? s->cfg.slow_bps : RFM_SLOW_BPS_DEFAULT;
+            s->wire_cap = s->cfg.slow_wire_cap ? s->cfg.slow_wire_cap : RFM_SLOW_WIRE_CAP_DEFAULT;
+            s->budget = s->cfg.budget ? s->cfg.budget : s->rate / 10u;
+            if (s->budget > s->wire_cap / 2u)          /* a frame stays well under the cap */
+                s->budget = s->wire_cap / 2u;
+        }
+        if (!s->budget)
+            s->budget = 1;
         /* a frame is one body of at most 4 + max(budget, a RAW tile) bytes while body_max allows it */
         s->wire_frame_max = rfm_sx_size(RFM_TILES_HDR + max_u(s->budget, RFM_RECT_HDR + 2u * RFM_TILE * RFM_TILE));
         s->start_ms = max_u(s->start_ms, 1000u);
@@ -369,7 +389,7 @@ static int decide(rfm_session_t *s)
     }
     if (!s->budget)
         s->budget = 1;
-    rfm_screen_set_lossy(s->screen, s->ble ? s->cfg.ble_colors : 0u);
+    rfm_screen_set_lossy(s->screen, s->paced ? s->cfg.ble_colors : 0u);
     rfm_screen_set_snapshot(s->screen, hold_on(s));
     s->max_in_flight = s->hello.max_in_flight ? s->hello.max_in_flight : RFM_FRAMES_IN_FLIGHT;
     if (s->max_in_flight > MAX_FLIGHT)
@@ -377,12 +397,12 @@ static int decide(rfm_session_t *s)
     logf_(s, "found %s (fw %s, caps 0x%x): frames on %s, panel on %s, body max %u, budget %u B/frame, %u in flight",
           s->hello.name, s->hello.fw_ver, s->hello.caps, s->links[frame].name, sx >= 0 ? s->links[sx].name : "none",
           s->body_max, s->budget, s->max_in_flight);
-    if (s->ble) {
+    if (s->paced) {
         char tiles[40] = "tiles exact";
         if (rfm_screen_lossy(s->screen))
             snprintf(tiles, sizeof tiles, "tiles reduced to %u colours", rfm_screen_lossy(s->screen));
-        logf_(s, "Bluetooth link: %u B/s, budget %u B/frame, %u fps, cap %u B in flight, %s, %s", ble_rate(s),
-              s->budget, 1000u / s->fperiod, s->wire_cap, tiles,
+        logf_(s, "%s link: %u B/s, budget %u B/frame, %u fps, cap %u B in flight, %s, %s",
+              s->ble ? "Bluetooth" : "slow", ble_rate(s), s->budget, 1000u / s->fperiod, s->wire_cap, tiles,
               hold_on(s) ? "screen changes shown whole (HOLD)"
                          : s->hello.caps & RFM_CAP_HOLD ? "HOLD off" : "the unit has no HOLD (before 0.2.2)");
     }
@@ -768,7 +788,7 @@ void rfm_session_poll(rfm_session_t *s, uint32_t now)
             s->next_frame += s->fperiod;
             if (after(now, s->next_frame, 0))
                 s->next_frame = now + s->fperiod;
-            if (s->ble) {                               /* and no sooner than this body at the rate */
+            if (s->paced) {                             /* and no sooner than this body at the rate */
                 const uint32_t gap = s->cur_body * 1000u / ble_rate(s);
                 if ((int32_t)(s->next_frame - now) < (int32_t)gap)
                     s->next_frame = now + gap;
@@ -794,7 +814,7 @@ void rfm_session_set_frame(rfm_session_t *s, const uint16_t *lcd) { rfm_screen_s
 void rfm_session_set_ble_colors(rfm_session_t *s, uint32_t colors)
 {
     s->cfg.ble_colors = colors;
-    if (s->frame_link < 0 || !s->ble)
+    if (s->frame_link < 0 || !s->paced)
         return;
     rfm_screen_set_lossy(s->screen, colors);
     if (!colors && rfm_screen_refine(s->screen, 1))
@@ -885,6 +905,8 @@ void rfm_session_stats(const rfm_session_t *s, rfm_session_stats_t *st)
     st->in_flight = s->nfl;
     st->pending = rfm_screen_pending(s->screen);
     st->ble = s->frame_link >= 0 && s->ble;
+    st->slow = s->frame_link >= 0 && s->slow;
+    st->rate = s->frame_link >= 0 && s->paced ? s->rate : 0u;
     st->frame_ms = s->frame_link >= 0 ? s->fperiod : s->period;
     st->wire_cap = s->frame_link >= 0 ? s->wire_cap : 0;
     st->wire_in_flight = wire_in_flight(s);
