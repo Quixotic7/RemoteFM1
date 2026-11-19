@@ -28,7 +28,7 @@
  *   rf serve SECONDS [PORT [stdin]]   (the Wi-Fi build) the simulator in real time for SECONDS, net/rfm_net.c on
  *                                this computer's sockets: TCP on 127.0.0.1:PORT (7740), discovery on UDP 7741, for
  *                                tools/wifi_probe.py --sim (docs/WIFI.md). With "stdin": lines from standard input are
- *                                taken while it serves (a host's end-to-end test drives the panel): key K down|up,
+ *                                taken while it serves (a host's end-to-end test drives the panel): key K down [VEL]|up,
  *                                press BTN, release BTN, spin ENC N, master N (as the script's), drop (the FM-1 closes
  *                                the host's connection), end (the serve ends now); each answered "ok WORD" on stdout
  * expect (an int; "<N" / ">N" bounds): rf_session, rf_session_t (0 usb, 1 bk, 2 ble), rf_n_T_CC (replies of command
@@ -275,8 +275,12 @@ static int hs_serve_ctl(void)
         static const char *const BTN[NB] = {"FX", "SEL", "ENV", "LFO", "EDIT", "GLO", "HOME", "SAVE", "ARP", "SEQ",
                                             "PLAY", "REC", "OCT-", "OCT+"};
         static const char *const ENC[NE] = {"SELECT", "ALGO", "PRESET", "K1", "K2", "K3", "K4"};
-        if (!strcmp(w[0], "key") && (e = atoi(w[1])) >= 0 && e < 27) {   /* (K: 0..26 only) */
-            if (!strcmp(w[2], "down"))
+        if (!strcmp(w[0], "key") && (e = atoi(w[1])) >= 0 && e < 27) {   /* (K: 0..26 only; key K down [VEL]) */
+            const int down = !strcmp(w[2], "down");
+#ifdef APP_KEY_SENSE
+            app_host_key((uint32_t)e, down ? (atoi(w[3]) > 0 ? (uint32_t)atoi(w[3]) : 100u) : 0u, 0u);   /* (TOUCH) */
+#endif
+            if (down)
                 held_keys |= 1u << e;
             else
                 held_keys &= ~(1u << e);

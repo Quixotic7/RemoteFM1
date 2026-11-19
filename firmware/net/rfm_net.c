@@ -14,6 +14,10 @@
 #include <stdint.h>
 #include <string.h>
 #ifdef PLAT_HOST
+/* (plat_host.c defines __attribute__ away before it includes the app: glibc's socket calls need theirs, a transparent
+ * union, so the headers see the real one) */
+#pragma push_macro("__attribute__")
+#undef __attribute__
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -22,6 +26,7 @@
 #include <netinet/tcp.h>
 #include <sys/select.h>
 #include <sys/socket.h>
+#pragma pop_macro("__attribute__")
 #define closesocket close
 #define RFN_SA_LEN(a) ((void)0)
 #else
