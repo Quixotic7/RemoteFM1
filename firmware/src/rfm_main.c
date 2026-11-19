@@ -60,7 +60,7 @@
 #define RF_T_NET 3u
 #define RF_NT 4u
 #define RF_IS_NET(t) ((t) == RF_T_NET)
-#define RF_CAP_NET (RFM_CAP_WIFI | RFM_CAP_PANEL_EV)
+#define RF_CAP_NET (RFM_CAP_WIFI | RFM_CAP_PANEL_EV | RFM_CAP_NET_FRAMES)
 #else
 #define RF_NT 3u
 #define RF_IS_NET(t) 0
@@ -1164,6 +1164,50 @@ RF_BIG(uint8_t, rf_bk_buf, RF_BK_RX_MAX);
 RF_BIG(uint8_t, rf_bk_net_buf, RF_BK_RX_MAX);
 RF_BIG(uint8_t, rf_net_rx, RF_NET_RX_N);
 RF_BIG(uint8_t, rf_net_tx, RF_NET_TX_N);
+/* whole frames over TCP (RFM_CAP_NET_FRAMES; docs/PROTOCOL.md section 10). This build has no shadow: a rectangle goes
+ * to the panel as it is decoded, so a frame whose messages arrive across one of TCP's stalls shows in pieces. In a
+ * TCP session each frame's TILES messages are kept here as they come (the bodies, each after its length) and decoded
+ * together when its END arrives, so the frame reaches the panel at once; FRAME_ACK follows as before. A frame longer
+ * than this goes on as it comes (decoded as before: the oldest kept first). Other messages pass at once. */
+RF_BIG(uint8_t, rf_net_frame, RF_NET_FRAME_N);
+static uint32_t rf_nf_n, rf_nf_frames, rf_nf_over;
+static void rf_on_msg(void *ctx, uint32_t cmd, const uint8_t *body, uint32_t len);
+static void rf_nf_flush(void)
+{
+    uint32_t k = 0;
+    while (k + 2u <= rf_nf_n) {
+        const uint32_t n = (uint32_t)rf_net_frame[k] | (uint32_t)rf_net_frame[k + 1u] << 8;
+        rf_on_msg((void *)(uintptr_t)RF_T_NET, RFM_TILES, rf_net_frame + k + 2u, n);
+        k += 2u + n;
+    }
+    rf_nf_n = 0;
+}
+#define RF_NET_GRACE_MS 4000u
+static void rf_net_on_msg(void *ctx, uint32_t cmd, const uint8_t *b, uint32_t len)
+{
+    uint32_t i;
+    if (cmd == RFM_TILES && rfa.session && rfa.st == RF_T_NET && !rfa.audio && len >= RFM_TILES_HDR) {
+        if (rf_nf_n + 2u + len > RF_NET_FRAME_N) {
+            rf_nf_flush();                          /* (a frame longer than the buffer: as it comes) */
+            rf_nf_over++;
+        }
+        if (2u + len <= RF_NET_FRAME_N) {
+            rf_net_frame[rf_nf_n] = (uint8_t)len;
+            rf_net_frame[rf_nf_n + 1u] = (uint8_t)(len >> 8);
+            for (i = 0; i < len; i++)
+                rf_net_frame[rf_nf_n + 2u + i] = b[i];
+            rf_nf_n += 2u + len;
+            if (b[2] & RFM_TILES_F_END) {
+                rf_nf_frames++;
+                rf_nf_flush();                      /* the whole frame, at once */
+            }
+            return;
+        }
+    }
+    if (cmd == RFM_SESSION)
+        rf_nf_n = 0;                                /* (tiles kept from before: the old session's) */
+    rf_on_msg(ctx, cmd, b, len);
+}
 static uint32_t rf_net_conn;                        /* rfn_conn_id as the parser last saw it */
 static void rf_net_conn_check(void)                 /* a new host, or the old one gone: the parser and its session */
 {
@@ -1175,8 +1219,13 @@ static void rf_net_conn_check(void)                 /* a new host, or the old on
     rf_bk_net.have_fseq = 0;
     rf_body_reset_seq(&rf_bk_net.b);
     rf_net_seq = 0;
-    if (rfa.session && rfa.st == RF_T_NET)
+    rf_nf_n = 0;
+    if (rfa.session && rfa.st == RF_T_NET) {
         rfm_app_usb_lost();                         /* (as a USB unplug ends a USB session) */
+        rf_scr_hold = plat_ms() + RF_NET_GRACE_MS;  /* the host's last screen stays a moment: a host that connects
+                                                     * again (a Wi-Fi hiccup) takes over without the instrument's own
+                                                     * screens flashing in between */
+    }
 }
 #endif
 static uint32_t rf_ble_other;                       /* packets in that are not SysEx (Bluetooth MIDI): left */
@@ -1538,7 +1587,7 @@ void app_init(void)
 {
 #if FM1B_WIFI
     rf_big_init();                                  /* (first: the buffers the rest uses, from the Wi-Fi heap) */
-    rf_body_init(&rf_bk_net.b, &rf_st[RF_T_NET], rf_bk_net_buf, RF_BK_RX_MAX, rf_on_msg, (void *)(uintptr_t)RF_T_NET);
+    rf_body_init(&rf_bk_net.b, &rf_st[RF_T_NET], rf_bk_net_buf, RF_BK_RX_MAX, rf_net_on_msg, (void *)(uintptr_t)RF_T_NET);
     rf_net_init();
 #endif
     rf_body_init(&rf_sx[0].b, &rf_st[RF_T_SX], rf_sx_buf[0], RF_SX_BODY_MAX, rf_on_msg, (void *)(uintptr_t)RF_T_SX);

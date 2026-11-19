@@ -36,8 +36,8 @@ expect rf_net_up 1
 rf hello net
 expect rf_n_net_41 1
 expect rf_hello_ident 1
-# caps: no shadow (0x62C), WIFI (bit12) and PANEL_EV (bit13)
-expect rf_hello_caps 13868
+# caps: no shadow (0x62C), WIFI (bit12), PANEL_EV (bit13), NET_FRAMES (bit14)
+expect rf_hello_caps 30252
 # transports: bit6, a host on TCP
 expect rf_hello_transports >63
 # ECHO, STATS, SINK and SOURCE as on the vendor pair
@@ -64,6 +64,18 @@ rf session net 1 3000
 expect rf_session 1
 expect rf_session_t 3
 expect rf_n_net_46 1
+# whole frames over TCP: a frame's first message shows nothing, its END shows all of it at once
+wait 50
+rf snap
+rf tiles net 0 more fill:0,0,120,120,F800
+wait 20
+expect rf_screen_snap 1
+expect rf_n_net_52 0
+rf tiles net 0 end fill:120,120,120,120,07E0
+wait 30
+expect rf_n_net_52 1
+expect rf_screen_ok 1
+expect rf_decode_errs 0
 # the panel's events in a TCP session: PANEL_EV, the same MIDI bytes as the other transports' plain MIDI, none to USB
 out
 key 5 down
@@ -99,10 +111,17 @@ strum 0 15 1
 wait 50
 expect rf_ev_net_bad 0
 expect rf_ev_net_n >115
+wait 100
+rf snap
 rf net close
 wait 10
 expect rf_session 0
 expect rf_net_up 0
+# the host's last screen stays 4 s (a Wi-Fi hiccup's reconnect takes over without the instrument's screens between)
+wait 2000
+expect rf_screen_snap 1
+wait 2500
+expect rf_screen_snap 0
 # fm1-base's networks kept compact in OBJ_RF (src/rfm_store.c), and read back whole
 rf wfstore
 expect rf_wfstore 1

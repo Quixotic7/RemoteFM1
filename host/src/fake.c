@@ -238,7 +238,7 @@ static void on_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
         h.caps = RFM_CAP_SHADOW | RFM_CAP_COPY | RFM_CAP_RLE | RFM_CAP_PAL | RFM_CAP_BATTERY | RFM_CAP_PLAY_GREEN |
                  RFM_CAP_LED5 | (f->cfg.hold ? RFM_CAP_HOLD : 0u) | (f->cfg.midi_in ? RFM_CAP_MIDI_IN : 0u) |
                  (f->cfg.touch ? RFM_CAP_TOUCH : 0u) | (f->cfg.audio ? RFM_CAP_BLE_AUDIO : 0u) |
-                 (f->cfg.tcp ? RFM_CAP_WIFI | RFM_CAP_PANEL_EV : 0u);
+                 (f->cfg.tcp ? RFM_CAP_WIFI | RFM_CAP_PANEL_EV | RFM_CAP_NET_FRAMES : 0u);
         h.max_in_flight = RFM_FRAMES_IN_FLIGHT;
         h.session = f->session ? 1 : 0;
         strncpy(h.fw_ver, "m1-fake", 8);

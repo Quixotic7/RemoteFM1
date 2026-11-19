@@ -37,6 +37,7 @@
 #define FELUCCA_VENDOR_OUT_N 2048u
 #define FELUCCA_VENDOR_RING_ATTR RF_LOW
 #define RF_NET_RX_N 8192u                /* TCP -> the parser (powers of two) */
+#define RF_NET_FRAME_N 16384u            /* a TCP frame's TILES kept until its END (rfm_main.c rf_net_frame) */
 #define RF_NET_TX_N 8192u                /* the replies -> TCP */
 #define RF_BIG(T, name, n) static T *name   /* taken at app_init (rfm_main.c rf_big_init) */
 #define RF_BIGB(T, name, n) static T *name  /* (the same, for one the other builds keep in .bss) */

@@ -75,6 +75,7 @@ static void rf_big_init(void)
     RF_TAKE(rf_bk_net_buf, RF_BK_RX_MAX);
     RF_TAKE(rf_net_rx, RF_NET_RX_N);
     RF_TAKE(rf_net_tx, RF_NET_TX_N);
+    RF_TAKE(rf_net_frame, RF_NET_FRAME_N);
     RF_TAKE(rf_stage, RF_STAGE_PX);
     RF_TAKE(sa_lpool, SA_LPOOL);
     RF_TAKE(sa_take, SA_TAKE);

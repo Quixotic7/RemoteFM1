@@ -110,6 +110,7 @@ enum { RFM_S_DISCOVER = 0, RFM_S_STARTING, RFM_S_ACTIVE, RFM_S_STOPPING, RFM_S_S
 #define RFM_TCP_LOST_MS 8000u
 #define RFM_TCP_ACK_MIN_MS 5000u
 #define RFM_TCP_KEEPALIVE_MS 10000u
+#define RFM_TCP_WIRE_CAP 16384u                          /* framed TILES bytes unacknowledged over TCP */
 
 typedef struct {
     uint32_t fps;                                       /* 20 */

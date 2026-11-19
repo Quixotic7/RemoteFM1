@@ -392,6 +392,14 @@ static int decide(rfm_session_t *s)
         s->lost_ms = max_u(s->lost_ms, 3000u);
     } else if (s->tcp) {                                /* TCP over Wi-Fi: not paced, but its stalls waited out */
         s->budget = s->cfg.budget ? s->cfg.budget : RFM_BUDGET_TCP_BPS / (s->cfg.fps ? s->cfg.fps : 20u);
+        if ((s->hello.caps & RFM_CAP_NET_FRAMES) && s->budget > RFM_NET_FRAME_MAX - 2048u)
+            s->budget = RFM_NET_FRAME_MAX - 2048u;      /* (a frame the unit keeps whole: shown at once) */
+        /* what is unacknowledged stays within what the unit drains without its TCP input filling: one frame, and a
+         * second only while the first is small (the newest screen is encoded when a frame goes: never a stale one
+         * queued behind a stall) */
+        s->wire_cap = RFM_TCP_WIRE_CAP;
+        s->wire_frame_max = RFM_BK_HDR_LEN * (s->budget / s->body_max + 2u) + RFM_TILES_HDR * (s->budget / s->body_max + 2u) +
+                            s->budget + RFM_RECT_HDR + 2u * RFM_TILE * RFM_TILE;
         s->start_ms = max_u(s->start_ms, RFM_TCP_START_MS);
         if (s->heartbeat_ms)
             s->heartbeat_ms = max_u(s->heartbeat_ms, RFM_TCP_HEARTBEAT_MS);

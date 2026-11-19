@@ -70,7 +70,9 @@ enum {
     RFM_CAP_TOUCH = 1u << 10,           /* 0.3.1: TOUCH: the keys' real velocity and their pressure as poly aftertouch */
     RFM_CAP_BLE_AUDIO = 1u << 11,       /* 0.3.6: AUDIO_MODE / AUDIO: the host's sound over the session's link, no screen */
     RFM_CAP_WIFI = 1u << 12,            /* the Wi-Fi build: WIFI (0x17), the bulk framing over TCP (section 10) */
-    RFM_CAP_PANEL_EV = 1u << 13         /* a session over TCP sends the panel's events as PANEL_EV (section 10) */
+    RFM_CAP_PANEL_EV = 1u << 13,        /* a session over TCP sends the panel's events as PANEL_EV (section 10) */
+    RFM_CAP_NET_FRAMES = 1u << 14       /* over TCP a frame of up to RFM_NET_FRAME_MAX bytes of TILES bodies is decoded
+                                         * whole at its END (section 10) */
 };
 
 /* TOUCH body (host -> device, in a session; no reply): flags8. A session starts with 0 (velocity 100, no
@@ -168,6 +170,7 @@ enum { RFM_ACK_DECODE_ERR = 1u << 0, RFM_ACK_SHADOW_RESET = 1u << 1 };
  * a UDP datagram "RFM1?" to RFM_NET_UDP_PORT (broadcast) is answered with "RFM1!" and key=value lines */
 #define RFM_NET_TCP_PORT 7740u
 #define RFM_NET_UDP_PORT 7741u
+#define RFM_NET_FRAME_MAX 16384u        /* RFM_CAP_NET_FRAMES: a frame's TILES messages (bodies + 2 each) kept whole */
 enum { RFM_WIFI_GET = 0, RFM_WIFI_SET = 1, RFM_WIFI_FORGET = 2, RFM_WIFI_SAVED = 3 };
 enum { RFM_WIFI_OK = 0, RFM_WIFI_BAD = 1, RFM_WIFI_NOT_HERE = 2, RFM_WIFI_BUSY = 3 };
 #define RFM_WIFI_SSID_MAX 32u

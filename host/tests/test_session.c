@@ -1472,7 +1472,7 @@ static void test_tcp(void)
     rfm_fake_stats_t fs;
     rfm_fake_t *u;
     hl_t *tl;
-    uint32_t i, t, seed = 11;
+    uint32_t i, t, seed = 11, wmax = 0;
     int got_key = 0, got_btn = 0, got_enc = 0, got_master = 0, got_up = 0, repaired = 0;
     rfm_session_cfg_default(&sc);
     sc.keepalive_ms = 3000;
@@ -1496,21 +1496,29 @@ static void test_tcp(void)
     CHECK(rfm_session_midi_link(h.s) == tl->id);
     CHECKF(rfm_session_budget(h.s) == RFM_BUDGET_TCP_BPS / 20u, "budget %u", rfm_session_budget(h.s));
     rfm_session_stats(h.s, &st);
-    CHECK(st.tcp == 1 && st.ble == 0 && st.slow == 0 && st.rate == 0 && st.wire_cap == 0 && st.frame_ms == 50u);
+    CHECK(st.tcp == 1 && st.ble == 0 && st.slow == 0 && st.rate == 0 && st.wire_cap == RFM_TCP_WIRE_CAP &&
+          st.frame_ms == 50u);
     CHECK((rfm_session_hello(h.s)->caps & (RFM_CAP_WIFI | RFM_CAP_PANEL_EV)) == (RFM_CAP_WIFI | RFM_CAP_PANEL_EV));
     /* the screen: full-screen noise for 2 s, then still; converges with 2 in flight, never paced */
     for (t = 0; t < 40; t++) {
+        uint32_t k;
         fr_noise(img, &seed);
         rfm_session_set_frame(h.s, img);
-        step(&h, 50);
+        for (k = 0; k < 50; k++) {                      /* (unacknowledged within what the unit keeps whole) */
+            step(&h, 1);
+            rfm_session_stats(h.s, &st);
+            if (st.wire_in_flight > wmax)
+                wmax = st.wire_in_flight;
+        }
     }
-    CHECK(run_until_converged(&h, u, img, 3000));
+    CHECKF(wmax <= RFM_NET_FRAME_MAX, "%u bytes unacknowledged at most", wmax);
+    CHECK(run_until_converged(&h, u, img, 6000));
     rfm_session_stats(h.s, &st);
     rfm_fake_stats(u, &fs);
-    CHECKF(h.max_in_flight == 2 && fs.decode_errs == 0 && st.ack_timeouts == 0 && st.hold == 0 && st.reduced == 0,
+    CHECKF(h.max_in_flight <= 2 && fs.decode_errs == 0 && st.ack_timeouts == 0 && st.hold == 0 && st.reduced == 0,
            "in flight %u, decode errors %u, timeouts %u, hold %u, reduced %u", h.max_in_flight, fs.decode_errs,
            st.ack_timeouts, st.hold, st.reduced);
-    CHECKF(st.frames >= 30, "%u frames in 2 s of noise", st.frames);
+    CHECKF(st.frames >= 20, "%u frames in 2 s of noise", st.frames);
     /* the panel: PANEL_EV, as the MIDI link's events */
     step(&h, 600);
     h.nev = 0;
