@@ -4,7 +4,8 @@
  * firmwares, frames and flow control, LEDs and keepalive, panel events and PANEL_R repair, shadow reset (a reboot),
  * keepalive loss (a deaf unit), a lost FRAME_ACK, a decode error, stop, transports; Bluetooth MIDI's pacing on a
  * slow link that loses what overflows the unit's input; Bluetooth's whole screen changes (HOLD): a moving source
- * shows only screens that were submitted, an older unit gets no HOLD, a stall, the option turned off mid-change. */
+ * shows only screens that were submitted, an older unit gets no HOLD, a stall, the option turned off mid-change; a
+ * slow link that is not Bluetooth (cfg.slow_link: the Ableton Move's USB-A) paced the same way. */
 #include <stdlib.h>
 #include <string.h>
 
@@ -1170,6 +1171,287 @@ static void test_usb_before_bluetooth(void)
     teardown(&h);
 }
 
+/* ---------------------------------------------------------------- a slow link (cfg.slow_link) ---- */
+/* The Ableton Move's USB-A port (RemoteFM14Move, measured 2026-11-19): the unit is a USB device of the Move's surface
+ * controller, which bridges its MIDI into the Move's SPI transfers. Modelled: host -> unit SL_RATE wire bytes a
+ * second (Move Remote's packets per transfer), at most SL_QUEUE bytes queued (a message that would go beyond is lost
+ * whole); unit -> host through the bridge's buffer, SL_BURST bytes, drained SL_DRAIN bytes a millisecond: what does
+ * not fit is lost (an ECHO of 256 bytes came back as 214). */
+#define SL_RATE 8200u
+#define SL_QUEUE 12288u
+#define SL_BURST 210u
+#define SL_DRAIN 32u
+
+typedef struct {
+    rfm_session_t *s;
+    rfm_fake_t *f;
+    int id, verbose;
+    uint32_t now, credit;
+    uint8_t q[65536];
+    uint32_t qr, qw;                                    /* host -> unit bytes in [qr, qw) */
+    uint8_t br[SL_BURST];
+    uint32_t bn;                                        /* unit -> host bytes in the bridge */
+    uint32_t lost_msgs, lost_back, max_queued, max_wire, states[8];
+    rfm_event_t ev[64];
+    uint32_t nev;
+    uint8_t mi[256];
+    uint32_t nmi;
+    int unplugged;                                      /* nothing goes either way */
+} sl_t;
+static sl_t SLK;
+
+static int sl_w(void *ctx, const uint8_t *p, uint32_t n)
+{
+    sl_t *b = (sl_t *)ctx;
+    if (b->unplugged)
+        return 0;
+    if (b->qw - b->qr + n > SL_QUEUE) {
+        b->lost_msgs++;
+        return 0;
+    }
+    if (b->qw + n > sizeof b->q) {
+        memmove(b->q, b->q + b->qr, b->qw - b->qr);
+        b->qw -= b->qr;
+        b->qr = 0;
+    }
+    memcpy(b->q + b->qw, p, n);
+    b->qw += n;
+    if (b->qw - b->qr > b->max_queued)
+        b->max_queued = b->qw - b->qr;
+    return 0;
+}
+static void sl_state(void *ctx, int st, const char *why)
+{
+    sl_t *b = (sl_t *)ctx;
+    b->states[st]++;
+    if (b->verbose)
+        printf("  %6u ms  %s (%s)\n", b->now, rfm_session_state_name(st), why);
+}
+static void sl_log(void *ctx, const char *m)
+{
+    sl_t *b = (sl_t *)ctx;
+    if (b->verbose)
+        printf("  %6u ms  %s\n", b->now, m);
+}
+static void sl_event(void *ctx, const rfm_event_t *e)
+{
+    sl_t *b = (sl_t *)ctx;
+    if (b->nev < 64)
+        b->ev[b->nev++] = *e;
+}
+static void sl_midi_in(void *ctx, const uint8_t *m, uint32_t n)
+{
+    sl_t *b = (sl_t *)ctx;
+    while (n-- && b->nmi < sizeof b->mi)
+        b->mi[b->nmi++] = *m++;
+}
+
+static void sl_step(sl_t *b, uint32_t ms)
+{
+    static uint8_t tmp[65536];
+    while (ms--) {
+        rfm_session_stats_t st;
+        uint32_t n, k;
+        b->now++;
+        if (b->unplugged) {
+            b->qr = b->qw = b->bn = 0;
+            rfm_session_poll(b->s, b->now);
+            continue;
+        }
+        b->credit += SL_RATE;                           /* milli-bytes */
+        n = b->credit / 1000u;
+        b->credit %= 1000u;
+        if (n > b->qw - b->qr)
+            n = b->qw - b->qr;
+        if (n) {
+            rfm_fake_rx_sx(b->f, b->q + b->qr, n, b->now);
+            b->qr += n;
+        }
+        if (b->qr == b->qw) {
+            b->qr = b->qw = 0;
+            b->credit = 0;
+        }
+        rfm_fake_poll(b->f, b->now);
+        while ((n = rfm_fake_take_sx(b->f, tmp, sizeof tmp)) != 0) {   /* into the bridge; the rest is lost */
+            k = n < SL_BURST - b->bn ? n : SL_BURST - b->bn;
+            memcpy(b->br + b->bn, tmp, k);
+            b->bn += k;
+            b->lost_back += n - k;
+        }
+        n = b->bn < SL_DRAIN ? b->bn : SL_DRAIN;
+        if (n) {
+            rfm_session_rx(b->s, b->id, b->br, n, b->now);
+            memmove(b->br, b->br + n, b->bn - n);
+            b->bn -= n;
+        }
+        rfm_session_poll(b->s, b->now);
+        rfm_session_stats(b->s, &st);
+        if (st.wire_in_flight > b->max_wire)
+            b->max_wire = st.wire_in_flight;
+    }
+}
+
+static void sl_open(sl_t *b, int slow, int ble)
+{
+    rfm_session_cfg_t sc;
+    rfm_session_cb_t cb;
+    rfm_fake_cfg_t fc;
+    memset(b, 0, sizeof *b);
+    b->verbose = getenv("RFM_VERBOSE") != NULL;
+    b->now = 1000;
+    rfm_session_cfg_default(&sc);
+    sc.host_name = "RemoteFM14Move";
+    sc.retry_ms = 2000;
+    sc.slow_link = slow;
+    memset(&cb, 0, sizeof cb);
+    cb.ctx = b;
+    cb.state = sl_state;
+    cb.log = sl_log;
+    cb.event = sl_event;
+    cb.midi_in = sl_midi_in;
+    b->s = rfm_session_new(&sc, &cb);
+    rfm_fake_cfg_default(&fc);
+    fc.has_bulk = 0;
+    fc.ble = ble;
+    b->f = rfm_fake_new(&fc);
+    b->id = rfm_session_add_link(b->s, RFM_LINK_SX, sl_w, b, "Move USB-A");
+    sl_step(b, 1500);
+}
+
+static int sl_converged(sl_t *b, const uint16_t *img, uint32_t max_ms)
+{
+    uint32_t t;
+    for (t = 0; t < max_ms; t += 10) {
+        rfm_session_stats_t st;
+        sl_step(b, 10);
+        rfm_session_stats(b->s, &st);
+        if (rfm_session_state(b->s) == RFM_S_ACTIVE && rfm_fake_session(b->f) && !st.pending && !st.in_flight &&
+            shadow_is(b->f, img))
+            return 1;
+    }
+    return 0;
+}
+
+/* A busy screen for 20 s over the Move's USB-A, as test_bluetooth: slow = 0, USB's pacing overruns the link (messages
+ * lost, FRAME_ACKs late); slow = 1, Bluetooth's pacing at cfg.slow_bps: nothing lost either way, the screen
+ * converges, page changes shown whole, keys, MIDI_IN and LEDs through, nothing the unit sent lost in the bridge. A
+ * Bluetooth unit stays paced as Bluetooth with the option on. */
+static void test_slow_link(int slow)
+{
+    static uint16_t img[FR_N];
+    sl_t *b = &SLK;
+    rfm_session_stats_t st;
+    rfm_fake_stats_t fs;
+    rfm_leds_t leds;
+    uint32_t t, i, ms_change = 0;
+    int key = 0;
+    static const uint8_t trs[] = { 0x90, 60, 100, 0x80, 60, 0 };
+    sl_open(b, slow, 0);
+    CHECK(rfm_session_state(b->s) == RFM_S_ACTIVE);
+    rfm_session_stats(b->s, &st);
+    if (slow)
+        CHECKF(st.slow == 1 && st.ble == 0 && st.rate == RFM_SLOW_BPS_DEFAULT &&
+                   rfm_session_budget(b->s) == RFM_SLOW_BPS_DEFAULT / 10u && st.frame_ms == 50u &&
+                   st.wire_cap == RFM_SLOW_WIRE_CAP_DEFAULT && st.lossy == RFM_BLE_COLORS && st.hold == 1,
+               "slow %u ble %u rate %u budget %u frame %u ms cap %u lossy %u hold %u", st.slow, st.ble, st.rate,
+               rfm_session_budget(b->s), st.frame_ms, st.wire_cap, st.lossy, st.hold);
+    else
+        CHECK(st.slow == 0 && st.rate == 0 && st.wire_cap == 0 && st.lossy == 0 && st.hold == 0);
+    memset(&leds, 0, sizeof leds);
+    for (t = 0; t < 400; t++) {                         /* 20 s at 20 Hz */
+        if (t / 100u % 2u == 1u && t % 100u < 10u) {
+            fr_fill(img, fr_rgb(60 + t % 7u, 20, 80));
+            fr_rect(img, 10, 40 + (int)(t % 10u) * 16, 220, 12, fr_rgb(240, 200, 40));
+            fr_text(img, 20, 20, "PAGE 2", fr_rgb(255, 255, 255), fr_rgb(60 + t % 7u, 20, 80));
+        } else {
+            fr_ui(img, t);
+        }
+        rfm_session_set_frame(b->s, img);
+        if (t % 5u == 0) {
+            leds.lit[t / 5u % 11u] = (uint8_t)(t * 3u);
+            rfm_session_set_leds(b->s, &leds);
+        }
+        if (t == 200)
+            rfm_fake_key(b->f, 7, 1);
+        if (t == 210)
+            rfm_fake_trs(b->f, trs, 6);
+        sl_step(b, 50);
+        if (t == 202)
+            for (i = 0; i < b->nev; i++)
+                key |= b->ev[i].type == RFM_EV_KEY && b->ev[i].index == 7 && b->ev[i].value == 1;
+    }
+    rfm_session_stats(b->s, &st);
+    rfm_fake_stats(b->f, &fs);
+    if (b->verbose)
+        printf("  Move USB-A %s: %u frames, %u acks, ack avg %u max %u ms, %u timeouts, %u msgs lost, %u B lost "
+               "back, queue max %u B, %u B in flight max, body %u B/s, %u held\n", slow ? "slow_link" : "as USB",
+               st.frames, st.acks, st.acks ? st.ack_ms_sum / st.acks : 0, st.ack_ms_max, st.ack_timeouts,
+               b->lost_msgs, b->lost_back, b->max_queued, b->max_wire, st.body_bytes / 20u, st.held);
+    if (!slow) {
+        CHECKF(b->lost_msgs > 0 && st.ack_timeouts > 0, "USB pacing on the slow link: %u lost, %u timeouts",
+               b->lost_msgs, st.ack_timeouts);
+    } else {
+        CHECK(key);
+        CHECKF(b->nmi == 6 && !memcmp(b->mi, trs, 6), "MIDI_IN %u bytes", b->nmi);
+        CHECK(sl_converged(b, img, 30000));
+        rfm_session_stats(b->s, &st);
+        rfm_fake_stats(b->f, &fs);
+        CHECKF(b->lost_msgs == 0 && b->lost_back == 0, "%u messages lost, %u bytes lost in the bridge",
+               b->lost_msgs, b->lost_back);
+        CHECKF(st.ack_timeouts == 0 && st.decode_errs == 0 && st.shadow_resets == 0 && fs.decode_errs == 0,
+               "ack timeouts %u, decode errors %u / %u, shadow resets %u", st.ack_timeouts, st.decode_errs,
+               fs.decode_errs, st.shadow_resets);
+        CHECKF(st.sessions == 1 && st.lost == 0, "sessions %u lost %u", st.sessions, st.lost);
+        CHECKF(b->max_wire <= RFM_SLOW_WIRE_CAP_DEFAULT && b->max_queued <= RFM_SLOW_WIRE_CAP_DEFAULT + 1024u,
+               "%u B in flight, %u B queued", b->max_wire, b->max_queued);
+        CHECKF(st.frames >= 100 && st.acks == st.frames, "frames %u acks %u", st.frames, st.acks);
+        CHECKF(st.body_bytes / 20u <= RFM_SLOW_BPS_DEFAULT + RFM_SLOW_BPS_DEFAULT / 4u, "%u B/s of body",
+               st.body_bytes / 20u);
+        CHECKF(st.held > 0 && fs.held_frames == st.held && fs.hold_timeouts == 0, "held %u / %u, hold timeouts %u",
+               st.held, fs.held_frames, fs.hold_timeouts);
+        CHECK(rfm_leds_equal(rfm_fake_leds(b->f), &leds));
+        CHECK(fs.keepalive_expired == 0);
+        /* a small change (one value) shows within a frame or two */
+        fr_rect(img, 100, 100, 24, 12, fr_rgb(255, 0, 0));
+        rfm_session_set_frame(b->s, img);
+        for (ms_change = 0; ms_change < 2000 && !(shadow_is(b->f, img) && !rfm_fake_holding(b->f)); ms_change++)
+            sl_step(b, 1);
+        if (b->verbose)
+            printf("  a small change shown after %u ms\n", ms_change);
+        CHECKF(ms_change < 200, "a small change took %u ms", ms_change);
+        sl_step(b, 10000);
+        rfm_session_stats(b->s, &st);
+        CHECK(rfm_session_state(b->s) == RFM_S_ACTIVE && st.sessions == 1 && st.lost == 0);
+        /* unplugged: discovery again every retry_ms; plugged in again (a fresh unit): a new session */
+        b->unplugged = 1;                               /* (no PANEL_R: SESSION tried again, then discovery) */
+        sl_step(b, 8000);
+        CHECK(rfm_session_state(b->s) == RFM_S_DISCOVER);
+        b->unplugged = 0;
+        rfm_fake_free(b->f);
+        {
+            rfm_fake_cfg_t fc;
+            rfm_fake_cfg_default(&fc);
+            fc.has_bulk = 0;
+            b->f = rfm_fake_new(&fc);
+        }
+        CHECK(sl_converged(b, img, 10000));
+        rfm_session_stats(b->s, &st);
+        CHECKF(st.sessions == 2 && st.slow == 1, "sessions %u slow %u", st.sessions, st.slow);
+    }
+    rfm_session_free(b->s);
+    rfm_fake_free(b->f);
+
+    /* a Bluetooth unit with the option on: Bluetooth's pacing, not the slow link's */
+    if (slow) {
+        sl_open(b, 1, 1);
+        rfm_session_stats(b->s, &st);
+        CHECKF(st.ble == 1 && st.slow == 0 && rfm_session_budget(b->s) == RFM_BUDGET_BLE_BPS / 10u,
+               "ble %u slow %u budget %u", st.ble, st.slow, rfm_session_budget(b->s));
+        rfm_session_free(b->s);
+        rfm_fake_free(b->f);
+    }
+}
+
 int main(void)
 {
     test_discovery_and_frames();
@@ -1187,5 +1469,7 @@ int main(void)
     test_bluetooth_lossy();
     test_bluetooth_hold();
     test_usb_before_bluetooth();
+    test_slow_link(1);
+    test_slow_link(0);
     return check_done("test_session");
 }

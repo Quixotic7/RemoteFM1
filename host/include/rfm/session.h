@@ -48,7 +48,17 @@
  * the sound given to rfm_session_audio goes out as AUDIO blocks (rfm/audio.h: 22,050 Hz IMA ADPCM, ~13.7 KB/s on the
  * wire) and no TILES are sent (the unit shows its own screen); LEDs, the panel and MIDI_IN go on. The option turned
  * off (or the link no longer Bluetooth) sends AUDIO_MODE off: the unit's screen is black again and the host's model
- * with it, so the whole screen is sent again. USB links never use it (the FM-1 is a USB sound card there). */
+ * with it, so the whole screen is sent again. USB links never use it (the FM-1 is a USB sound card there).
+ *
+ * A slow SysEx link that is not Bluetooth (cfg.slow_link, off by default): e.g. the Ableton Move's USB-A port, whose
+ * MIDI goes through the Move's surface controller (~8-14 KB/s host -> unit, and a burst of more than ~200 bytes from
+ * the unit is lost; RemoteFM14Move). With slow_link on, any SysEx frame link that is not Bluetooth is paced as
+ * Bluetooth is above: frames at most RFM_BLE_FPS a second, the next no sooner than its body at cfg.slow_bps
+ * (RFM_SLOW_BPS_DEFAULT) allows, a budget of slow_bps / 10 (cfg.budget if set; at most half the cap), at most
+ * cfg.slow_wire_cap (RFM_SLOW_WIRE_CAP_DEFAULT) framed TILES bytes unacknowledged, lossy tiles (cfg.ble_colors) with
+ * their refinement, whole screen changes (cfg.ble_hold, units with RFM_CAP_HOLD), and Bluetooth's timeouts. The unit
+ * itself only ever sends small messages in a session (panel events, ACK, FRAME_ACK, PANEL_R, MIDI_IN), so its side
+ * needs nothing. Never the audio mode (that is Bluetooth's). Bulk links are never slow. stats.slow says it is in use. */
 #ifndef RFM_SESSION_H
 #define RFM_SESSION_H
 #include <stdint.h>
@@ -77,6 +87,8 @@ enum { RFM_S_DISCOVER = 0, RFM_S_STARTING, RFM_S_ACTIVE, RFM_S_STOPPING, RFM_S_S
 #define RFM_TOUCH_SETTLE_MS 300u                        /* a PANEL_R this soon after TOUCH may predate it */
 #define RFM_AUDIO_RETRY_MS 1000u                        /* AUDIO_MODE on not confirmed: asked again */
 #define RFM_AUDIO_TRIES 4u                              /* ... at most this often a session (refused: given up) */
+#define RFM_SLOW_BPS_DEFAULT 8000u                      /* cfg.slow_link: TILES body bytes a second */
+#define RFM_SLOW_WIRE_CAP_DEFAULT 2048u                 /* .. framed TILES bytes unacknowledged */
 
 typedef struct {
     uint32_t fps;                                       /* 20 */
@@ -105,6 +117,11 @@ typedef struct {
      * RFM_AUDIO_F_BLACK: its screen black instead of "RemoteFM1" */
     int ble_audio;
     uint32_t audio_div, audio_buffer_ms, audio_flags;
+    /* a slow SysEx link that is not Bluetooth (above): 1 paces any SysEx frame link as Bluetooth is (default 0);
+     * its rate, body bytes a second (RFM_SLOW_BPS_DEFAULT), and framed TILES bytes unacknowledged
+     * (RFM_SLOW_WIRE_CAP_DEFAULT); 0: the default */
+    int slow_link;
+    uint32_t slow_bps, slow_wire_cap;
 } rfm_session_cfg_t;
 void rfm_session_cfg_default(rfm_session_cfg_t *c);
 
@@ -147,6 +164,8 @@ typedef struct {
     uint32_t audio_dropped;                             /* samples given while the mode was not on */
     /* the unit's last AUDIO_R: its buffer's target and fill (ms), blocks taken, lost, underruns, skipped */
     uint32_t audio_buffer_ms, audio_fill_ms, audio_unit_blocks, audio_lost, audio_underruns, audio_skipped;
+    uint32_t slow;                                      /* 1: the frame link is paced as a slow link (cfg.slow_link) */
+    uint32_t rate;                                      /* a paced link's body bytes a second (0: not paced) */
 } rfm_session_stats_t;                                  /* (all uint32: web/remote reads it as an array) */
 
 typedef struct rfm_session rfm_session_t;

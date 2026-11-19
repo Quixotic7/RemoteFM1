@@ -50,6 +50,14 @@ One message = a command byte + a body (8-bit bytes, multi-byte fields **little e
   max(2 s, 500 ms + 3 × what is in flight at the rate), and SESSION retried after 1 s. With a USB port of the same
   unit it uses that one. USB-MIDI and bulk keep their pacing (about 280 KB/s and 800 KB/s, at most 2 frames
   unacknowledged; `host/include/rfm`).
+- **A slow SysEx link that is not Bluetooth (host side only).** An FM-1 on the Ableton Move's USB-A port (RemoteFM14Move)
+  is a USB-MIDI device of the Move's surface controller, which bridges its MIDI into the Move's SPI transfers: about
+  8-14 KB/s host → device, and a burst of more than about 200 bytes from the device is lost (2026-11-19). Its HELLO_R
+  says USB. A host that knows its link is like that sets libremotefm1's `slow_link` (with `slow_bps`, default 8000,
+  and `slow_wire_cap`, default 2048): any SysEx frame link that is not Bluetooth is then paced as Bluetooth is (the
+  rate, the budget of 100 ms of it, at most 20 frames a second, the cap on unacknowledged TILES, the timeouts) with
+  the lossy tiles, their refinement and HOLD below. In a session the device only sends small messages (panel events,
+  ACK, FRAME_ACK, PANEL_R, MIDI_IN), so nothing changes on its side.
 - **Bluetooth: lossy tiles (host side only; the wire format is unchanged).** Over Bluetooth libremotefm1 sends a
   16×16 tile with more than 4 colours (`ble_colors`, 0 = lossless, 2..16) as its best 4 (median cut + k-means on the
   tile's own colours, each drawn in a colour the tile has) when that encodes smaller, mostly PAL at 2 bpp instead of
