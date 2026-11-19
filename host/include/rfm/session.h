@@ -100,6 +100,16 @@ enum { RFM_S_DISCOVER = 0, RFM_S_STARTING, RFM_S_ACTIVE, RFM_S_STOPPING, RFM_S_S
 #define RFM_AUDIO_TRIES 4u                              /* ... at most this often a session (refused: given up) */
 #define RFM_SLOW_BPS_DEFAULT 8000u                      /* cfg.slow_link: TILES body bytes a second */
 #define RFM_SLOW_WIRE_CAP_DEFAULT 2048u                 /* .. framed TILES bytes unacknowledged */
+/* TCP (the Wi-Fi build): a reliable stream whose segments lost on the radio come back by retransmission, a second or
+ * more later (lwIP's coarse timers on the FM-1): its stalls are waited out, never taken for a lost session. SESSION is
+ * sent once (a second start, after the first one's late ACK, restarted the unit's session: "shadow reset"); its ACK,
+ * PANEL_R and anything at all may be this late; the unit's keepalive is at least RFM_TCP_KEEPALIVE_MS (the
+ * connection's end ends a session anyway) */
+#define RFM_TCP_START_MS 5000u
+#define RFM_TCP_HEARTBEAT_MS 6000u
+#define RFM_TCP_LOST_MS 8000u
+#define RFM_TCP_ACK_MIN_MS 5000u
+#define RFM_TCP_KEEPALIVE_MS 10000u
 
 typedef struct {
     uint32_t fps;                                       /* 20 */

@@ -528,8 +528,14 @@ TCP ended). Over TCP:
   message.
 - A session over TCP: SESSION, LEDS, TILES, FRAME_ACK, PANEL_R (PANEL_REQ, TOUCH's flags), TOUCH and MIDI_IN work as
   on the vendor pair (a host need not pace it: 2 frames in flight; libremotefm1 budgets `RFM_BUDGET_TCP_BPS`, 300,000
-  B/s, of the 494,000 measured). A USB reset or unplug does not end a TCP session; the connection's end does (and a
-  new connection, which replaces it).
+  B/s, of the 494,000 measured; 200,000 from 2026-11-19, 10 KB a frame against the FM-1's 8.8 KB TCP window). A USB
+  reset or unplug does not end a TCP session; the connection's end does (and a new connection, which replaces it).
+- **TCP's stalls.** A segment lost on the radio is resent by TCP a second or more later (lwIP's 500 ms timers on the
+  FM-1), and nothing behind it arrives meanwhile: FRAME_ACKs, PANEL_R, SESSION's ACK. A host waits that out instead of
+  taking it for a lost session: it sends SESSION start once (a second one, sent because the first one's ACK was late,
+  restarts the unit's session, whose first FRAME_ACK then says "shadow reset"), asks a keepalive of at least 10 s, and
+  gives PANEL_R 6 s, the unit 8 s, a FRAME_ACK 5 s (libremotefm1 `RFM_TCP_*`). The connection's end is still seen at
+  once. (Found on the owner's FM-1, 2026-11-19: with USB's timeouts the session restarted every few seconds.)
 - **PANEL_EV** (`0x56`, device → host; units with `caps` bit13 `RFM_CAP_PANEL_EV`): the panel's events in a session
   over TCP, which has no MIDI port. Body: 1..`RFM_PANEL_EV_MAX` (96) bytes, the events exactly as section 4's plain
   MIDI (`9F/8F 53+k`, `AF 53+k p`, `9E/8E b`, `BE 16+e 64+d`, `BE 07 / BE 27` MASTER), whole channel messages with

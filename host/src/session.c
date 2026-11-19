@@ -105,6 +105,8 @@ static void logf_(rfm_session_t *s, const char *fmt, ...)
 }
 
 static int after(uint32_t now, uint32_t t, uint32_t ms) { return (int32_t)(now - t) >= (int32_t)ms; }
+static uint32_t min_nz(uint32_t a, uint32_t b) { return !b ? a : !a ? b : a < b ? a : b; }
+static uint32_t max_u(uint32_t a, uint32_t b) { return a > b ? a : b; }
 
 static void set_state(rfm_session_t *s, int st, const char *why)
 {
@@ -161,7 +163,8 @@ static void send_hellos(rfm_session_t *s)
 static void send_session(rfm_session_t *s, int start)
 {
     uint8_t b[RFM_SESSION_LEN];
-    rfm_build_session(b, start, start ? s->cfg.keepalive_ms : 0u);
+    rfm_build_session(b, start, !start ? 0u : s->tcp && s->cfg.keepalive_ms ? max_u(s->cfg.keepalive_ms, RFM_TCP_KEEPALIVE_MS)
+                                                                         : s->cfg.keepalive_ms);
     send_msg(s, s->frame_link, RFM_SESSION, b, RFM_SESSION_LEN);
     s->t_sent = s->now;
 }
@@ -283,8 +286,6 @@ static void enter_active(rfm_session_t *s)
         send_touch(s);                                  /* (every session starts without it) */
 }
 
-static uint32_t min_nz(uint32_t a, uint32_t b) { return !b ? a : !a ? b : a < b ? a : b; }
-static uint32_t max_u(uint32_t a, uint32_t b) { return a > b ? a : b; }
 
 static uint32_t wire_in_flight(const rfm_session_t *s)
 {
@@ -301,6 +302,8 @@ static uint32_t ble_rate(const rfm_session_t *s) { return s->rate ? s->rate : 1u
 /* the oldest frame's FRAME_ACK is late: over a paced link it scales with what is queued ahead of it at the rate */
 static uint32_t ack_timeout(const rfm_session_t *s)
 {
+    if (s->tcp)                                         /* (a reliable stream: a late ACK is a stall, not a loss) */
+        return max_u(s->cfg.ack_timeout_ms, RFM_TCP_ACK_MIN_MS);
     if (!s->paced)
         return s->cfg.ack_timeout_ms;
     return max_u(max_u(s->cfg.ack_timeout_ms, RFM_BLE_ACK_MIN_MS), 500u + 3000u * wire_in_flight(s) / ble_rate(s));
@@ -387,6 +390,12 @@ static int decide(rfm_session_t *s)
         if (s->heartbeat_ms)
             s->heartbeat_ms = max_u(s->heartbeat_ms, 2500u);
         s->lost_ms = max_u(s->lost_ms, 3000u);
+    } else if (s->tcp) {                                /* TCP over Wi-Fi: not paced, but its stalls waited out */
+        s->budget = s->cfg.budget ? s->cfg.budget : RFM_BUDGET_TCP_BPS / (s->cfg.fps ? s->cfg.fps : 20u);
+        s->start_ms = max_u(s->start_ms, RFM_TCP_START_MS);
+        if (s->heartbeat_ms)
+            s->heartbeat_ms = max_u(s->heartbeat_ms, RFM_TCP_HEARTBEAT_MS);
+        s->lost_ms = max_u(s->lost_ms, RFM_TCP_LOST_MS);
     } else {
         const uint32_t bps = s->tcp ? RFM_BUDGET_TCP_BPS
                            : s->links[frame].kind == RFM_LINK_BK ? RFM_BUDGET_BK_BPS : RFM_BUDGET_SX_BPS;
@@ -764,6 +773,11 @@ void rfm_session_poll(rfm_session_t *s, uint32_t now)
     }
     case RFM_S_STARTING:
         if (after(now, s->t_sent, s->start_ms)) {
+            if (s->tcp) {                               /* (never again over TCP: a second SESSION start would
+                                                         * restart the unit's session after this one's ACK) */
+                enter_discover(s, "SESSION not acknowledged");
+                return;
+            }
             if (++s->tries > 4) {
                 enter_discover(s, "SESSION not acknowledged");
                 return;

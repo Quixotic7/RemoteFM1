@@ -119,6 +119,11 @@ and the screen while Wi-Fi works, discovery through the owner's router, and that
 - **The simulator** answers discovery with the port it serves (`rf serve 30 7745`: port=7745) and takes the panel
   from standard input while serving (`rf serve SECONDS PORT stdin`: key, press, release, spin, master, drop, end), so
   a host's end-to-end test drives it (RemoteFM14Move's tests/fm1wifi_e2e.sh).
+- **On the owner's FM-1 (2026-11-19):** linked by broadcast at once, its panel events arrived, but the session
+  restarted every few seconds over a connection that stayed up: TCP's retransmission stalls (a second or more) met
+  USB's timeouts (PANEL_R 1.6 s, SESSION resent after 400 ms: a second start restarted the unit's session, "shadow
+  reset"). libremotefm1 now waits TCP's stalls out (PROTOCOL.md section 10, `RFM_TCP_*`); test_session test_tcp_stalls
+  and the simulator's `stall MS` (RemoteFM14Move's fm1wifi_e2e.sh) reproduce it.
 - **Not done:** mDNS (`fm1-XXXX.local`, `_remotefm1._tcp`): lwIP's responder is in the SDK (`apps/mdns`) but not built
   by fm1-base (its options, its sources, its RAM: a patch to fm1-base); the UDP responder is the discovery. The
   screen's rate on the unit (no shadow: rectangles go to the panel row by row as they are decoded) is to be measured.

@@ -29,7 +29,8 @@
  *                                this computer's sockets: TCP on 127.0.0.1:PORT (7740), discovery on UDP 7741, for
  *                                tools/wifi_probe.py --sim (docs/WIFI.md). With "stdin": lines from standard input are
  *                                taken while it serves (a host's end-to-end test drives the panel): key K down [VEL]|up,
- *                                press BTN, release BTN, spin ENC N, master N (as the script's), drop (the FM-1 closes
+ *                                press BTN, release BTN, spin ENC N, master N (as the script's), stall MS (the sockets
+ *                                left alone: a TCP stall, as a segment lost on the radio), drop (the FM-1 closes
  *                                the host's connection), end (the serve ends now); each answered "ok WORD" on stdout
  * expect (an int; "<N" / ">N" bounds): rf_session, rf_session_t (0 usb, 1 bk, 2 ble), rf_n_T_CC (replies of command
  * CC, hex, on T), rf_ack_frame, rf_ack_status, rf_ack_t, rf_ack_pending, rf_hello_caps, rf_hello_session,
@@ -251,7 +252,7 @@ static int hs_wfstore;                              /* rf wfstore's outcome */
 static uint32_t hs_net_w;                           /* the script's host's frames on TCP */
 /* rf serve ... stdin: the panel driven from standard input while serving (a host's end-to-end test); 1: "end" */
 static char hs_ctl[512];
-static uint32_t hs_ctl_n;
+static uint32_t hs_ctl_n, hs_stall;                 /* (stall MS: the sockets left alone that long) */
 static int hs_ctl_name(const char *const *t, int n, const char *w)    /* (plat_host.c's names: defined after app.c) */
 {
     int i;
@@ -293,6 +294,9 @@ static int hs_serve_ctl(void)
             enc_acc[e] += atoi(w[2]);
         } else if (!strcmp(w[0], "master")) {
             master = (uint32_t)atoi(w[1]);
+        } else if (!strcmp(w[0], "stall")) {         /* stall MS: a TCP stall (a segment lost on the radio, resent
+                                                     * late): the sockets untouched, the app running */
+            hs_stall = (uint32_t)atoi(w[1]);
         } else if (!strcmp(w[0], "drop")) {
             rfn_close();
         } else if (!strcmp(w[0], "end")) {
@@ -318,7 +322,7 @@ static int hs_net_pump(void)                        /* what the device queued fo
     uint8_t b[1024];
     uint32_t n, got = 0;
     if (hs_serving)
-        return rfn_poll() > 0;
+        return !hs_stall && rfn_poll() > 0;         /* (stall: the sockets left alone) */
     while ((n = rfn_test_take(b, sizeof b)) > 0) {
         rf_bk_feed(&hs_bk_net, b, n);
         got += n;
@@ -800,8 +804,11 @@ int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, c
         fflush(stdout);
         for (k = 0; k < ms; k++) {
             int i;
-            for (i = 0; i < 8 && rfn_poll() > 0; i++)
-                ;
+            if (hs_stall)
+                hs_stall--;
+            else
+                for (i = 0; i < 8 && rfn_poll() > 0; i++)
+                    ;
             if (ctl && hs_serve_ctl())
                 break;
             run_ms(1);

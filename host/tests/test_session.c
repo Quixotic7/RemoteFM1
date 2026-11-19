@@ -35,6 +35,7 @@ struct h {
     uint8_t mi[1024];                                   /* MIDI_IN bytes delivered (the TRS jack) */
     uint32_t nmi, mi_calls;
     int verbose;
+    uint32_t stall_until;                               /* TCP: the unit's bytes held back until then (a stall) */
 };
 
 static int w(void *ctx, const uint8_t *p, uint32_t n)
@@ -128,8 +129,8 @@ static void step(h_t *h, uint32_t ms)
             hl_t *l = &h->links[i];
             uint32_t n;
             rfm_fake_poll(h->f[l->fake], h->now);
-            if (l->id < 0)
-                continue;                               /* (a TCP link not connected) */
+            if (l->id < 0 || (l->kind == RFM_LINK_TCP && (int32_t)(h->now - h->stall_until) < 0))
+                continue;                               /* (a TCP link not connected, or stalled) */
             n = l->kind == RFM_LINK_SX ? rfm_fake_take_sx(h->f[l->fake], buf, sizeof buf)
                                        : rfm_fake_take_bk(h->f[l->fake], buf, sizeof buf);
             if (n)
@@ -1638,6 +1639,68 @@ static void test_tcp_over_usb(void)
     teardown(&h);
 }
 
+/* TCP's stalls (the owner's FM-1 over Wi-Fi, 2026-11-19): a segment lost on the radio comes back by retransmission a
+ * second or two later, so nothing from the unit arrives meanwhile (FRAME_ACKs, PANEL_Rs, SESSION's ACK), the
+ * connection up. Before: "no PANEL_R for 1600 ms" restarted the session, and a SESSION resent after 400 ms restarted
+ * the unit's session behind the first one's late ACK ("shadow reset"), every few seconds. Now: stalls of up to 3 s,
+ * every 4 s, with the screen busy, and one right at a session's start: one session all along, the screen converges */
+static void test_tcp_stalls(void)
+{
+    static uint16_t img[FR_N];
+    h_t h;
+    rfm_session_cfg_t sc;
+    rfm_fake_cfg_t fc;
+    rfm_session_stats_t st;
+    rfm_fake_stats_t fs;
+    hl_t *tl;
+    uint32_t t, k;
+    rfm_session_cfg_default(&sc);
+    setup(&h, &sc);
+    default_fake(&fc);
+    fc.tcp = 1;
+    fc.bk_body_max = 4096;
+    fc.bk_rate_bps = 200000;
+    h.f[0] = rfm_fake_new(&fc);
+    h.nf = 1;
+    tl = &h.links[h.nl++];
+    tl->h = &h;
+    tl->fake = 0;
+    tl->kind = RFM_LINK_TCP;
+    tl->id = rfm_session_add_link(h.s, RFM_LINK_TCP, w, tl, "tcp");
+    step(&h, 5);                                        /* HELLO answered, SESSION sent: */
+    h.stall_until = h.now + 1500;                       /* its ACK held back 1.5 s */
+    step(&h, 1600);
+    rfm_session_stats(h.s, &st);
+    rfm_fake_stats(h.f[0], &fs);
+    CHECKF(rfm_session_state(h.s) == RFM_S_ACTIVE && st.sessions == 1 && fs.sessions_started == 1,
+           "state %s, sessions %u, the unit's %u", rfm_session_state_name(rfm_session_state(h.s)), st.sessions,
+           fs.sessions_started);
+    for (t = 0; t < 400; t++) {                         /* 20 s of a busy screen, a stall every 4 s */
+        if (t % 80 == 20)
+            h.stall_until = h.now + 1000 + 500 * (t / 80);   /* 1, 1.5, 2, 2.5, 3 s */
+        fr_ui(img, t);
+        rfm_session_set_frame(h.s, img);
+        step(&h, 50);
+    }
+    CHECK(run_until_converged(&h, h.f[0], img, 6000));
+    rfm_session_stats(h.s, &st);
+    rfm_fake_stats(h.f[0], &fs);
+    CHECKF(st.sessions == 1 && st.lost == 0 && st.shadow_resets == 0 && fs.sessions_started == 1 &&
+           fs.keepalive_expired == 0 && rfm_fake_session(h.f[0]) == 2,
+           "sessions %u (unit %u), lost %u, shadow resets %u, keepalive expired %u", st.sessions,
+           fs.sessions_started, st.lost, st.shadow_resets, fs.keepalive_expired);
+    CHECKF(st.frames > 200 && st.acks + 2u >= st.frames, "frames %u acks %u", st.frames, st.acks);
+    /* a unit that really went quiet (the connection up): given up after RFM_TCP_LOST_MS, not before */
+    h.stall_until = h.now + 100000;
+    for (k = 0; k < RFM_TCP_HEARTBEAT_MS - 200; k += 100)
+        step(&h, 100);
+    CHECK(rfm_session_state(h.s) == RFM_S_ACTIVE);
+    step(&h, RFM_TCP_LOST_MS);
+    rfm_session_stats(h.s, &st);
+    CHECK(st.lost >= 1 && rfm_session_state(h.s) != RFM_S_ACTIVE);
+    teardown(&h);
+}
+
 int main(void)
 {
     test_discovery_and_frames();
@@ -1659,5 +1722,6 @@ int main(void)
     test_slow_link(0);
     test_tcp();
     test_tcp_over_usb();
+    test_tcp_stalls();
     return check_done("test_session");
 }
