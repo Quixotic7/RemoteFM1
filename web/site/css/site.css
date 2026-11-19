@@ -631,3 +631,7 @@ body.learning #device { cursor: crosshair; }
 .ain-meter i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; border-radius: 3px; background: #3DDC84; transition: width .06s linear; }
 .ain-meter i.hot { background: #FF6464; }
 .offer.ain-ask { border-color: rgba(140, 220, 240, .7); }
+
+/* ---- the firmware browser's tiles (js/fw-browser.js, css/fw-browser.css) in the sheet: the Open a file card under them */
+.sheet .fb { margin-top: 14px; }
+.sheet .fb-file { margin-top: 12px; display: flex; flex-direction: column; }

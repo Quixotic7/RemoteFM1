@@ -209,7 +209,7 @@ try {
   await shot("ain-sheet");
   await js(`(document.querySelector(".fw-card").click(), true)`);
   await sleep(500);
-  ok(await js(`!!document.querySelector('.card[data-id="aintest"] .ain-badge') && !document.querySelector('.card[data-id="labeltest"] .ain-badge')`), "the firmware browser: the cart's card has the badge, the other cart's not");
+  ok(await js(`/audio in/.test(document.querySelector('.fb-tile[data-id="aintest"] .fb-ver').textContent) && !/audio in/.test(document.querySelector('.fb-tile[data-id="labeltest"] .fb-ver').textContent)`), "the firmware browser: the cart's card has the badge, the other cart's not");
   await esc(); await sleep(300);
   await js(`(document.querySelector(".fw-card.slim").click(), true)`);
   await sleep(500);
@@ -233,7 +233,7 @@ try {
   await js(`(window.__tracks = ${player}.ain.stream.getTracks(), true)`);
   await js(`(document.getElementById("menu-btn").click(), true)`); await sleep(300);
   await js(`(document.querySelector(".fw-card").click(), true)`); await sleep(400);
-  await js(`(document.querySelector('.card[data-id="labeltest"]').click(), true)`);
+  await js(`(document.querySelector('.fb-main[data-id="labeltest"]').click(), true)`);
   await until(running("labeltest"), 20000, "the other cart");
   ok(await js(`!FM1Ain.live && !${player}.ain && window.__tracks.every((t) => t.readyState === "ended") && document.querySelector(".ain-ask").hidden`)
      && !/Audio input/.test(await js(`(document.getElementById("menu-btn").click(), document.querySelector(".sheet-body").innerText)`)),
@@ -242,7 +242,7 @@ try {
   const perm = await js(`navigator.permissions.query({ name: "microphone" }).then((s) => s.state).catch(() => "?")`);
   await js(`(document.getElementById("menu-btn").click(), true)`); await sleep(300);
   await js(`(document.querySelector(".fw-card").click(), true)`); await sleep(400);
-  await js(`(document.querySelector('.card[data-id="aintest"]').click(), true)`);
+  await js(`(document.querySelector('.fb-main[data-id="aintest"]').click(), true)`);
   await until(running("aintest"), 20000, "back to the cart");
   if (perm === "granted") {
     await until(`FM1Ain.live`, 8000, "input back on by itself");
