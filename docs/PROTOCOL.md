@@ -530,6 +530,14 @@ TCP ended). Over TCP:
   on the vendor pair (a host need not pace it: 2 frames in flight; libremotefm1 budgets `RFM_BUDGET_TCP_BPS`, 300,000
   B/s, of the 494,000 measured; 200,000 from 2026-11-19, 10 KB a frame against the FM-1's 8.8 KB TCP window). A USB
   reset or unplug does not end a TCP session; the connection's end does (and a new connection, which replaces it).
+- **Whole frames** (caps bit14 `RFM_CAP_NET_FRAMES`; caps 0x762C). This build has no shadow: a rectangle goes to the
+  panel as it is decoded. Over TCP the unit keeps a frame's TILES messages (up to `RFM_NET_FRAME_MAX`, 16,384 bytes:
+  each body and 2) and decodes them together when its END comes, so the frame shows at once even when its messages
+  straddle a stall; its FRAME_ACK follows. A longer frame goes on as it comes. libremotefm1 keeps a TCP frame to 14,000
+  bytes of tiles and at most 16 KB of TILES unacknowledged (one frame in flight), so the unit's TCP input never fills
+  and the newest screen is the one sent after a stall.
+- **The connection's end** ends a TCP session; the unit keeps the host's last screen 4 s before its own screens come
+  back, so a host that connects again at once (a Wi-Fi hiccup) takes over without them flashing in between.
 - **TCP's stalls.** A segment lost on the radio is resent by TCP a second or more later (lwIP's 500 ms timers on the
   FM-1), and nothing behind it arrives meanwhile: FRAME_ACKs, PANEL_R, SESSION's ACK. A host waits that out instead of
   taking it for a lost session: it sends SESSION start once (a second one, sent because the first one's ACK was late,
