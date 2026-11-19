@@ -1692,6 +1692,9 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
 
 void app_panic(void) { sa_ev(SA_EV_SOUNDOFF, 0, 0); }   /* (before an update: the render runs on) */
 
+#if FM1B_WIFI
+static uint8_t rf_wifi_started;                     /* (app_ui_init: Wi-Fi on, or left off, once a power-on) */
+#endif
 /* the first screen, and again after the platform drew its own (the update's): the standalone's (or the hand-over's)
  * whole, and in a session the host's screen repainted from the shadow */
 void app_ui_init(void)
@@ -1704,11 +1707,12 @@ void app_ui_init(void)
     sa_ui_lost();
 #if FM1B_WIFI
     {
-        static uint8_t on;
-        if (!on) {                                  /* Wi-Fi on once, after the first screen: it joins the networks
-                                                     * kept (fm1-base device/wifi.c), and joins again when one drops */
-            on = 1;
-            plat_wifi_on(1);
+        if (!rf_wifi_started) {                     /* Wi-Fi on once, after the first screen: it joins the networks
+                                                     * kept (fm1-base device/wifi.c), and joins again when one drops;
+                                                     * not when it was left off (the settings' WI-FI row, kept) */
+            rf_wifi_started = 1;
+            if (!sa.wifi_off)
+                plat_wifi_on(1);
         }
     }
 #endif

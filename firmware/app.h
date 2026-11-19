@@ -149,6 +149,10 @@ static uint32_t rf_cinf;
 #define APP_HOST_EXPECT
 #define APP_HOST_CMD
 #define APP_HOST_FAILS
+#if FM1B_WIFI
+#define APP_HOST_REBOOT                  /* (a restart in the simulator: Wi-Fi as at a power-on, src/rfm_wifi.c) */
+void app_host_reboot(void);
+#endif
 int app_expect(const char *what, int *got);
 int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, const char *d);
 int app_host_fails(void);

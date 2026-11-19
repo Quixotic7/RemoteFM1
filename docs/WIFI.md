@@ -182,3 +182,65 @@ then finds it over Wi-Fi as before. The same for a phone's hotspot (2.4 GHz: on 
 - **libremotefm1:** `rfm_build_wifi_get/scan/list/set/forget`, `rfm_parse_wifi_state`, `rfm_parse_wifi_list`;
   `rfm_session_send` (any link, beside the session), `rfm_session_hello_link`, `rfm_session_link_hello`, `cb.msg`.
   The fake unit has the Wi-Fi build's WIFI (`cfg.wifi`: networks around, joins, a wrong password, kept networks).
+
+## Wi-Fi on the FM-1 itself (the settings' WI-FI row and the Wi-Fi page, 2026-11-19)
+
+The design is design/wifi-settings/ (README.md: every screen's controls, the owner's decisions; the mockups). The code
+is `firmware/sa/sa_wifi.c` (the page's state and controls) and `sa_wifi_draw.c` (its screens, drawn with sa_gfx.c's
+calls and the Jersey 10 font as the mockups are), in the Wi-Fi build only (`FM1B_WIFI`): the USB, Bluetooth and
+SMK-37 builds compile none of it (their images are the same size as before).
+
+- **The WI-FI row** (HOME held or GLO + HOME: the settings, the 11th row after USB HOST): `OFF`, `LOOKING` (starting,
+  no network yet, joining, asking for an address), the network joined (the signal as four rising stripes), or `NOT
+  FOUND` / `COULD NOT JOIN`. **KN1** turns Wi-Fi off or on; **OCT+** (lit, the arrow) opens the Wi-Fi page and turns
+  Wi-Fi on if it was off. Turning it on calibrates the radio first: fm1-base holds the panel and the sound for up to
+  15 s (the owner accepted it).
+- **Kept across a power cycle:** off or on is kept with the instrument's settings (OBJ_SA, a spare byte: records from
+  before read as on), saved 2 s after the change once nothing sounds (15 s at the latest). At power-on a unit left
+  **off** starts no radio: no 15 s calibration, no network, no TCP or discovery, the waiting screen says `WIFI OFF`.
+  KN1, OCT+ into the page, or a WIFI SET or SCAN over USB (the Move's page) turns it on again and keeps it on. Left
+  **on** (the default) it starts as before: on after the first screen, joining the networks kept.
+- **The page:** the network joined on top (its signal, name, address), then the networks around (bars, a star when
+  kept, a lock when secured; a long name scrolls while picked), a count and the kept count (n/6) on top. **SELECT**
+  picks; turned up past the top it scans again (refused while a join is under way). **ALGORITHM** shows the networks
+  kept instead (a check for the joined one, dim when not heard, six places). **OCT+** opens the pick: a kept network
+  shows JOIN / a new password / FORGET (SELECT the tile, OCT+ does it; FORGET takes two presses, anything else or 3 s
+  disarms it); a secured one not kept opens the password; an open one joins at once. **OCT-** goes back a level (from
+  the list to the settings' WI-FI row); **HOME** closes the settings. Opening the page scans, unless a join is under way.
+  Nothing heard: a dark fan, a cross and `2.4 GHz` (the radio's only band).
+- **The password** (the keys, Elasticat's keybed with four layers): FX / SEL / ENV / LFO pick abc / ABC / 123 / #+=
+  (their LEDs show it); GLO held makes the next key a capital; EDIT shows or hides it (hidden: the last character a
+  second, then a block); ALGORITHM moves the cursor; SELECT / KN1 change the character under it (all 95; at the end
+  they add one); OCT- deletes (empty: back), GLO + OCT- clears; OCT+ joins, and is lit, at 0 (an open network) or
+  8..63 characters; HOME cancels. The keys type and play nothing.
+- **Joining:** the fan's arcs, the steps (the handshake, an address, done) and 15 s of blocks; OCT- cancels (the most
+  recent other network kept is joined again; with none, the join is stopped). Joined: a check, the name and the
+  address, then the list again (2 s or any control). Failed: `WRONG PASSWORD` when a password was just typed and the
+  network was heard in the last scan (fm1-base says only "could not join": the owner's decision, no fm1-base patch),
+  `NO ADDRESS`, `NOT FOUND`, else `COULD NOT JOIN`; OCT+ goes back to the password as typed (the cursor at its end),
+  OCT- to the list.
+- **The password's handling** (PROTOCOL.md section 10's rules): typed into one 64-byte buffer (`wp_pw`), handed to
+  fm1-base's join the way WIFI SET hands its own (`rf_wifi_hand`: the same buffer as SET, joined at the next
+  millisecond and wiped there), and kept by fm1-base in OBJ_WIFI once joined, as SET's are. The page's buffer is wiped
+  when the join succeeds, when the user leaves the password (HOME, OCT- to the list), and whenever the page is not up
+  (another screen, a host's session starting: checked every millisecond). It is kept only between a failed join and
+  the user's choice (OCT+ tries it again). Never logged, shown over USB / SysEx, or sent anywhere; the simulator's
+  checks compare it without printing it.
+- **The lists** are fm1-base's own, read when a screen is drawn (`plat_wifi_found`, `plat_wifi_saved`); the page keeps
+  only the name of the network picked (33 bytes).
+- **Beside the Move and the SysEx path:** while a host's session (USB or TCP) holds the panel the settings cannot be
+  opened, and a session that starts closes the page (its password wiped). With the Move linked over Wi-Fi there is a
+  session, so the page is reached only once the Move lets go (its module stopped, or the FM-1 taken off it). Joining
+  another network from the page (or turning Wi-Fi off) ends any TCP connection: the radio leaves the old network. The
+  Move finds the FM-1 again by its broadcast only when the Move is on the new network too; otherwise it uses USB-A
+  when the FM-1 is plugged in there. A WIFI SET over USB and the page share the hand-over (the later one wins); a page
+  waiting for its own join that sees another network being joined goes back to the list. The page never scans while
+  a join is under way or about to be handed over (a scan stops a join); the Move's `06 01` still can, as before.
+- **Cost** (against the setup build, 87d753f): flash +12,560 B (565,968 of 581,564: 15,596 left), RAM .data+.bss
+  +224 B (128,992 of 131,072), the pool unchanged (305,988 of 311,296; `tools/wifi_layout.py` ok), no heap. The other
+  builds' images are byte-for-byte the same size: Bluetooth 339,280, USB 203,880, SMK-37 333,488.
+- **Tests:** `firmware/tests/wifi_page.txt` (tests/run_tests.sh) with fm1-base patch 0012's simulator (networks set by
+  the script, a wrong password and a network not around fail, a network joined is kept, a scan while joining stops
+  the join and is counted; made-up passwords); its shots (`build/host/sim/wifi_NN_*.png`) against the mockups:
+  `tests/wifi_mockups.py` (the still screens 01, 04, 06, 07, 10, 13 and 14 match pixel for pixel; the others differ
+  only in motion or in the simulator's own values: its address .42, its signal, a scan's list already complete).

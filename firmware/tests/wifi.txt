@@ -42,8 +42,9 @@ expect rf_wifi_e0_rssi -48
 # Home: secured, kept, heard (1 + 2 + 4)
 expect rf_wifi_e0_flags 7
 expect rf_wifi_e0_ch 6
-# Cafe: open, heard, the network joined now (the SET above: 4 + 8; the simulator keeps none it joins)
-expect rf_wifi_e1_flags 12
+# Cafe: open, heard, kept and the network joined now (the SET above: 2 + 4 + 8; joined, kept as device/wifi.c
+# keeps it: fm1-base patch 0012)
+expect rf_wifi_e1_flags 14
 expect rf_wifi_e1_ch 11
 # a page from entry 1: one entry
 rf wifi list 0 1

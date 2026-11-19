@@ -109,6 +109,7 @@ static void rf_net_init(void)
 /* ------------------------------------------------------------------ WIFI --- */
 static struct {
     uint8_t due;                                    /* a SET waits for the radio */
+    uint8_t kept;                                   /* ... a network kept, with its own password (the FM-1's page) */
     char ssid[RFM_WIFI_SSID_MAX + 1u], pass[RFM_WIFI_PASS_MAX + 1u];
 } rf_wf;
 static uint32_t rf_wf_sets, rf_wf_ip_seen;
@@ -180,7 +181,8 @@ static void rf_wifi_ms(void)
     int st = plat_wifi_state();
     if (rf_wf.due && st != WIFI_OFF && st != WIFI_STARTING) {
         rf_wf.due = 0;
-        plat_wifi_join(rf_wf.ssid, rf_wf.pass);    /* (device/wifi.c copies it; kept in OBJ_WIFI once joined) */
+        plat_wifi_join(rf_wf.ssid, rf_wf.kept ? 0 : rf_wf.pass);   /* (device/wifi.c copies it; kept in OBJ_WIFI
+                                                                   * once joined) */
         rf_wipe(rf_wf.pass, sizeof rf_wf.pass);
     }
     if (!rf_net_task_on && st == WIFI_CONNECTED) {  /* the sockets once there is an address; they outlive a drop */
@@ -196,6 +198,32 @@ static void rf_wifi_ms(void)
         rf_wifi_info();
     }
 }
+
+/* the FM-1's own Wi-Fi page (sa/sa_wifi.c): a network to join, handed over as WIFI SET hands it (joined at the next
+ * millisecond, the copy here wiped then); pass 0: a network kept, with the password fm1-base keeps; ssid 0: one not
+ * handed over yet dropped */
+static void rf_wifi_hand(const char *ssid, const char *pass)
+{
+    uint32_t i;
+    rf_wipe(rf_wf.pass, sizeof rf_wf.pass);
+    rf_wf.due = 0;
+    if (!ssid || !ssid[0])
+        return;
+    for (i = 0; i < RFM_WIFI_SSID_MAX && ssid[i]; i++)
+        rf_wf.ssid[i] = ssid[i];
+    rf_wf.ssid[i] = 0;
+    for (i = 0; pass && i < RFM_WIFI_PASS_MAX && pass[i]; i++)
+        rf_wf.pass[i] = pass[i];
+    rf_wf.pass[i] = 0;
+    rf_wf.kept = (uint8_t)!pass;
+    rf_wf.due = 1;
+    rf_wf_sets++;
+    if (plat_wifi_state() == WIFI_OFF) {
+        plat_wifi_on(1);
+        sa_wifi_turned_on();
+    }
+}
+static int rf_wifi_due(void) { return rf_wf.due; }
 
 /* ------------------------------------------------------------------ WIFI DIAG (docs/WIFI.md "Diagnostics") --- */
 /* what the main loop, the socket task, the session and lwIP did since the last DIAG (maxima, histograms) or since the
@@ -478,10 +506,13 @@ static void rf_wifi_cmd(uint32_t t, const uint8_t *body, uint32_t len)
             for (i = 0; i < pl; i++)
                 rf_wf.pass[i] = (char)body[3u + sl + i];
             rf_wf.pass[pl] = 0;
+            rf_wf.kept = 0;
             rf_wf.due = 1;
             rf_wf_sets++;
-            if (plat_wifi_state() == WIFI_OFF)
+            if (plat_wifi_state() == WIFI_OFF) {
                 plat_wifi_on(1);
+                sa_wifi_turned_on();                /* (kept on: the settings' WI-FI row) */
+            }
         }
         rf_wipe((void *)(uintptr_t)body, len);   /* (the message's copy of the password) */
     } else if (op == RFM_WIFI_FORGET) {
@@ -510,8 +541,10 @@ static void rf_wifi_cmd(uint32_t t, const uint8_t *body, uint32_t len)
         if (which > RFM_WIFI_LIST_KEPT) {
             status = RFM_WIFI_BAD;
         } else if (op == RFM_WIFI_SCAN) {
-            if (plat_wifi_state() == WIFI_OFF)
+            if (plat_wifi_state() == WIFI_OFF) {
                 plat_wifi_on(1);                    /* (on in a second or so: asked again) */
+                sa_wifi_turned_on();
+            }
             if (rf_wf_scanning()) {
                 /* (one at a time: this one's results are coming) */
             } else if (plat_wifi_state() == WIFI_ADDRESS ||
@@ -531,6 +564,10 @@ static void rf_wifi_cmd(uint32_t t, const uint8_t *body, uint32_t len)
     }
     rf_send(t, RFM_WIFI_R, b, rf_wifi_reply(op, status, b));
 }
+
+#ifdef PLAT_HOST
+void app_host_reboot(void) { rf_wifi_started = 0; }   /* (the simulator's restart: RAM forgotten, as the FM-1's) */
+#endif
 
 static void rf_wifi_line(char *d)                   /* "WIFI CONNECTED 192.168.1.42" */
 {

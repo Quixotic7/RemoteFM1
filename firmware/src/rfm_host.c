@@ -529,6 +529,20 @@ int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, c
             sa_chord_name(held, n, &ch);
             snprintf(got, sizeof got, "%s%s%s", ch.main, ch.ext, ch.bass);
             sa_host_check("chord", n ? got : "-", b);
+#if FM1B_WIFI
+        } else if (!strcmp(a, "wfpw")) {         /* sa wfpw TEXT: the Wi-Fi page's password is TEXT (never shown) */
+            const char *want = hb_word(plat_host_line, 2);
+            char w[80];
+            snprintf(w, sizeof w, "%s", want);
+            w[strcspn(w, "\r\n")] = 0;
+            if (strcmp(wp_pw, w) || wp.len != strlen(w)) {
+                printf("FAIL sa wfpw: the password typed is not the one expected (%u characters, wanted %u)\n",
+                       (unsigned)wp.len, (unsigned)strlen(w));
+                sa_host_fails++;
+            } else {
+                printf("  ok sa wfpw (%u characters)\n", (unsigned)wp.len);
+            }
+#endif
         } else if (!strcmp(a, "name")) {
             const char *want = hb_word(plat_host_line, 2);
             char w[40];
@@ -1197,7 +1211,28 @@ int app_expect(const char *what, int *got)
         const uint8_t v[10] = {sa.rm_disp, sa.rm_rel, sa.rm_cc_ch, sa.rm_key_ch, sa.rm_keys, sa.rm_octk, sa.rm_scl,
                                sa.rm_kled, sa.vel_on, sa.usbh};
         *got = v[what[6] - '0'];
-    } else if (!strcmp(what, "sa_scale"))          /* the scale: root * 100 + scale */
+    }
+#if FM1B_WIFI
+    else if (!strcmp(what, "sa_wifi_off"))       /* the settings' WI-FI row: off (kept) */
+        *got = sa.wifi_off;
+    else if (!strncmp(what, "sa_wp_", 6)) {      /* the Wi-Fi page (sa_wifi.c): open, page (WP_*), tab, pick, tile,
+                                                  * armed, layer, shown, len, cur, why, count, scans (asked), joins,
+                                                  * forgets, pwzero (its password and WIFI SET's copy all zeros) */
+        const char *f = what + 6;
+        uint32_t i, z = 1;
+        for (i = 0; i < sizeof wp_pw; i++)
+            z &= wp_pw[i] == 0;
+        for (i = 0; i < sizeof rf_wf.pass; i++)
+            z &= rf_wf.pass[i] == 0;
+        *got = !strcmp(f, "open") ? wp.open : !strcmp(f, "page") ? wp.page : !strcmp(f, "tab") ? wp.tab
+             : !strcmp(f, "pick") ? wp.pick : !strcmp(f, "tile") ? wp.tile : !strcmp(f, "armed") ? wp.armed
+             : !strcmp(f, "layer") ? wp.layer : !strcmp(f, "shown") ? wp.shown : !strcmp(f, "len") ? wp.len
+             : !strcmp(f, "cur") ? wp.cur : !strcmp(f, "why") ? wp.why : !strcmp(f, "count") ? (int)wp_count()
+             : !strcmp(f, "scans") ? (int)wp_scans_asked : !strcmp(f, "joins") ? (int)wp_joins
+             : !strcmp(f, "forgets") ? (int)wp_forgets : !strcmp(f, "pwzero") ? (int)z : -1;
+    }
+#endif
+    else if (!strcmp(what, "sa_scale"))          /* the scale: root * 100 + scale */
         *got = sa.scale_root * 100 + sa.scale;
     else if (!strcmp(what, "sa_rm_oct"))         /* MIDI REMOTE's keys' octave; its screen blank */
         *got = rm.oct;

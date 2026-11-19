@@ -58,7 +58,7 @@ static struct {
     /* MIDI REMOTE (sa_remote.c) */
     uint8_t rm_last[3], rm_src, rm_src_i, rm_any;
     uint8_t latch;
-    uint8_t set[10], blank;                  /* the settings' values (sa_setopt's rows); MIDI REMOTE's screen off */
+    uint8_t set[10 + FM1B_WIFI], blank;      /* the settings' values (sa_setopt's rows); MIDI REMOTE's screen off */
     uint8_t usbh_st, usbh_said, usbh_msg;    /* USB HOST: plat_usb_host_state, sa.usbh_said, sa.usbh_msg */
     char usbh_name[28];                      /* its device's name, in capitals (sa_usbh_name) */
     uint8_t rm_info, rm_oct, rm_keych, rm_kbd;
@@ -66,6 +66,10 @@ static struct {
     int8_t rm_rel;
     uint32_t rm_info_age;
     uint32_t rm_age;
+#if FM1B_WIFI
+    sa_wp_t wp;                              /* the Wi-Fi page (sa_wifi.c), as it was at the frame's start */
+    uint8_t wp_st, wp_glo, wp_scanning;      /* plat_wifi_state, GLO held, a scan of the page's under way */
+#endif
     /* the hand-over */
     uint8_t host_t, warn;
     char info[4][32];
