@@ -20,6 +20,18 @@ set(FM1_RFM1 ON CACHE BOOL "" FORCE)
 include(${FM1VST_DIR}/cmake/FM1Cores.cmake)
 include(${FM1VST_DIR}/cmake/FM1Rfm1.cmake)
 
+# the drawing (FIZZ's core/gfx/qd_gfx.h): fast (qd_gfx_fast.c, QD_GFX_FAST: the FM-1's own renderer, the screen as the
+# unit draws it, several times quicker than plutovg: RemoteFM1 on the Move draws three firmwares beside their sound)
+# or plutovg (anti-aliased, the browser emulator's and 0.12's .rfm1). FIZZ_GFX=plutovg build_fizz.sh: the old
+set(FIZZ_GFX fast CACHE STRING "FIZZ's renderer in the .rfm1: fast (the unit's) or plutovg")
+set(_qd_gfx_defs "")
+set(_qd_gfx_pvg TRUE)
+if(FIZZ_GFX STREQUAL "fast")
+    set(_qd_gfx_defs QD_GFX_FAST)
+    set(_qd_gfx_pvg FALSE)
+elseif(NOT FIZZ_GFX STREQUAL "plutovg")
+    message(FATAL_ERROR "FIZZ_GFX ${FIZZ_GFX}: fast or plutovg")
+endif()
 set(_qd ${FIZZ_DIR})
 set(_qd_glue ${_qd}/core/glue)
 set(_qd_pvg ${_qd}/third_party/plutovg/source)
@@ -32,12 +44,16 @@ if(NOT _qd_pvg_found STREQUAL _qd_pvg_sources)
     message(FATAL_ERROR "fizz: plutovg's sources changed (${_qd_pvg_found}): update tools/rfm1/fizz/CMakeLists.txt")
 endif()
 list(TRANSFORM _qd_pvg_sources PREPEND ../../third_party/plutovg/source/)   # (EXTRA_SOURCES: glue dir relative)
+set(_qd_pvg_link "")
+if(_qd_gfx_pvg)
+    set(_qd_pvg_link ${_qd_pvg_sources})
+endif()
 # FIZZ's tools/Makefile CORE_SRC with GFX=plutovg; every other .c in core/ is included by one of these
 set(_qd_sources ../app/app.c ../app/ctl.c ../app/ctl_step.c ../app/ctl_rec.c ../app/ctl_leds.c ../app/ctl_latch.c
                 ../app/ctl_preview.c ../app/view.c
                 ../ui/ui_kit.c ../ui/ui_idle.c ../ui/ui_keys.c ../ui/ui_picker.c ../ui/ui_tracks.c ../ui/ui_lane.c
                 ../ui/ui_held.c ../ui/ui_turn.c ../ui/ui_layer.c ../ui/ui_octave.c
-                ../gfx/qd_gfx_plutovg.c
+                ../gfx/qd_gfx_${FIZZ_GFX}.c
                 ../seq/model.c ../seq/pattern.c ../seq/seq.c ../seq/player.c ../seq/demo.c ../seq/chord.c
                 ../seq/scale.c ../seq/sounds.c ../seq/clip.c
                 ../voice/quad/quad_voice.c ../voice/pool.c ../voice/mix.c ../voice/fx/qd_fx.c)
@@ -53,17 +69,17 @@ file(RELATIVE_PATH _qd_unit ${_qd_glue} ${CMAKE_CURRENT_LIST_DIR}/fizz_unit.c)
 set(FIZZ_VERSION "" CACHE STRING "FIZZ's version (its release tag without the v)")
 fm1_add_core(fizz ${_qd_glue} SOURCE ${_qd}
              UNIT ${_qd_unit} DESC ${_qd_desc}
-             EXTRA_SOURCES ${_qd_sources} ${_qd_pvg_sources}
+             EXTRA_SOURCES ${_qd_sources} ${_qd_pvg_link}
              INCLUDES ${_qd_glue} ${_qd}/core ${_qd}/core/app ${_qd}/core/ui ${_qd}/core/gfx ${_qd}/core/seq
                       ${_qd}/core/voice ${_qd}/core/voice/quad ${_qd}/core/voice/fx ${_qd}/third_party/plutovg/include
                       ${_qd_pvg} ${FELUCCA_BSP_DIR}/chip ${FIZZ_GEN_DIR}
-             DEFINES PLUTOVG_BUILD PLUTOVG_BUILD_STATIC PLUTOVG_DISABLE_FONT_FACE_CACHE_LOAD
+             DEFINES PLUTOVG_BUILD PLUTOVG_BUILD_STATIC PLUTOVG_DISABLE_FONT_FACE_CACHE_LOAD ${_qd_gfx_defs}
              FAMILY fizz LICENSE MPL-2.0
              CREDITS "FIZZ, an FM TONE step sequencer for the FM-1, by Michael P Jones (Quixotic7). MPL-2.0, the source: https://github.com/Quixotic7/FIZZ (LICENSING.md says what is under which licence).\nFM TONE, the effects and the output chain: from ChoralRoot FM-1 v0.25.1, the owner's, relicensed MPL-2.0, and the parts that came from Felucca were rewritten (L1).\nDrawn with plutovg v1.3.3 (Samuel Ugochukwu, MIT), which carries stb_truetype, stb_image and stb_image_write (Sean Barrett, MIT or Unlicense). Portions of this software are copyright (c) 2006 The FreeType Project (www.freetype.org). All rights reserved.\nType: Inter Tight (The Inter Project Authors, SIL Open Font License 1.1).\nThis .rfm1: FIZZ's core built to WebAssembly by RemoteFM1 (tools/rfm1/build_fizz.sh, https://github.com/Quixotic7/RemoteFM1) with FM1VST's core glue (GPL-3.0-only) and Emscripten's runtime (MIT, with musl libc, MIT). Its plutovg-ft-raster.c has one change, for WebAssembly: the render pool's overflow without setjmp (tools/rfm1/fizz/plutovg-ft-raster-wasm.patch, FTL). The M-UPGRADE identity (FIZZ's web manager finds the unit by it): felucca-bsp's chip/ota.c (Leo Kuroshita, Hügelton Instruments, MPL-2.0), as on the device, through FM1VST's sysex_ota.h (tools/rfm1/fizz/fizz_unit.c)."
              CREDITS_FILES ./LICENSE third_party/plutovg/LICENSE third_party/plutovg/source/FTL.TXT assets/fonts/OFL.txt
              NO_GEN
              VERSION ${FIZZ_VERSION})
-set(_qd_pvg_abs ${_qd_pvg_sources})
+set(_qd_pvg_abs ${_qd_pvg_link})
 list(TRANSFORM _qd_pvg_abs PREPEND ${_qd_glue}/)
 set_source_files_properties(${_qd_pvg_abs} TARGET_DIRECTORY core_fizz_obj PROPERTIES COMPILE_OPTIONS "-w")
 

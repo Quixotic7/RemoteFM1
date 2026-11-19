@@ -12,6 +12,7 @@
 #   FELUCCA_BSP_DIR=<dir>  felucca-bsp at FELUCCA_BSP_COMMIT (its chip/ota.c: the M-UPGRADE identity a FIZZ unit
 #                      answers, tools/rfm1/fizz/fizz_unit.c); default: a clone in build/rfm1-fizz/
 #   FM1_EMCC=<emcc>    default: emcc on PATH, else ~/emsdk's
+#   FIZZ_GFX=plutovg   the anti-aliased renderer (default fast: the unit's own, QD_GFX_FAST; tools/rfm1/fizz/CMakeLists.txt)
 #   FIZZ_CPU2=0        without cpu2 (core 1's voices on a host thread, FM1VST docs/RFM1.md; default: with)
 #
 # Nothing GPL of FIZZ is built: its site/ and core/tests/ are left out of the copy compiled (build/rfm1-fizz/src).
@@ -94,7 +95,7 @@ CMAKE=${CMAKE:-$(command -v cmake || echo /opt/homebrew/bin/cmake)}
 
 say "FIZZ $FIZZ_VERSION (${FIZZ_COMMIT:0:12}), FM1VST ${FM1VST_COMMIT:0:12}, $("$EMCC" --version | head -1 | sed 's/.*) //')"
 "$CMAKE" -S "$ROOT/tools/rfm1/fizz" -B "$B/build" -DCMAKE_BUILD_TYPE=Release -DFM1VST_DIR="$FM1VST_DIR" \
-    -DFIZZ_DIR="$SRC" -DFIZZ_VERSION="$FIZZ_VERSION" -DFELUCCA_BSP_DIR="$FELUCCA_BSP_DIR" -DFIZZ_GEN_DIR="$B/gen" -DFIZZ_MEMORY_MIB=$MEMORY_MIB -DFIZZ_CPU2="${FIZZ_CPU2:-1}" -DFM1_EMCC="$EMCC" \
+    -DFIZZ_DIR="$SRC" -DFIZZ_VERSION="$FIZZ_VERSION" -DFELUCCA_BSP_DIR="$FELUCCA_BSP_DIR" -DFIZZ_GEN_DIR="$B/gen" -DFIZZ_MEMORY_MIB=$MEMORY_MIB -DFIZZ_CPU2="${FIZZ_CPU2:-1}" -DFIZZ_GFX="${FIZZ_GFX:-fast}" -DFM1_EMCC="$EMCC" \
     -DCR_PYTHON="$(command -v python3)" >"$B/configure.log" 2>&1 || { tail -30 "$B/configure.log"; exit 1; }
 "$CMAKE" --build "$B/build" --target rfm1_fizz rfm1_run -j "$(sysctl -n hw.ncpu 2>/dev/null || nproc)" >"$B/build.log" 2>&1 \
     || { tail -40 "$B/build.log"; exit 1; }
