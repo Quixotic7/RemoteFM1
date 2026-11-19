@@ -85,6 +85,7 @@ On a Mac with the FM-1 on USB (python-rtmidi, as RemoteFM1's other tools):
 python3 tools/wifi_probe.py setup          # asks the network's name and its password (typed, not shown); waits
                                            # for an address (the FM-1 keeps the network once it has joined)
 python3 tools/wifi_probe.py status         # the state, the address, the networks kept, the heap
+python3 tools/wifi_probe.py scan           # the networks the FM-1 hears (2.4 GHz), strongest first
 python3 tools/wifi_probe.py find           # discovery on the network (UDP broadcast)
 python3 tools/wifi_probe.py bench [ADDR] [--sink-kb 1024 --source-kb 1024 --echo 100 --json out.json]
 python3 tools/wifi_probe.py forget all     # forget the networks
@@ -161,3 +162,23 @@ unit over TCP, and prints a line a second:
 `wifi_probe.py mode direct` turns whole frames off (until the unit restarts), `mode whole` on again: an A/B without a
 flash. The Move's `/api/status` fm1 adds `draw_us_max` (the longest FRAME_ACK draw time), `panel_r_gap_max`,
 `shadow_resets`, `reset_reason` and `wifi_rx_ms_max` (the longest silence on the connection).
+
+## Setting up Wi-Fi from the Ableton Move (WIFI SCAN / LIST, 2026-11-19)
+
+No computer needed: the FM-1 on the Move's USB-A, RemoteFM14Move's page (`http://remotefm1.local:7730`) on a phone,
+"FM-1 Wi-Fi": the networks the FM-1 hears, a password, "Join". The Move sends WIFI over the USB-A SysEx link (SET is
+USB-only, so the setup needs the cable); the FM-1 joins, keeps the network (six, the most recent first) and the Move
+then finds it over Wi-Fi as before. The same for a phone's hotspot (2.4 GHz: on an iPhone, "Maximise Compatibility").
+
+- **SCAN (6) / LIST (7)** (docs/PROTOCOL.md section 10): a scan asked, then the list read in pages of at most 9 + 96
+  bytes (the Move's bridge loses a burst of more than ~200 bytes from the unit); `which` 1 lists the networks kept.
+  The scan's list is fm1-base's (`plat_wifi_found`: twelve networks, each SSID once, the strongest first, one missed
+  by a scan kept for three). A scan stops a join in progress, so it is refused while the FM-1 joins unless asked
+  with `06 01` (the Move's page does: the user is choosing a network).
+- **Cost** (against 1d): flash +416 B (553,408 B), RAM .data+.bss +32 B (128,768 of 131,072), the pool unchanged (305,988 of
+  311,296; `tools/wifi_layout.py` ok), the reply in WIFI's existing buffer: no heap.
+- **The simulator** (fm1-base's host stand-in, RemoteFM1 patch 0011): a scan takes 1 s, then `plat_wifi_scans` counts
+  it; `firmware/tests/wifi.txt` checks SCAN, the pages and their size.
+- **libremotefm1:** `rfm_build_wifi_get/scan/list/set/forget`, `rfm_parse_wifi_state`, `rfm_parse_wifi_list`;
+  `rfm_session_send` (any link, beside the session), `rfm_session_hello_link`, `rfm_session_link_hello`, `cb.msg`.
+  The fake unit has the Wi-Fi build's WIFI (`cfg.wifi`: networks around, joins, a wrong password, kept networks).

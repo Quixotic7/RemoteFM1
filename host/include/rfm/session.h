@@ -159,6 +159,9 @@ typedef struct {
      * its status (channel messages and real time F8 FA FB FC), in order, while a session is active. Feed them to
      * the running firmware's MIDI input as if they came from its own MIDI in. NULL: dropped */
     void (*midi_in)(void *ctx, const uint8_t *msgs, uint32_t n);
+    /* any other message from a link (one the session does not take itself: WIFI_R, ECHO_R, STATS_R...), with the
+     * link it came on; for requests sent with rfm_session_send. NULL: dropped */
+    void (*msg)(void *ctx, int link, uint8_t cmd, const uint8_t *body, uint32_t n);
 } rfm_session_cb_t;
 
 typedef struct {
@@ -230,6 +233,14 @@ const rfm_hello_t *rfm_session_hello(const rfm_session_t *s);           /* the u
 int rfm_session_frame_link(const rfm_session_t *s);                     /* -1 none */
 int rfm_session_midi_link(const rfm_session_t *s);
 int rfm_session_link_kind(const rfm_session_t *s, int id);
+/* a message of the caller's own on link id, outside the session's (e.g. WIFI to the unit on a USB SysEx link while
+ * the session runs over TCP): framed for the link, not paced. 0 sent, -1 no such link or the write failed. The
+ * reply comes to cb.msg */
+int rfm_session_send(rfm_session_t *s, int id, uint8_t cmd, const uint8_t *body, uint32_t n);
+/* HELLO on link id now (its HELLO_R updates rfm_session_link_hello); 0 sent */
+int rfm_session_hello_link(rfm_session_t *s, int id);
+/* the HELLO_R a link last gave, if it was RemoteFM1 v2 (NULL: none yet); *age_ms: since it came (with now_ms) */
+const rfm_hello_t *rfm_session_link_hello(const rfm_session_t *s, int id, uint32_t now_ms, uint32_t *age_ms);
 uint32_t rfm_session_budget(const rfm_session_t *s);                    /* bytes per frame in use */
 void rfm_session_stats(const rfm_session_t *s, rfm_session_stats_t *st);
 const rfm_panel_t *rfm_session_panel(const rfm_session_t *s);

@@ -588,12 +588,23 @@ address it remembers. libremotefm1 reads the answer with `rfm_parse_discovery`.
 | 3 SAVED | `03` | the state and the networks kept |
 | 4 DIAG | `04` | GET's reply, then the diagnostics (docs/WIFI.md "Diagnostics"): a version byte (1), 26 × u32 of the main loop, the whole frames, PANEL_R, TCP's input and the session, 14 × u32 of lwIP's view of the connection; the maxima start again at every DIAG |
 | 5 MODE | `05 m` | 1: whole frames over TCP (the default), 0: decoded as they come (an A/B; until the unit restarts). The reply is DIAG's |
+| 6 SCAN | `06` or `06 f` | look for the networks around (2.4 GHz: the FM-1's radio has no 5 GHz): a scan of about 2-4 s. The reply is LIST's first page of the scan's list as it stands, `scanning` 1; ask LIST until `scanning` is 0 (`scans` changes when a scan is done; given up after 12 s). Refused (`status` 3) while the unit joins a network (a scan stops the join) unless `f` is 1, and while it gets an address. Wi-Fi off: turned on (refused until it is up). Over any link |
+| 7 LIST | `07 which8 first8` | a page of a list: `which` 0 the scan's networks (the strongest first, each SSID once; hidden ones left out), 1 the networks kept (the most recent first). Entries from `first` while they fit in 96 bytes; the next page from `first + count`. Over any link |
 
 WIFI_R body (little endian): `op8 status8 state8 rssi8(signed) ip[4] tcp_port16 udp_port16 host8 saved8
 heap_used32 heap_peak32 heap_size32 app_heap16 rx_frames16`, then `ssid_len8 ssid` (the network joined or being
 joined), `why_len8 why` (state 6: "not found", "could not join", "no address"...), then for SAVED `n8` and `n` times
 `len8 ssid`, for the others the sockets' counters, 11 × u32: accepts, closes, replaced, rx_bytes, tx_bytes, rx_full,
 tx_eagain, udp_in, udp_out, polls, open_fail.
+
+SCAN and LIST's WIFI_R is a page instead, small for the Ableton Move's USB-A (a burst of more than ~200 bytes from the
+unit is lost there): `op8 status8 state8 which8 scanning8 scans8 total8 first8 count8`, then `count` times
+`rssi8(signed, dBm; 0 not heard) flags8 channel8 ssid_len8 ssid`, at most 9 + 96 bytes (`RFM_WIFI_PAGE_MAX`). `flags`:
+bit0 secured (a password needed), bit1 kept, bit2 heard by the last scans (for a kept network: rssi, secured and
+channel are the scan's), bit3 the network joined or being joined now. libremotefm1: `rfm_build_wifi_*`,
+`rfm_parse_wifi_state`, `rfm_parse_wifi_list`; `rfm_session_send` sends them on any link beside a session (the unit on
+USB-A while the session runs over TCP) and `cb.msg` gets the replies. GET's reply is ~90-150 bytes, also under the
+limit; SAVED with six long names may not be: a host on a slow link uses LIST 1.
 
 - `status`: 0 done, 1 a bad request, 2 not over this link (SET and FORGET from the network itself), 3 busy.
 - `state`: 0 off, 1 starting, 2 on with no network, 3 joining, 4 asking for an address, 5 connected, 6 failed.

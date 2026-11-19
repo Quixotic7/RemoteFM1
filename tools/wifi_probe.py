@@ -41,7 +41,8 @@ import m0_bench as mb  # noqa: E402  (the SysEx codec, HELLO_R / STATS_R parsers
 
 TCP_PORT, UDP_PORT = 7740, 7741                  # proto/rfm1.h RFM_NET_TCP_PORT, RFM_NET_UDP_PORT
 WIFI, WIFI_R = 0x17, 0x57                        # RFM_WIFI, RFM_WIFI_R
-W_GET, W_SET, W_FORGET, W_SAVED, W_DIAG, W_MODE = 0, 1, 2, 3, 4, 5
+W_GET, W_SET, W_FORGET, W_SAVED, W_DIAG, W_MODE, W_SCAN, W_LIST = 0, 1, 2, 3, 4, 5, 6, 7
+F_SECURED, F_KEPT, F_HEARD, F_JOINED = 1, 2, 4, 8
 CAP_WIFI = 1 << 12
 STATES = ["off", "starting", "on (no network)", "joining", "getting an address", "connected", "failed"]
 STATUS = ["ok", "bad request", "not over this link (USB only)", "busy"]
@@ -132,6 +133,23 @@ def parse_wifi_r(b):
     return r
 
 
+def parse_wifi_list(b):
+    """WIFI_R to SCAN / LIST: a page of the scan's networks (which 0) or the networks kept (1)"""
+    if len(b) < 9 or b[0] not in (W_SCAN, W_LIST):
+        return None
+    r = {"op": b[0], "status": b[1], "state_code": b[2], "which": b[3], "scanning": b[4], "scans": b[5],
+         "total": b[6], "first": b[7], "nets": []}
+    k = 9
+    for _ in range(b[8]):
+        if k + 4 > len(b) or k + 4 + b[k + 3] > len(b):
+            return None
+        rssi = struct.unpack_from("<b", b, k)[0]
+        r["nets"].append({"rssi": rssi, "flags": b[k + 1], "channel": b[k + 2],
+                          "ssid": bytes(b[k + 4:k + 4 + b[k + 3]]).decode("utf-8", "replace")})
+        k += 4 + b[k + 3]
+    return r
+
+
 def parse_discovery(data):
     if not data.startswith(b"RFM1!\n"):
         return None
@@ -182,6 +200,11 @@ def selftest():
     w3["diag"]["session_on"] = 3
     w3["diag"]["last_reset"] = 3
     assert "reset SESSION" in diag_line(w3["diag"], None, w3)
+    pg = bytes([W_LIST, 0, 5, 0, 0, 3, 2, 0, 2]) + struct.pack("<b", -52) + bytes([F_SECURED | F_HEARD, 6, 4]) + \
+        b"Home" + struct.pack("<b", -71) + bytes([F_HEARD, 11, 4]) + b"Cafe"
+    lw = parse_wifi_list(pg)
+    assert lw["total"] == 2 and [n["ssid"] for n in lw["nets"]] == ["Home", "Cafe"] and lw["nets"][0]["rssi"] == -52
+    assert parse_wifi_list(pg[:-1]) is None
     print("wifi_probe selftest ok")
 
 
@@ -349,6 +372,44 @@ def cmd_mode(a):
             print(f"wifi_probe: MODE refused ({w['status'] if w else 'no answer'})")
             return 1
         print(f"frames over TCP: {'whole' if w['diag']['mode'] else 'as they come'}")
+    finally:
+        link.close()
+    return 0
+
+
+def cmd_scan(a):
+    """the networks the FM-1 hears (2.4 GHz only), as RemoteFM14Move's page asks for them: SCAN, then LIST's pages"""
+    link = usb_link(a.port)
+    try:
+        link.drain()
+        link.send(WIFI, bytes([W_SCAN, 1]))
+        r = link.wait(WIFI_R, 2.0)
+        if not r or not parse_wifi_list(r[1]) or parse_wifi_list(r[1])["status"]:
+            print("the scan was refused (Wi-Fi starting?): try again in a few seconds")
+            return 1
+        t0 = time.time()
+        while True:
+            time.sleep(0.5)
+            nets, first, page = [], 0, None
+            while True:
+                link.drain()
+                link.send(WIFI, bytes([W_LIST, 0, first]))
+                r = link.wait(WIFI_R, 2.0)
+                page = parse_wifi_list(r[1]) if r else None
+                if not page:
+                    print("no answer")
+                    return 1
+                nets += page["nets"]
+                first += len(page["nets"])
+                if not page["nets"] or first >= page["total"]:
+                    break
+            if not page["scanning"] or time.time() - t0 > 12:
+                break
+        for n in nets:
+            f = n["flags"]
+            print(f"  {n['rssi']:4d} dBm  ch {n['channel']:2d}  {'lock' if f & F_SECURED else 'open'}"
+                  f"{'  kept' if f & F_KEPT else ''}{'  joined' if f & F_JOINED else ''}  {n['ssid']}")
+        print(f"{len(nets)} networks")
     finally:
         link.close()
     return 0
@@ -608,6 +669,8 @@ def main():
     p.add_argument("--wait", type=float, default=60.0)
     p = sub.add_parser("status")
     p.add_argument("--port", default="")
+    p = sub.add_parser("scan", help="the networks the FM-1 hears (SCAN, then LIST's pages)")
+    p.add_argument("--port", default="")
     p = sub.add_parser("forget")
     p.add_argument("--port", default="")
     p.add_argument("which", nargs="?", default="0")
@@ -640,6 +703,8 @@ def main():
         return cmd_status(a)
     if a.cmd == "forget":
         return cmd_forget(a)
+    if a.cmd == "scan":
+        return cmd_scan(a)
     if a.cmd == "find":
         return cmd_find(a)
     if a.cmd == "watch":

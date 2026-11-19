@@ -47,6 +47,16 @@ typedef struct {
                                                          * transports bit6), and in a session on it the panel's events
                                                          * go as PANEL_EV there (batched until the host takes them),
                                                          * not as MIDI; rfm_fake_tcp_reset: a new connection */
+    /* the Wi-Fi build's WIFI (docs/PROTOCOL.md section 10) on either side (HELLO_R caps RFM_CAP_WIFI): GET, SCAN
+     * (wifi_scan_ms), LIST, SET (USB / SysEx only; joined after wifi_join_ms when the network is around and, if
+     * secured, the password is 8..63 bytes, else failed: "not found" / "wrong password?"), FORGET, SAVED. Networks
+     * around: wifi_nets, "SSID:RSSI:SECURED[:CHANNEL];..." (NULL: "Home:-48:1:6;Cafe:-71:0:11"); joined, the unit's
+     * address is wifi_ip (a.b.c.d as 0xddccbbaa; 0: 192.168.1.42) and its port wifi_port (0: RFM_NET_TCP_PORT) */
+    int wifi;
+    const char *wifi_nets;
+    uint32_t wifi_ip;
+    uint16_t wifi_port;
+    uint32_t wifi_scan_ms, wifi_join_ms;                /* 0: 1000 / 1500 */
     int tiles_outside_session;                          /* 1 (default): TILES / LEDS outside a session are still
                                                          * drawn and acknowledged (FRAME_ACK says shadow reset after
                                                          * a reboot); 0: ignored, no FRAME_ACK */
@@ -89,6 +99,15 @@ void rfm_fake_master(rfm_fake_t *f, uint32_t adc);
 /* (cfg.tcp) the host's TCP connection closed, or a new one accepted: its parser and sequence numbers start afresh,
  * what was queued for it is gone, and a session on it ends (as the Wi-Fi build has it) */
 void rfm_fake_tcp_reset(rfm_fake_t *f);
+
+/* (cfg.wifi) the unit's Wi-Fi: its state (RFM_WIFI_ST_*), the network joined or being joined (ssid: 33 bytes, or
+ * NULL); the networks kept (i: 0 the most recent; 0 none); 1 if the network kept as ssid has exactly this password
+ * (the tests' check that SET carried it; the fake keeps it, the real unit keeps it in its flash) */
+int rfm_fake_wifi_state(const rfm_fake_t *f, char *ssid);
+int rfm_fake_wifi_kept(const rfm_fake_t *f, int i, char *ssid);
+int rfm_fake_wifi_pass_is(const rfm_fake_t *f, const char *ssid, const char *pass);
+/* (cfg.wifi) WIFI requests taken: all of them, SETs, SCANs */
+void rfm_fake_wifi_counts(const rfm_fake_t *f, uint32_t *reqs, uint32_t *sets, uint32_t *scans);
 
 /* faults */
 void rfm_fake_reboot(rfm_fake_t *f);

@@ -22,7 +22,8 @@
  *   rf snap                      the reference screen kept as it is now (rf_screen_snap: the panel is that one)
  *   rf net connect | close       (the Wi-Fi build) a host on the TCP transport comes, or goes: T "net" is then
  *                                the bulk framing through net/rfm_net.c's rings, as TCP would carry it
- *   rf wifi set SSID PASS | get | saved | forget K   (the Wi-Fi build) WIFI over USB SysEx (PASS "-": none)
+ *   rf wifi set SSID PASS | get | saved | forget K | scan [1] | list WHICH FIRST   (the Wi-Fi build) WIFI over USB
+ *                                SysEx (PASS "-": none)
  *   rf wfstore                   (the Wi-Fi build) OBJ_WIFI saved and loaded back (expect rf_wfstore 1: whole, and
  *                                kept compact in OBJ_RF)
  *   rf serve SECONDS [PORT [stdin]]   (the Wi-Fi build) the simulator in real time for SECONDS, net/rfm_net.c on
@@ -772,13 +773,21 @@ int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, c
         uint8_t m[3u + RFM_WIFI_SSID_MAX + RFM_WIFI_PASS_MAX];
         uint32_t n = 1, sl = (uint32_t)strlen(c), pl = !strcmp(d, "-") ? 0u : (uint32_t)strlen(d);
         m[0] = !strcmp(b, "set") ? RFM_WIFI_SET : !strcmp(b, "saved") ? RFM_WIFI_SAVED :
-               !strcmp(b, "forget") ? RFM_WIFI_FORGET : RFM_WIFI_GET;
+               !strcmp(b, "forget") ? RFM_WIFI_FORGET : !strcmp(b, "scan") ? RFM_WIFI_SCAN :
+               !strcmp(b, "list") ? RFM_WIFI_LIST : RFM_WIFI_GET;
         if (m[0] == RFM_WIFI_SET && sl <= RFM_WIFI_SSID_MAX && pl <= RFM_WIFI_PASS_MAX) {
             m[1] = (uint8_t)sl;
             memcpy(m + 2, c, sl);
             m[2u + sl] = (uint8_t)pl;
             memcpy(m + 3u + sl, d, pl);
             n = 3u + sl + pl;
+        } else if (m[0] == RFM_WIFI_SCAN && c[0]) { /* rf wifi scan [1]: 1 even while joining */
+            m[1] = (uint8_t)atoi(c);
+            n = 2;
+        } else if (m[0] == RFM_WIFI_LIST) {         /* rf wifi list WHICH FIRST (0 the scan's, 1 the kept) */
+            m[1] = (uint8_t)atoi(c);
+            m[2] = (uint8_t)atoi(d);
+            n = 3;
         } else if (m[0] == RFM_WIFI_FORGET) {
             m[1] = !strcmp(c, "all") ? 0xFFu : (uint8_t)atoi(c);
             n = 2;
@@ -1323,6 +1332,30 @@ int app_expect(const char *what, int *got)
         *got = hs_wifi_n ? hs_wifi[7] : -1;
     else if (!strcmp(what, "rf_wifi_ssid_len"))
         *got = hs_wifi_n ? hs_wifi[RFM_WIFI_R_SSID] : -1;
+    else if (!strcmp(what, "rf_wifi_len"))          /* WIFI_R's whole body */
+        *got = (int)hs_wifi_n;
+    else if (!strcmp(what, "rf_wifi_scanning"))     /* SCAN / LIST's page: scanning, total, first, count */
+        *got = hs_wifi_n >= RFM_WIFI_LIST_HDR ? hs_wifi[4] : -1;
+    else if (!strcmp(what, "rf_wifi_scans"))
+        *got = hs_wifi_n >= RFM_WIFI_LIST_HDR ? hs_wifi[5] : -1;
+    else if (!strcmp(what, "rf_wifi_total"))
+        *got = hs_wifi_n >= RFM_WIFI_LIST_HDR ? hs_wifi[6] : -1;
+    else if (!strcmp(what, "rf_wifi_first"))
+        *got = hs_wifi_n >= RFM_WIFI_LIST_HDR ? hs_wifi[7] : -1;
+    else if (!strcmp(what, "rf_wifi_count"))
+        *got = hs_wifi_n >= RFM_WIFI_LIST_HDR ? hs_wifi[8] : -1;
+    else if (!strncmp(what, "rf_wifi_e", 9) && hs_wifi_n >= RFM_WIFI_LIST_HDR) {
+        /* rf_wifi_eK_rssi | _flags | _ch | _len: entry K of the page */
+        uint32_t k = (uint32_t)atoi(what + 9), i = 0, o = RFM_WIFI_LIST_HDR;
+        const char *f = strchr(what + 9, '_');
+        while (i < k && i < hs_wifi[8] && o + 4u <= hs_wifi_n)
+            o += 4u + hs_wifi[o + 3u], i++;
+        if (!f || i != k || k >= hs_wifi[8] || o + 4u > hs_wifi_n)
+            *got = -1;
+        else
+            *got = !strcmp(f, "_rssi") ? (int)(int8_t)hs_wifi[o] : !strcmp(f, "_flags") ? hs_wifi[o + 1u]
+                 : !strcmp(f, "_ch") ? hs_wifi[o + 2u] : hs_wifi[o + 3u];
+    }
     else if (!strcmp(what, "rf_ev_net_n"))
         *got = (int)hs_ev_n;
     else if (!strcmp(what, "rf_ev_net_bad"))

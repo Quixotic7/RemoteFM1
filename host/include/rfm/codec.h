@@ -118,6 +118,42 @@ typedef struct {
 } rfm_net_info_t;
 int rfm_parse_discovery(const uint8_t *b, uint32_t n, rfm_net_info_t *out);   /* 0 ok, -1 not an answer */
 
+/* WIFI (0x17) / WIFI_R (0x57), the Wi-Fi build (RFM_CAP_WIFI; docs/PROTOCOL.md section 10). Requests (their length,
+ * 0 when the arguments do not fit): GET; SCAN (force 1: even while the unit joins a network, which the scan stops);
+ * LIST a page (which: RFM_WIFI_LIST_SCAN or _KEPT, from entry first); SET (SSID 1..32 bytes, password 0..63: the body
+ * then holds the password, so the caller wipes it once sent); FORGET k (0xFF all). SET and FORGET: over USB only */
+#define RFM_WIFI_BODY_MAX (3u + RFM_WIFI_SSID_MAX + RFM_WIFI_PASS_MAX)
+uint32_t rfm_build_wifi_get(uint8_t *body);
+uint32_t rfm_build_wifi_scan(uint8_t *body, int force);
+uint32_t rfm_build_wifi_list(uint8_t *body, uint32_t which, uint32_t first);
+uint32_t rfm_build_wifi_set(uint8_t *body, const char *ssid, const char *pass);
+uint32_t rfm_build_wifi_forget(uint8_t *body, uint32_t k);
+/* WIFI_R to GET, SET, FORGET, SAVED, DIAG, MODE: the state (state RFM_WIFI_ST_*, ip a.b.c.d in ip[0..3]; the SSID
+ * joined or being joined, the reason it failed; SAVED: the networks kept). 0 ok, -1 not such a reply */
+enum { RFM_WIFI_ST_OFF, RFM_WIFI_ST_STARTING, RFM_WIFI_ST_ON, RFM_WIFI_ST_JOINING, RFM_WIFI_ST_ADDRESS,
+       RFM_WIFI_ST_CONNECTED, RFM_WIFI_ST_FAILED };
+typedef struct {
+    uint8_t op, status, state, host, saved;
+    int8_t rssi;
+    uint8_t ip[4];
+    uint16_t tcp_port, udp_port;
+    char ssid[33], why[41];
+    uint8_t nkept;                                      /* SAVED: the networks kept (kept[]), the most recent first */
+    char kept[6][33];
+} rfm_wifi_state_t;
+int rfm_parse_wifi_state(const uint8_t *b, uint32_t n, rfm_wifi_state_t *o);
+/* WIFI_R to SCAN and LIST: a page of a list. 0 ok, -1 not such a reply */
+typedef struct {
+    int8_t rssi;                                        /* dBm (0: not heard) */
+    uint8_t flags, channel;                             /* RFM_WIFI_F_*; 1..14 (0: not heard) */
+    char ssid[33];
+} rfm_wifi_net_t;
+typedef struct {
+    uint8_t op, status, state, which, scanning, scans, total, first, count;
+    rfm_wifi_net_t net[16];
+} rfm_wifi_list_t;
+int rfm_parse_wifi_list(const uint8_t *b, uint32_t n, rfm_wifi_list_t *o);
+
 /* TILES header: frame16 flags8 nrects8 */
 void rfm_tiles_header(uint8_t *body, uint16_t frame, uint8_t flags, uint8_t nrects);
 

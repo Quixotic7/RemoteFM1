@@ -21,6 +21,7 @@ typedef struct link {
     uint32_t acks_due;                                  /* (TCP) SESSIONs sent on this stream not yet acknowledged */
     int hello_got, hello_ok;
     rfm_hello_t hello;
+    uint32_t t_hello;                                   /* when its HELLO_R came */
     struct rfm_session *s;
 } link_t;
 
@@ -519,6 +520,7 @@ static void on_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
         if (rfm_parse_hello(b, n, &l->hello))
             return;
         l->hello_got = 1;
+        l->t_hello = s->now;
         l->hello_ok = rfm_hello_is_remotefm1(&l->hello);
         if (!l->hello_ok && s->state == RFM_S_DISCOVER)
             logf_(s, "link %s: \"%s\" proto %u answered: not RemoteFM1 v2", l->name, l->hello.name, l->hello.proto);
@@ -626,11 +628,38 @@ static void on_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
         break;
     }
     default:
+        if (s->cb.msg)
+            s->cb.msg(s->cb.ctx, l->id, cmd, b, n);
         break;
     }
 }
 
 /* ---------------------------------------------------------------- API ---- */
+int rfm_session_send(rfm_session_t *s, int id, uint8_t cmd, const uint8_t *body, uint32_t n)
+{
+    if (id < 0 || id >= RFM_MAX_LINKS || n > RFM_SX_BODY_MAX)
+        return -1;
+    return send_msg(s, id, cmd, body, n);
+}
+
+int rfm_session_hello_link(rfm_session_t *s, int id)
+{
+    uint8_t b[16];
+    return rfm_session_send(s, id, RFM_HELLO, b, rfm_build_hello(b, s->cfg.host_name));
+}
+
+const rfm_hello_t *rfm_session_link_hello(const rfm_session_t *s, int id, uint32_t now_ms, uint32_t *age_ms)
+{
+    const link_t *l;
+    if (id < 0 || id >= RFM_MAX_LINKS)
+        return NULL;
+    l = &s->links[id];
+    if (!l->used || !l->hello_got || !l->hello_ok)
+        return NULL;
+    if (age_ms)
+        *age_ms = now_ms - l->t_hello;
+    return &l->hello;
+}
 rfm_session_t *rfm_session_new(const rfm_session_cfg_t *cfg, const rfm_session_cb_t *cb)
 {
     rfm_session_t *s = (rfm_session_t *)calloc(1, sizeof *s);

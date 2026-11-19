@@ -99,6 +99,7 @@ static void setup(h_t *h, const rfm_session_cfg_t *sc)
 {
     rfm_session_cb_t cb;
     memset(h, 0, sizeof *h);
+    memset(&cb, 0, sizeof cb);
     h->verbose = getenv("RFM_VERBOSE") != NULL;
     cb.ctx = h;
     cb.event = cb_event;
@@ -1727,6 +1728,151 @@ static void test_tcp_stalls(void)
     teardown(&h);
 }
 
+/* Wi-Fi setup over a unit's USB SysEx link (RemoteFM14Move's "Set up the FM-1's Wi-Fi", the FM-1 on the Move's
+ * USB-A): WIFI requests sent with rfm_session_send beside the session, their WIFI_R to cb.msg, parsed. A scan and its
+ * pages (long SSIDs: several pages, each small), a network set and joined (the password arrives whole), a wrong
+ * password, the networks kept and forgotten; the same while the session runs over TCP on another unit, where SET over
+ * TCP is refused */
+typedef struct {
+    uint8_t b[600];
+    uint32_t n, got, link;
+} wr_t;
+static wr_t g_wr;
+static void cb_wifi_msg(void *ctx, int link, uint8_t cmd, const uint8_t *b, uint32_t n)
+{
+    (void)ctx;
+    if (cmd != RFM_WIFI_R || n > sizeof g_wr.b)
+        return;
+    memcpy(g_wr.b, b, n);
+    g_wr.n = n;
+    g_wr.got++;
+    g_wr.link = (uint32_t)link;
+}
+static int wifi_ask(h_t *h, int link, const uint8_t *body, uint32_t n, uint32_t ms)
+{
+    const uint32_t got = g_wr.got;
+    if (rfm_session_send(h->s, link, RFM_WIFI, body, n))
+        return -1;
+    step(h, ms);
+    return g_wr.got > got ? 0 : -1;
+}
+static void test_wifi_setup(void)
+{
+    h_t h;
+    rfm_session_cfg_t sc;
+    rfm_session_cb_t cb;
+    rfm_fake_cfg_t fc;
+    rfm_wifi_list_t wl;
+    rfm_wifi_state_t ws;
+    uint8_t q[RFM_WIFI_BODY_MAX];
+    uint32_t n, first, seen, pages, max_len;
+    int usb, i;
+    hl_t *tl;
+    char names[16][33];
+    rfm_session_cfg_default(&sc);
+    sc.slow_link = 1;
+    setup(&h, &sc);
+    rfm_session_free(h.s);                              /* (again, with cb.msg) */
+    memset(&cb, 0, sizeof cb);
+    cb.ctx = &h;
+    cb.state = cb_state;
+    cb.log = cb_log;
+    cb.msg = cb_wifi_msg;
+    h.s = rfm_session_new(&sc, &cb);
+    default_fake(&fc);
+    fc.has_bulk = 0;
+    fc.wifi = 1;
+    fc.wifi_ip = 0x0100007Fu;                           /* 127.0.0.1 */
+    fc.wifi_port = 7745;
+    fc.wifi_nets = "Dogsontheroof:-52:1:6;Phone hotspot with a long name:-60:1:1;Cafe:-71:0:11;"
+                   "Neighbour network number one:-80:1:3;Neighbour network number two:-82:1:9;"
+                   "Neighbour network number three:-85:1:13";
+    add_fake(&h, &fc);
+    usb = h.links[0].id;
+    step(&h, 600);
+    CHECK(rfm_session_state(h.s) == RFM_S_ACTIVE);
+    CHECK(rfm_session_link_hello(h.s, usb, h.now, NULL) && (rfm_session_link_hello(h.s, usb, h.now, NULL)->caps &
+                                                             RFM_CAP_WIFI));
+    /* the state: on, no network */
+    CHECK(wifi_ask(&h, usb, q, rfm_build_wifi_get(q), 100) == 0 && rfm_parse_wifi_state(g_wr.b, g_wr.n, &ws) == 0);
+    CHECKF(ws.op == RFM_WIFI_GET && ws.status == RFM_WIFI_OK && ws.state == RFM_WIFI_ST_ON && !ws.ssid[0],
+           "op %u status %u state %u", ws.op, ws.status, ws.state);
+    /* a scan: asked, then its pages once done (each page small: the Move's USB-A loses longer bursts) */
+    CHECK(wifi_ask(&h, usb, q, rfm_build_wifi_scan(q, 0), 100) == 0 && rfm_parse_wifi_list(g_wr.b, g_wr.n, &wl) == 0);
+    CHECK(wl.op == RFM_WIFI_SCAN && wl.status == RFM_WIFI_OK && wl.scanning == 1);
+    step(&h, 1000);
+    first = 0, seen = 0, pages = 0, max_len = 0;
+    do {
+        CHECK(wifi_ask(&h, usb, q, rfm_build_wifi_list(q, RFM_WIFI_LIST_SCAN, first), 100) == 0);
+        CHECK(rfm_parse_wifi_list(g_wr.b, g_wr.n, &wl) == 0 && wl.first == first && !wl.scanning);
+        if (g_wr.n > max_len)
+            max_len = g_wr.n;
+        for (i = 0; i < wl.count && seen < 16u; i++)
+            memcpy(names[seen++], wl.net[i].ssid, 33);
+        first += wl.count;
+        pages++;
+    } while (wl.count && first < wl.total && pages < 10);
+    CHECKF(seen == 6 && wl.total == 6 && pages >= 2 && max_len <= RFM_WIFI_LIST_HDR + RFM_WIFI_PAGE_MAX,
+           "%u networks in %u pages, the longest %u bytes", seen, pages, max_len);
+    CHECK(!strcmp(names[0], "Dogsontheroof") && !strcmp(names[5], "Neighbour network number three"));
+    /* a network set: joined, kept, with its password whole */
+    n = rfm_build_wifi_set(q, "Phone hotspot with a long name", "fake-pass-0123");
+    CHECK(n == 3u + 30u + 14u);
+    CHECK(wifi_ask(&h, usb, q, n, 100) == 0 && rfm_parse_wifi_state(g_wr.b, g_wr.n, &ws) == 0);
+    memset(q, 0, sizeof q);
+    CHECKF(ws.op == RFM_WIFI_SET && ws.status == RFM_WIFI_OK && ws.state == RFM_WIFI_ST_JOINING,
+           "SET: status %u state %u", ws.status, ws.state);
+    step(&h, 1600);
+    CHECK(wifi_ask(&h, usb, q, rfm_build_wifi_get(q), 100) == 0 && rfm_parse_wifi_state(g_wr.b, g_wr.n, &ws) == 0);
+    CHECKF(ws.state == RFM_WIFI_ST_CONNECTED && !strcmp(ws.ssid, "Phone hotspot with a long name") && ws.ip[0] == 127 &&
+           ws.ip[3] == 1 && ws.tcp_port == 7745 && ws.saved == 1, "state %u ssid %s ip %u.%u.%u.%u:%u saved %u",
+           ws.state, ws.ssid, ws.ip[0], ws.ip[1], ws.ip[2], ws.ip[3], ws.tcp_port, ws.saved);
+    CHECK(rfm_fake_wifi_pass_is(h.f[0], "Phone hotspot with a long name", "fake-pass-0123"));
+    /* a wrong password (too short for a secured network): failed, and why */
+    CHECK(wifi_ask(&h, usb, q, rfm_build_wifi_set(q, "Dogsontheroof", "short"), 100) == 0);
+    step(&h, 1600);
+    CHECK(wifi_ask(&h, usb, q, rfm_build_wifi_get(q), 100) == 0 && rfm_parse_wifi_state(g_wr.b, g_wr.n, &ws) == 0);
+    CHECKF(ws.state == RFM_WIFI_ST_FAILED && !strcmp(ws.why, "wrong password?"), "state %u why %s", ws.state, ws.why);
+    CHECK(wifi_ask(&h, usb, q, rfm_build_wifi_set(q, "Dogsontheroof", "fake-home-pass"), 1700) == 0);
+    /* the networks kept: the most recent first, as a page and as SAVED; one forgotten */
+    CHECK(wifi_ask(&h, usb, q, rfm_build_wifi_list(q, RFM_WIFI_LIST_KEPT, 0), 100) == 0 &&
+          rfm_parse_wifi_list(g_wr.b, g_wr.n, &wl) == 0);
+    CHECKF(wl.total == 2 && wl.count == 2 && !strcmp(wl.net[0].ssid, "Dogsontheroof") &&
+           (wl.net[0].flags & (RFM_WIFI_F_KEPT | RFM_WIFI_F_JOINED | RFM_WIFI_F_SECURED)) ==
+               (RFM_WIFI_F_KEPT | RFM_WIFI_F_JOINED | RFM_WIFI_F_SECURED), "kept %u, first %s flags %u", wl.total,
+           wl.net[0].ssid, wl.net[0].flags);
+    q[0] = RFM_WIFI_SAVED;
+    CHECK(wifi_ask(&h, usb, q, 1, 100) == 0 && rfm_parse_wifi_state(g_wr.b, g_wr.n, &ws) == 0 && ws.nkept == 2 &&
+          !strcmp(ws.kept[1], "Phone hotspot with a long name"));
+    CHECK(wifi_ask(&h, usb, q, rfm_build_wifi_forget(q, 1), 100) == 0 && rfm_parse_wifi_state(g_wr.b, g_wr.n, &ws) == 0 &&
+          ws.status == RFM_WIFI_OK && ws.saved == 1);
+    CHECK(rfm_build_wifi_set(q, "", "x") == 0 && rfm_build_wifi_set(q, "a", "0123456789012345678901234567890123456789"
+                                                                         "012345678901234567890123") == 0);
+    /* the session over TCP on a Wi-Fi unit: WIFI still goes to the USB unit beside it; SET over TCP refused */
+    default_fake(&fc);
+    fc.tcp = 1;
+    fc.wifi = 1;
+    h.f[1] = rfm_fake_new(&fc);
+    h.nf = 2;
+    tl = &h.links[h.nl++];
+    tl->h = &h;
+    tl->fake = 1;
+    tl->kind = RFM_LINK_TCP;
+    tl->id = rfm_session_add_link(h.s, RFM_LINK_TCP, w, tl, "tcp");
+    rfm_session_restart(h.s, h.now);
+    step(&h, 1500);
+    CHECK(rfm_session_state(h.s) == RFM_S_ACTIVE && rfm_session_frame_link(h.s) == tl->id);
+    CHECK(rfm_session_hello_link(h.s, usb) == 0);
+    step(&h, 50);
+    CHECK(rfm_session_link_hello(h.s, usb, h.now, NULL) != NULL);
+    CHECK(wifi_ask(&h, usb, q, rfm_build_wifi_get(q), 100) == 0 && g_wr.link == (uint32_t)usb &&
+          rfm_parse_wifi_state(g_wr.b, g_wr.n, &ws) == 0 && ws.state == RFM_WIFI_ST_CONNECTED);
+    CHECK(wifi_ask(&h, tl->id, q, rfm_build_wifi_set(q, "Cafe", ""), 100) == 0 &&
+          rfm_parse_wifi_state(g_wr.b, g_wr.n, &ws) == 0 && ws.status == RFM_WIFI_NOT_HERE);
+    CHECK(rfm_session_state(h.s) == RFM_S_ACTIVE && rfm_session_frame_link(h.s) == tl->id);
+    teardown(&h);
+}
+
 int main(void)
 {
     test_discovery_and_frames();
@@ -1749,5 +1895,6 @@ int main(void)
     test_tcp();
     test_tcp_over_usb();
     test_tcp_stalls();
+    test_wifi_setup();
     return check_done("test_session");
 }

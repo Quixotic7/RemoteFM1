@@ -10,7 +10,8 @@
  *   rf_wifi_cmd     WIFI (0x17): GET the state, SET a network (SSID and password: joined, and kept by fm1-base's
  *                   device/wifi.c in OBJ_WIFI once joined), FORGET one or all, SAVED lists them. SET and FORGET over USB
  *                   (SysEx or bulk) only. The password is never logged, shown or sent back, and its copies here are
- *                   wiped once handed to the library
+ *                   wiped once handed to the library; SCAN asks the radio for the networks around, LIST pages them
+ *                   (or the networks kept) small enough for the Move's USB-A
  *   rf_wifi_ms      once a millisecond: a SET waiting for the radio, the socket task's start, discovery's text
  *   rf_wifi_line    the waiting screen's line: Wi-Fi's state and address */
 
@@ -387,6 +388,78 @@ static uint32_t rf_wifi_reply(uint32_t op, uint32_t status, uint8_t *b)
     return n;
 }
 
+/* SCAN (6) and LIST (7): a page of the scan's networks (the strongest first) or of the networks kept (the most
+ * recent first), entries of at most RFM_WIFI_PAGE_MAX bytes, so a reply stays under the Move's USB-A burst limit */
+static uint32_t rf_wf_scan_at, rf_wf_scan_base;     /* a scan asked (ms | 1) and plat_wifi_scans() then */
+static int rf_wf_scanning(void)
+{
+    if (rf_wf_scan_at && (plat_wifi_scans() != rf_wf_scan_base || plat_ms() - rf_wf_scan_at >= RFM_WIFI_SCAN_MS))
+        rf_wf_scan_at = 0;
+    return rf_wf_scan_at != 0;
+}
+static int rf_wf_heard(const char *ssid, int *rssi, int *sec, int *ch)   /* in the scan's list: its index, or -1 */
+{
+    char s[33];
+    int i;
+    for (i = 0; i < 16 && plat_wifi_found(i, s, rssi, sec); i++)
+        if (!strcmp(s, ssid)) {
+            *ch = plat_wifi_found_channel(i);
+            return i;
+        }
+    return -1;
+}
+static uint32_t rf_wifi_list(uint32_t op, uint32_t status, uint32_t which, uint32_t first, uint8_t *b)
+{
+    const char *now = plat_wifi_ssid();
+    uint32_t n = RFM_WIFI_LIST_HDR, total = 0, count = 0, k;
+    char s[33];
+    while (total < 16u && (which == RFM_WIFI_LIST_KEPT ? plat_wifi_saved((int)total, 0)
+                                                     : plat_wifi_found((int)total, 0, 0, 0)))
+        total++;
+    for (k = first; k < total; k++) {
+        int rssi = 0, sec = 0, ch = 0, flags = 0;
+        uint32_t len;
+        if (which == RFM_WIFI_LIST_KEPT) {
+            plat_wifi_saved((int)k, s);
+            flags = RFM_WIFI_F_KEPT;
+            if (rf_wf_heard(s, &rssi, &sec, &ch) >= 0)
+                flags |= RFM_WIFI_F_HEARD;
+            else
+                rssi = sec = ch = 0;
+        } else {
+            plat_wifi_found((int)k, s, &rssi, &sec);
+            ch = plat_wifi_found_channel((int)k);
+            flags = RFM_WIFI_F_HEARD | (plat_wifi_kept(s) ? RFM_WIFI_F_KEPT : 0);
+        }
+        if (sec)
+            flags |= RFM_WIFI_F_SECURED;
+        if (now && now[0] && !strcmp(now, s))
+            flags |= RFM_WIFI_F_JOINED;
+        len = (uint32_t)strlen(s);
+        if (len > 32u)
+            len = 32u;
+        if (n + 4u + len > RFM_WIFI_LIST_HDR + RFM_WIFI_PAGE_MAX)
+            break;                                  /* (the rest on the next page: first + count) */
+        b[n] = (uint8_t)(int8_t)rssi;
+        b[n + 1u] = (uint8_t)flags;
+        b[n + 2u] = (uint8_t)ch;
+        b[n + 3u] = (uint8_t)len;
+        memcpy(b + n + 4u, s, len);
+        n += 4u + len;
+        count++;
+    }
+    b[0] = (uint8_t)op;
+    b[1] = (uint8_t)status;
+    b[2] = (uint8_t)plat_wifi_state();
+    b[3] = (uint8_t)which;
+    b[4] = (uint8_t)rf_wf_scanning();
+    b[5] = (uint8_t)plat_wifi_scans();
+    b[6] = (uint8_t)total;
+    b[7] = (uint8_t)first;
+    b[8] = (uint8_t)count;
+    return n;
+}
+
 static void rf_wifi_cmd(uint32_t t, const uint8_t *body, uint32_t len)
 {
     static uint8_t b[RFM_WIFI_R_SSID + 2u + 32u + 40u + 1u + 6u * 33u + 44u + 1u + 4u * DG_N + 56u];
@@ -431,6 +504,28 @@ static void rf_wifi_cmd(uint32_t t, const uint8_t *body, uint32_t len)
                 rf_nf_flush();                      /* (what was kept goes now) */
             rf_nf_on = body[1];
         }
+    } else if (op == RFM_WIFI_SCAN || op == RFM_WIFI_LIST) {   /* 06: a scan, then its first page; 07 which first */
+        uint32_t which = op == RFM_WIFI_LIST && len > 1u ? body[1] : RFM_WIFI_LIST_SCAN;
+        uint32_t first = op == RFM_WIFI_LIST && len > 2u ? body[2] : 0u;
+        if (which > RFM_WIFI_LIST_KEPT) {
+            status = RFM_WIFI_BAD;
+        } else if (op == RFM_WIFI_SCAN) {
+            if (plat_wifi_state() == WIFI_OFF)
+                plat_wifi_on(1);                    /* (on in a second or so: asked again) */
+            if (rf_wf_scanning()) {
+                /* (one at a time: this one's results are coming) */
+            } else if (plat_wifi_state() == WIFI_ADDRESS ||
+                       (plat_wifi_state() == WIFI_JOINING && !(len > 1u && body[1] == 1u))) {
+                status = RFM_WIFI_BUSY;             /* (a scan now stops the join: `06 01` asks for it anyway) */
+            } else if (plat_wifi_scan() == 0) {
+                rf_wf_scan_base = plat_wifi_scans();
+                rf_wf_scan_at = plat_ms() | 1u;
+            } else {
+                status = RFM_WIFI_BUSY;
+            }
+        }
+        rf_send(t, RFM_WIFI_R, b, rf_wifi_list(op, status, which, first, b));
+        return;
     } else if (op != RFM_WIFI_GET && op != RFM_WIFI_SAVED && op != RFM_WIFI_DIAG) {
         status = RFM_WIFI_BAD;
     }

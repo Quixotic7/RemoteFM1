@@ -173,11 +173,23 @@ enum { RFM_ACK_REASON_POWER = 1, RFM_ACK_REASON_AUDIO = 2, RFM_ACK_REASON_SESSIO
 #define RFM_NET_TCP_PORT 7740u
 #define RFM_NET_UDP_PORT 7741u
 #define RFM_NET_FRAME_MAX 16384u        /* RFM_CAP_NET_FRAMES: a frame's TILES messages (bodies + 2 each) kept whole */
-enum { RFM_WIFI_GET = 0, RFM_WIFI_SET = 1, RFM_WIFI_FORGET = 2, RFM_WIFI_SAVED = 3, RFM_WIFI_DIAG = 4, RFM_WIFI_MODE = 5 };
+enum { RFM_WIFI_GET = 0, RFM_WIFI_SET = 1, RFM_WIFI_FORGET = 2, RFM_WIFI_SAVED = 3, RFM_WIFI_DIAG = 4, RFM_WIFI_MODE = 5,
+       RFM_WIFI_SCAN = 6, RFM_WIFI_LIST = 7 };
 enum { RFM_WIFI_OK = 0, RFM_WIFI_BAD = 1, RFM_WIFI_NOT_HERE = 2, RFM_WIFI_BUSY = 3 };
 #define RFM_WIFI_SSID_MAX 32u
 #define RFM_WIFI_PASS_MAX 63u
 #define RFM_WIFI_R_SSID 30u             /* WIFI_R: the fixed part's length; ssid_len8 ssid, why_len8 why follow */
+/* SCAN (6) / LIST (7): a list's page, small enough for any link (the Ableton Move's USB-A bridge loses a burst of more
+ * than ~200 bytes from the unit): WIFI_R `op status state which scanning scans8 total first count`, then count x
+ * `rssi8 flags8 channel8 ssid_len8 ssid`, the entries at most RFM_WIFI_PAGE_MAX bytes */
+enum { RFM_WIFI_LIST_SCAN = 0, RFM_WIFI_LIST_KEPT = 1 };
+#define RFM_WIFI_LIST_HDR 9u
+#define RFM_WIFI_PAGE_MAX 96u
+#define RFM_WIFI_F_SECURED 1u           /* a list entry's flags: a password needed */
+#define RFM_WIFI_F_KEPT 2u              /* .. the unit keeps this network */
+#define RFM_WIFI_F_HEARD 4u             /* .. the last scans heard it (rssi, secured and channel are its) */
+#define RFM_WIFI_F_JOINED 8u            /* .. the network joined (or being joined) now */
+#define RFM_WIFI_SCAN_MS 12000u         /* a scan not done after this long is given up (scanning 0) */
 #define RFM_MIDI_MASTER_MSB 7u          /* v14 = adc << 4: CC 7 = v14 >> 7, then CC 39 = v14 & 0x7F */
 #define RFM_MIDI_MASTER_LSB 39u
 

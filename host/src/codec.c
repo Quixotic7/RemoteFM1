@@ -528,3 +528,122 @@ void rfm_rx_stats(const rfm_rx_t *r, rfm_rx_stats_t *st)
     st->frame_gaps = r->st.frame_gaps;
     st->midi = r->midi;
 }
+
+/* ---------------------------------------------------------------- WIFI (the Wi-Fi build) ---- */
+uint32_t rfm_build_wifi_get(uint8_t *body)
+{
+    body[0] = RFM_WIFI_GET;
+    return 1;
+}
+
+uint32_t rfm_build_wifi_scan(uint8_t *body, int force)
+{
+    body[0] = RFM_WIFI_SCAN;
+    body[1] = force ? 1u : 0u;
+    return 2;
+}
+
+uint32_t rfm_build_wifi_list(uint8_t *body, uint32_t which, uint32_t first)
+{
+    body[0] = RFM_WIFI_LIST;
+    body[1] = (uint8_t)which;
+    body[2] = (uint8_t)first;
+    return 3;
+}
+
+uint32_t rfm_build_wifi_set(uint8_t *body, const char *ssid, const char *pass)
+{
+    const uint32_t sl = ssid ? (uint32_t)strlen(ssid) : 0u, pl = pass ? (uint32_t)strlen(pass) : 0u;
+    if (!sl || sl > RFM_WIFI_SSID_MAX || pl > RFM_WIFI_PASS_MAX)
+        return 0;
+    body[0] = RFM_WIFI_SET;
+    body[1] = (uint8_t)sl;
+    memcpy(body + 2, ssid, sl);
+    body[2u + sl] = (uint8_t)pl;
+    if (pl)
+        memcpy(body + 3u + sl, pass, pl);
+    return 3u + sl + pl;
+}
+
+uint32_t rfm_build_wifi_forget(uint8_t *body, uint32_t k)
+{
+    body[0] = RFM_WIFI_FORGET;
+    body[1] = (uint8_t)k;
+    return 2;
+}
+
+static int wifi_str(const uint8_t *b, uint32_t n, uint32_t *k, char *out, uint32_t cap)   /* len8 bytes */
+{
+    uint32_t l;
+    if (*k >= n)
+        return -1;
+    l = b[*k];
+    if (*k + 1u + l > n)
+        return -1;
+    if (l >= cap)
+        return -1;
+    memcpy(out, b + *k + 1u, l);
+    out[l] = 0;
+    *k += 1u + l;
+    return 0;
+}
+
+int rfm_parse_wifi_state(const uint8_t *b, uint32_t n, rfm_wifi_state_t *o)
+{
+    uint32_t k = RFM_WIFI_R_SSID, i;
+    memset(o, 0, sizeof *o);
+    if (!b || n < RFM_WIFI_R_SSID + 2u || b[0] > RFM_WIFI_MODE)
+        return -1;
+    o->op = b[0];
+    o->status = b[1];
+    o->state = b[2];
+    o->rssi = (int8_t)b[3];
+    memcpy(o->ip, b + 4, 4);
+    o->tcp_port = (uint16_t)(b[8] | b[9] << 8);
+    o->udp_port = (uint16_t)(b[10] | b[11] << 8);
+    o->host = b[12];
+    o->saved = b[13];
+    if (wifi_str(b, n, &k, o->ssid, sizeof o->ssid) || wifi_str(b, n, &k, o->why, sizeof o->why))
+        return -1;
+    if (o->op == RFM_WIFI_SAVED && k < n) {
+        const uint32_t m = b[k++];
+        for (i = 0; i < m; i++) {
+            char s[33];
+            if (wifi_str(b, n, &k, s, sizeof s))
+                return -1;
+            if (o->nkept < 6u)
+                memcpy(o->kept[o->nkept++], s, sizeof s);
+        }
+    }
+    return 0;
+}
+
+int rfm_parse_wifi_list(const uint8_t *b, uint32_t n, rfm_wifi_list_t *o)
+{
+    uint32_t k = RFM_WIFI_LIST_HDR, i;
+    memset(o, 0, sizeof *o);
+    if (!b || n < RFM_WIFI_LIST_HDR || (b[0] != RFM_WIFI_SCAN && b[0] != RFM_WIFI_LIST))
+        return -1;
+    o->op = b[0];
+    o->status = b[1];
+    o->state = b[2];
+    o->which = b[3];
+    o->scanning = b[4];
+    o->scans = b[5];
+    o->total = b[6];
+    o->first = b[7];
+    for (i = 0; i < b[8]; i++) {
+        rfm_wifi_net_t e;
+        if (k + 4u > n)
+            return -1;
+        e.rssi = (int8_t)b[k];
+        e.flags = b[k + 1u];
+        e.channel = b[k + 2u];
+        k += 3u;
+        if (wifi_str(b, n, &k, e.ssid, sizeof e.ssid))
+            return -1;
+        if (o->count < 16u)
+            o->net[o->count++] = e;
+    }
+    return 0;
+}
