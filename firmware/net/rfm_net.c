@@ -36,6 +36,9 @@
 #include "lwip/stats.h"
 #include "lwip/memp.h"
 #include "lwip/priv/sockets_priv.h"
+#ifndef TCP_SLOW_INTERVAL
+#define TCP_SLOW_INTERVAL 500                        /* (lwip/priv/tcp_priv.h: 2 x TCP_TMR_INTERVAL, 250 ms) */
+#endif
 #define RFN_SA_LEN(a) ((a).sin_len = sizeof(a))
 #endif
 #include "rfm_net.h"
