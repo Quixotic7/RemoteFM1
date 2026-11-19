@@ -50,6 +50,7 @@
 #if FM1B_WIFI
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/time.h>
 #endif
 static void run_ms(uint32_t ms);                    /* (plat_host.c's, below) */
 
@@ -252,7 +253,15 @@ static int hs_wfstore;                              /* rf wfstore's outcome */
 static uint32_t hs_net_w;                           /* the script's host's frames on TCP */
 /* rf serve ... stdin: the panel driven from standard input while serving (a host's end-to-end test); 1: "end" */
 static char hs_ctl[512];
-static uint32_t hs_ctl_n, hs_stall;                 /* (stall MS: the sockets left alone that long) */
+static uint32_t hs_ctl_n;
+static uint64_t hs_stall_until;                     /* (stall MS: the sockets left alone until then, real time, us) */
+static uint64_t hs_real_us(void)
+{
+    struct timeval tv;
+    gettimeofday(&tv, 0);
+    return (uint64_t)tv.tv_sec * 1000000u + (uint64_t)tv.tv_usec;
+}
+#define hs_stall (hs_real_us() < hs_stall_until)
 static int hs_ctl_name(const char *const *t, int n, const char *w)    /* (plat_host.c's names: defined after app.c) */
 {
     int i;
@@ -296,7 +305,7 @@ static int hs_serve_ctl(void)
             master = (uint32_t)atoi(w[1]);
         } else if (!strcmp(w[0], "stall")) {         /* stall MS: a TCP stall (a segment lost on the radio, resent
                                                      * late): the sockets untouched, the app running */
-            hs_stall = (uint32_t)atoi(w[1]);
+            hs_stall_until = hs_real_us() + (uint64_t)atoi(w[1]) * 1000u;
         } else if (!strcmp(w[0], "drop")) {
             rfn_close();
         } else if (!strcmp(w[0], "end")) {
@@ -804,9 +813,7 @@ int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, c
         fflush(stdout);
         for (k = 0; k < ms; k++) {
             int i;
-            if (hs_stall)
-                hs_stall--;
-            else
+            if (!hs_stall)
                 for (i = 0; i < 8 && rfn_poll() > 0; i++)
                     ;
             if (ctl && hs_serve_ctl())

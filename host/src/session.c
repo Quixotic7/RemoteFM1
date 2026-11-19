@@ -409,7 +409,8 @@ static int decide(rfm_session_t *s)
     if (s->max_in_flight > MAX_FLIGHT)
         s->max_in_flight = MAX_FLIGHT;
     logf_(s, "found %s (fw %s, caps 0x%x): frames on %s, panel on %s, body max %u, budget %u B/frame, %u in flight",
-          s->hello.name, s->hello.fw_ver, s->hello.caps, s->links[frame].name, sx >= 0 ? s->links[sx].name : "none",
+          s->hello.name, s->hello.fw_ver, s->hello.caps, s->links[frame].name,
+          s->midi_link >= 0 ? s->links[s->midi_link].name : "none",
           s->body_max, s->budget, s->max_in_flight);
     if (s->paced) {
         char tiles[40] = "tiles exact";
