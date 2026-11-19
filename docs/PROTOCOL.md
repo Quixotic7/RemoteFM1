@@ -536,6 +536,12 @@ TCP ended). Over TCP:
   straddle a stall; its FRAME_ACK follows. A longer frame goes on as it comes. libremotefm1 keeps a TCP frame to 14,000
   bytes of tiles and at most 16 KB of TILES unacknowledged (one frame in flight), so the unit's TCP input never fills
   and the newest screen is the one sent after a stall.
+- **A TCP session keeps the panel** (1e). While a session runs over TCP and its host is connected, a SESSION (start
+  or end) from another transport (a computer's player on the unit's USB) is ignored and not answered (WIFI DIAG
+  counts it, `refused`). Before, section 2's rule applied ("a SESSION start on another transport moves the session
+  there"): on the owner's FM-1 a player on the Mac's USB took the session again and again, the FM-1 showed that
+  player's firmware, and the Move's frames were acknowledged but never shown (outside a session nothing is drawn).
+  A session on USB is still taken over by a SESSION start over TCP. A host over TCP takes PANEL_R's heartbeat as 4 s.
 - **Why the shadow was reset** (the Wi-Fi build): a FRAME_ACK with `status` bit1 carries the reason in bits 4..7: 1
   power-on, 2 the audio mode ended, 3 a SESSION start, 4 something else drew on the panel (`RFM_ACK_REASON_*`). Other
   builds leave bits 4..7 at 0. libremotefm1 logs it ("the unit's shadow was reset, a SESSION start") and keeps it in

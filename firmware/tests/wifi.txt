@@ -64,11 +64,19 @@ rf session net 1 3000
 expect rf_session 1
 expect rf_session_t 3
 expect rf_n_net_46 1
-# WIFI DIAG (04): the sockets' counters, then a version byte, 26 x u32 of the loop's, 14 x u32 of lwIP's
+# WIFI DIAG (04): the sockets' counters, then a version byte, 28 x u32 of the loop's, 14 x u32 of lwIP's
 rf send usb 17 04
 expect rf_wifi_op 4
 expect rf_wifi_status 0
-expect rf_wifi_tail 205
+expect rf_wifi_tail 213
+# a TCP session keeps the panel: another host's SESSION over USB (start or end) is ignored, not answered
+rf session usb 1 3000
+expect rf_session 1
+expect rf_session_t 3
+expect rf_n_usb_46 0
+rf session usb 0
+expect rf_session 1
+expect rf_session_t 3
 # whole frames over TCP: a frame's first message shows nothing, its END shows all of it at once
 wait 50
 rf snap

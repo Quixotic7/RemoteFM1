@@ -127,6 +127,14 @@ and the screen while Wi-Fi works, discovery through the owner's router, and that
 - **1c on the unit was worse than 1b** (2026-11-19: ack 350 ms, PANEL_R gaps of 6 s, sessions restarting): see
   "Diagnostics" below; 1d decodes a kept frame in 4 KB slices, sends 2 frames of 10 KB in flight again, never
   restarts a session over TCP for a late PANEL_R, and counts SESSION's ACKs.
+- **1d's traces (2026-11-19) found it:** for 160 of 240 s the unit sent no PANEL_R and counted no whole frame on TCP
+  while the Move's frames were acknowledged: its session was on USB (two SESSION starts that did not come over TCP,
+  and one SESSION 0 that ended the Move's), taken by a player on the Mac the FM-1 was plugged into. Outside a session
+  the unit acknowledges TILES and draws nothing, so the FM-1 showed the other player's firmware ("other firmwares'
+  screens"), the Move's screen came back only when its heartbeat restarted the session ("blocks", restarts, "shadow
+  reset, a SESSION start"). The loop (turns <= 6 ms), the socket task (<= 31 ms), TCP's input (never full) and lwIP
+  (no retransmissions) were fine. 1e: a TCP session is not taken by another transport (PROTOCOL.md section 10); DIAG
+  says where the session is (`on`) and what it refused.
 - **Not done:** mDNS (`fm1-XXXX.local`, `_remotefm1._tcp`): lwIP's responder is in the SDK (`apps/mdns`) but not built
   by fm1-base (its options, its sources, its RAM: a patch to fm1-base); the UDP responder is the discovery. The
   screen's rate on the unit (no shadow: rectangles go to the panel row by row as they are decoded) is to be measured.

@@ -402,8 +402,10 @@ static int decide(rfm_session_t *s)
         s->wire_frame_max = RFM_BK_HDR_LEN * (s->budget / s->body_max + 2u) + RFM_TILES_HDR * (s->budget / s->body_max + 2u) +
                             s->budget + RFM_RECT_HDR + 2u * RFM_TILE * RFM_TILE;
         s->start_ms = max_u(s->start_ms, RFM_TCP_START_MS);
-        s->heartbeat_ms = 0;                            /* (a late PANEL_R over a live connection is a stall: the
-                                                         * unit says so in PANEL_R when its session is gone) */
+        if (s->heartbeat_ms)                            /* (PANEL_R every 500 ms: none for 4 s on a live connection
+                                                         * means the session went elsewhere, e.g. a player on the
+                                                         * unit's USB took it on a unit before 1e: take it back) */
+            s->heartbeat_ms = max_u(s->heartbeat_ms, RFM_TCP_HEARTBEAT_MS);
         s->lost_ms = max_u(s->lost_ms, RFM_TCP_LOST_MS);
     } else {
         const uint32_t bps = s->tcp ? RFM_BUDGET_TCP_BPS

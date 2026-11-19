@@ -1147,9 +1147,22 @@ static void rfa_diag(uint32_t t, uint32_t cmd, const uint8_t *body, uint32_t len
     }
 }
 
+#if FM1B_WIFI
+static uint32_t rf_dg_refused;                      /* (WIFI DIAG) SESSIONs from elsewhere refused: a TCP session's */
+#endif
 static void rf_on_msg(void *ctx, uint32_t cmd, const uint8_t *body, uint32_t len)
 {
     uint32_t t = (uint32_t)(uintptr_t)ctx;
+#if FM1B_WIFI
+    /* a session over TCP keeps the panel while its host is connected: a SESSION (start or end) from another transport
+     * (a computer's player on USB) is ignored, not answered. Before (1b..1d on the owner's FM-1), a host on the Mac's
+     * USB took the session over again and again: the FM-1 showed that host's firmware, the Move's frames were decoded
+     * outside a session (acknowledged, never shown), PANEL_R went to USB, and the Move restarted its session */
+    if (cmd == RFM_SESSION && rfa.session && rfa.st == RF_T_NET && t != RF_T_NET && rfn_up()) {
+        rf_dg_refused++;
+        return;
+    }
+#endif
     rf_heard |= (uint8_t)(1u << t);
     sa_host_msg(t, cmd, body, len);                 /* a HELLO hands the FM-1 to the host (sa_main.c) */
     if (cmd == RF_HELLO && rf_src.on)

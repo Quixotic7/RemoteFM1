@@ -106,7 +106,7 @@ enum { RFM_S_DISCOVER = 0, RFM_S_STARTING, RFM_S_ACTIVE, RFM_S_STOPPING, RFM_S_S
  * PANEL_R and anything at all may be this late; the unit's keepalive is at least RFM_TCP_KEEPALIVE_MS (the
  * connection's end ends a session anyway) */
 #define RFM_TCP_START_MS 5000u
-#define RFM_TCP_HEARTBEAT_MS 6000u                       /* (not used since 1d: no heartbeat over TCP) */
+#define RFM_TCP_HEARTBEAT_MS 4000u                       /* PANEL_R's heartbeat over TCP (1d traces: gaps <= 0.6 s) */
 #define RFM_TCP_LOST_MS 10000u
 #define RFM_TCP_ACK_MIN_MS 5000u
 #define RFM_TCP_KEEPALIVE_MS 10000u

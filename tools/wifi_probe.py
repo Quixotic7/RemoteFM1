@@ -50,7 +50,9 @@ NET_STATS = "accepts closes replaced rx_bytes tx_bytes rx_full tx_eagain udp_in 
 # _max / _min / h* since the last DIAG (the unit starts them again at every DIAG); the others since the start.
 DIAG_LOOP = ("ms turn_max_us h_lt250us h_lt1ms h_lt4ms h_lt16ms h_lt64ms h_ge64ms outside_max_us net_gap_max_ms "
              "frame_us_max frame_us_last frame_turns_max frames_whole frames_over panel_r panel_r_gap_max_ms "
-             "tx_drop rx_full_ms_max rx_full_events sess_starts end_host end_keepalive end_conn last_reset mode").split()
+             "tx_drop rx_full_ms_max rx_full_events sess_starts end_host end_keepalive end_conn last_reset mode "
+             "refused session_on").split()
+SESSION_ON = {0: "usb", 1: "bulk", 2: "ble", 3: "tcp", 255: "none"}
 DIAG_TCP = ("nrtx_events nrtx_max rto_max_ms snd_wnd_min rcv_wnd_min persist_events tx_pending_max tcp_xmit "
             "tcp_recv tcp_drop tcp_memerr link_recv link_drop pbuf_err").split()
 RESET_WHY = ["-", "power-on", "audio end", "SESSION", "panel drawn by another"]
@@ -177,6 +179,7 @@ def selftest():
     r3 += bytes([1]) + struct.pack(f"<{nd}I", *range(100, 100 + nd))
     w3 = parse_wifi_r(bytes(r3))
     assert w3["diag"]["ms"] == 100 and w3["diag"]["mode"] == 125 and w3["diag"]["pbuf_err"] == 100 + nd - 1, w3["diag"]
+    w3["diag"]["session_on"] = 3
     w3["diag"]["last_reset"] = 3
     assert "reset SESSION" in diag_line(w3["diag"], None, w3)
     print("wifi_probe selftest ok")
@@ -295,7 +298,8 @@ def diag_line(d, prev, w):
             f"+{dd('frames_whole')}w +{dd('frames_over')}o | PANEL_R +{dd('panel_r')} gap {d['panel_r_gap_max_ms']:5d}ms "
             f"txdrop +{dd('tx_drop')} | rxfull {d['rx_full_ms_max']:5d}ms +{dd('rx_full_events')} | "
             f"sess +{dd('sess_starts')} end h{dd('end_host')}/k{dd('end_keepalive')}/c{dd('end_conn')} "
-            f"reset {RESET_WHY[d['last_reset']] if d['last_reset'] < len(RESET_WHY) else d['last_reset']} | "
+            f"reset {RESET_WHY[d['last_reset']] if d['last_reset'] < len(RESET_WHY) else d['last_reset']} "
+            f"on {SESSION_ON.get(d.get('session_on', 255), '?')} refused +{dd('refused')} | "
             f"rexmit +{dd('nrtx_events')} x{d['nrtx_max']} rto {d['rto_max_ms']}ms wnd s{d['snd_wnd_min']}/r{d['rcv_wnd_min']} "
             f"persist +{dd('persist_events')} txq {d['tx_pending_max']} | tcp +{dd('tcp_xmit')}/+{dd('tcp_recv')} "
             f"drop +{dd('tcp_drop')} mem +{dd('tcp_memerr')} | link +{dd('link_recv')} drop +{dd('link_drop')} "

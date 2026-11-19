@@ -198,12 +198,12 @@ static void rf_wifi_ms(void)
 
 /* ------------------------------------------------------------------ WIFI DIAG (docs/WIFI.md "Diagnostics") --- */
 /* what the main loop, the socket task, the session and lwIP did since the last DIAG (maxima, histograms) or since the
- * start (counters): a version byte, 26 x u32 (DG_*), then rfn_diag_t's 14 x u32, after WIFI_R's sockets' counters */
+ * start (counters): a version byte, 28 x u32 (DG_*), then rfn_diag_t's 14 x u32, after WIFI_R's sockets' counters */
 enum {
     DG_MS, DG_TURN_MAX_US, DG_H0, DG_H1, DG_H2, DG_H3, DG_H4, DG_H5, DG_OUTSIDE_MAX_US, DG_NET_GAP_MAX_MS,
     DG_FRAME_US_MAX, DG_FRAME_US_LAST, DG_FRAME_TURNS_MAX, DG_FRAMES_WHOLE, DG_FRAMES_OVER,
     DG_PANEL_R, DG_PANEL_R_GAP_MAX_MS, DG_TX_DROP, DG_RX_FULL_MS_MAX, DG_RX_FULL_EVENTS,
-    DG_SESS_STARTS, DG_END_HOST, DG_END_KEEPALIVE, DG_END_CONN, DG_LAST_RESET, DG_MODE, DG_N
+    DG_SESS_STARTS, DG_END_HOST, DG_END_KEEPALIVE, DG_END_CONN, DG_LAST_RESET, DG_MODE, DG_REFUSED, DG_SESS_T, DG_N
 };
 #define DG_HIST_N 6u                                /* turn lengths: < 0.25, 1, 4, 16, 64 ms, more */
 static uint32_t rf_dg[DG_N];
@@ -277,6 +277,8 @@ static uint32_t rf_dg_put(uint8_t *b)               /* the DIAG block; maxima an
     rf_dg[DG_END_CONN] = rf_dg_conn_ends;
     rf_dg[DG_LAST_RESET] = rfa.last_reset;
     rf_dg[DG_MODE] = rf_nf_on;
+    rf_dg[DG_REFUSED] = rf_dg_refused;
+    rf_dg[DG_SESS_T] = rfa.session ? rfa.st : 0xFFu;   /* the session's transport now (0 USB SysEx, 1 bulk, 3 TCP) */
     for (i = 0; i < DG_N; i++)
         rf_wr32(b + 4u * i, rf_dg[i]);
     rf_dg[DG_TURN_MAX_US] = rf_dg[DG_OUTSIDE_MAX_US] = rf_dg[DG_NET_GAP_MAX_MS] = 0;
