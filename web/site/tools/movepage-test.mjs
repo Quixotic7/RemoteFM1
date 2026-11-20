@@ -45,7 +45,8 @@ try {
 // the release states: nothing unreleased is shown as if it were out
 const data = JSON.parse(readFileSync(new URL("../move/data/move.json", import.meta.url), "utf8"));
 const rm = data.remotefm14move;
-ok(typeof rm.released === "boolean" && (rm.released || (rm.bundled === null && rm.version === null)),
+ok(typeof rm.released === "boolean" && (rm.released ? /^\d+\.\d+\.\d+$/.test(rm.version) && rm.release === `${rm.repo}/releases/tag/v${rm.version}`
+     && Number.isInteger(rm.bundled) && rm.bundled > 0 && rm.bundledMB > 0 : (rm.bundled === null && rm.version === null)),
    `data/move.json: RemoteFM14Move ${rm.released ? "released " + rm.version : "not released (no version, no bundled count)"}`);
 ok(data.moveRemote.version && /^https:\/\/github\.com\//.test(data.moveRemote.repo), `data/move.json: Move Remote ${data.moveRemote.version}`);
 const html = readFileSync(new URL("../move/index.html", import.meta.url), "utf8");
