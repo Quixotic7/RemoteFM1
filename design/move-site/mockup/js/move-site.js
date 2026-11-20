@@ -18,6 +18,27 @@ function meter(m, n) {
 }
 $$(".meter").forEach((m) => meter(m));
 
+// ---------------------------------------------------------------- the Move's button icons (the manual's figure)
+const ICON = {
+  back: '<path d="M14 6l-6 6 6 6"/>',
+  menu: '<path d="M6 8h12M6 12h12M6 16h12"/>',
+  capture: '<path d="M6 10V6h4M14 6h4v4M18 14v4h-4M10 18H6v-4"/>',
+  sample: '<circle cx="12" cy="12" r="3.5" class="f"/>',
+  loop: '<path d="M7 14.5A5 5 0 1 1 12 17h-3"/><path d="M11 15l-2 2 2 2"/>',
+  mute: '<path d="M7 17V7l5 6 5-6v10"/>',
+  delete: '<path d="M7 7l10 10M17 7L7 17"/>',
+  copy: '<path d="M9 9h8v8H9z"/><path d="M7 15V7h8"/>',
+  undo: '<path d="M9 8L5 12l4 4"/><path d="M5 12h9a4 4 0 0 1 0 8h-2"/>',
+  shift: '<circle cx="7" cy="12" r="1.6" class="f"/><circle cx="12" cy="12" r="1.6" class="f"/><circle cx="17" cy="12" r="1.6" class="f"/>',
+  play: '<path d="M9 6.5v11l9-5.5z"/>',
+  rec: '<circle cx="12" cy="12" r="5"/>',
+  left: '<path d="M14 7l-5 5 5 5"/>',
+  right: '<path d="M10 7l5 5-5 5"/>',
+  plus: '<path d="M12 6v12M6 12h12"/>',
+  minus: '<path d="M6 12h12"/>',
+};
+const icon = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[name] || ""}</svg>`;
+
 // ---------------------------------------------------------------- the Move, in % of its body (the manual's figure:
 // the body 1260 x 588 at 370,145; every centre and size below is that figure's)
 const W = 1260, H = 588, X0 = 370, Y0 = 145;
@@ -38,12 +59,13 @@ function el(parent, cls, pos, attrs = {}) {
 }
 function drawMove(root, hero) {
   const ctl = (name) => hero ? {} : { "data-ctl": name, tabindex: "0", role: "button", "aria-label": CTL[name] ? CTL[name].t : name };
-  el(root, "m-oled", box(467, 217, 135, 69), ctl("oled")).textContent = hero ? "FELUCCA" : "FM-1 MODE";
+  // the screen: the firmware that plays, big in the pixel face, as RemoteFM1 on the Move shows it
+  el(root, "m-oled", box(467, 217, 135, 69), ctl("oled")).innerHTML = '<b>ChoralRoot</b><small>SLOT 1 · FM-1</small>';
   KNOB_X.forEach((x, i) => { const k = el(root, "m-knob", box(x, 204, 44, 44), ctl("knob" + (i + 1))); k.style.setProperty("--rot", (i * 37 - 120) + "deg"); });
   const v = el(root, "m-vol", box(1571, 212, 60, 60), ctl("volume")); v.style.setProperty("--rot", "40deg");
   el(root, "m-jog", box(464, 362, 106, 106), ctl("jog"));
-  el(root, "m-btn", box(428, 483, 54, 54), ctl("back")).innerHTML = "<i></i>";
-  el(root, "m-btn", box(500, 483, 54, 54), ctl("menu")).innerHTML = "<i></i>";
+  el(root, "m-btn", box(428, 483, 54, 54), ctl("back")).innerHTML = icon("back");
+  el(root, "m-btn", box(500, 483, 54, 54), ctl("menu")).innerHTML = icon("menu");
   const TRACK = ["#b98cff", "#b9f53e", "#3ccbff", "#ff5f57"];
   PAD_Y.forEach((y, i) => { const t = el(root, "m-track", box(567, y, 30, 70), ctl("track" + (i + 1))); t.style.setProperty("--lc", i === 0 || hero ? TRACK[i] : "#4a4a4f"); });
   PAD_Y.forEach((y, r) => PAD_X.forEach((x, c) => {
@@ -60,20 +82,20 @@ function drawMove(root, hero) {
     else if (BLACK[c]) p.classList.add("hatch");
   }));
   RIGHT.forEach((pair, r) => pair.forEach((name, c) => {
-    const b = el(root, "m-btn" + (name === "shift" ? " shift" : " round"), box([1499, 1571][c], PAD_Y[r], 54, 54), ctl(name));
-    b.innerHTML = "<i></i>";
+    const b = el(root, "m-btn" + (name === "shift" ? " shift" : ""), box([1499, 1571][c], PAD_Y[r], 54, 54), ctl(name));
+    b.innerHTML = icon(name);
     if (!hero && FM1_LIT[name]) { b.classList.add("lit"); b.style.setProperty("--lc", FM1_LIT[name]); }
   }));
-  el(root, "m-btn round", box(428, 660, 54, 54), ctl("play")).innerHTML = "<i></i>";
-  el(root, "m-btn round", box(500, 660, 54, 54), ctl("rec")).innerHTML = "<i></i>";
+  el(root, "m-btn", box(428, 660, 54, 54), ctl("play")).innerHTML = icon("play");
+  el(root, "m-btn", box(500, 660, 54, 54), ctl("rec")).innerHTML = icon("rec");
   for (let i = 0; i < 16; i++) {
     const s = el(root, "m-step", box(627 + i * 53.3, 660, 34, 34), ctl("steps"));
     if (hero && i % 4 === 0) s.style.setProperty("--lc", "#ffffff");
   }
-  el(root, "m-btn", box(1489, 660, 36, 36), ctl("left"));
-  el(root, "m-btn", box(1581, 660, 36, 36), ctl("right"));
-  el(root, "m-btn", box(1535, 635, 36, 36), ctl("updown"));
-  el(root, "m-btn", box(1535, 685, 36, 36), ctl("updown"));
+  el(root, "m-btn sm", box(1489, 660, 36, 36), ctl("left")).innerHTML = icon("left");
+  el(root, "m-btn sm", box(1581, 660, 36, 36), ctl("right")).innerHTML = icon("right");
+  el(root, "m-btn sm", box(1535, 635, 36, 36), ctl("updown")).innerHTML = icon("plus");
+  el(root, "m-btn sm", box(1535, 685, 36, 36), ctl("updown")).innerHTML = icon("minus");
   el(root, "m-usb", {}, ctl("usba"));
 }
 const FM1_LIT = { capture: "#ff8a4c", sample: "#ff8a4c", mute: "#ff8a4c", delete: "#ff8a4c", copy: "#ff8a4c", loop: "#ff8a4c", undo: "#ff8a4c" };
@@ -91,7 +113,7 @@ const CTL = {
   knob8: { t: "Knob 8", o: "K4", b: "The FM-1's K4." },
   volume: { t: "Volume knob", o: "MASTER", b: "The FM-1's MASTER. Touch it, with Shift and a jog click, to leave the tool." },
   jog: { t: "Jog wheel", o: "SELECT", b: "Turns the FM-1's SELECT encoder.", B: "In the projects view: picks a slot, a firmware or a state; a press downloads from the catalog." },
-  oled: { t: "The screen", o: "128 x 64", b: "The FM-1's 240 x 240 colour screen, shrunk to the Move's: a thumbnail with the knob being touched, a zoom, or the labels.", A: "The full screen is on your computer or phone.", B: "The full screen is on the page at remotefm1.local:7730, or on an FM-1." },
+  oled: { t: "The screen", o: "ChoralRoot", b: "The FM-1's 240 x 240 colour screen, shrunk to the Move's: a thumbnail with the knob being touched, a zoom, or the labels.", A: "The full screen is on your computer or phone.", B: "The full screen is on the page at remotefm1.local:7730, or on an FM-1." },
   track1: { t: "Track 1", o: "FM-1 MODE", b: "FM-1 mode (violet): the pads are the FM-1's keys.", B: "Held with Step 1: the projects view." },
   track2: { t: "Track 2", o: "MIDI MODE", b: "MIDI mode (lime): the pads play notes into the firmware's MIDI in. Hold it to pick the layout and channel." },
   track3: { t: "Track 3", o: "CONTROL", b: "Control mode (cyan): MIDI mode plus the knobs as CCs, in four banks." },
@@ -195,7 +217,7 @@ const svg = $(".arch-svg");
   const g = $(".padgrid", svg);
   for (let r = 0; r < 4; r++) for (let c = 0; c < 6; c++) {
     const p = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-    Object.entries({ x: 352 + c * 17, y: 246 + r * 22, width: 13, height: 17, rx: 2.5, opacity: .85 }).forEach(([k, v]) => p.setAttribute(k, v));
+    Object.entries({ x: 352 + c * 17, y: 246 + r * 22, width: 13, height: 17, rx: 1, opacity: .85 }).forEach(([k, v]) => p.setAttribute(k, v));
     const k = (r * 6 + c) % 5;
     p.style.fill = k === 0 ? "#b9f53e" : k === 1 ? "#fff" : k === 2 ? "url(#pd-hatch)" : "none";
     p.style.stroke = "#fff"; p.style.strokeWidth = "1"; p.removeAttribute("opacity");

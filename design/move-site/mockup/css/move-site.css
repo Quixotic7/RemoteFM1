@@ -509,3 +509,24 @@ main { max-width: 1180px; margin: 0 auto; padding: 0 16px; }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } html { scroll-behavior: auto; } }
 .ai-kicker, .ei-kicker { background: none; color: #dcdcdc; font: 500 11px/1.2 var(--mono); text-transform: uppercase; letter-spacing: .08em; padding: 0; }
+
+/* ---- the Move, boxy as the device (the owner, 2026-11-19): a rectangle with small round corners, square-cornered
+   screen and pads, round buttons with the device's own icons only (the manual's figure), no bevels anywhere */
+.move { container-type: inline-size; border-radius: 1.2cqw; }
+.m-oled { border-radius: 0; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: .3cqw; padding: 0 .9cqw;
+  font-size: 1cqw; text-shadow: none; }
+.m-oled b { font: 400 2.15cqw/1 var(--px); letter-spacing: .02em; }
+.m-oled small { font: 500 .95cqw/1 var(--mono); letter-spacing: .08em; opacity: .9; }
+.m-pad { border-radius: .35cqw; }
+.m-btn { border-radius: 50%; color: var(--wh); }
+.m-btn svg { width: 62%; height: 62%; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.m-btn svg .f, .m-btn svg path[d^="M9 6.5"] { fill: currentColor; stroke: none; }
+.m-btn.sm svg { width: 70%; height: 70%; }
+.m-btn.shift { background: var(--wh); color: var(--bk); }
+.m-btn.shift svg .f { fill: var(--bk); }
+.m-btn.lit { color: var(--lc); border-color: var(--lc); }
+.m-btn i { display: none; }
+.m-track { border-radius: 999px; }
+.arch-svg .node-move > rect:first-child { rx: 6px; }
+.arch-svg .node-move .oled { fill: var(--wh); }
+.arch-svg .oled-t { font: 400 15px var(--px); fill: var(--bk) !important; stroke: none !important; text-anchor: start !important; }
