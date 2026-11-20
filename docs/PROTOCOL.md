@@ -50,6 +50,14 @@ One message = a command byte + a body (8-bit bytes, multi-byte fields **little e
   max(2 s, 500 ms + 3 × what is in flight at the rate), and SESSION retried after 1 s. With a USB port of the same
   unit it uses that one. USB-MIDI and bulk keep their pacing (about 280 KB/s and 800 KB/s, at most 2 frames
   unacknowledged; `host/include/rfm`).
+- **A slow SysEx link that is not Bluetooth (host side only).** An FM-1 on the Ableton Move's USB-A port (RemoteFM14Move)
+  is a USB-MIDI device of the Move's surface controller, which bridges its MIDI into the Move's SPI transfers: about
+  8-14 KB/s host → device, and a burst of more than about 200 bytes from the device is lost (2026-11-19). Its HELLO_R
+  says USB. A host that knows its link is like that sets libremotefm1's `slow_link` (with `slow_bps`, default 8000,
+  and `slow_wire_cap`, default 2048): any SysEx frame link that is not Bluetooth is then paced as Bluetooth is (the
+  rate, the budget of 100 ms of it, at most 20 frames a second, the cap on unacknowledged TILES, the timeouts) with
+  the lossy tiles, their refinement and HOLD below. In a session the device only sends small messages (panel events,
+  ACK, FRAME_ACK, PANEL_R, MIDI_IN), so nothing changes on its side.
 - **Bluetooth: lossy tiles (host side only; the wire format is unchanged).** Over Bluetooth libremotefm1 sends a
   16×16 tile with more than 4 colours (`ble_colors`, 0 = lossless, 2..16) as its best 4 (median cut + k-means on the
   tile's own colours, each drawn in a colour the tile has) when that encodes smaller, mostly PAL at 2 bpp instead of
@@ -221,7 +229,8 @@ what differs.
 ### Panel events: plain MIDI (0.2: always; the standalone build: only in a session)
 
 They go to the session's MIDI port: USB-MIDI (EP1) for a session over USB SysEx or bulk, Bluetooth MIDI for a session
-over Bluetooth. 0.2 also sends them with no session, to USB (when configured) and to a connected Bluetooth computer.
+over Bluetooth. A session over TCP (the Wi-Fi build, section 10) has no MIDI port: the same bytes come as PANEL_EV
+(`0x56`) messages on the session's stream. 0.2 also sends them with no session, to USB (when configured) and to a connected Bluetooth computer.
 **The standalone build sends them only during a session**: without one, its keys send the instrument's notes (on its
 MIDI channel, with velocity, to USB and Bluetooth at once) and its knobs its CCs, not these events. They wait in a
 short queue (256 events) when a port has no room, and are dropped when nobody is connected.
@@ -499,3 +508,109 @@ has the numbers and what each host needs.
   (5 cents), so a host clock a little fast or slow keeps the buffer near `buffer_ms`. TILES in the mode are
   acknowledged at once and dropped (not drawn: the ring is the shadow's last rows on the FM-1); HOLD is ignored.
 - Bytes, over SysEx: on at 22,050 Hz with a 120 ms buffer: `F0 7D 52 46 15 <01 00 02 78 00 packed> F7`.
+
+## 10. The Wi-Fi build (a test build: `firmware/fm1-wifi.toml`, docs/WIFI.md; `caps` bit12 `RFM_CAP_WIFI`)
+
+A separate package (`./build.sh --wifi`, identity `FM-1_72900`, HELLO_R `identity` "FM-1_729"): Wi-Fi instead of
+Bluetooth and USB audio. USB (SysEx, the vendor pair, the updater) works as in the other builds.
+
+**TCP.** The FM-1 listens on port 7740 (`RFM_NET_TCP_PORT`) and carries the bulk framing over the stream, byte for
+byte as on the vendor pair: `'R' 'F' <cmd> 00 <len16> <seq32> <body>`. One host at a time: a new connection replaces
+the one before (closed), and each connection starts afresh (its `seq` from 0 both ways, the parser empty, a session on
+TCP ended). Over TCP:
+
+- HELLO_R: `transports` bit6 (`RFM_TR_NET`) while a host is connected; `bk_rx_ring32` / `bk_tx_ring32` are the TCP
+  transport's rings (8192 / 8192); `bk_body_max16` 4096 (the build's RAM: the vendor pair has the same maximum, its
+  rings 2048); `caps` 0x362C (no shadow, no COPY, no HOLD, no Bluetooth audio; bit12 WIFI, bit13 PANEL_EV). The
+  phase-0 spike (2e2d2ce) said 0x162C: no PANEL_EV.
+- M0's diagnostics (section 5) work as on the vendor pair. STATS_R asked over TCP gives the TCP transport's counters
+  in the bulk fields (`bk_rx_msgs` .. `bk_frame_gaps`, `bk_rx_ps`, `bk_tx_ps`). SOURCE's DATA: at most 4096 bytes a
+  message.
+- A session over TCP: SESSION, LEDS, TILES, FRAME_ACK, PANEL_R (PANEL_REQ, TOUCH's flags), TOUCH and MIDI_IN work as
+  on the vendor pair (a host need not pace it: 2 frames in flight; libremotefm1 budgets `RFM_BUDGET_TCP_BPS`, 300,000
+  B/s, of the 494,000 measured; 200,000 from 2026-11-19, 10 KB a frame against the FM-1's 8.8 KB TCP window). A USB
+  reset or unplug does not end a TCP session; the connection's end does (and a new connection, which replaces it).
+- **Whole frames** (caps bit14 `RFM_CAP_NET_FRAMES`; caps 0x762C). This build has no shadow: a rectangle goes to the
+  panel as it is decoded. Over TCP the unit keeps a frame's TILES messages (up to `RFM_NET_FRAME_MAX`, 16,384 bytes:
+  each body and 2) and decodes them together when its END comes, so the frame shows at once even when its messages
+  straddle a stall; its FRAME_ACK follows. A longer frame goes on as it comes. libremotefm1 keeps a TCP frame to 14,000
+  bytes of tiles and at most 16 KB of TILES unacknowledged (one frame in flight), so the unit's TCP input never fills
+  and the newest screen is the one sent after a stall.
+- **A TCP session keeps the panel** (1e). While a session runs over TCP and its host is connected, a SESSION (start
+  or end) from another transport (a computer's player on the unit's USB) is ignored and not answered (WIFI DIAG
+  counts it, `refused`). Before, section 2's rule applied ("a SESSION start on another transport moves the session
+  there"): on the owner's FM-1 a player on the Mac's USB took the session again and again, the FM-1 showed that
+  player's firmware, and the Move's frames were acknowledged but never shown (outside a session nothing is drawn).
+  A session on USB is still taken over by a SESSION start over TCP. A host over TCP takes PANEL_R's heartbeat as 4 s.
+- **Why the shadow was reset** (the Wi-Fi build): a FRAME_ACK with `status` bit1 carries the reason in bits 4..7: 1
+  power-on, 2 the audio mode ended, 3 a SESSION start, 4 something else drew on the panel (`RFM_ACK_REASON_*`). Other
+  builds leave bits 4..7 at 0. libremotefm1 logs it ("the unit's shadow was reset, a SESSION start") and keeps it in
+  `stats.reset_reason`.
+- **A kept frame** is decoded at most 4 KB of TILES bodies a turn of the unit's loop, TCP's input left waiting
+  meanwhile, so the radio's tasks are never held up longer than by any other turn.
+- **The connection's end** ends a TCP session; the unit keeps the host's last screen 4 s before its own screens come
+  back, so a host that connects again at once (a Wi-Fi hiccup) takes over without them flashing in between.
+- **TCP's stalls.** A segment lost on the radio is resent by TCP a second or more later (lwIP's 500 ms timers on the
+  FM-1), and nothing behind it arrives meanwhile: FRAME_ACKs, PANEL_R, SESSION's ACK. A host waits that out instead of
+  taking it for a lost session: it sends SESSION start once (a second one, sent because the first one's ACK was late,
+  restarts the unit's session, whose first FRAME_ACK then says "shadow reset"), asks a keepalive of at least 10 s, and
+  gives PANEL_R 6 s, the unit 8 s, a FRAME_ACK 5 s (libremotefm1 `RFM_TCP_*`). The connection's end is still seen at
+  once. (Found on the owner's FM-1, 2026-11-19: with USB's timeouts the session restarted every few seconds.)
+- **PANEL_EV** (`0x56`, device → host; units with `caps` bit13 `RFM_CAP_PANEL_EV`): the panel's events in a session
+  over TCP, which has no MIDI port. Body: 1..`RFM_PANEL_EV_MAX` (96) bytes, the events exactly as section 4's plain
+  MIDI (`9F/8F 53+k`, `AF 53+k p`, `9E/8E b`, `BE 16+e 64+d`, `BE 07 / BE 27` MASTER), whole channel messages with
+  their status byte (no running status), in the order they happened. Their meaning, TOUCH's velocity and pressure, the
+  encoder splitting, MASTER's deadband and its message at a session's start are section 4's.
+  - The unit sends what its event queue (256) holds as soon as TCP's ring has room, up to 32 events a message; a
+    burst waits in the queue, never dropped while the host reads. Nothing goes to USB or Bluetooth meanwhile (a TCP
+    session owns the panel). With no session, the panel's events go where they always went (USB, Bluetooth).
+  - They travel in the same stream as PANEL_R, so a PANEL_R never overtakes an event (on USB it can: section 4's
+    settle time still applies, harmlessly).
+  - A host takes PANEL_EV only on the session's link; it feeds each message to the same decoder as the MIDI link's
+    events (libremotefm1: `rfm_panel_midi`). A unit without bit13 (the phase-0 spike) sends none: its panel reaches a
+    host only by PANEL_R.
+  - Bytes, a key 5 down at velocity 100 then encoder 3 one detent clockwise: `'R' 'F' 56 00 06 00 <seq32> 9F 3A 64 BE
+    13 41`.
+
+**Discovery.** A UDP datagram that starts `RFM1?` (5 bytes) sent to port 7741 (`RFM_NET_UDP_PORT`), broadcast or to
+the FM-1's address, is answered to its sender with `RFM1!\n` and key=value lines: `name` ("FM-1 XXXX", the unit's
+Bluetooth name in its other builds), `id` (the identity), `ver`, `port` (7740), `ip`, `busy` (1: a host is connected),
+`session` (1: in a session). No mDNS (lwIP's responder is not in fm1-base's build): a host broadcasts, or asks an
+address it remembers. libremotefm1 reads the answer with `rfm_parse_discovery`.
+
+**WIFI** (`0x17`) / **WIFI_R** (`0x57`): the network. Request body: `op8 ...`.
+
+| op | request | what it does |
+|---|---|---|
+| 0 GET | `00` (or empty) | the state |
+| 1 SET | `01 ssid_len8 ssid pass_len8 pass` | join this network (SSID 1..32 bytes, password 0..63; 0: an open network). The FM-1 keeps it (fm1-base's store, six networks, the most recent first) once it has joined, and joins the networks kept at every start and again after a drop. USB only (SysEx or bulk) |
+| 2 FORGET | `02 k8` | forget network `k` (0 the most recent), `FF` all of them. USB only |
+| 3 SAVED | `03` | the state and the networks kept |
+| 4 DIAG | `04` | GET's reply, then the diagnostics (docs/WIFI.md "Diagnostics"): a version byte (1), 26 × u32 of the main loop, the whole frames, PANEL_R, TCP's input and the session, 14 × u32 of lwIP's view of the connection; the maxima start again at every DIAG |
+| 5 MODE | `05 m` | 1: whole frames over TCP (the default), 0: decoded as they come (an A/B; until the unit restarts). The reply is DIAG's |
+| 6 SCAN | `06` or `06 f` | look for the networks around (2.4 GHz: the FM-1's radio has no 5 GHz): a scan of about 2-4 s. The reply is LIST's first page of the scan's list as it stands, `scanning` 1; ask LIST until `scanning` is 0 (`scans` changes when a scan is done; given up after 12 s). Refused (`status` 3) while the unit joins a network (a scan stops the join) unless `f` is 1, and while it gets an address. Wi-Fi off: turned on (refused until it is up). Over any link |
+| 7 LIST | `07 which8 first8` | a page of a list: `which` 0 the scan's networks (the strongest first, each SSID once; hidden ones left out), 1 the networks kept (the most recent first). Entries from `first` while they fit in 96 bytes; the next page from `first + count`. Over any link |
+
+WIFI_R body (little endian): `op8 status8 state8 rssi8(signed) ip[4] tcp_port16 udp_port16 host8 saved8
+heap_used32 heap_peak32 heap_size32 app_heap16 rx_frames16`, then `ssid_len8 ssid` (the network joined or being
+joined), `why_len8 why` (state 6: "not found", "could not join", "no address"...), then for SAVED `n8` and `n` times
+`len8 ssid`, for the others the sockets' counters, 11 × u32: accepts, closes, replaced, rx_bytes, tx_bytes, rx_full,
+tx_eagain, udp_in, udp_out, polls, open_fail.
+
+SCAN and LIST's WIFI_R is a page instead, small for the Ableton Move's USB-A (a burst of more than ~200 bytes from the
+unit is lost there): `op8 status8 state8 which8 scanning8 scans8 total8 first8 count8`, then `count` times
+`rssi8(signed, dBm; 0 not heard) flags8 channel8 ssid_len8 ssid`, at most 9 + 96 bytes (`RFM_WIFI_PAGE_MAX`). `flags`:
+bit0 secured (a password needed), bit1 kept, bit2 heard by the last scans (for a kept network: rssi, secured and
+channel are the scan's), bit3 the network joined or being joined now. libremotefm1: `rfm_build_wifi_*`,
+`rfm_parse_wifi_state`, `rfm_parse_wifi_list`; `rfm_session_send` sends them on any link beside a session (the unit on
+USB-A while the session runs over TCP) and `cb.msg` gets the replies. GET's reply is ~90-150 bytes, also under the
+limit; SAVED with six long names may not be: a host on a slow link uses LIST 1.
+
+- `status`: 0 done, 1 a bad request, 2 not over this link (SET and FORGET from the network itself), 3 busy.
+- `state`: 0 off, 1 starting, 2 on with no network, 3 joining, 4 asking for an address, 5 connected, 6 failed.
+- `ip`: a.b.c.d in that order (0 unless connected). `host`: 1 while a host is on TCP. `saved`: networks kept.
+- `heap_*`: the Wi-Fi heap (fm1-base's shim): bytes in use, the most ever, its size; `app_heap` (16-byte units):
+  RemoteFM1's own share of it, taken at start. `rx_frames`: frames the radio heard in the last second (anyone's).
+- The password is never sent back, shown or logged.
+- A unit without the Wi-Fi build ignores `0x17` (counted as a bad message, no reply): a host checks `caps` bit12.
+- Bytes, over SysEx: GET: `F0 7D 52 46 17 00 00 F7`.

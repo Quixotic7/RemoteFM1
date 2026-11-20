@@ -311,3 +311,15 @@ board (0xEB6014, 0x856014, 0xB36014) before that header.
 > `build/app-smk37/`), so its `docs/hub-card.png` could not be named, and a `--release` build refused.
 > `FM1B_REPO_ROOT` in the environment names the repository instead (RemoteFM1's `build.sh` sets it). Unset, nothing
 > changes.
+
+## fm1-base: `fm1-base/0010-wifi-ld-dsp-and-cpu2-in-ram.patch` (2026-11-19; the Wi-Fi test build only)
+
+`device/app_wifi.ld`, `tools/build.py`. For RemoteFM1 Wi-Fi (`build.sh --wifi`, docs/WIFI.md); nothing changes for a
+build without `wifi`. Not offered upstream yet (phase 0). PR title if it is: **app_wifi.ld: the app's DSP sections and
+the second core's loop in RAM, a .ram_bss section, fm1.toml wifi_heap2_kb**
+
+> `app_wifi.ld` lacked what `app.ld` has for `.c1_text` (`cpu2 = true`): the second core's loop landed in the flash
+> as an orphan section, and so did an app's `.dsp_text` / `.audio_text` (RemoteFM1's 0005 puts them in `app.ld`'s
+> RAM code). It adds both, a `.ram_bss` section (NOLOAD, not zeroed: the app zeroes `_rb_start.._rb_end`) in what
+> the RAM code leaves of RAMTEXT, and `fm1.toml wifi_heap2_kb` (`SHIM_HEAP2_KB`: the Wi-Fi heap's part in .bss,
+> default 24) for an app whose RAM is full. The pool's layout is not touched.

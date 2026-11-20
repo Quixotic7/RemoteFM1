@@ -1,0 +1,192 @@
+# SPDX-License-Identifier: MPL-2.0
+# The Wi-Fi build (./build.sh --wifi --host; docs/WIFI.md) in fm1-base's host simulator: WIFI over USB SysEx (state,
+# a network set and joined, the networks kept, forget), and RemoteFM1's bulk framing on the TCP transport through
+# net/rfm_net.c's rings (HELLO, ECHO, SINK, SOURCE, STATS, a SESSION ended by the host's going), as tools/wifi_probe.py
+# drives them on an FM-1. tests/run_tests.sh runs it (firmware/build/host/remotefm1-wifi_host).
+# fm1-base's simulator: Wi-Fi on 0.5 s after asked, "Home" kept (joined 1.5 s later, an address 0.5 s after that)
+wait 300
+rf wifi get
+expect rf_wifi_op 0
+expect rf_wifi_status 0
+# the app's buffers from the Wi-Fi heap (app.h RF_BIG): at least the rings and the loops' pool
+expect rf_wifi_heap >60000
+wait 3000
+rf wifi get
+expect rf_wifi_state 5
+expect rf_wifi_ip_last 42
+expect rf_wifi_host 0
+# the sockets' counters follow the SSID and the reason (11 x u32)
+expect rf_wifi_tail 44
+# a network set: accepted, joined (the simulator's join), and kept
+rf wifi set Cafe secret-pass
+expect rf_wifi_op 1
+expect rf_wifi_status 0
+wait 3000
+rf wifi saved
+expect rf_wifi_op 3
+expect rf_wifi_saved >0
+# SCAN (06): asked, scanning; its page comes at once (the list as it was), then the new results 1 s later (the
+# simulator's scan): "Home" (kept, joined before, secured) and "Cafe" (open), strongest first
+rf wifi scan
+expect rf_wifi_op 6
+expect rf_wifi_status 0
+expect rf_wifi_scanning 1
+wait 1200
+rf wifi list 0 0
+expect rf_wifi_op 7
+expect rf_wifi_scanning 0
+expect rf_wifi_total 2
+expect rf_wifi_count 2
+expect rf_wifi_e0_len 4
+expect rf_wifi_e0_rssi -48
+# Home: secured, kept, heard (1 + 2 + 4)
+expect rf_wifi_e0_flags 7
+expect rf_wifi_e0_ch 6
+# Cafe: open, heard, kept and the network joined now (the SET above: 2 + 4 + 8; joined, kept as device/wifi.c
+# keeps it: fm1-base patch 0012)
+expect rf_wifi_e1_flags 14
+expect rf_wifi_e1_ch 11
+# a page from entry 1: one entry
+rf wifi list 0 1
+expect rf_wifi_first 1
+expect rf_wifi_count 1
+# the networks kept, as a page (the simulator's: Home)
+rf wifi list 1 0
+expect rf_wifi_total >0
+expect rf_wifi_e0_flags >1
+# a page stays small for the Move's USB-A (9 + at most 96 bytes)
+expect rf_wifi_len <106
+# a bad list: refused
+rf wifi list 5 0
+expect rf_wifi_status 1
+# a bad SET (no SSID): refused
+rf send usb 17 01 00 00
+expect rf_wifi_status 1
+# HELLO over TCP: none before a host connects
+rf hello net
+expect rf_n_net_41 0
+rf net connect
+expect rf_net_up 1
+rf hello net
+expect rf_n_net_41 1
+expect rf_hello_ident 1
+# caps: no shadow (0x62C), WIFI (bit12), PANEL_EV (bit13), NET_FRAMES (bit14)
+expect rf_hello_caps 30252
+# transports: bit6, a host on TCP
+expect rf_hello_transports >63
+# ECHO, STATS, SINK and SOURCE as on the vendor pair
+rf send net 04 01 02 03 04 05
+expect rf_n_net_44 1
+rf send net 05
+expect rf_n_net_45 1
+rf send net 02 00 00 00 00 41 42 43 44 DA 03 00 00
+rf send net 02 01 00 00 00 41 42 43 44 DA 03 00 00
+expect rf_bad_net 0
+rf send net 03 00 10 00 00 00 04
+wait 50
+expect rf_n_net_43 >3
+expect rf_n_net_50 1
+# WIFI over TCP: GET answers; SET is USB's only
+rf send net 17 00
+expect rf_n_net_57 1
+expect rf_wifi_host 1
+rf send net 17 01 04 48 6F 6D 65 00
+expect rf_n_net_57 2
+expect rf_wifi_status 2
+# a SESSION over TCP, ended when the host goes
+rf session net 1 3000
+expect rf_session 1
+expect rf_session_t 3
+expect rf_n_net_46 1
+# WIFI DIAG (04): the sockets' counters, then a version byte, 28 x u32 of the loop's, 14 x u32 of lwIP's
+rf send usb 17 04
+expect rf_wifi_op 4
+expect rf_wifi_status 0
+expect rf_wifi_tail 213
+# a TCP session keeps the panel: another host's SESSION over USB (start or end) is ignored, not answered
+rf session usb 1 3000
+expect rf_session 1
+expect rf_session_t 3
+expect rf_n_usb_46 0
+rf session usb 0
+expect rf_session 1
+expect rf_session_t 3
+# whole frames over TCP: a frame's first message shows nothing, its END shows all of it at once
+wait 50
+rf snap
+rf tiles net 0 more fill:0,0,120,120,F800
+wait 20
+expect rf_screen_snap 1
+expect rf_n_net_52 0
+rf tiles net 0 end fill:120,120,120,120,07E0
+wait 30
+expect rf_n_net_52 1
+expect rf_screen_ok 1
+expect rf_decode_errs 0
+# WIFI MODE 0 (05 00): frames as they come (an A/B on the unit): the first message shows at once
+rf send usb 17 05 00
+expect rf_wifi_status 0
+rf snap
+rf tiles net 1 more fill:0,0,60,60,001F
+wait 20
+expect rf_screen_snap 0
+rf tiles net 1 end fill:60,60,60,60,FFE0
+wait 20
+expect rf_screen_ok 1
+rf send usb 17 05 01
+expect rf_wifi_status 0
+rf send usb 17 05 07
+expect rf_wifi_status 1
+# the panel's events in a TCP session: PANEL_EV, the same MIDI bytes as the other transports' plain MIDI, none to USB
+out
+key 5 down
+wait 20
+expect rf_n_net_56 >0
+expect rf_ev_net_b0 159
+expect rf_ev_net_b1 58
+expect rf_ev_net_b2 100
+expect_no_out USB 9F 3A 64
+key 5 up
+wait 20
+expect rf_ev_net_b0 143
+expect rf_ev_net_b1 58
+press SEL
+wait 20
+expect rf_ev_net_b0 158
+expect rf_ev_net_b1 3
+expect rf_ev_net_b2 127
+release SEL
+spin K2 3
+wait 20
+expect rf_ev_net_b0 190
+expect rf_ev_net_b1 19
+expect rf_ev_net_b2 67
+master 1000
+wait 20
+expect rf_ev_net_b0 190
+expect rf_ev_net_b1 7
+expect rf_ev_net_b3 190
+expect rf_ev_net_b4 39
+# a burst (16 keys down and up, 96 bytes) arrives whole, in messages of at most 96 bytes
+strum 0 15 1
+wait 50
+expect rf_ev_net_bad 0
+expect rf_ev_net_n >115
+wait 100
+rf snap
+rf net close
+wait 10
+expect rf_session 0
+expect rf_net_up 0
+# the host's last screen stays 4 s (a Wi-Fi hiccup's reconnect takes over without the instrument's screens between)
+wait 2000
+expect rf_screen_snap 1
+wait 2500
+expect rf_screen_snap 0
+# fm1-base's networks kept compact in OBJ_RF (src/rfm_store.c), and read back whole
+rf wfstore
+expect rf_wfstore 1
+# forget them all
+rf wifi forget all
+rf wifi get
+expect rf_wifi_saved 0

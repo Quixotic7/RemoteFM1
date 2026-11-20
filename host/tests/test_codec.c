@@ -252,9 +252,50 @@ static void test_bodies(void)
     CHECK(b[0] == 0x34 && b[1] == 0x12 && b[2] == 1 && b[3] == 7);
 }
 
+/* the Wi-Fi build: PANEL_EV bodies, discovery answers (firmware/net/rfm_net.c + src/rfm_wifi.c's text) */
+static void test_wifi(void)
+{
+    static const uint8_t ev_ok[] = {0x9F, 58, 100, 0xBE, 19, 66, 0xAF, 58, 40};
+    static const uint8_t ev_rt[] = {0xF8};                  /* (real time: never a panel event) */
+    static const uint8_t ev_short[] = {0x9F, 58};
+    static const uint8_t ev_data[] = {0x9F, 0x80, 100};
+    static const char ans[] = "RFM1!\nname=FM-1 7938\nid=FM-1_72900\nver=0.4.0\nport=7740\nip=10.0.0.165\nbusy=1\n"
+                              "session=0\nfuture=whatever\n";
+    uint8_t big[RFM_PANEL_EV_MAX + 3];
+    rfm_net_info_t ni;
+    uint32_t i;
+    CHECK(rfm_parse_panel_ev(ev_ok, sizeof ev_ok) == 0);
+    CHECK(rfm_parse_panel_ev(ev_rt, sizeof ev_rt) < 0);
+    CHECK(rfm_parse_panel_ev(ev_short, sizeof ev_short) < 0);
+    CHECK(rfm_parse_panel_ev(ev_data, sizeof ev_data) < 0);
+    CHECK(rfm_parse_panel_ev(ev_ok, 0) < 0);
+    for (i = 0; i < sizeof big; i += 3)
+        big[i] = 0x9F, big[i + 1] = 60, big[i + 2] = 1;
+    CHECK(rfm_parse_panel_ev(big, RFM_PANEL_EV_MAX) == 0 && rfm_parse_panel_ev(big, sizeof big) < 0);
+    CHECK(rfm_parse_discovery((const uint8_t *)ans, sizeof ans - 1u, &ni) == 0);
+    CHECK(!strcmp(ni.name, "FM-1 7938") && !strcmp(ni.id, "FM-1_72900") && !strcmp(ni.ver, "0.4.0"));
+    CHECK(!strcmp(ni.ip, "10.0.0.165") && ni.port == 7740 && ni.busy == 1 && ni.session == 0);
+    CHECK(rfm_parse_discovery((const uint8_t *)"RFM1!\nport=7745", 16, &ni) == 0 && ni.port == 7745 && !ni.name[0]);
+    CHECK(rfm_parse_discovery((const uint8_t *)"RFM1?\n", 6, &ni) < 0);
+    CHECK(rfm_parse_discovery((const uint8_t *)"HTTP/1.1", 8, &ni) < 0);
+    {                                                   /* the bulk framing over TCP: the same parser as bulk */
+        uint8_t b[64];
+        static int got;
+        uint32_t n = rfm_bk_frame(RFM_PANEL_EV, ev_ok, sizeof ev_ok, 0, b);
+        rfm_rx_t *r = rfm_rx_new(RFM_LINK_TCP, 4096, NULL, NULL, NULL);
+        rfm_rx_stats_t st;
+        rfm_rx_feed(r, b, n);
+        rfm_rx_stats(r, &st);
+        got = (int)st.msgs;
+        CHECK(got == 1 && st.bad == 0);
+        rfm_rx_free(r);
+    }
+}
+
 int main(void)
 {
     test_golden();
+    test_wifi();
     test_sx_stream();
     test_bk_stream();
     test_bodies();

@@ -121,6 +121,8 @@ ok(D("FM-1_52000306") == "running RemoteFM1 0.3.6" and D("FM-1_72000307") == "ru
    "--info: FM-1_52000306 (old) and FM-1_72000307 (since 0.3.7) are both RemoteFM1")
 ok(D("FM-1_7200") == "running RemoteFM1 (a development build)" and D("FM-1_62000307") == "running",
    "--info: FM-1_7200 is a development build, FM-1_62... not RemoteFM1")
+ok(D("FM-1_72900") == "running RemoteFM1 Wi-Fi (a development build)" and
+   D("FM-1_729000401") == "running RemoteFM1 Wi-Fi 0.4.1", "--info: FM-1_729.. is the Wi-Fi build (docs/WIFI.md)")
 ok("official V15" in D("FM-1_015") and "RemoteFM1 0.1" in D("FM-1_015"), "--info: FM-1_015 is V15, or RemoteFM1 0.1")
 ok(D("FM-1_016") == "running M-VAVE's official V16" and "update loader" in D("ota-FM-1_900"), "--info: V16, a loader")
 ok(D("FM-1_46000100") == "running" and D("FM-1_099") == "running" and D("FM-1_520") == "running" and

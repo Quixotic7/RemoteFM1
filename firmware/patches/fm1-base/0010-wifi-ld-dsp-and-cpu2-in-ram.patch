@@ -1,0 +1,45 @@
+diff --git a/device/app_wifi.ld b/device/app_wifi.ld
+index 98cfb2c..2fb802d 100644
+--- a/device/app_wifi.ld
++++ b/device/app_wifi.ld
+@@ -38,9 +38,16 @@ SECTIONS
+               *(.crypto_code)           /* the SDK's byte swaps (htons): named here, or it lands outside the image */
+               . = ALIGN(4); _etext = .; } > XIP
+     /* .app_ram: the app's own RAM code (plat.h PLAT_RAM_CODE), calling only RAM code (tools/ramcode.py checks) */
++    /* RemoteFM1 (its Wi-Fi build): as app.ld with RemoteFM1's 0005, the app's DSP sections (saadet's FM6) and the
++     * second core's loop (.c1_text, fm1.toml cpu2) in RAM; without them both landed in the flash as orphans */
+     .ram_text : { _rt_start = .; KEEP(*(.ram_text*)) *(.volatile_ram_code) *(*.rf.text.cache.L2.rf_trim)
+-                  . = ALIGN(4); _ar_start = .; *(.app_ram .app_ram.*) . = ALIGN(4); _ar_end = .;
++                  *(.dsp_text*) *(.audio_text*)
++                  . = ALIGN(4); _c1_start = .; KEEP(*(.c1_text*)) . = ALIGN(4); _c1_end = .;
++                  _ar_start = .; *(.app_ram .app_ram.*) . = ALIGN(4); _ar_end = .;
+                   _rt_end = .; } > RAMTEXT AT > XIP
++    /* RemoteFM1 (its Wi-Fi build): data in what the RAM code leaves of RAMTEXT (.ram_bss, not loaded, not zeroed:
++     * the app zeroes _rb_start.._rb_end itself), so the pool before the heap stays as examples/wifi has it */
++    .ram_bss (NOLOAD) : { . = ALIGN(4); _rb_start = .; *(.ram_bss .ram_bss.*) . = ALIGN(4); _rb_end = .; } > RAMTEXT
+     _rt_load = LOADADDR(.ram_text);
+     _app_xip_end = ORIGIN(XIP) + 0x8DFBC;            /* the app slot's end (the boot's bound on the packed load
+                                                       * images: main_fm1.c) */
+diff --git a/tools/build.py b/tools/build.py
+old mode 100755
+new mode 100644
+index a74366d..8c371f2
+--- a/tools/build.py
++++ b/tools/build.py
+@@ -56,6 +56,7 @@ APP_DIR holds the app (app.h, app.c, its sources) and its fm1.toml:
+   ble_stack_kb = 6           the Bluetooth tasks' stacks, KB each (default 8: three of them, in the pool; radio.c
+                              logs each one's deepest, "stacks", 10 s after Bluetooth is ready and as they grow)
+   ble_heap_kb = 16           its heap, KB (default 24, in RAM; the same log line's "heap": its most ever)
++  wifi_heap2_kb = 12         with wifi: the heap's second part, in the RAM (.bss), KB (default 24; RemoteFM1's patch)
+   ble_trim = true            Bluetooth as a MIDI peripheral only: JieLi's central, classic and test code cut (flash and
+                              RAM: Melodee's measure ~18 KB and ~4 KB); not with ble_central
+   ble_no_pairing = true      with ble_trim: no pairing or encryption either (~19 KB more flash; iOS and macOS connect)
+@@ -690,6 +691,8 @@ def radio_units():
+         flags.append(f"-DSHIM_STACK_WORDS={int(CONF['ble_stack_kb']) * 256}")
+     if CONF.get("ble_heap_kb") and not WIFI:      # its heap, KB (default 24, in RAM)
+         flags.append(f"-DSHIM_BLE_HEAP_KB={int(CONF['ble_heap_kb'])}u")
++    if WIFI and isinstance(CONF.get("wifi_heap2_kb"), int):   # RemoteFM1: the Wi-Fi heap's part in the RAM, KB
++        flags.append(f"-DSHIM_HEAP2_KB={int(CONF['wifi_heap2_kb'])}u")   # (default 24; the pool's part stays put)
+     o = OUT / "ble" / "o"
+     o.mkdir(parents=True, exist_ok=True)
+     units = [("cc", "-c", SRC / "ble" / "shim" / "ctx.S", "-o", o / "ctx.o")]

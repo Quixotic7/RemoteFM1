@@ -18,8 +18,10 @@ typedef struct link {
     char name[64];
     rfm_rx_t *rx;
     uint32_t tx_seq;
+    uint32_t acks_due;                                  /* (TCP) SESSIONs sent on this stream not yet acknowledged */
     int hello_got, hello_ok;
     rfm_hello_t hello;
+    uint32_t t_hello;                                   /* when its HELLO_R came */
     struct rfm_session *s;
 } link_t;
 
@@ -42,6 +44,10 @@ struct rfm_session {
     uint32_t nfl, max_in_flight;
     uint32_t cur_body, cur_msgs, cur_wire;              /* the frame being emitted */
     int ble;                                            /* the frame link is Bluetooth: paced for it */
+    int tcp;                                            /* the frame link is TCP (the Wi-Fi build): its events PANEL_EV */
+    int slow;                                           /* cfg.slow_link on a SysEx frame link that is not Bluetooth */
+    int paced;                                          /* ble || slow: Bluetooth's pacing */
+    uint32_t rate;                                      /* body bytes a second while paced */
     uint32_t fperiod, wire_cap, wire_frame_max;         /* the frame period; the cap on unacknowledged TILES bytes
                                                          * (0: none) and the largest frame sent under it */
     uint32_t start_ms, heartbeat_ms, lost_ms;           /* cfg's, raised for Bluetooth */
@@ -84,6 +90,8 @@ void rfm_session_cfg_default(rfm_session_cfg_t *c)
     c->key_touch = RFM_TOUCH_F_VEL | RFM_TOUCH_F_PRESS;
     c->audio_div = RFM_AUDIO_DIV_DEFAULT;
     c->audio_buffer_ms = RFM_AUDIO_BUF_MS_DEFAULT;
+    c->slow_bps = RFM_SLOW_BPS_DEFAULT;
+    c->slow_wire_cap = RFM_SLOW_WIRE_CAP_DEFAULT;
 }
 
 static void logf_(rfm_session_t *s, const char *fmt, ...)
@@ -99,6 +107,8 @@ static void logf_(rfm_session_t *s, const char *fmt, ...)
 }
 
 static int after(uint32_t now, uint32_t t, uint32_t ms) { return (int32_t)(now - t) >= (int32_t)ms; }
+static uint32_t min_nz(uint32_t a, uint32_t b) { return !b ? a : !a ? b : a < b ? a : b; }
+static uint32_t max_u(uint32_t a, uint32_t b) { return a > b ? a : b; }
 
 static void set_state(rfm_session_t *s, int st, const char *why)
 {
@@ -118,7 +128,7 @@ static int send_msg(rfm_session_t *s, int id, uint8_t cmd, const uint8_t *body, 
     l = &s->links[id];
     if (!l->used || !l->alive)
         return -1;
-    if (l->kind == RFM_LINK_BK)
+    if (l->kind != RFM_LINK_SX)                         /* bulk, or the bulk framing over TCP */
         len = rfm_bk_frame(cmd, body, n, l->tx_seq++, s->tx);
     else
         len = rfm_sx_frame(cmd, body, n, s->tx);
@@ -155,8 +165,10 @@ static void send_hellos(rfm_session_t *s)
 static void send_session(rfm_session_t *s, int start)
 {
     uint8_t b[RFM_SESSION_LEN];
-    rfm_build_session(b, start, start ? s->cfg.keepalive_ms : 0u);
-    send_msg(s, s->frame_link, RFM_SESSION, b, RFM_SESSION_LEN);
+    rfm_build_session(b, start, !start ? 0u : s->tcp && s->cfg.keepalive_ms ? max_u(s->cfg.keepalive_ms, RFM_TCP_KEEPALIVE_MS)
+                                                                         : s->cfg.keepalive_ms);
+    if (!send_msg(s, s->frame_link, RFM_SESSION, b, RFM_SESSION_LEN) && s->tcp)
+        s->links[s->frame_link].acks_due++;             /* (TCP is in order: the last ACK answers the last SESSION) */
     s->t_sent = s->now;
 }
 
@@ -181,10 +193,10 @@ static void emit_tiles(void *ctx, const uint8_t *body, uint32_t n, int last)
     s->st.msgs++;
 }
 
-/* whole screen changes (HOLD): a Bluetooth frame link, the option on, a unit that has it */
+/* whole screen changes (HOLD): a paced frame link (Bluetooth or cfg.slow_link), the option on, a unit that has it */
 static int hold_on(const rfm_session_t *s)
 {
-    return s->frame_link >= 0 && s->ble && s->cfg.ble_hold && (s->hello.caps & RFM_CAP_HOLD);
+    return s->frame_link >= 0 && s->paced && s->cfg.ble_hold && (s->hello.caps & RFM_CAP_HOLD);
 }
 
 /* ---------------------------------------------------------------- states ---- */
@@ -277,8 +289,6 @@ static void enter_active(rfm_session_t *s)
         send_touch(s);                                  /* (every session starts without it) */
 }
 
-static uint32_t min_nz(uint32_t a, uint32_t b) { return !b ? a : !a ? b : a < b ? a : b; }
-static uint32_t max_u(uint32_t a, uint32_t b) { return a > b ? a : b; }
 
 static uint32_t wire_in_flight(const rfm_session_t *s)
 {
@@ -288,13 +298,16 @@ static uint32_t wire_in_flight(const rfm_session_t *s)
     return n;
 }
 
-/* Bluetooth's rate, body bytes a second: a budget is 100 ms of it (RFM_BUDGET_BLE_BPS by default) */
-static uint32_t ble_rate(const rfm_session_t *s) { return s->budget * 10u; }
+/* a paced link's rate, body bytes a second: Bluetooth's budget is 100 ms of it (RFM_BUDGET_BLE_BPS by default);
+ * a slow link's is cfg.slow_bps */
+static uint32_t ble_rate(const rfm_session_t *s) { return s->rate ? s->rate : 1u; }
 
-/* the oldest frame's FRAME_ACK is late: over Bluetooth it scales with what is queued ahead of it at the rate */
+/* the oldest frame's FRAME_ACK is late: over a paced link it scales with what is queued ahead of it at the rate */
 static uint32_t ack_timeout(const rfm_session_t *s)
 {
-    if (!s->ble)
+    if (s->tcp)                                         /* (a reliable stream: a late ACK is a stall, not a loss) */
+        return max_u(s->cfg.ack_timeout_ms, RFM_TCP_ACK_MIN_MS);
+    if (!s->paced)
         return s->cfg.ack_timeout_ms;
     return max_u(max_u(s->cfg.ack_timeout_ms, RFM_BLE_ACK_MIN_MS), 500u + 3000u * wire_in_flight(s) / ble_rate(s));
 }
@@ -317,7 +330,7 @@ static void refine_poll(rfm_session_t *s, uint32_t now)
 
 static int decide(rfm_session_t *s)
 {
-    int i, sx = -1, bk = -1, frame;
+    int i, sx = -1, bk = -1, tcp = -1, frame;
     for (i = 0; i < RFM_MAX_LINKS; i++) {
         const link_t *l = &s->links[i];
         if (!l->used || !l->alive || !l->hello_ok)
@@ -327,14 +340,18 @@ static int decide(rfm_session_t *s)
             sx = i;                                     /* a USB port of the unit before its Bluetooth one */
         if (l->kind == RFM_LINK_BK && bk < 0)
             bk = i;
+        if (l->kind == RFM_LINK_TCP && tcp < 0)
+            tcp = i;
     }
-    frame = s->cfg.transport == RFM_T_MIDI ? sx : s->cfg.transport == RFM_T_BULK ? bk : bk >= 0 ? bk : sx;
+    frame = s->cfg.transport == RFM_T_MIDI ? sx : s->cfg.transport == RFM_T_BULK ? bk
+          : s->cfg.transport == RFM_T_TCP ? tcp : bk >= 0 ? bk : tcp >= 0 ? tcp : sx;
     if (frame < 0)
         return 0;
     s->frame_link = frame;
-    s->midi_link = sx;
+    s->tcp = s->links[frame].kind == RFM_LINK_TCP;
+    s->midi_link = s->tcp ? frame : sx;                 /* (TCP: the panel's events come as PANEL_EV on it) */
     s->hello = s->links[frame].hello;
-    if (s->links[frame].kind == RFM_LINK_BK) {
+    if (s->links[frame].kind != RFM_LINK_SX) {
         s->body_max = min_nz(s->cfg.bk_body_max ? s->cfg.bk_body_max : RFM_BK_BODY_MAX, s->hello.bk_body_max);
         if (s->body_max > RFM_BK_BODY_MAX)
             s->body_max = RFM_BK_BODY_MAX;
@@ -344,49 +361,81 @@ static int decide(rfm_session_t *s)
             s->body_max = RFM_SX_BODY_MAX;
     }
     s->ble = s->links[frame].kind == RFM_LINK_SX && rfm_hello_is_ble(&s->hello);
+    s->slow = s->links[frame].kind == RFM_LINK_SX && !s->ble && s->cfg.slow_link;
+    s->paced = s->ble || s->slow;
     s->fperiod = s->period;
     s->wire_cap = 0;
+    s->rate = 0;
     s->start_ms = s->cfg.start_ms;
     s->heartbeat_ms = s->cfg.heartbeat_ms;
     s->lost_ms = s->cfg.lost_ms;
-    if (s->ble) {
+    if (s->paced) {
         s->fperiod = max_u(s->period, 1000u / RFM_BLE_FPS);
-        const int fast = (s->hello.caps & RFM_CAP_BLE_FAST) != 0;
-        s->budget = s->cfg.budget ? s->cfg.budget : (fast ? RFM_BUDGET_BLE_FAST_BPS : RFM_BUDGET_BLE_BPS) / 10u;
-        if (s->budget > (fast ? RFM_BLE_FAST_BUDGET_MAX : RFM_BLE_BUDGET_MAX))
-            s->budget = fast ? RFM_BLE_FAST_BUDGET_MAX : RFM_BLE_BUDGET_MAX;
-        s->wire_cap = fast ? RFM_BLE_FAST_WIRE_CAP : RFM_BLE_WIRE_CAP;
+        if (s->ble) {
+            const int fast = (s->hello.caps & RFM_CAP_BLE_FAST) != 0;
+            s->budget = s->cfg.budget ? s->cfg.budget : (fast ? RFM_BUDGET_BLE_FAST_BPS : RFM_BUDGET_BLE_BPS) / 10u;
+            if (s->budget > (fast ? RFM_BLE_FAST_BUDGET_MAX : RFM_BLE_BUDGET_MAX))
+                s->budget = fast ? RFM_BLE_FAST_BUDGET_MAX : RFM_BLE_BUDGET_MAX;
+            s->wire_cap = fast ? RFM_BLE_FAST_WIRE_CAP : RFM_BLE_WIRE_CAP;
+            s->rate = s->budget * 10u;
+        } else {                                        /* the slow link: its own rate and cap */
+            s->rate = s->cfg.slow_bps ? s->cfg.slow_bps : RFM_SLOW_BPS_DEFAULT;
+            s->wire_cap = s->cfg.slow_wire_cap ? s->cfg.slow_wire_cap : RFM_SLOW_WIRE_CAP_DEFAULT;
+            s->budget = s->cfg.budget ? s->cfg.budget : s->rate / 10u;
+            if (s->budget > s->wire_cap / 2u)          /* a frame stays well under the cap */
+                s->budget = s->wire_cap / 2u;
+        }
+        if (!s->budget)
+            s->budget = 1;
         /* a frame is one body of at most 4 + max(budget, a RAW tile) bytes while body_max allows it */
         s->wire_frame_max = rfm_sx_size(RFM_TILES_HDR + max_u(s->budget, RFM_RECT_HDR + 2u * RFM_TILE * RFM_TILE));
         s->start_ms = max_u(s->start_ms, 1000u);
         if (s->heartbeat_ms)
             s->heartbeat_ms = max_u(s->heartbeat_ms, 2500u);
         s->lost_ms = max_u(s->lost_ms, 3000u);
+    } else if (s->tcp) {                                /* TCP over Wi-Fi: not paced, but its stalls waited out */
+        s->budget = s->cfg.budget ? s->cfg.budget : RFM_BUDGET_TCP_BPS / (s->cfg.fps ? s->cfg.fps : 20u);
+        if ((s->hello.caps & RFM_CAP_NET_FRAMES) && s->budget > RFM_NET_FRAME_MAX - 2048u)
+            s->budget = RFM_NET_FRAME_MAX - 2048u;      /* (a frame the unit keeps whole: shown at once) */
+        /* at most RFM_TCP_WIRE_CAP unacknowledged: two frames (the newest screen is encoded when a frame goes: never a
+         * stale one queued behind a stall) */
+        s->wire_cap = RFM_TCP_WIRE_CAP;
+        s->wire_frame_max = RFM_BK_HDR_LEN * (s->budget / s->body_max + 2u) + RFM_TILES_HDR * (s->budget / s->body_max + 2u) +
+                            s->budget + RFM_RECT_HDR + 2u * RFM_TILE * RFM_TILE;
+        s->start_ms = max_u(s->start_ms, RFM_TCP_START_MS);
+        if (s->heartbeat_ms)                            /* (PANEL_R every 500 ms: none for 4 s on a live connection
+                                                         * means the session went elsewhere, e.g. a player on the
+                                                         * unit's USB took it on a unit before 1e: take it back) */
+            s->heartbeat_ms = max_u(s->heartbeat_ms, RFM_TCP_HEARTBEAT_MS);
+        s->lost_ms = max_u(s->lost_ms, RFM_TCP_LOST_MS);
     } else {
-        s->budget = s->cfg.budget ? s->cfg.budget
-                                  : (s->links[frame].kind == RFM_LINK_BK ? RFM_BUDGET_BK_BPS : RFM_BUDGET_SX_BPS) /
-                                        (s->cfg.fps ? s->cfg.fps : 20u);
+        const uint32_t bps = s->tcp ? RFM_BUDGET_TCP_BPS
+                           : s->links[frame].kind == RFM_LINK_BK ? RFM_BUDGET_BK_BPS : RFM_BUDGET_SX_BPS;
+        s->budget = s->cfg.budget ? s->cfg.budget : bps / (s->cfg.fps ? s->cfg.fps : 20u);
     }
     if (!s->budget)
         s->budget = 1;
-    rfm_screen_set_lossy(s->screen, s->ble ? s->cfg.ble_colors : 0u);
+    rfm_screen_set_lossy(s->screen, s->paced ? s->cfg.ble_colors : 0u);
     rfm_screen_set_snapshot(s->screen, hold_on(s));
     s->max_in_flight = s->hello.max_in_flight ? s->hello.max_in_flight : RFM_FRAMES_IN_FLIGHT;
     if (s->max_in_flight > MAX_FLIGHT)
         s->max_in_flight = MAX_FLIGHT;
     logf_(s, "found %s (fw %s, caps 0x%x): frames on %s, panel on %s, body max %u, budget %u B/frame, %u in flight",
-          s->hello.name, s->hello.fw_ver, s->hello.caps, s->links[frame].name, sx >= 0 ? s->links[sx].name : "none",
+          s->hello.name, s->hello.fw_ver, s->hello.caps, s->links[frame].name,
+          s->midi_link >= 0 ? s->links[s->midi_link].name : "none",
           s->body_max, s->budget, s->max_in_flight);
-    if (s->ble) {
+    if (s->paced) {
         char tiles[40] = "tiles exact";
         if (rfm_screen_lossy(s->screen))
             snprintf(tiles, sizeof tiles, "tiles reduced to %u colours", rfm_screen_lossy(s->screen));
-        logf_(s, "Bluetooth link: %u B/s, budget %u B/frame, %u fps, cap %u B in flight, %s, %s", ble_rate(s),
-              s->budget, 1000u / s->fperiod, s->wire_cap, tiles,
+        logf_(s, "%s link: %u B/s, budget %u B/frame, %u fps, cap %u B in flight, %s, %s",
+              s->ble ? "Bluetooth" : "slow", ble_rate(s), s->budget, 1000u / s->fperiod, s->wire_cap, tiles,
               hold_on(s) ? "screen changes shown whole (HOLD)"
                          : s->hello.caps & RFM_CAP_HOLD ? "HOLD off" : "the unit has no HOLD (before 0.2.2)");
     }
-    if (sx < 0)
+    if (s->tcp && !(s->hello.caps & RFM_CAP_PANEL_EV))
+        logf_(s, "TCP: the unit sends no PANEL_EV (a Wi-Fi build before phase 1): panel input from PANEL_R only");
+    else if (sx < 0 && !s->tcp)
         logf_(s, "no MIDI link answered: panel input comes from PANEL_R only (every 500 ms)");
     return 1;
 }
@@ -443,9 +492,16 @@ static void on_frame_ack(rfm_session_t *s, const rfm_frame_ack_t *a)
         logf_(s, "FRAME_ACK %u: decode error: resending the screen", a->frame);
         rfm_screen_invalidate(s->screen);
     }
+    if (a->draw_us > s->st.draw_us_max)
+        s->st.draw_us_max = a->draw_us;
+    if (a->status & RFM_ACK_SHADOW_RESET)
+        s->st.reset_reason = a->status >> 4;            /* (the Wi-Fi build: RFM_ACK_REASON_*; 0 unknown) */
     if ((a->status & RFM_ACK_SHADOW_RESET) && !s->expect_reset) {
+        static const char *const WHY[5] = {"(no reason given)", "the unit started (power-on)", "its audio mode ended",
+                                           "a SESSION start", "something else drew on its panel"};
         s->st.shadow_resets++;
-        logf_(s, "FRAME_ACK %u: the unit's shadow was reset: new session", a->frame);
+        logf_(s, "FRAME_ACK %u: the unit's shadow was reset, %s: new session", a->frame,
+              WHY[(a->status >> 4) < 5u ? (a->status >> 4) : 0u]);
         enter_starting(s, "shadow reset");
         return;
     }
@@ -464,11 +520,15 @@ static void on_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
         if (rfm_parse_hello(b, n, &l->hello))
             return;
         l->hello_got = 1;
+        l->t_hello = s->now;
         l->hello_ok = rfm_hello_is_remotefm1(&l->hello);
         if (!l->hello_ok && s->state == RFM_S_DISCOVER)
             logf_(s, "link %s: \"%s\" proto %u answered: not RemoteFM1 v2", l->name, l->hello.name, l->hello.proto);
         break;
     case RFM_ACK:
+        if (l->kind == RFM_LINK_TCP && l->acks_due && --l->acks_due)
+            return;                                     /* (an earlier SESSION's ACK: the unit restarted for it, and
+                                                         * restarts again for the one still unanswered) */
         if (l->id != s->frame_link)
             return;
         if (s->state == RFM_S_STARTING)
@@ -480,6 +540,22 @@ static void on_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
         rfm_frame_ack_t a;
         if (l->id == s->frame_link && s->state == RFM_S_ACTIVE && !rfm_parse_frame_ack(b, n, &a))
             on_frame_ack(s, &a);
+        break;
+    }
+    case RFM_PANEL_EV: {                                /* (TCP) the panel's events, as the MIDI link's */
+        uint32_t k = 0;
+        if (l->id != s->midi_link)
+            return;
+        if (rfm_parse_panel_ev(b, n)) {
+            s->st.panel_ev_bad++;
+            return;
+        }
+        s->st.panel_ev++;
+        while (k < n) {
+            const uint32_t m = rfm_midi_msg_len(b[k]);
+            rfm_panel_midi(&s->panel, b + k, m, s->now);
+            k += m;
+        }
         break;
     }
     case RFM_MIDI_IN:                                   /* the TRS jack's MIDI: to the firmware's MIDI in */
@@ -524,6 +600,8 @@ static void on_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
         if (!ours || rfm_parse_panel_r(b, n, &p))
             return;
         s->st.panel_r++;
+        if ((p.flags & RFM_PANEL_F_SESSION) && s->state == RFM_S_ACTIVE && s->now - s->last_panel_r > s->st.panel_r_gap_max)
+            s->st.panel_r_gap_max = s->now - s->last_panel_r;
         if (p.flags & RFM_PANEL_F_SESSION)
             s->last_panel_r = s->now;
         if (!(p.flags & RFM_PANEL_F_SESSION)) {
@@ -550,11 +628,41 @@ static void on_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
         break;
     }
     default:
+        if (s->cb.msg)
+            s->cb.msg(s->cb.ctx, l->id, cmd, b, n);
         break;
     }
 }
 
 /* ---------------------------------------------------------------- API ---- */
+int rfm_session_send(rfm_session_t *s, int id, uint8_t cmd, const uint8_t *body, uint32_t n)
+{
+    int r;
+    if (id < 0 || id >= RFM_MAX_LINKS || n > RFM_SX_BODY_MAX)
+        return -1;
+    r = send_msg(s, id, cmd, body, n);
+    memset(s->tx, 0, sizeof s->tx);                    /* (no copy left here: a WIFI SET carries a password) */
+    return r;
+}
+
+int rfm_session_hello_link(rfm_session_t *s, int id)
+{
+    uint8_t b[16];
+    return rfm_session_send(s, id, RFM_HELLO, b, rfm_build_hello(b, s->cfg.host_name));
+}
+
+const rfm_hello_t *rfm_session_link_hello(const rfm_session_t *s, int id, uint32_t now_ms, uint32_t *age_ms)
+{
+    const link_t *l;
+    if (id < 0 || id >= RFM_MAX_LINKS)
+        return NULL;
+    l = &s->links[id];
+    if (!l->used || !l->hello_got || !l->hello_ok)
+        return NULL;
+    if (age_ms)
+        *age_ms = now_ms - l->t_hello;
+    return &l->hello;
+}
 rfm_session_t *rfm_session_new(const rfm_session_cfg_t *cfg, const rfm_session_cb_t *cb)
 {
     rfm_session_t *s = (rfm_session_t *)calloc(1, sizeof *s);
@@ -616,7 +724,7 @@ int rfm_session_add_link(rfm_session_t *s, int kind, rfm_write_fn write, void *c
         if (l->used)
             continue;
         memset(l, 0, sizeof *l);
-        l->rx = rfm_rx_new(kind, kind == RFM_LINK_BK ? RFM_BK_BODY_MAX + 64u : RFM_SX_BODY_MAX + 64u, on_msg,
+        l->rx = rfm_rx_new(kind, kind != RFM_LINK_SX ? RFM_BK_BODY_MAX + 64u : RFM_SX_BODY_MAX + 64u, on_msg,
                            kind == RFM_LINK_SX ? on_midi : NULL, l);
         if (!l->rx)
             return -1;
@@ -626,7 +734,8 @@ int rfm_session_add_link(rfm_session_t *s, int kind, rfm_write_fn write, void *c
         l->write = write;
         l->ctx = ctx;
         l->s = s;
-        snprintf(l->name, sizeof l->name, "%s", name ? name : (kind == RFM_LINK_BK ? "bulk" : "midi"));
+        snprintf(l->name, sizeof l->name, "%s",
+                 name ? name : kind == RFM_LINK_TCP ? "tcp" : kind == RFM_LINK_BK ? "bulk" : "midi");
         return i;
     }
     return -1;
@@ -646,6 +755,26 @@ void rfm_session_remove_link(rfm_session_t *s, int id, uint32_t now)
         s->link_lost = 1;
         if (id == s->midi_link)
             s->midi_link = -1;
+    }
+}
+
+void rfm_session_link_reset(rfm_session_t *s, int id, uint32_t now)
+{
+    link_t *l;
+    if (id < 0 || id >= RFM_MAX_LINKS || !s->links[id].used)
+        return;
+    s->now = now;
+    l = &s->links[id];
+    rfm_rx_reset(l->rx);
+    l->tx_seq = 0;
+    l->acks_due = 0;
+    l->alive = 1;
+    l->hello_got = l->hello_ok = 0;
+    if (id == s->frame_link || id == s->midi_link)
+        s->link_lost = 1;                               /* (the unit ended a session on the old connection) */
+    else if (s->state == RFM_S_DISCOVER) {              /* (a reconnect while looking: HELLO on it now) */
+        uint8_t b[16];
+        send_msg(s, id, RFM_HELLO, b, rfm_build_hello(b, s->cfg.host_name));
     }
 }
 
@@ -675,18 +804,22 @@ void rfm_session_poll(rfm_session_t *s, uint32_t now)
     }
     switch (s->state) {
     case RFM_S_DISCOVER: {
-        int i, sx = 0, bk = 0, bk_links = 0, early;
+        int i, sx = 0, bk = 0, tcp = 0, bk_links = 0, tcp_links = 0, early;
         for (i = 0; i < RFM_MAX_LINKS; i++) {
             const link_t *l = &s->links[i];
             if (!l->used || !l->alive)
                 continue;
             bk_links += l->kind == RFM_LINK_BK;
+            tcp_links += l->kind == RFM_LINK_TCP;
             if (l->hello_ok) {
                 sx += l->kind == RFM_LINK_SX;
                 bk += l->kind == RFM_LINK_BK;
+                tcp += l->kind == RFM_LINK_TCP;
             }
         }
-        early = sx && (bk || !bk_links || s->cfg.transport == RFM_T_MIDI);
+        /* (a TCP link that has not answered yet is waited for, up to hello_ms: it is preferred to SysEx) */
+        early = s->cfg.transport == RFM_T_MIDI ? sx
+              : (tcp && !bk_links) || (sx && (bk || !bk_links) && (!tcp_links || s->cfg.transport == RFM_T_BULK));
         if ((early || after(now, s->t_sent, s->cfg.hello_ms)) && decide(s)) {
             enter_starting(s, "unit found");
             return;
@@ -697,6 +830,11 @@ void rfm_session_poll(rfm_session_t *s, uint32_t now)
     }
     case RFM_S_STARTING:
         if (after(now, s->t_sent, s->start_ms)) {
+            if (s->tcp) {                               /* (never again over TCP: a second SESSION start would
+                                                         * restart the unit's session after this one's ACK) */
+                enter_discover(s, "SESSION not acknowledged");
+                return;
+            }
             if (++s->tries > 4) {
                 enter_discover(s, "SESSION not acknowledged");
                 return;
@@ -768,7 +906,7 @@ void rfm_session_poll(rfm_session_t *s, uint32_t now)
             s->next_frame += s->fperiod;
             if (after(now, s->next_frame, 0))
                 s->next_frame = now + s->fperiod;
-            if (s->ble) {                               /* and no sooner than this body at the rate */
+            if (s->paced) {                             /* and no sooner than this body at the rate */
                 const uint32_t gap = s->cur_body * 1000u / ble_rate(s);
                 if ((int32_t)(s->next_frame - now) < (int32_t)gap)
                     s->next_frame = now + gap;
@@ -794,7 +932,7 @@ void rfm_session_set_frame(rfm_session_t *s, const uint16_t *lcd) { rfm_screen_s
 void rfm_session_set_ble_colors(rfm_session_t *s, uint32_t colors)
 {
     s->cfg.ble_colors = colors;
-    if (s->frame_link < 0 || !s->ble)
+    if (s->frame_link < 0 || !s->paced)
         return;
     rfm_screen_set_lossy(s->screen, colors);
     if (!colors && rfm_screen_refine(s->screen, 1))
@@ -885,6 +1023,9 @@ void rfm_session_stats(const rfm_session_t *s, rfm_session_stats_t *st)
     st->in_flight = s->nfl;
     st->pending = rfm_screen_pending(s->screen);
     st->ble = s->frame_link >= 0 && s->ble;
+    st->slow = s->frame_link >= 0 && s->slow;
+    st->tcp = s->frame_link >= 0 && s->tcp;
+    st->rate = s->frame_link >= 0 && s->paced ? s->rate : 0u;
     st->frame_ms = s->frame_link >= 0 ? s->fperiod : s->period;
     st->wire_cap = s->frame_link >= 0 ? s->wire_cap : 0;
     st->wire_in_flight = wire_in_flight(s);

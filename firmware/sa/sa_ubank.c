@@ -30,7 +30,7 @@ typedef struct {
 } sa_ubh_t;                                  /* (0.3.0's header) */
 _Static_assert(sizeof(sa_ubh_t) == 32u, "32 bytes a header");
 
-static uint8_t sa_ub_rx[SA_UB_LEN] PLAT_POOL;   /* a dump coming in (and the bank being written: its 4,096 bytes) */
+RF_BIG(uint8_t, sa_ub_rx, SA_UB_LEN);   /* a dump coming in (and the bank being written: its 4,096 bytes) */
 static struct {
     uint32_t n;                              /* its bytes so far */
     uint8_t st;                              /* 0 none, 1 collecting, 2 too long: dropped */

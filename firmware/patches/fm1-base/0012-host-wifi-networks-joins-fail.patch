@@ -1,0 +1,292 @@
+diff --git a/host/plat_host.c b/host/plat_host.c
+--- a/host/plat_host.c
++++ b/host/plat_host.c
+@@ -916,11 +916,57 @@
+ #if FM1B_WIFI
+ /* WiFi (FM1B_WIFI): a stand-in, two networks around ("Home", kept, and "Cafe", open), on 0.5 s after asked, joined
+  * 1.5 s after (an address 0.5 s later); the network code (fm1.toml net) is the device's alone: plat_net_task runs
+- * nothing here */
++ * nothing here. RemoteFM1 0011: a scan takes 1 s, then counted. RemoteFM1 0012, as device/wifi.c does: a network
++ * joined is kept (to the front, with its password), a join fails ("not found": not around; "could not join": the
++ * network has a password, set by the script, and another was given), a scan while joining stops the join; the script
++ * sets the networks ("wifi"), and the checks see the joins, the stopped ones and the last password given */
++typedef struct { char ssid[33], pass[64]; int rssi, secured, ch; } wf_air_t;
++static wf_air_t wf_air[12] = {{"Home", "", -48, 1, 6}, {"Cafe", "", -71, 0, 11}};
++static int wf_nair = 2;
+ static uint8_t wf_st;
+ static uint32_t wf_t;
+-static uint32_t wf_scans, wf_scan_at;          /* (RemoteFM1 0011: a scan takes 1 s, then counted) */
+-static char wf_ssid[33], wf_kept[6][33] = {"Home"};
++static uint32_t wf_scans, wf_scan_at;
++static char wf_ssid[33], wf_kept[6][33] = {"Home"}, wf_kpass[6][64], wf_pass[64];
++static const char *wf_why = "";
++static uint32_t wf_joins, wf_stops;
++static void wf_cpy(char *d, const char *s, size_t n) { snprintf(d, n, "%s", s ? s : ""); }
++static int wf_air_find(const char *ssid)
++{
++    int i;
++    for (i = 0; i < wf_nair; i++)
++        if (!strcmp(wf_air[i].ssid, ssid))
++            return i;
++    return -1;
++}
++static int wf_kept_find(const char *ssid)
++{
++    int i;
++    for (i = 0; ssid && i < 6; i++)
++        if (wf_kept[i][0] && !strcmp(wf_kept[i], ssid))
++            return i;
++    return -1;
++}
++static void wf_keep(const char *ssid, const char *pass)   /* to the front; the oldest falls off */
++{
++    int i = wf_kept_find(ssid);
++    if (i < 0)
++        i = 5;
++    for (; i > 0; i--) {
++        memcpy(wf_kept[i], wf_kept[i - 1], sizeof wf_kept[0]);
++        memcpy(wf_kpass[i], wf_kpass[i - 1], sizeof wf_kpass[0]);
++    }
++    wf_cpy(wf_kept[0], ssid, sizeof wf_kept[0]);
++    wf_cpy(wf_kpass[0], pass, sizeof wf_kpass[0]);
++}
++static void wf_join_now(const char *ssid, const char *pass)
++{
++    wf_cpy(wf_ssid, ssid, sizeof wf_ssid);
++    wf_cpy(wf_pass, pass, sizeof wf_pass);
++    wf_why = "";
++    wf_st = WIFI_JOINING;
++    wf_t = now_ms;
++    wf_joins++;
++}
+ static void wifi_tick(void)
+ {
+     if (wf_scan_at && now_ms - wf_scan_at >= 1000u) {
+@@ -928,16 +974,28 @@
+         wf_scans++;
+     }
+     if (wf_st == WIFI_STARTING && now_ms - wf_t >= 500u) {
+-        wf_st = wf_kept[0][0] ? WIFI_JOINING : WIFI_ON;
+-        snprintf(wf_ssid, sizeof wf_ssid, "%s", wf_kept[0]);
++        wf_st = WIFI_ON;
++        if (wf_kept[0][0])
++            wf_join_now(wf_kept[0], wf_kpass[0]);
+         wf_t = now_ms;
+     }
+     if (wf_st == WIFI_JOINING && now_ms - wf_t >= 1000u) {
+-        wf_st = WIFI_ADDRESS;
++        int a = wf_air_find(wf_ssid);
+         wf_t = now_ms;
++        if (a < 0) {
++            wf_st = WIFI_FAILED;
++            wf_why = "not found";
++        } else if (wf_air[a].pass[0] && strcmp(wf_air[a].pass, wf_pass)) {
++            wf_st = WIFI_FAILED;
++            wf_why = "could not join";
++        } else {
++            wf_st = WIFI_ADDRESS;
++        }
+     }
+-    if (wf_st == WIFI_ADDRESS && now_ms - wf_t >= 500u)
++    if (wf_st == WIFI_ADDRESS && now_ms - wf_t >= 500u) {
+         wf_st = WIFI_CONNECTED;
++        wf_keep(wf_ssid, wf_pass);
++    }
+ }
+ void plat_wifi_on(int on)
+ {
+@@ -945,44 +1003,51 @@
+         wf_st = WIFI_STARTING;
+         wf_t = now_ms;
+         wf_ssid[0] = 0;
++        wf_why = "";
+     } else if (!on) {
+         wf_st = WIFI_OFF;
++        wf_scan_at = 0;
+     }
+ }
+ int plat_wifi_state(void) { return wf_st; }
+-const char *plat_wifi_why(void) { return ""; }
++const char *plat_wifi_why(void) { return wf_st == WIFI_FAILED ? wf_why : ""; }
+ const char *plat_wifi_ssid(void) { return wf_ssid; }
+ uint32_t plat_wifi_ip(void) { return wf_st == WIFI_CONNECTED ? 0x2A01A8C0u : 0; }   /* 192.168.1.42 */
+-int plat_wifi_rssi(void) { return wf_st == WIFI_CONNECTED ? -48 : 0; }
++int plat_wifi_rssi(void)
++{
++    int a = wf_air_find(wf_ssid);
++    return wf_st == WIFI_CONNECTED ? (a >= 0 ? wf_air[a].rssi : -48) : 0;
++}
+ int plat_wifi_scan(void)
+ {
+     if (wf_st < WIFI_ON)
+         return -1;
++    if (wf_st == WIFI_JOINING || wf_st == WIFI_ADDRESS) {   /* (device/wifi.c: the library idle first) */
++        wf_st = WIFI_ON;
++        wf_stops++;
++    }
+     wf_scan_at = now_ms | 1u;
+     return 0;
+ }
+-int plat_wifi_found_channel(int i) { return wf_st >= WIFI_ON && i >= 0 && i <= 1 ? (i ? 11 : 6) : 0; }
++int plat_wifi_found_channel(int i) { return wf_st >= WIFI_ON && i >= 0 && i < wf_nair ? wf_air[i].ch : 0; }
+ int plat_wifi_found(int i, char *ssid, int *rssi, int *secured)
+ {
+-    static const char *const N[2] = {"Home", "Cafe"};
+-    if (wf_st < WIFI_ON || i < 0 || i > 1)
++    if (wf_st < WIFI_ON || i < 0 || i >= wf_nair)
+         return 0;
+     if (ssid)
+-        snprintf(ssid, 33, "%s", N[i]);
++        snprintf(ssid, 33, "%s", wf_air[i].ssid);
+     if (rssi)
+-        *rssi = i ? -71 : -48;
++        *rssi = wf_air[i].rssi;
+     if (secured)
+-        *secured = !i;
++        *secured = wf_air[i].secured;
+     return 1;
+ }
+ int plat_wifi_join(const char *ssid, const char *pass)
+ {
+-    (void)pass;
++    int k = wf_kept_find(ssid);
+     if (wf_st < WIFI_ON || !ssid || !ssid[0])
+         return -1;
+-    snprintf(wf_ssid, sizeof wf_ssid, "%s", ssid);
+-    wf_st = WIFI_JOINING;
+-    wf_t = now_ms;
++    wf_join_now(ssid, pass ? pass : k >= 0 ? wf_kpass[k] : "");
+     return 0;
+ }
+ int plat_wifi_saved(int i, char *ssid)
+@@ -995,17 +1060,12 @@
+ }
+ void plat_wifi_forget(int i)
+ {
+-    if (i >= 0 && i < 6)
++    if (i >= 0 && i < 6) {
+         memmove(wf_kept[i], wf_kept[i + 1], (size_t)(5 - i) * sizeof wf_kept[0]), memset(wf_kept[5], 0, 33);
++        memmove(wf_kpass[i], wf_kpass[i + 1], (size_t)(5 - i) * sizeof wf_kpass[0]), memset(wf_kpass[5], 0, 64);
++    }
+ }
+-int plat_wifi_kept(const char *ssid)
+-{
+-    int i;
+-    for (i = 0; ssid && i < 6; i++)
+-        if (wf_kept[i][0] && !strcmp(wf_kept[i], ssid))
+-            return 1;
+-    return 0;
+-}
++int plat_wifi_kept(const char *ssid) { return wf_kept_find(ssid) >= 0; }
+ uint32_t plat_wifi_scans(void) { return wf_st >= WIFI_ON ? 1u + wf_scans : 0u; }
+ void plat_wifi_rx(uint32_t *frames, int *rssi)
+ {
+@@ -1015,6 +1075,59 @@
+         *rssi = wf_st >= WIFI_ON ? -55 : 0;
+ }
+ int plat_net_task(void (*fn)(void *), void *arg, const char *name) { (void)fn, (void)arg, (void)name; return -1; }
++static void wifi_reboot(void)                       /* (the radio off at a restart; the networks kept stay, as in the
++                                                     * store) */
++{
++    wf_st = WIFI_OFF;
++    wf_scan_at = 0;
++    wf_ssid[0] = 0;
++}
++/* the script's "wifi" (names: '_' for a space):
++ *   wifi clear                         no networks around
++ *   wifi add NAME RSSI SECURED CH [PASS]   a network around, after the others (the strongest first: add them so);
++ *                                      PASS: the only password it takes (none: any)
++ *   wifi keep NAME [PASS]              a network kept, to the front
++ *   wifi forget_all                    none kept
++ *   wifi pass_is TEXT                  the last password a join was given is TEXT (said ok / FAIL, never shown) */
++static void wf_name(char *d, const char *s)
++{
++    int i;
++    for (i = 0; i < 32 && s[i]; i++)
++        d[i] = s[i] == '_' ? ' ' : s[i];
++    d[i] = 0;
++}
++static int wifi_cmd(const char *a, const char *b, const char *c, const char *d, const char *line)
++{
++    char e[64] = {0};
++    if (!strcmp(a, "clear")) {
++        wf_nair = 0;
++    } else if (!strcmp(a, "add") && wf_nair < 12) {
++        wf_air_t *n = &wf_air[wf_nair++];
++        memset(n, 0, sizeof *n);
++        wf_name(n->ssid, b);
++        n->rssi = atoi(c);
++        n->secured = atoi(d);
++        if (sscanf(line, "%*s %*s %*s %*s %*s %d %63s", &n->ch, e) >= 1)
++            wf_cpy(n->pass, e, sizeof n->pass);
++    } else if (!strcmp(a, "keep")) {
++        char s[33];
++        wf_name(s, b);
++        wf_keep(s, c);
++    } else if (!strcmp(a, "forget_all")) {
++        memset(wf_kept, 0, sizeof wf_kept);
++        memset(wf_kpass, 0, sizeof wf_kpass);
++    } else if (!strcmp(a, "pass_is")) {
++        if (strcmp(wf_pass, b)) {
++            printf("FAIL wifi pass_is: the last join's password is not the one expected\n");
++            return 1;
++        }
++        printf("  ok   wifi pass_is\n");
++    } else {
++        printf("FAIL wifi %s: clear, add, keep, forget_all, pass_is\n", a);
++        return 1;
++    }
++    return 0;
++}
+ #endif
+ uint32_t plat_ble_log_total(void) { return ble_log_n; }
+ const char *plat_ble_log_line(int back)
+@@ -2309,6 +2422,17 @@
+         got = (int)clock_out_count;
+     else if (!strcmp(what, "usb_play_gain"))        /* plat_usb_play_gain's level, 0..4096 */
+         got = (int)usb_play_q12;
++#if FM1B_WIFI
++    else if (!strcmp(what, "wifi_joins"))           /* plat_wifi_join's and the start's joins (RemoteFM1 0012) */
++        got = (int)wf_joins;
++    else if (!strcmp(what, "wifi_stops"))           /* joins a scan stopped */
++        got = (int)wf_stops;
++    else if (!strcmp(what, "wifi_st"))              /* WIFI_* */
++        got = wf_st;
++    else if (!strcmp(what, "wifi_kept"))            /* networks kept */
++        for (got = 0; got < 6 && wf_kept[got][0]; got++)
++            ;
++#endif
+     else if (!strcmp(what, "usb_audio_full"))       /* plat_usb_audio_full: 1 full, 0 at MASTER */
+         got = uac_full;
+     else if (!strcmp(what, "midi_out"))
+@@ -2811,6 +2935,10 @@
+             printf("\n");
+         } else if (!strcmp(cmd, "expect"))
+             fails += expect(a, b);
++#if FM1B_WIFI
++        else if (!strcmp(cmd, "wifi"))             /* the stand-in's networks (RemoteFM1 0012) */
++            fails += wifi_cmd(a, b, c, d, line);
++#endif
+ #if FM1B_RES
+         else if (!strcmp(cmd, "res"))             /* res 0|1: the resource region there or not */
+             res_there = atoi(a) != 0;
+@@ -2855,6 +2983,9 @@
+             app_host_reboot();                  /* the app forgets what RAM would (app.h) */
+ #endif
+             usbh_reboot();                      /* (every boot is a device: plat_usb_host) */
++#if FM1B_WIFI
++            wifi_reboot();                      /* (RemoteFM1 0012: the radio off, as at a power-on) */
++#endif
+             boot();
+         } else if (!strcmp(cmd, "crash") || !strcmp(cmd, "crash_in_save") || !strcmp(cmd, "power")) {
+             if (!strcmp(cmd, "power")) {
+@@ -2867,6 +2998,9 @@
+ #ifdef APP_HOST_REBOOT
+             app_host_reboot();
+ #endif
++#if FM1B_WIFI
++            wifi_reboot();
++#endif
+             boot();
+             printf("  %s at %u ms: restarted, crash count %u, history %d\n", cmd, now_ms,
+                    hcr.magic == HCR_MAGIC ? hcr.count : 0u, hcr_rc);

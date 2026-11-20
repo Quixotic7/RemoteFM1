@@ -4,8 +4,19 @@
  * caller gives it links (a write function each), feeds it the bytes each link received, and calls poll() with a
  * millisecond clock. Everything happens inside those calls.
  *
- * Links: RFM_LINK_SX (a MIDI port pair: SysEx out; in: SysEx and the panel's channel messages) and RFM_LINK_BK
- * (the vendor bulk pipe). The back end adds every candidate; the session finds the unit by HELLO only.
+ * Links: RFM_LINK_SX (a MIDI port pair: SysEx out; in: SysEx and the panel's channel messages), RFM_LINK_BK
+ * (the vendor bulk pipe) and RFM_LINK_TCP (the Wi-Fi build: the bulk framing over a TCP connection to the unit, port
+ * RFM_NET_TCP_PORT; the panel's events come on it as PANEL_EV). The back end adds every candidate; the session finds
+ * the unit by HELLO only.
+ *
+ * TCP (docs/PROTOCOL.md section 10): the back end owns the socket (connect, non-blocking writes that never drop a
+ * byte: a write it cannot take whole is a failure, the link is then dead until rfm_session_link_reset); the session
+ * frames, never paces (a reliable stream: RFM_BUDGET_TCP_BPS, max_frames_in_flight), and takes the panel from
+ * PANEL_EV. A TCP frame link is preferred to a SysEx one (a bulk link of the same unit first). Reconnecting: on a
+ * close or an error the back end calls rfm_session_remove_link (or keeps the id and, once connected again,
+ * rfm_session_link_reset); the session goes back to DISCOVER (the rescan callback is the moment to reconnect) and
+ * starts a new session when HELLO answers on the new connection. Discovery on the LAN (UDP "RFM1?") is the back
+ * end's too: rfm_parse_discovery reads the answers.
  *
  *   DISCOVER  HELLO on every link; within hello_ms, every link that answered "RemoteFM1" proto 2 counts. The first
  *             SX link that answered carries the panel events; the frame link (the session transport) is a BK link
@@ -48,7 +59,17 @@
  * the sound given to rfm_session_audio goes out as AUDIO blocks (rfm/audio.h: 22,050 Hz IMA ADPCM, ~13.7 KB/s on the
  * wire) and no TILES are sent (the unit shows its own screen); LEDs, the panel and MIDI_IN go on. The option turned
  * off (or the link no longer Bluetooth) sends AUDIO_MODE off: the unit's screen is black again and the host's model
- * with it, so the whole screen is sent again. USB links never use it (the FM-1 is a USB sound card there). */
+ * with it, so the whole screen is sent again. USB links never use it (the FM-1 is a USB sound card there).
+ *
+ * A slow SysEx link that is not Bluetooth (cfg.slow_link, off by default): e.g. the Ableton Move's USB-A port, whose
+ * MIDI goes through the Move's surface controller (~8-14 KB/s host -> unit, and a burst of more than ~200 bytes from
+ * the unit is lost; RemoteFM14Move). With slow_link on, any SysEx frame link that is not Bluetooth is paced as
+ * Bluetooth is above: frames at most RFM_BLE_FPS a second, the next no sooner than its body at cfg.slow_bps
+ * (RFM_SLOW_BPS_DEFAULT) allows, a budget of slow_bps / 10 (cfg.budget if set; at most half the cap), at most
+ * cfg.slow_wire_cap (RFM_SLOW_WIRE_CAP_DEFAULT) framed TILES bytes unacknowledged, lossy tiles (cfg.ble_colors) with
+ * their refinement, whole screen changes (cfg.ble_hold, units with RFM_CAP_HOLD), and Bluetooth's timeouts. The unit
+ * itself only ever sends small messages in a session (panel events, ACK, FRAME_ACK, PANEL_R, MIDI_IN), so its side
+ * needs nothing. Never the audio mode (that is Bluetooth's). Bulk links are never slow. stats.slow says it is in use. */
 #ifndef RFM_SESSION_H
 #define RFM_SESSION_H
 #include <stdint.h>
@@ -60,7 +81,7 @@
 extern "C" {
 #endif
 
-enum { RFM_T_AUTO = 0, RFM_T_MIDI = 1, RFM_T_BULK = 2 };
+enum { RFM_T_AUTO = 0, RFM_T_MIDI = 1, RFM_T_BULK = 2, RFM_T_TCP = 3 };
 enum { RFM_S_DISCOVER = 0, RFM_S_STARTING, RFM_S_ACTIVE, RFM_S_STOPPING, RFM_S_STOPPED };
 #define RFM_MAX_LINKS 16
 #define RFM_BLE_FPS 20u                                 /* Bluetooth pacing (above) */
@@ -77,6 +98,19 @@ enum { RFM_S_DISCOVER = 0, RFM_S_STARTING, RFM_S_ACTIVE, RFM_S_STOPPING, RFM_S_S
 #define RFM_TOUCH_SETTLE_MS 300u                        /* a PANEL_R this soon after TOUCH may predate it */
 #define RFM_AUDIO_RETRY_MS 1000u                        /* AUDIO_MODE on not confirmed: asked again */
 #define RFM_AUDIO_TRIES 4u                              /* ... at most this often a session (refused: given up) */
+#define RFM_SLOW_BPS_DEFAULT 8000u                      /* cfg.slow_link: TILES body bytes a second */
+#define RFM_SLOW_WIRE_CAP_DEFAULT 2048u                 /* .. framed TILES bytes unacknowledged */
+/* TCP (the Wi-Fi build): a reliable stream whose segments lost on the radio come back by retransmission, a second or
+ * more later (lwIP's coarse timers on the FM-1): its stalls are waited out, never taken for a lost session. SESSION is
+ * sent once (a second start, after the first one's late ACK, restarted the unit's session: "shadow reset"); its ACK,
+ * PANEL_R and anything at all may be this late; the unit's keepalive is at least RFM_TCP_KEEPALIVE_MS (the
+ * connection's end ends a session anyway) */
+#define RFM_TCP_START_MS 5000u
+#define RFM_TCP_HEARTBEAT_MS 4000u                       /* PANEL_R's heartbeat over TCP (1d traces: gaps <= 0.6 s) */
+#define RFM_TCP_LOST_MS 10000u
+#define RFM_TCP_ACK_MIN_MS 5000u
+#define RFM_TCP_KEEPALIVE_MS 10000u
+#define RFM_TCP_WIRE_CAP 24576u                          /* framed TILES bytes unacknowledged over TCP: 2 frames */
 
 typedef struct {
     uint32_t fps;                                       /* 20 */
@@ -105,6 +139,11 @@ typedef struct {
      * RFM_AUDIO_F_BLACK: its screen black instead of "RemoteFM1" */
     int ble_audio;
     uint32_t audio_div, audio_buffer_ms, audio_flags;
+    /* a slow SysEx link that is not Bluetooth (above): 1 paces any SysEx frame link as Bluetooth is (default 0);
+     * its rate, body bytes a second (RFM_SLOW_BPS_DEFAULT), and framed TILES bytes unacknowledged
+     * (RFM_SLOW_WIRE_CAP_DEFAULT); 0: the default */
+    int slow_link;
+    uint32_t slow_bps, slow_wire_cap;
 } rfm_session_cfg_t;
 void rfm_session_cfg_default(rfm_session_cfg_t *c);
 
@@ -120,6 +159,9 @@ typedef struct {
      * its status (channel messages and real time F8 FA FB FC), in order, while a session is active. Feed them to
      * the running firmware's MIDI input as if they came from its own MIDI in. NULL: dropped */
     void (*midi_in)(void *ctx, const uint8_t *msgs, uint32_t n);
+    /* any other message from a link (one the session does not take itself: WIFI_R, ECHO_R, STATS_R...), with the
+     * link it came on; for requests sent with rfm_session_send. NULL: dropped */
+    void (*msg)(void *ctx, int link, uint8_t cmd, const uint8_t *body, uint32_t n);
 } rfm_session_cb_t;
 
 typedef struct {
@@ -147,6 +189,13 @@ typedef struct {
     uint32_t audio_dropped;                             /* samples given while the mode was not on */
     /* the unit's last AUDIO_R: its buffer's target and fill (ms), blocks taken, lost, underruns, skipped */
     uint32_t audio_buffer_ms, audio_fill_ms, audio_unit_blocks, audio_lost, audio_underruns, audio_skipped;
+    uint32_t slow;                                      /* 1: the frame link is paced as a slow link (cfg.slow_link) */
+    uint32_t rate;                                      /* a paced link's body bytes a second (0: not paced) */
+    uint32_t tcp;                                       /* 1: the frame link is TCP (the Wi-Fi build) */
+    uint32_t panel_ev, panel_ev_bad;                    /* PANEL_EV messages taken (TCP), malformed */
+    uint32_t draw_us_max;                               /* the longest draw_us a FRAME_ACK gave */
+    uint32_t panel_r_gap_max;                           /* the longest ms between PANEL_Rs in an active session */
+    uint32_t reset_reason;                              /* the last shadow reset's reason (FRAME_ACK bits 4..7) */
 } rfm_session_stats_t;                                  /* (all uint32: web/remote reads it as an array) */
 
 typedef struct rfm_session rfm_session_t;
@@ -155,6 +204,9 @@ void rfm_session_free(rfm_session_t *s);
 
 int rfm_session_add_link(rfm_session_t *s, int kind, rfm_write_fn write, void *ctx, const char *name);  /* id, -1 */
 void rfm_session_remove_link(rfm_session_t *s, int id, uint32_t now_ms);
+/* the link's byte stream started afresh (a TCP link reconnected: a new connection; a link whose write failed is alive
+ * again): its parser and sequence numbers reset; a session on it is gone (the unit ended it), so DISCOVER */
+void rfm_session_link_reset(rfm_session_t *s, int id, uint32_t now_ms);
 void rfm_session_rx(rfm_session_t *s, int id, const uint8_t *p, uint32_t n, uint32_t now_ms);
 void rfm_session_poll(rfm_session_t *s, uint32_t now_ms);
 
@@ -181,6 +233,14 @@ const rfm_hello_t *rfm_session_hello(const rfm_session_t *s);           /* the u
 int rfm_session_frame_link(const rfm_session_t *s);                     /* -1 none */
 int rfm_session_midi_link(const rfm_session_t *s);
 int rfm_session_link_kind(const rfm_session_t *s, int id);
+/* a message of the caller's own on link id, outside the session's (e.g. WIFI to the unit on a USB SysEx link while
+ * the session runs over TCP): framed for the link, not paced. 0 sent, -1 no such link or the write failed. The
+ * reply comes to cb.msg */
+int rfm_session_send(rfm_session_t *s, int id, uint8_t cmd, const uint8_t *body, uint32_t n);   /* (its framed copy wiped) */
+/* HELLO on link id now (its HELLO_R updates rfm_session_link_hello); 0 sent */
+int rfm_session_hello_link(rfm_session_t *s, int id);
+/* the HELLO_R a link last gave, if it was RemoteFM1 v2 (NULL: none yet); *age_ms: since it came (with now_ms) */
+const rfm_hello_t *rfm_session_link_hello(const rfm_session_t *s, int id, uint32_t now_ms, uint32_t *age_ms);
 uint32_t rfm_session_budget(const rfm_session_t *s);                    /* bytes per frame in use */
 void rfm_session_stats(const rfm_session_t *s, rfm_session_stats_t *st);
 const rfm_panel_t *rfm_session_panel(const rfm_session_t *s);

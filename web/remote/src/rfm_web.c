@@ -110,6 +110,7 @@ EMSCRIPTEN_KEEPALIVE int rw_init(int fps, int transport, int keepalive_ms, int b
         host_name[16] = 0;
     }
     c.host_name = host_name;
+    memset(&cb, 0, sizeof cb);                          /* (cb.msg and anything added later: none) */
     cb.ctx = NULL;
     cb.event = cb_event;
     cb.state = cb_state;

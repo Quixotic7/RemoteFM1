@@ -53,6 +53,9 @@ extern "C" {
  * a frame's budget is rate / fps: 40000 and 14000 bytes at 20 Hz */
 #define RFM_BUDGET_BK_BPS 800000u
 #define RFM_BUDGET_SX_BPS 280000u
+#define RFM_BUDGET_TCP_BPS 200000u                     /* TCP (the Wi-Fi build): 494 KB/s measured to the unit;
+                                                          * 10 KB a frame (1b's), each kept whole by the unit
+                                                          * (RFM_NET_FRAME_MAX), 2 in flight (RFM_TCP_WIRE_CAP) */
 /* Bluetooth MIDI (RemoteFM1 0.2): 6.0..6.3 KB/s of TILES body measured on a unit (1 KB frames, 2 in flight, ACKs
  * back in < 100 ms); 5500 (~6.3 KB/s framed) leaves ~10 % for LEDS, keepalives and BLE MIDI's packet headers, and
  * the in-flight cap (session.h: Bluetooth pacing) keeps the unit's input from overflowing if the link is slower */

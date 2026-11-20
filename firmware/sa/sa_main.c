@@ -93,7 +93,11 @@ static void rf_sa_leds(uint32_t btns, uint32_t keys, uint32_t keys_root, uint32_
 enum { SA_SCR_HOME, SA_SCR_PRESET, SA_SCR_CHANNEL, SA_SCR_OCTAVE, SA_SCR_HOST, SA_SCR_CCBANK, SA_SCR_CCTURN,
        SA_SCR_CCASSIGN, SA_SCR_SAVED, SA_SCR_REC, SA_SCR_LOOP, SA_SCR_LOOPS, SA_SCR_RECOPT, SA_SCR_ARP, SA_SCR_ARPSET,
        SA_SCR_TEMPO, SA_SCR_THEME, SA_SCR_REMOTE, SA_SCR_LATCH, SA_SCR_SETTINGS, SA_SCR_SCALE, SA_SCR_USBH,
-       SA_SCR_AUDIO, SA_NSCR };
+       SA_SCR_AUDIO,
+#if FM1B_WIFI
+       SA_SCR_WIFI,                          /* the Wi-Fi page (sa_wifi.c) */
+#endif
+       SA_NSCR };
 #define SA_HOLD_MS 500u                      /* SAVE, ARP, PLAY, REC, LFO, HOME: held this long is a hold, else a tap */
 /* the settings (HOME held): MIDI REMOTE's display, knobs, channels, keys */
 enum { SA_RMD_VOID, SA_RMD_SOLID, SA_RMD_ALL, SA_RMD_KNOBS, SA_RMD_N };   /* the screen in MIDI REMOTE */
@@ -102,8 +106,10 @@ enum { SA_RMK_FIXED, SA_RMK_PLAY, SA_RMK_N };           /* its keys: fixed (as 0
 #ifndef FM1B_USB_HOST
 #define FM1B_USB_HOST 0
 #endif
-#define SA_NSET (9u + FM1B_USB_HOST)         /* the settings' rows: USB HOST the last, when built (fm1.toml usb_host) */
+#define SA_NSET (9u + FM1B_USB_HOST + FM1B_WIFI)   /* the settings' rows: USB HOST, when built (fm1.toml usb_host),
+                                              * then WI-FI in the Wi-Fi build (sa_wifi.c) */
 #define SA_SET_USBH 9u                       /* (its row) */
+#define SA_SET_WIFI (9u + FM1B_USB_HOST)     /* (WI-FI's) */
 #define SA_VEL_FIXED 100u                    /* VELOCITY off: every key's notes at this velocity */
 #define SA_MENU_MS 6000u                     /* (a menu's ov_until: unused since menus stay; kept for the touch) */
 enum { SA_LE_ON, SA_LE_OFF, SA_LE_CC };      /* a loop's events (sa_loop.c) */
@@ -155,6 +161,9 @@ static struct {
     uint32_t uheld[4];                       /* ... of them, the ones USB holds (plat_usb_lost lets them go) */
     uint8_t upedal, ubend;                   /* USB's last sustain pedal down, its last bend off centre */
     uint8_t usbh;                            /* USB HOST asked for (the settings; never saved) */
+#if FM1B_WIFI
+    uint8_t wifi_off;                        /* WI-FI turned off (the settings; kept: off at the next power-on too) */
+#endif
     uint8_t usbh_said;                       /* NOT MIDI / LOW-SPEED (USBH_MSG_*) for what is on the port, else 0 */
     uint8_t usbh_msg;                        /* the passing screen's (USBH_MSG_MIDI, _LOST, _NOMIDI, _LOW) */
     int8_t oct_before;                       /* the octave before the first of OCT- / OCT+ went down */
@@ -180,7 +189,7 @@ static struct {
 /* ------------------------------------------------------------------ the render's queue --- */
 enum { SA_EV_ON, SA_EV_OFF, SA_EV_CC, SA_EV_BEND, SA_EV_AT, SA_EV_ALLOFF, SA_EV_SOUNDOFF, SA_EV_CLICK };
 #define SA_EVQ 256u
-static uint32_t sa_evq[SA_EVQ] PLAT_POOL;
+RF_BIG(uint32_t, sa_evq, SA_EVQ);
 static volatile uint32_t sa_ev_w, sa_ev_r;
 static void sa_ev(uint32_t type, uint32_t a, uint32_t b)
 {
@@ -196,13 +205,13 @@ static void sa_ev(uint32_t type, uint32_t a, uint32_t b)
 
 static int sa_bench_busy(void) { return sab.state == 1u || sab.state == 2u || sab.hstate == 1u || sab.hstate == 2u; }
 
-static int32_t sa_mono[APP_BLOCK] PLAT_POOL;
+RF_BIG(int32_t, sa_mono, APP_BLOCK);
 static float sa_lim_g = 1.0f;
 static volatile uint32_t sa_peak_q15;        /* the output's peak since the screen last read it (Q15) */
 static uint32_t sa_clips;                    /* samples the soft knee had to bend (the simulator's checks) */
 #define SA_SCOPE_N 512u                      /* the Scope view's samples: every other one of the synth's sum (before
                                               * the limiter and MASTER), Q15 of full scale, clamped */
-static int16_t sa_scope[SA_SCOPE_N] PLAT_POOL;
+RF_BIG(int16_t, sa_scope, SA_SCOPE_N);
 static volatile uint32_t sa_scope_w;
 
 /* the metronome's click (sa_loop.c): a short decaying sine (a two-pole resonator), 1.6 kHz on a bar's first beat,
@@ -500,7 +509,9 @@ typedef struct {
     uint8_t loop_launch;                     /* (the same: 0 before, read as AT END) */
     uint8_t rm_kled_off;                     /* (2026-10-30, a spare byte: 0 before, read as on) */
     uint8_t vel_off;                         /* (2026-10-30, a spare byte: 0 before, read as VELOCITY on) */
-    uint8_t rsv[2];
+    uint8_t wifi_off;                        /* (2026-11-19, a spare byte: the Wi-Fi build's WI-FI off; 0 before and in
+                                              * the other builds: on) */
+    uint8_t rsv[1];
 } sa_store_t;
 #define SA_STORE_V2_HEAD ((int)__builtin_offsetof(sa_store_t, scale_root))   /* (version 2: the bytes before it) */
 
@@ -555,7 +566,11 @@ static void sa_store_step(void)
 static int sa_is_menu(uint32_t scr)          /* the menus: they take KN1..KN4 */
 {
     return scr == SA_SCR_RECOPT || scr == SA_SCR_LOOPS || scr == SA_SCR_ARPSET || scr == SA_SCR_SETTINGS ||
-           scr == SA_SCR_THEME;
+           scr == SA_SCR_THEME
+#if FM1B_WIFI
+           || scr == SA_SCR_WIFI
+#endif
+        ;
 }
 
 /* a passing screen (a turn's, a press's): shown SA_OVERLAY_MS, then the screen under it (sa.base) again */
@@ -600,6 +615,9 @@ static void sa_back(void)                    /* the passing screen gone: the one
 #include "sa_cc.c"
 static uint32_t sa_key_vel(uint32_t k);   /* (below: VELOCITY) */
 #include "sa_remote.c"
+#if FM1B_WIFI
+#include "sa_wifi.c"
+#endif
 
 static void sa_settings_fill(sa_store_t *s)
 {
@@ -634,6 +652,9 @@ static void sa_settings_fill(sa_store_t *s)
     s->rm_scl = sa.rm_scl;
     s->rm_kled_off = (uint8_t)!sa.rm_kled;
     s->vel_off = (uint8_t)!sa.vel_on;
+#if FM1B_WIFI
+    s->wifi_off = sa.wifi_off;
+#endif
     s->rec_metro = sa.rec_metro;
     s->rec_click = sa.rec_click;
     s->loop_launch = (uint8_t)(sa.loop_launch + 1u);   /* (0 in older records: the default) */
@@ -679,6 +700,9 @@ static void sa_settings_apply(const sa_store_t *s)   /* (each value checked: a r
     sa.rm_scl = (uint8_t)(s->rm_scl != 0u);
     sa.rm_kled = (uint8_t)!s->rm_kled_off;
     sa.vel_on = (uint8_t)!s->vel_off;
+#if FM1B_WIFI
+    sa.wifi_off = (uint8_t)(s->wifi_off != 0u);
+#endif
 }
 
 static void sa_settings_defaults(void)
@@ -873,6 +897,11 @@ static void sa_leds(void)
                 k |= 1u << i;
         }
     }
+#if FM1B_WIFI
+    if (sa.base == SA_SCR_WIFI && wp.page == WP_PASS)
+        kr = km = 0;                         /* (the keys type: only the one typed lit) */
+    sa_wifi_leds(&b, &k);
+#endif
     if (b == sa.led_b && k == sa.led_k && kr == sa.led_kr && km == sa.led_km &&
         plat_ms() - sa.led_ms < SA_LED_REFRESH_MS)
         return;
@@ -973,6 +1002,12 @@ static void sa_setopt(uint32_t o, int32_t d) /* the settings' rows: SCREEN KNOBS
                                 &sa.rm_scl, &sa.rm_kled, &sa.vel_on};
     int32_t x;
     o = o < SA_NSET ? o : SA_NSET - 1u;
+#if FM1B_WIFI
+    if (o == SA_SET_WIFI) {                  /* WI-FI: KN1 off / on (sa_wifi.c) */
+        sa_wifi_set_on(clamp((plat_wifi_state() != WIFI_OFF) + d, 0, 1));
+        return;
+    }
+#endif
     if (o == SA_SET_USBH) {
         sa_usbh_set(d);
         return;
@@ -1005,6 +1040,9 @@ static int sa_menu_knob(uint32_t k, int32_t d)
         if (k == 0u)
             sa_setopt(sa.mfocus, d);
         break;
+#if FM1B_WIFI
+    case SA_SCR_WIFI: sa_wifi_knob(k, d); break;
+#endif
     case SA_SCR_THEME:                       /* KN1 the theme, KN2 the background (ALGORITHM too), shown at once */
         if (k == 0u) {
             sa.theme = (uint8_t)(((int32_t)sa.theme + d % (int32_t)SA_NTHEMES + (int32_t)SA_NTHEMES) %
@@ -1025,6 +1063,14 @@ static int sa_menu_knob(uint32_t k, int32_t d)
 
 static void sa_select(int32_t d)             /* SELECT: the tempo; in the settings the row */
 {
+#if FM1B_WIFI
+    if (sa.menu && sa.base == SA_SCR_WIFI) { /* the Wi-Fi page's (sa_wifi.c) */
+        sa_wifi_select(d);
+        sa_back();
+        sa_menu_touch();
+        return;
+    }
+#endif
     if (sa.menu && sa.base == SA_SCR_THEME) {   /* the theme menu: SELECT the theme (as KN1) */
         sa.theme = (uint8_t)(((int32_t)sa.theme + d % (int32_t)SA_NTHEMES + (int32_t)SA_NTHEMES) %
                              (int32_t)SA_NTHEMES);
@@ -1162,6 +1208,13 @@ static void sa_buttons(uint32_t btns)
 {
     const uint32_t OD = 1u << B_OCTDN, OU = 1u << B_OCTUP;
     uint32_t down = btns & ~sa.btns, up = sa.btns & ~btns, now = plat_ms(), b;
+#if FM1B_WIFI
+    {                                        /* the Wi-Fi page's buttons (sa_wifi.c): taken, their release nothing */
+        uint32_t eat = sa_wifi_buttons(down, btns);
+        down &= ~eat;
+        sa.hold_done |= eat;
+    }
+#endif
     if (sa_rm_combo(down, btns)) {           /* GLO + FX: MIDI REMOTE (sa_remote.c) */
         sa.btns = btns;
         return;
@@ -1203,6 +1256,26 @@ static void sa_buttons(uint32_t btns)
 static void sa_encoders(const int32_t *steps)   /* detents by plat.h's role (EN_*) */
 {
     int32_t s = steps[EN_PRESET], c = steps[EN_ALGO], k;
+#if FM1B_WIFI
+    if (sa.menu && sa.base == SA_SCR_WIFI) { /* the Wi-Fi page: SELECT (GLO or not), ALGORITHM its own; PRESETS
+                                              * nothing while the password is typed */
+        if (steps[EN_SELECT])
+            sa_select(steps[EN_SELECT]);
+        if (c) {
+            sa_wifi_algo(c);
+            sa_back();
+            sa_menu_touch();
+        }
+        if (wp.page == WP_PASS)
+            s = 0;
+        for (k = 0; k < 4; k++)
+            if (steps[EN_K1 + k] && !sa_menu_knob((uint32_t)k, steps[EN_K1 + k]))
+                sa_cc_knob((uint32_t)k, steps[EN_K1 + k]);
+        if (s)
+            sa_voice_step(s);
+        return;
+    }
+#endif
     for (k = 0; k < 4; k++)
         if (steps[EN_K1 + k] && !sa_menu_knob((uint32_t)k, steps[EN_K1 + k]))
             sa_cc_knob((uint32_t)k, steps[EN_K1 + k]);
@@ -1267,6 +1340,9 @@ static void sa_ms(uint32_t btns, const int32_t *steps)
     uint32_t now = plat_ms(), keys, ch, k;
     int32_t cur;
     int busy = sa_bench_busy();
+#if FM1B_WIFI
+    sa_wifi_ms();                            /* the Wi-Fi page (its password wiped when it is not up) */
+#endif
     if (sa.bench_was && !busy) {             /* the bench gave the synth back (sa_synth_init'ed): our voice again */
         sa_synth_cores(sab_cores_max());
         sa_load_voice();
@@ -1323,6 +1399,10 @@ static void sa_ms(uint32_t btns, const int32_t *steps)
     for (ch = keys ^ sa.keys, k = 0; ch; ch >>= 1, k++) {
         if (!(ch & 1u))
             continue;
+#if FM1B_WIFI
+        if ((keys >> k & 1u) && sa_wifi_key(k))   /* the Wi-Fi password: the keys type (sa_wifi.c) */
+            continue;
+#endif
         if ((keys >> k & 1u) && (btns >> B_GLO & 1u) && sa_key_black(k) >= 0) {   /* GLO + a black key: the octave */
             int8_t o = (int8_t)sa_black_oct((uint32_t)sa_key_black(k));
             if (o != sa.oct) {

@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: MPL-2.0
+# Copyright (C) 2026 RemoteFM1 contributors
+# RemoteFM1 Wi-Fi (docs/WIFI.md): the build settings of the Wi-Fi variant, for ../build.sh --wifi, which copies
+# firmware/ to build/app-wifi with this file as its fm1.toml (the USB / Bluetooth build's fm1.toml stays as it is).
+# Phase 0, a spike: the FM-1 joins a network (credentials over USB SysEx, WIFI_SET), serves RemoteFM1's bulk framing
+# on TCP port 7740 and answers a UDP discovery probe on 7741 (firmware/net/rfm_net.c). fm1-base's Wi-Fi is JieLi's
+# library on the shim, with device/app_wifi.ld's fixed RAM map: 248 KB of the pool is the Wi-Fi heap, so the app gives
+# up what it can (app.h under FM1B_WIFI: no shadow, small rings) and Bluetooth and USB audio are off (fm1-base: "not
+# with ble, yet"; the RAM goes to Wi-Fi).
+name = "RemoteFM1-WiFi"        # the build's files: build/remotefm1-wifi.fwsc
+id_prefix = "FM-1_729"         # package identity: dev FM-1_72900 (a RemoteFM1 under 72, 9 for Wi-Fi), releases
+                               # FM-1_729XXYYZZ; HELLO_R's identity "FM-1_729" (the USB build's "FM-1_720")
+usb_product = "FM-1"           # the same USB names as RemoteFM1's other builds
+include = ["src"]
+o2 = ["sa/sa_synth.c"]
+o2_cflags = ["-DRF_WIFI_O2=1"]  # (FM6's sine in RAMTEXT's rest, not the pool: sa/sa_synth.c, app.h RF_LOW)
+gen = ["tools/gen_fm6_tables.py --out {gen}/fm6_tables.h",
+       "tools/gen_sa_config.py --out {gen}/sa_config.h",
+       "tools/gen_pixfont.py --out {gen}/sa_font.h",
+       "tools/gen_dx7_rom.py --out {gen}/dx7_rom.h"]
+vendored = ["third_party/"]
+cpu2 = true                    # (fm1-base's app_wifi.ld has no .c1_text: firmware/patches/fm1-base/0010 adds it)
+cpu2_fallback = true
+words = "words.tsv"
+wifi = true                    # a station on JieLi's Wi-Fi library and the SDK's lwIP (fm1-base device/wifi.c)
+net = ["net/rfm_net.c"]        # the TCP server and the discovery responder, on lwIP's sockets in a task of its own
+wifi_heap2_kb = 12             # the Wi-Fi heap's part in the RAM, 12 KB of 24 (firmware/patches/fm1-base/0010): the
+                               # RAM is as full as RemoteFM1's other builds; the heap is 260 KB, the app takes ~87 KB
+usb_audio_in = false           # (the RAM goes to Wi-Fi, as fm1-base's examples/wifi)
+usb_audio_out = false
+usb_midi_last = false
+usb_host = true
+tagline = "the FM-1 as the panel of a firmware on a computer or an Ableton Move, over Wi-Fi"
+repo = "https://github.com/Quixotic7/RemoteFM1"
+licence = "MPL-2.0"
+credits = "Built on fm1-base (Charles Vestal) and felucca-bsp (Leo Kuroshita, Hügelton Instruments)."
+author = "Quixotic7"
+description = "RemoteFM1 over Wi-Fi (a test build): the FM-1 as keys, knobs and screen for RemoteFM1 hosts on the same network."
+tags = ["controller", "midi"]
+install = "https://remotefm1.com/installer/"
+screenshot = "docs/hub-card.png"

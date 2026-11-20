@@ -19,6 +19,40 @@
 #define APP_TOUCH                        /* the keys' velocity (fm1-base lib/touch): standalone only (sa_main.c) */
 #define APP_USB_HOST_NAME                /* USB HOST's device by its name (plat_usb_host_name): the settings page */
 
+/* RemoteFM1 Wi-Fi (fm1-wifi.toml; docs/WIFI.md). fm1-base's Wi-Fi (JieLi's library and lwIP: device/app_wifi.ld)
+ * keeps a 248 KB heap in the pool, its 28 KB of packet buffers beside it and ~100 KB of the RAM, so the pool leaves the
+ * app ~27 KB and the RAM is as full as it was. The app keeps to that: no shadow (below), smaller rings, its big
+ * buffers taken from the Wi-Fi heap at app_init (RF_BIG: app_wifi.ld's own advice, "new buffers go on the heap"; the
+ * pool before the heap is exactly as long as fm1-base's examples/wifi has it, so the heap and lwIP's pools sit where
+ * they do there: tools/wifi_layout.py checks), and a few in what the RAM code leaves of RAMTEXT (RF_LOW).
+ * HELLO_R says what the rings are, so a host keeps to them. The TCP transport's rings: RF_NET_RX_N, RF_NET_TX_N */
+#if FM1B_WIFI
+#define RFM_SHADOW 0
+#define RF_MRX_N 4096u                   /* USB SysEx in (src/rfm_main.c; 16384 in the other builds) */
+#define RF_BK_RX_MAX 4096u               /* the longest bulk body taken, USB's and TCP's (HELLO_R bk_body_max) */
+#define RF_GEN_MAX 4096u                 /* SOURCE's longest DATA */
+#define SXQ 512u                         /* USB's SysEx send ring, packets */
+#define FELUCCA_VENDOR_IN_N 2048u        /* the vendor bulk pair's rings (32768 in the other builds; USB bulk is a
+                                         * diagnostic here, the panel's link is TCP) */
+#define FELUCCA_VENDOR_OUT_N 2048u
+#define FELUCCA_VENDOR_RING_ATTR RF_LOW
+#define RF_NET_RX_N 8192u                /* TCP -> the parser (powers of two) */
+#define RF_NET_FRAME_N 16384u            /* a TCP frame's TILES kept until its END (rfm_main.c rf_net_frame) */
+#define RF_NET_TX_N 8192u                /* the replies -> TCP */
+#define RF_BIG(T, name, n) static T *name   /* taken at app_init (rfm_main.c rf_big_init) */
+#define RF_BIGB(T, name, n) static T *name  /* (the same, for one the other builds keep in .bss) */
+#ifdef PLAT_HOST
+#define RF_LOW
+#else
+#define RF_LOW __attribute__((section(".ram_bss")))   /* what the RAM code leaves of RAMTEXT (firmware/patches/fm1-base
+                                         * 0010: not zeroed at boot; app_init zeroes it, src/rfm_wifi.c) */
+#endif
+#else
+#define RF_BIG(T, name, n) static T name[n] PLAT_POOL
+#define RF_BIGB(T, name, n) static T name[n]
+#define RF_LOW PLAT_POOL
+#endif
+
 /* RFM_SHADOW 1: the 240 x 240 shadow frame buffer (115,200 B of the pool): TILES are decoded into it and pushed to
  * the panel at each END, COPY works, the panel is repainted from it after the update screen. 0 (a build short of
  * RAM: the WiFi one): each rectangle goes to the panel as it is decoded, no COPY; HELLO_R's caps say which */
@@ -58,6 +92,14 @@ enum { OBJ_PANEL, OBJ_BLE, OBJ_RF, OBJ_SA, OBJ_NOBJ };
                               plat_in((off), (n), SA_STORE_LO, SA_STORE_HI))
 #define APP_STORE_MUX
 #define APP_STORE_VIRTUAL(obj) ((obj) == OBJ_BLE || (obj) == OBJ_SA)   /* records in OBJ_RF */
+#if FM1B_WIFI
+/* OBJ_WIFI (the Wi-Fi build, fm1-wifi.toml): fm1-base's networks kept (device/wifi.c: six), a record in OBJ_RF like
+ * OBJ_BLE and OBJ_SA, kept compact (src/rfm_store.c); after OBJ_NOBJ, as it is never one of fm1-base's own objects
+ * (rfm_store.c takes every call for it) */
+#define OBJ_WIFI 4u
+#undef APP_STORE_VIRTUAL
+#define APP_STORE_VIRTUAL(obj) ((obj) == OBJ_BLE || (obj) == OBJ_SA || (obj) == OBJ_WIFI)
+#endif
 int plat_store_raw_load(uint32_t obj, void *dst, uint32_t max);   /* (fm1-base's, under APP_STORE_MUX) */
 int plat_store_raw_head(uint32_t obj, void *dst, uint32_t n);
 int plat_store_raw_size(uint32_t obj);
@@ -79,9 +121,15 @@ void app_say(const char *a, const char *b);
  * audio input's stall check by the clock (the main loop polls USB far more often than 2 kHz); macOS's odd CIN 0xF
  * byte inside a long SysEx taken */
 #define FELUCCA_VENDOR 1
+#ifndef FELUCCA_VENDOR_IN_N
 #define FELUCCA_VENDOR_IN_N 32768u
+#endif
+#ifndef FELUCCA_VENDOR_OUT_N
 #define FELUCCA_VENDOR_OUT_N 32768u
+#endif
+#ifndef FELUCCA_VENDOR_RING_ATTR
 #define FELUCCA_VENDOR_RING_ATTR PLAT_POOL
+#endif
 static int rf_sx_tap(uint32_t b);
 static int rf_ep1_room(void);
 static int rf_frame_due(void);
@@ -101,6 +149,10 @@ static uint32_t rf_cinf;
 #define APP_HOST_EXPECT
 #define APP_HOST_CMD
 #define APP_HOST_FAILS
+#if FM1B_WIFI
+#define APP_HOST_REBOOT                  /* (a restart in the simulator: Wi-Fi as at a power-on, src/rfm_wifi.c) */
+void app_host_reboot(void);
+#endif
 int app_expect(const char *what, int *got);
 int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, const char *d);
 int app_host_fails(void);
