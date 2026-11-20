@@ -1707,8 +1707,8 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
     // host/tests/test_move.c's answers
     ok(core.padKey(16) === 0 && core.padKey(7) === 26 && core.padKey(8) === 13 && core.padKey(15) === 25 && core.padKey(24) === -1 && core.padKey(25) === 1,
        "move core: pads -> keys as test_move.c (row 2 col 1 F3 = 0, bottom-right G5 = 26, row 3 F# 13 / 25, row 1 col 1 off)");
-    ok(core.stepKey(0) === 0 && core.stepKey(15) === 26 && core.buttonOf(85) === 12 && core.buttonOf(51) === 11 && core.buttonOf(55) < 0 && core.buttonOf(43) < 0,
-       "move core: steps 1/16 = keys 0/26; Play = PLAY (12), Back = SEQ (11); Up and Track 1 none");
+    ok(core.stepKey(0) === 0 && core.stepKey(15) === 26 && core.buttonOf(85) === 12 && core.buttonOf(55) === 11 && core.buttonOf(51) < 0 && core.buttonOf(43) < 0,
+       "move core: steps 1/16 = keys 0/26; Play = PLAY (12), Up = SEQ (11, core 0.4.4); Back (the flip) and Track 1 none");
     ok([0, 1, 2, 3, 4, 5, 6, 7].map((k) => core.knobEnc(k)).join() === "6,1,-1,-1,2,3,4,5", "move core: knobs 1..8 = PRESETS ALGO - - K1..K4 (matrix)");
     ok([0, 1, 2, 3, 7, 8, 16, 24, 31].map((p) => core.padNote(p)).join() === "48,50,52,53,60,53,59,64,76", "move core: the in-scale layout's notes (C major from C3), as test_move.c");
     const dec = core.decode(pad(0, 100));
@@ -1731,8 +1731,8 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
     ok(a.length === 1 && a[0].kind === "midi" && Array.from(a[0].bytes).join() === "144,48,100", "move core: MIDI mode: pad 0 sends C3 note on, channel 1");
     ok(core.releaseAll().some((x) => x.kind === "midi" && x.bytes[0] === 0x80 && x.bytes[1] === 48), "move core: releaseAll lets the note go");
     const saved = core.save(), back = await load(saved);
-    ok(saved.length === 80 && saved[3] === 3 && String.fromCharCode(...saved.subarray(0, 3)) === "RMV" && back.state().mode === 1 && back.state().layout === 1,
-       "move core: save() is 80 bytes (RMV v3); a core loaded from it has the same mode and layout");
+    ok(saved.length === 87 && saved.length === MC.SETTINGS_BYTES && saved[3] === 5 && String.fromCharCode(...saved.subarray(0, 3)) === "RMV" && back.state().mode === 1 && back.state().layout === 1,
+       "move core: save() is 87 bytes (RMV v5, core 0.5.9); a core loaded from it has the same mode and layout");
     {   // an RMV v2 image (78 bytes: no velocity setting) still loads
       const v2 = saved.slice(0, 78); v2[3] = 2; v2[4] = 78;
       const old = await load(v2);
@@ -1784,6 +1784,7 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
       // the firmware's MIDI clock: F8 at 24 PPQN from frame 0 (100 BPM: 1200 frames a clock at 48 kHz), FA first;
       // the clock bytes inside SysEx and around other messages; the sequencer follows its tempo and its start
       const f = await load(), finp = (...pk) => pk.flatMap((p) => f.input(p));
+      f.setClock(MC.CLOCK.EXT);                         // (core 0.5.5: INT is the default; EXT follows every F8)
       finp(cc(40, 127), cc(40, 0));
       for (let s = 0; s < 16; s += 4) finp(P(0x90, 16 + s, 127), P(0x80, 16 + s, 0));
       f.seqPlay(0);                                     // (the first step started the transport, as on the Move)
@@ -2049,7 +2050,7 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
       let saves = 0;
       const link = new L.MoveLink({ controls, site, prefs, save: () => { saves++; }, toast: (t) => toasts.push(t),
         mapAct: (x) => { masters.push(x); if (x.kind === "master") controls.setMaster(x.value); },
-        core: (s) => load(s), now: () => clock.t, timers: clock, location, projects: extra.projects, window: extra.window || null, WebSocket: extra.WS,
+        core: (s) => load(s), now: () => clock.t, timers: clock, location, projects: extra.projects, window: extra.window || null, WebSocket: extra.WS, firmwares: extra.firmwares,
         transport: extra.WS ? undefined : (url) => {
           // extra.start(t): what start() does (https: throw a SecurityError), extra.connect(t): connect()'s promise
           const t = { name: "fake", url, out: [], closed: false, starts: 0, onmessage: null, onclose: null,
@@ -2330,11 +2331,15 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
       w6.input(cc(85, 127), cc(85, 0));
       w6.clock.advance(20);
       ok(!w6.link.view().playing && w6.cuts.length === 1 && w6.midi.some((b) => b[0] === 0x80), "MoveLink: Play again stops it: the timed queue cut, its note let go at once");
-      // the firmware's clock: F8 every 1250 frames (96 BPM), as the worklet posts it with the quantum's frame
+      // the firmware's clock: F8 every 1250 frames (96 BPM), as the worklet posts it with the quantum's frame (EXT: core
+      // 0.5.5's default is INT, and AUTO follows only a master's FA / FB)
+      w6.link.core.setClock(MC.CLOCK.EXT);
       for (let k = 0; k < 120; k++) { w6.clock.advance(1250 / 48); w6.site.emit("midiOut", Uint8Array.of(0xF8), audio().frame); }
       ok(w6.link.view().clock === "firmware" && Math.abs(w6.link.view().bpm10 - 960) <= 2, `MoveLink: the firmware's F8 stream: the clock from the firmware, ${w6.link.view().bpm10 / 10} BPM`);
       w6.clock.advance(800);
-      ok(w6.link.view().clock === "INT", "MoveLink: ...and INT again 500 ms after the last clock");
+      ok(w6.link.view().clock === "firmware" && !w6.link.view().playing, "MoveLink: ...EXT 500 ms after the last clock: still the firmware's, the position held (core 0.5.5)");
+      w6.link.core.setClock(MC.CLOCK.INT);
+      ok(w6.link.view().clock === "INT", "MoveLink: ...and INT again when the clock setting says so");
       // the autosave on disconnect, then Backup and Import
       w6.link.disconnect();
       await tick(); await store.chain; await tick();
@@ -2356,6 +2361,50 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
       ok(s5.join() === "3", "MoveLink: Import of the set: its project back in slot 4");
       await w6.link.deleteProject(9);
       ok(w6.link.projects().map((p) => p.slot).join() === "0,3", "MoveLink: Delete takes project 10 out");
+    }
+    {   // the firmware browser (core 0.5.10, one firmware, no FX): the page's list, a pad + the jog loads, the library kept
+      const lib = { moveAuto: false };
+      const fwWorld = (prefs) => {
+        const F = { cur: "felucca", loads: [], level: null,
+          list: () => [{ id: "felucca", name: "Felucca", version: "2.1", desc: "Two oscillators \u2014 \u201cwarm\u201d", categories: ["Synth", "Groovebox"], category: "Synth" },
+            { id: "amb", name: "AMB-1", version: "1.3", desc: "Ambient", categories: ["Other", "Synth"], category: "Other" },
+            { id: "ripple", name: "Ripple", version: "0.4", categories: ["Synth"], category: "Synth", fantasy: true }].sort((a, b) => a.name.localeCompare(b.name)),
+          current: () => F.cur, load: async (id) => { F.loads.push(id); F.cur = id; return id !== "ripple"; }, level: (v) => { F.level = v; },
+          thumbs: async () => new Map([["amb", L.atkinson64(new Uint8Array(64 * 64 * 4).fill(255))]]) };
+        return { F, w: world(prefs, { protocol: "http:" }, { firmwares: F }) };
+      };
+      let { F, w: wf } = fwWorld(lib);
+      await wf.link.connect(); await tick(); wf.dev(devHello()); await tick(); await tick();
+      const ls = wf.link.fw.list, slot0 = () => { const b = wf.link.core.fwLibrarySave(); return String.fromCharCode(...b.subarray(16, 48)).replace(/\0.*$/s, ""); };
+      ok(wf.link.core.fwCapsGet() === 0 && ls.map((e) => e.id).join() === "amb,felucca,ripple" && ls[1].cats === 3 && ls[1].cat === 0 && ls[0].cat === 4 && ls[0].cats === 17 &&
+         ls[1].desc === 'Two oscillators - "warm"' && ls.every((e) => e.installed === e.version) && ls[2].virt === 1 && slot0() === "felucca",
+         "MoveLink firmwares: fwCaps(0), the page's list (category bits, ASCII text, all installed), slot 0 the page's firmware");
+      ok(ls[0].thumb && ls[0].thumb.length === 512 && ls[0].thumb.every((b) => b === 255) && !ls[1].thumb, "MoveLink firmwares: the thumbnails sent again when they came (white: every bit lit)");
+      wf.input(cc(43, 127), P(0x90, 16, 127), P(0x80, 16, 0), cc(43, 0));   // Track 1 held + step 1 (FM-1 mode): the view, Track 1
+      wf.input(P(0x90, 92, 100), P(0x80, 92, 0), cc(3, 127), cc(3, 0));      // the first pad (AMB-1), the jog's press
+      await tick(); await tick();
+      ok(F.loads.join() === "amb" && slot0() === "amb", `MoveLink firmwares: a pad + the jog's press loads it as the page does, slot 0 then AMB-1 (${F.loads})`);
+      wf.input(cc(118, 127), cc(118, 0));                                     // Sampling: a favourite
+      wf.link.flush(); await tick();
+      const kept = wf.prefs.moveLibrary, kb = Uint8Array.from(atob(kept || ""), (c) => c.charCodeAt(0));
+      ok(typeof kept === "string" && String.fromCharCode(...kb.subarray(0, 4)) === "RMVL" && (kb[11] | kb[12] << 8) === 1, "MoveLink firmwares: Sampling's favourite: the library kept in prefs.moveLibrary");
+      wf.input(cc(119, 127), cc(119, 0));                                     // Delete: unload
+      await tick(); await tick();
+      ok(slot0() === "amb" && wf.toasts.some((t) => /always plays a firmware: AMB-1/.test(t)), "MoveLink firmwares: Delete: the page keeps playing it (the slot shown again, said so)");
+      wf.input(cc(43, 127), cc(79, 3), cc(43, 0));                            // Track 1 held + volume: the level
+      ok(F.level > 100, `MoveLink firmwares: Track 1 held + volume: the page's level (${F.level})`);
+      F.cur = "felucca"; wf.site.emit("firmware");
+      ok(slot0() === "felucca", "MoveLink firmwares: a firmware picked on the page: slot 0 follows");
+      wf.input(P(0x90, 17, 100), P(0x80, 17, 0));                            // (the Track press showed Favorites: step 2, All)
+      wf.input(P(0x90, 94, 100), P(0x80, 94, 0), cc(3, 127), cc(3, 0));      // Ripple: the load fails
+      await tick(); await tick();
+      ok(F.loads.join() === "amb,ripple" && wf.toasts.some((t) => /Ripple could not be loaded/.test(t)), "MoveLink firmwares: a load that fails: FAILED, said so");
+      wf.link.disconnect();
+      ({ F, w: wf } = fwWorld({ ...wf.prefs }));
+      await wf.link.connect(); await tick(); wf.dev(devHello()); await tick();
+      const again = wf.link.core.fwLibrarySave();
+      ok((again[11] | again[12] << 8) === 1, "MoveLink firmwares: the next visit: the favourite back from prefs.moveLibrary");
+      wf.link.disconnect();
     }
   }
 }

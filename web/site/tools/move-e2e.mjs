@@ -12,13 +12,14 @@
 // bridge window (Move Remote 0.1.1's /bridge popup, the https fallback): connected through it, a pad, the screen; closed
 // by hand (said so); Disconnect closes it.
 //   node web/site/tools/move-e2e.mjs [--shots=web/build/test] [--sim=.../moveremote-sim]
-// Needs web/build/native/felucca.wasm (web/engines/native/build.sh felucca) and the simulator ($MOVEREMOTE_SIM, --sim,
+// Needs web/build/native/felucca.wasm (web/engines/native/build.sh felucca) and one more native core built (the firmware
+// browser's load: the first built one A-Z, e.g. web/engines/native/build.sh amb) and the simulator ($MOVEREMOTE_SIM, --sim,
 // or an abletonmoveremote checkout beside the repository): without either it says so and skips. Builds
 // web/build/move/rfm_move.mjs (web/move/build.sh) when it is missing. Writes move-sheet.png, move-page.png,
 // move-screen-fm1.png, move-screen-midi.png, move-screen-seq.png, move-screen-grid.png (the simulator's screen, 4x) and
 // move-projects.png (the sheet's Move section with its projects).
 import { spawn, execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, statSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, statSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -261,6 +262,7 @@ try {
     return (L.__ledHook = true); })()`;
   await js(LEDS);
   await press("cc 49 127\nnote 16 127\nnote 16 0\ncc 49 0", 400);
+  await press("cc 40 127\ncc 40 0", 1300);            // (core 0.4.0: the view opens on the firmware track; Track 4 the projects)
   const red = await js("window.__led.n92");
   s = await shotMatches();
   savePng("move-screen-grid", s.bits);
@@ -273,11 +275,37 @@ try {
   ok((await js("FM1Move.core.projectSlot()")) === 0 && (await js("FM1Move.core.projectSave().length")) === notes1, `project 1's pad: project 1 back from the store (${notes1} bytes)`);
   const slots = await js("FM1Move.store.list().then((l) => l.map((r) => r.slot).join())");
   ok(slots === "0,2", `the store holds projects 1 and 3 (slots ${slots})`);
-  await press("cc 51 127\ncc 51 0", 300);              // (Back: out of projects mode; the sequencer stays)
-  await press("cc 51 127\ncc 51 0", 300);
-  ok((await js("FM1Move.core.state().mode")) === 3, "Back, Back: projects mode left, the sequencer stays (only a Track tap changes the mode)");
+  await press("cc 51 127\ncc 51 0", 300);              // (Back: core 0.4.3 flips out of the view at once; the sequencer stays)
+  ok((await js("FM1Move.core.state().mode")) === 3, "Back: the projects view left, the sequencer stays (only a Track tap changes the mode)");
   await press("cc 43 127\ncc 43 0", 300);
   ok((await js("FM1Move.core.state().mode")) === 0, "a Track 1 tap: FM-1 mode for the rest");
+
+  // 3c. the firmware browser (core 0.5.10, one firmware, no FX): from the sequencer, Shift + step 1, Track 1: the page's
+  // firmwares; a pad selects one, the jog's press loads it on the page; Sampling makes it a favourite (the library kept
+  // in the page's prefs, back after the reload below)
+  await press("cc 40 127\ncc 40 0", 300);
+  await press("cc 49 127\nnote 16 127\nnote 16 0\ncc 49 0", 400);
+  await press("cc 43 127\ncc 43 0", 1300);             // (Track 1: the firmware track; its popup gone after a second)
+  const fwl = await js(`(() => { const l = FM1Move.fw.list, h = FM1Move.o.firmwares.list(), built = ${JSON.stringify(readdirSync(join(WEB, "build/native")).filter((f) => f.endsWith(".wasm")).map((f) => f.slice(0, -5)))},
+      i = h.findIndex((f, k) => k < 32 && f.engine === "native" && f.id !== "felucca" && built.includes(f.id));
+    return { n: l.length, page: h.length, caps: FM1Move.core.fwCapsGet(), i, id: i >= 0 ? l[i].id : "", cur: FM1Move.fwCurrent(), thumbs: FM1Move.fw.thumbs.size }; })()`);
+  s = await shotMatches();
+  savePng("move-screen-firmwares", s.bits);
+  ok(fwl.caps === 0 && fwl.n === fwl.page && fwl.n > 20 && fwl.cur === "felucca" && fwl.i >= 0 && s.lit > 50 && s.same,
+     `Shift + step 1, Track 1: the firmware browser on the page's ${fwl.n} firmwares (one slot, no FX; ${fwl.thumbs} thumbnails), Felucca in it, the screen as sent`);
+  const fpad = 68 + (3 - (fwl.i >> 3)) * 8 + (fwl.i & 7);
+  await press(`note ${fpad} 100\nnote ${fpad} 0`, 300);
+  await press("cc 3 127\ncc 3 0", 300);
+  await until(`FM1Site.current().entry && FM1Site.current().entry.id === ${JSON.stringify(fwl.id)} && FM1Site.current().engine === "native" && FM1Site.current().info`, 30000, `the page playing ${fwl.id}`);
+  ok(await untilNode(async () => (await js("FM1Move.fwCurrent()")) === fwl.id && !(await js("FM1Move.fw.pending")), 3000),
+     `a pad (${fpad}) + the jog's press: the page loads ${fwl.id} natively, as its own picker does; the Move's slot follows`);
+  await press("cc 118 127\ncc 118 0", 300);            // Sampling: a favourite
+  const libFavs = (b) => { const u = Buffer.from(b || "", "base64"); return u.length > 16 && u.subarray(0, 4).toString() === "RMVL" ? u[11] | (u[12] << 8) : -1; };
+  const libNow = () => js("JSON.parse(localStorage.getItem('remotefm1-player')).moveLibrary || ''");
+  ok(await untilNode(async () => libFavs(await libNow()) === 1, 3000), `Sampling: a favourite, the library in the page's prefs (${Buffer.from(await libNow(), "base64").length} bytes, 1 s after the change)`);
+  // Back closes the selection, then leaves the view (core 0.4.3); a Track 1 tap then FM-1 mode
+  for (let k = 0; k < 3 && (await js("FM1Move.core.state().mode")) !== 0; k++) await press("cc 51 127\ncc 51 0\ncc 43 127\ncc 43 0", 400);
+  ok((await js("FM1Move.core.state().mode")) === 0, "Back out of the view, Track 1: FM-1 mode again");
 
   // 4. a reload connects by itself (with the settings)
   await js("(window.__before = true)");
@@ -287,6 +315,8 @@ try {
   ok(await untilNode(() => /host=RemoteFM1 web .*drew=1/.test(simState()), 3000), "after a reload: connected by itself, the screen drawn");
   await sleep(800);
   ok((await js("FM1Move.core.projectSlot()")) === 0 && (await js("FM1Move.core.projectSave().length")) === notes1, "after the reload: project 1 open again, its 16 steps back");
+  const libAgain = await js("(() => { const b = FM1Move.core.fwLibrarySave(); return b ? b[11] | (b[12] << 8) : -1; })()");
+  ok(libAgain === 1 && (await js("FM1Move.fwCurrent()")) === fwl.id, `after the reload: the favourite back from the prefs, ${fwl.id} in the Move's slot`);
 
   // Backup and Import in the sheet's Move section
   const DL = join(SHOTS, "move-downloads-" + PORT);
