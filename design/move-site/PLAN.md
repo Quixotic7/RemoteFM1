@@ -201,3 +201,20 @@ link, and the installer's page a line "Flashing for an Ableton Move? /move".
 3. The Wi-Fi firmware ships in ONE RemoteFM1 release with all three packages (USB+Bluetooth stays the default everywhere else), but RemoteFM1 for Move gets its own flasher page that offers ONLY the Wi-Fi build.
 4. That Wi-Fi-only flasher is embedded in the /move page (as in the mockup).
 Still open: photos/video (owner-shot or drawings at launch).
+
+## Built (2026-11-19, after the owner's "Yes, build it")
+
+- **The page:** `web/site/move/` (index.html, css/move.css, js/move.js, img/fm1-pixel.png, data/move.json), published
+  at `_site/move/` by pages.yml. Jersey 10 as `web/site/fonts/Jersey10-Regular.woff` + `OFL-jersey10.txt`. The
+  diagram has a stacked layout below 600 px. What waits on a release is data, not copy: `data/move.json`
+  (RemoteFM14Move's release, its bundled count and size, the Schwung Manager listing, the apps' Move controller) and
+  `web/installer/releases.json` (a release with a `wifi` package).
+- **The Wi-Fi flasher:** `web/site/move/flash/` imports `installer/installer.js` (no copy), fixed to the `wifi`
+  package; "Not released yet" until releases.json lists one. The main installer: `remoteFm1Version` / `remoteFm1Build`
+  read `FM-1_729XXYYZZ` and `FM-1_72900` (installs go Wi-Fi to Bluetooth and back), `releaseFile(rel, "wifi")`,
+  `wifiRelease`, a link to /move; its default stays USB + Bluetooth, and it offers no Wi-Fi choice itself.
+- **Checks:** `web/installer/test_installer.mjs` (the Wi-Fi identity, the variants, the default unchanged, an install
+  over a Wi-Fi unit; `WIFI_PKG=` a real Wi-Fi package), `web/site/tools/movepage-test.mjs` (in pages.yml's list:
+  the assembled site against site_guard's new `guardMovePage`), `web/site/tools/movepage-e2e.mjs` (headless
+  Chromium: chooser, both routes of the diagram, steps kept, the embedded flasher, phone without sideways scroll, no
+  console errors). docs/RELEASING.md: what the third package needs.

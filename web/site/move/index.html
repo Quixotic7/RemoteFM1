@@ -1,0 +1,466 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+<!-- remotefm1.com/move: FM-1 firmwares and the Ableton Move, for newcomers (design/move-site/PLAN.md). The two routes,
+     how it works, the words, the set-up steps (kept in this browser), the Wi-Fi flasher (flash/, embedded), joining
+     Wi-Fi, help. What depends on a release not out yet comes from data/move.json and ../installer/releases.json. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>RemoteFM1 for Move</title>
+<meta name="description" content="FM-1 firmwares on an Ableton Move: run them on the Move itself, or use the Move as a controller for remotefm1.com and the apps. How it works, and how to set it up from scratch.">
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="img/fm1-pixel.png">
+<link rel="stylesheet" href="css/move.css">
+</head>
+<body>
+<a class="skip" href="#routes">Skip to the two ways</a>
+<header class="top">
+  <a class="brand" href="#top" aria-label="RemoteFM1 for Move, top"><span class="mark" aria-hidden="true"></span><b>RemoteFM1</b><i>for Move</i></a>
+  <nav class="nav" aria-label="Sections">
+    <a href="#routes">Two ways</a><a href="#how">How it works</a><a href="#words">Words</a><a href="#setup">Set up</a><a href="#flash">Flash</a><a href="#help">Help</a>
+  </nav>
+  <a class="back player-link" href="../">remotefm1.com</a>
+</header>
+
+<main id="top">
+<!-- ============================================================ HERO -->
+<section class="hero">
+  <div class="hero-copy">
+    <p class="kicker"><span class="inv">NEW</span>FM-1 firmwares × Ableton Move</p>
+    <h1>Your Move, playing <em>FM-1</em> firmwares.</h1>
+    <p class="lede">The M-VAVE FM-1 has a whole library of community firmwares: synths, samplers, sequencers. RemoteFM1
+      runs them off the FM-1, and now an Ableton Move can play them: running on the Move itself, or with the Move as
+      the controller for your computer or phone.</p>
+    <div class="row">
+      <a class="btn primary" href="#routes">Pick your way in</a>
+      <a class="btn" href="#how">How it works</a>
+    </div>
+    <p class="fine">New to all of it? Start at <a href="#words">the words</a>: a minute, and the rest reads easily.</p>
+    <div class="hud" aria-label="RemoteFM1 on the Move in numbers">
+      <div class="hud-cell"><b>3</b><span>firmwares at once</span></div>
+      <div class="hud-cell" data-bundled><b>—</b><span>bundled: with the release</span></div>
+      <div class="hud-cell"><b>0</b><span>computers needed to play</span></div>
+    </div>
+  </div>
+  <div class="hero-art" aria-hidden="true">
+    <div class="field"></div>
+    <div class="hud-bar"><b class="meter" data-n="4" data-of="5"></b><span>LINK OK</span></div>
+    <div class="move move-hero" data-move="hero"></div>
+    <div class="fm1-mini">
+      <img class="px fm1-px" src="img/fm1-pixel.png" width="64" height="64" alt="">
+      <span class="fm1-tag">WI-FI · LINKED</span>
+    </div>
+    <svg class="hero-wire" viewBox="0 0 100 40" preserveAspectRatio="none"><path d="M2 30 C 30 2, 70 2, 98 30"/></svg>
+  </div>
+</section>
+
+<canvas class="dither dither-fade" data-dither="fade" aria-hidden="true"></canvas>
+
+<!-- ============================================================ TWO WAYS -->
+<section id="routes" class="sec">
+  <header class="sec-head">
+    <p class="num">01</p>
+    <h2>Two ways to use a Move with an FM-1 firmware</h2>
+    <p class="sub">Both use the Move's pads, knobs and screen. The difference is <b>where the firmware runs</b>, and so
+      where the sound comes out.</p>
+  </header>
+
+  <div class="routes">
+    <article class="route route-b panel" data-route="B" data-tab="ROUTE B">
+      <h3>RemoteFM1 on the Move</h3>
+      <p class="route-one">The firmware runs <b>on the Move itself</b>: three at once, mixed, with your Schwung effects.
+        No computer once it is set up. A phone shows the FM-1's screen.</p>
+      <div class="meters">
+        <div class="mt"><span>Plays on its own</span><b class="meter" data-n="5" data-of="5"></b></div>
+        <div class="mt"><span>Setup effort</span><b class="meter" data-n="3" data-of="5"></b></div>
+        <div class="mt"><span>Records into a DAW</span><b class="meter" data-n="1" data-of="5"></b></div>
+      </div>
+      <ul class="facts">
+        <li><b>Runs on</b><span>the Move</span></li>
+        <li><b>Sound from</b><span>the Move's speaker and outputs</span></li>
+        <li><b>On the Move</b><span>Schwung + the tool <i>RemoteFM1</i></span></li>
+        <li><b>Link</b><span>none needed; a phone page over Wi-Fi</span></li>
+        <li><b>FM-1 needed?</b><span>No; one can be its panel (USB-A or Wi-Fi)</span></li>
+      </ul>
+      <p class="best">Best for: a standalone instrument, playing out, the FM-1 as a wireless panel.</p>
+      <p class="soon" data-when="b-unreleased" hidden><span class="inv">SOON</span>RemoteFM1 for the Move is not released yet: the steps are ready for when it is.</p>
+      <a class="btn route-go" href="#setup" data-go="B">Set up Route B</a>
+    </article>
+
+    <div class="vs" aria-hidden="true">or</div>
+
+    <article class="route route-a panel" data-route="A" data-tab="ROUTE A">
+      <h3>The Move as a controller</h3>
+      <p class="route-one">The firmware runs on your <b>computer, phone or tablet</b> (remotefm1.com, the iOS or Android
+        app). The Move is its keyboard, knobs and second screen.</p>
+      <div class="meters">
+        <div class="mt"><span>Plays on its own</span><b class="meter" data-n="1" data-of="5"></b></div>
+        <div class="mt"><span>Setup effort</span><b class="meter" data-n="2" data-of="5"></b></div>
+        <div class="mt"><span>Records into a DAW</span><b class="meter" data-n="5" data-of="5"></b></div>
+      </div>
+      <ul class="facts">
+        <li><b>Runs on</b><span>your browser or the app</span></li>
+        <li><b>Sound from</b><span>the computer or phone (or an FM-1 on it)</span></li>
+        <li><b>On the Move</b><span>Schwung + the tool <i>Move Remote</i></span></li>
+        <li><b>Link</b><span>Wi-Fi, or a USB-C cable to the computer</span></li>
+        <li><b>FM-1 needed?</b><span>No</span></li>
+      </ul>
+      <p class="best">Best for: recording into your DAW, trying it with nothing to flash.</p>
+      <a class="btn route-go" href="#setup" data-go="A">Set up Route A</a>
+    </article>
+  </div>
+
+  <div class="chooser panel" id="chooser" data-tab="NOT SURE?">
+    <div class="chooser-head">
+      <h3>Three taps</h3><b class="ch-count">1<small>/3</small></b>
+      <button class="link" id="ch-reset" type="button">Start again</button>
+    </div>
+    <div class="ch-q" data-q="0">
+      <p>Where should the sound come out?</p>
+      <div class="ch-opts">
+        <button type="button" data-v="B">The Move's speaker or outputs</button>
+        <button type="button" data-v="A">My computer, DAW or phone</button>
+        <button type="button" data-v="">Either is fine</button>
+      </div>
+    </div>
+    <div class="ch-q" data-q="1" hidden>
+      <p>Will a computer or phone be on while you play?</p>
+      <div class="ch-opts">
+        <button type="button" data-v="B">No, the Move on its own</button>
+        <button type="button" data-v="A">Yes, it's always there</button>
+        <button type="button" data-v="">Sometimes</button>
+      </div>
+    </div>
+    <div class="ch-q" data-q="2" hidden>
+      <p>Do you want to run three firmwares at once with Schwung effects?</p>
+      <div class="ch-opts">
+        <button type="button" data-v="B">Yes, that's the dream</button>
+        <button type="button" data-v="A">One at a time is plenty</button>
+      </div>
+    </div>
+    <div class="ch-result" hidden>
+      <p class="ch-say"></p>
+      <a class="btn primary ch-go" href="#setup">Show me the steps</a>
+    </div>
+    <div class="ch-dots" aria-hidden="true"><i></i><i></i><i></i></div>
+  </div>
+</section>
+
+<!-- ============================================================ HOW IT WORKS -->
+<section id="how" class="sec">
+  <header class="sec-head">
+    <p class="num">02</p>
+    <h2>How it works</h2>
+    <p class="sub">Every FM-1 firmware here is an <b>.rfm1</b> file: the firmware's own code, built to run anywhere
+      RemoteFM1 runs. It sees the FM-1's keys, knobs, screen and LEDs, whichever device is really playing them.
+      Tap anything in the picture.</p>
+  </header>
+
+  <div class="arch">
+    <div class="seg" role="tablist" aria-label="Route">
+      <button role="tab" class="on" data-arch="B"><span class="led led-b"></span>Route B · on the Move</button>
+      <button role="tab" data-arch="A"><span class="led led-a"></span>Route A · controller</button>
+    </div>
+    <div class="arch-stage">
+      <div class="arch-pic">
+        <svg class="arch-svg" viewBox="0 0 800 470" role="img" aria-label="How the FM-1, the Move and your phone or computer connect">
+          <defs>
+            <pattern id="pd-dots" width="4" height="4" patternUnits="userSpaceOnUse"><rect x="1" y="1" width="1.4" height="1.4" fill="#fff"/></pattern>
+            <pattern id="pd-hatch" width="6" height="6" patternUnits="userSpaceOnUse"><path d="M0 6 L6 0 M0 0 L6 6" stroke="#fff" stroke-width="1"/></pattern>
+          </defs>
+          <g class="links"></g>
+          <g class="nodes"></g>
+          <g class="lbls"></g>
+          <g class="runs" aria-hidden="true"><rect x="0" y="0" width="150" height="26" rx="13"/><text x="75" y="18">firmware runs here</text></g>
+          <g class="sound" aria-hidden="true"><path d="M0 0 q 8 -10 0 -20 M8 4 q 14 -14 0 -28 M16 8 q 20 -18 0 -36"/></g>
+        </svg>
+        <img class="px arch-fm1" src="img/fm1-pixel.png" width="64" height="64" alt="" aria-hidden="true">
+      </div>
+      <aside class="arch-info panel" data-tab="INFO" aria-live="polite">
+        <p class="ai-kicker">Tap a box or a line</p>
+        <h3 class="ai-title">Route B at a glance</h3>
+        <div class="ai-body"></div>
+      </aside>
+    </div>
+    <div class="legend">
+      <button type="button" data-filter="wifi"><i class="sw sw-wifi"></i>Wi-Fi</button>
+      <button type="button" data-filter="usb"><i class="sw sw-usb"></i>USB cable</button>
+      <button type="button" data-filter="ble"><i class="sw sw-ble"></i>Bluetooth</button>
+      <button type="button" data-filter="net"><i class="sw sw-net"></i>Internet</button>
+    </div>
+  </div>
+
+  <div class="explore">
+    <div class="explore-head">
+      <h3>What the Move's controls do</h3>
+      <p>Both routes share one controller core, so the Move plays the same way in each. Press a control.</p>
+    </div>
+    <div class="explore-stage">
+      <div class="move move-big" data-move="explore"></div>
+      <div class="explore-info panel" data-tab="CONTROL" aria-live="polite">
+        <p class="ei-kicker">Control</p>
+        <h4 class="ei-title">Pick any pad, knob or button</h4>
+        <p class="ei-body">The screen shows the firmware that plays, here ChoralRoot. The track buttons on the left switch
+          modes: FM-1, MIDI, Control and Sequencer. In FM-1 mode the pads are the FM-1's 27 keys.</p>
+        <div class="ei-oled"><span class="ei-oled-txt">FM-1 MODE</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ GLOSSARY -->
+<section id="words" class="sec">
+  <header class="sec-head">
+    <p class="num">03</p>
+    <h2>The words, for newcomers</h2>
+    <p class="sub">Eight names come up again and again. Here is each in a line.</p>
+  </header>
+  <div class="words" data-lex>
+    <details class="word"><summary><b>FM-1</b><span>the little synth</span></summary>
+      <p>M-VAVE's pocket FM synth: 27 keys, a colour screen, seven knobs, a Wi-Fi and Bluetooth radio, and an updater that
+        takes community firmwares. Here it is optional: a panel you can hold.</p></details>
+    <details class="word"><summary><b>Ableton Move</b><span>the pad instrument</span></summary>
+      <p>Ableton's standalone instrument: 32 pads that light, eight knobs, a jog wheel, a small screen, a speaker and
+        Wi-Fi. A small Linux computer inside, which is what makes Route B possible.</p></details>
+    <details class="word"><summary><b>Schwung</b><span>tools for the Move</span></summary>
+      <p>An independent, open-source add-on for the Move (<a href="https://schwung.dev" target="_blank" rel="noopener">schwung.dev</a>).
+        It adds a Tools menu and a module manager; Move's own software keeps working beside it. Not made, approved or
+        supported by Ableton.</p></details>
+    <details class="word"><summary><b>Schwung Manager</b><span>move.local:7700</span></summary>
+      <p>Schwung's web page on the Move. You install tools such as Move Remote and RemoteFM1 there, from a browser on the
+        same Wi-Fi.</p></details>
+    <details class="word"><summary><b>RemoteFM1</b><span>the player and the firmware</span></summary>
+      <p>Two halves. The <b>player</b> (remotefm1.com, the iOS and Android apps, FM1VST in a DAW) runs FM-1 firmwares.
+        The <b>RemoteFM1 firmware</b>, flashed on an FM-1, makes the FM-1 a panel for a player: over USB, Bluetooth or
+        Wi-Fi.</p></details>
+    <details class="word"><summary><b>RemoteFM1 on the Move</b><span>Route B's tool</span></summary>
+      <p>The player as a Schwung tool named <b>RemoteFM1</b>: the firmwares built for the Move's processor, its page at
+        remotefm1.local:7730, three slots, your Schwung effects. Its source is the
+        <a href="https://github.com/Quixotic7/remoteFM14Move" target="_blank" rel="noopener">RemoteFM14Move</a> project.</p></details>
+    <details class="word"><summary><b>Move Remote</b><span>Route A's tool</span></summary>
+      <p>A Schwung tool that turns the whole Move into a remote surface: its pads, knobs and screen go to an app over
+        Wi-Fi or USB-C. RemoteFM1 is one such app
+        (<a href="https://github.com/Quixotic7/abletonmoveremote" target="_blank" rel="noopener">source</a>).</p></details>
+    <details class="word"><summary><b>.rfm1 and the catalog</b><span>the firmwares</span></summary>
+      <p>An .rfm1 file is one FM-1 firmware, packed to run in RemoteFM1. The catalog lists every one the authors have
+        published, with its licence and source; the Move downloads them from a signed list, checked file by file.</p></details>
+  </div>
+</section>
+
+<!-- ============================================================ SETUP -->
+<section id="setup" class="sec">
+  <header class="sec-head">
+    <p class="num">04</p>
+    <h2>Set it up, step by step</h2>
+    <p class="sub">Tick each step as you go; this browser remembers where you are. Each step ends with a
+      <b>checkpoint</b>: what you should see before going on.</p>
+  </header>
+
+  <div class="seg seg-wide" role="tablist" aria-label="Install path">
+    <button role="tab" class="on" data-path="B"><span class="led led-b"></span>Route B · RemoteFM1 on the Move</button>
+    <button role="tab" data-path="A"><span class="led led-a"></span>Route A · Move as a controller</button>
+  </div>
+
+  <div class="path" data-path="B">
+    <div class="progress"><div class="count" data-ring="B"><b>0</b><small>/7</small><b class="meter" data-n="0" data-of="7"></b></div>
+      <p>You need: the Move on Wi-Fi, a computer for Schwung's installer once, and a phone for the page.</p></div>
+    <ol class="steps panel" data-steps="B" data-tab="ROUTE B · STEPS">
+      <li data-step="schwung"><label><input type="checkbox"><span class="tick"></span><b>Install Schwung on the Move</b></label>
+        <p>Back up your Sets and samples first. Get Schwung's desktop installer from
+          <a href="https://schwung.dev" target="_blank" rel="noopener">schwung.dev</a> (Mac, Windows or Linux; the Move and
+          the computer on the same Wi-Fi) and follow it.</p>
+        <p class="check"><span>Checkpoint</span>On the Move, Shift + Step 13 opens Schwung's Tools menu (or Shift + touch
+          Volume + Step 13, by your Schwung shortcut setting).</p></li>
+      <li data-step="tool"><label><input type="checkbox"><span class="tick"></span><b>Install the RemoteFM1 tool</b></label>
+        <p class="soon" data-when="b-unreleased" hidden><span class="inv">SOON</span>Not released yet. With the release,
+          this step is:</p>
+        <p data-when="b-unlisted">On the computer, open <code>move.local:7700</code> (Schwung Manager) › Modules ›
+          Install Custom Module › From GitHub URL › <code>Quixotic7/remoteFM14Move</code> › Install from GitHub.</p>
+        <p data-when="b-listed" hidden>On the computer, open <code>move.local:7700</code> (Schwung Manager) › Modules ›
+          Tools › <b>RemoteFM1</b> › Install.</p>
+        <p class="check"><span>Checkpoint</span>RemoteFM1 is in the Tools menu.</p></li>
+      <li data-step="launch"><label><input type="checkbox"><span class="tick"></span><b>Launch it</b></label>
+        <p>Shift + Step 13 › turn the jog wheel to RemoteFM1 › press it. Move's own software stops while it runs. The
+          first launch unpacks the bundled firmwares<span data-bundled-mb></span> before the first sound.</p>
+        <p class="check"><span>Checkpoint</span>The Move's screen shows the firmware and the page's address; the pads
+          light as keys.</p></li>
+      <li data-step="page"><label><input type="checkbox"><span class="tick"></span><b>Open the page on your phone</b></label>
+        <p>On the same Wi-Fi: <code>remotefm1.local:7730</code> (or <code>move.local:7730</code>; on Android, the
+          address on the Move's screen). The FM-1's screen and faceplate, served by the Move itself.</p>
+        <p class="check"><span>Checkpoint</span>The page's screen moves when you turn a knob on the Move.</p></li>
+      <li data-step="fw"><label><input type="checkbox"><span class="tick"></span><b>Get more firmwares</b></label>
+        <p>Shift + Step 1 opens the projects view: three slots. Mute there opens the catalog; a jog press downloads. Or
+          the page's <b>Browse all</b>. Downloads need the Move on Wi-Fi once.</p>
+        <p class="check"><span>Checkpoint</span>A downloaded firmware loads into a slot and plays.</p></li>
+      <li data-step="fm1"><label><input type="checkbox"><span class="tick"></span><b>Add an FM-1 as the panel (optional)</b></label>
+        <p><b>Cable:</b> an FM-1 with RemoteFM1 0.3 or later, into the Move's USB-A port. <b>No cable:</b> flash the
+          <a href="#flash">Wi-Fi build</a>, then <a href="#wifi">put it on your Wi-Fi</a>.</p>
+        <p class="check"><span>Checkpoint</span>The page's pill reads "FM-1 · USB-A" or "FM-1 · Wi-Fi", and the FM-1
+          shows the firmware.</p></li>
+      <li data-step="leave"><label><input type="checkbox"><span class="tick"></span><b>Know the way out</b></label>
+        <p>Hold Shift, touch the volume knob and click the jog wheel. Your projects and states are kept.</p>
+        <p class="check"><span>Checkpoint</span>Move's own software is back.</p></li>
+    </ol>
+  </div>
+  <div class="path" data-path="A" hidden>
+    <div class="progress"><div class="count" data-ring="A"><b>0</b><small>/6</small><b class="meter" data-n="0" data-of="6"></b></div>
+      <p>You need: the Move on Wi-Fi, a computer for Schwung's installer, and Chrome or Edge to play (or the RemoteFM1
+        app<span data-apps-note></span>).</p></div>
+    <ol class="steps panel" data-steps="A" data-tab="ROUTE A · STEPS">
+      <li data-step="schwung"><label><input type="checkbox"><span class="tick"></span><b>Install Schwung on the Move</b></label>
+        <p>Back up your Sets and samples first. Get Schwung's desktop installer from
+          <a href="https://schwung.dev" target="_blank" rel="noopener">schwung.dev</a> (Mac, Windows or Linux) and follow
+          it. Move Remote needs Schwung <span data-schwung-min>1.6.0</span> or later.</p>
+        <p class="check"><span>Checkpoint</span>On the Move, Shift + Step 13 opens Schwung's Tools menu.</p></li>
+      <li data-step="tool"><label><input type="checkbox"><span class="tick"></span><b>Install Move Remote</b></label>
+        <p>On the computer, open <code>move.local:7700</code> (Schwung Manager) › Modules › Tools › <b>Move Remote</b> ›
+          Install. Not in the list? Install Custom Module › From GitHub URL › <code>Quixotic7/abletonmoveremote</code>.</p>
+        <p class="check"><span>Checkpoint</span>Move Remote is in the Tools menu.</p></li>
+      <li data-step="start"><label><input type="checkbox"><span class="tick"></span><b>Start Move Remote</b></label>
+        <p>Shift + Step 13 › turn the jog wheel to Move Remote › press it. Move's own software stops while it runs.</p>
+        <p class="check"><span>Checkpoint</span>The Move's screen shows its addresses: move.local over Wi-Fi,
+          172.16.254.1 over a USB-C cable.</p></li>
+      <li data-step="player"><label><input type="checkbox"><span class="tick"></span><b>Open the player and connect</b></label>
+        <p>On <a class="player-link" href="../">remotefm1.com</a> in Chrome or Edge: the settings sheet ›
+          <b>Use my Ableton Move</b>. Allow "local network devices" if Chrome asks; otherwise a small bridge window
+          opens. In the iOS or Android app: Settings › Ableton Move<span data-apps-note></span>.</p>
+        <p class="check"><span>Checkpoint</span>The pads light in the FM-1's key colours; the Move's screen shows the
+          firmware.</p></li>
+      <li data-step="play"><label><input type="checkbox"><span class="tick"></span><b>Pick a firmware and play</b></label>
+        <p>Choose a firmware in the player. Track buttons 1 to 4 switch the Move between FM-1, MIDI, Control and
+          Sequencer modes.</p>
+        <p class="check"><span>Checkpoint</span>A pad plays a note from the computer's or phone's speakers.</p></li>
+      <li data-step="leave"><label><input type="checkbox"><span class="tick"></span><b>Know the way out</b></label>
+        <p>Hold Shift, touch the volume knob and click the jog wheel: Move's own software comes back.</p>
+        <p class="check"><span>Checkpoint</span>The Move is a Move again.</p></li>
+    </ol>
+    <p class="opt"><b>Optional:</b> an FM-1 with RemoteFM1's USB + Bluetooth build can be a second panel beside the Move,
+      and play the sound on its own speaker: <a href="../installer/" class="installer-link">remotefm1.com/installer</a>.</p>
+  </div>
+</section>
+
+<!-- ============================================================ FLASH -->
+<section id="flash" class="sec">
+  <header class="sec-head">
+    <p class="num">05</p>
+    <h2>Put RemoteFM1 on your FM-1</h2>
+    <p class="sub">Only if you want the FM-1 in the picture. RemoteFM1 comes in three builds, because the FM-1's memory
+      fits one radio at a time. For a wireless FM-1 on the Move, it's the <b>Wi-Fi</b> build.</p>
+  </header>
+
+  <div class="builds">
+    <article class="panel build sel" data-build="wifi" data-tab="THIS PAGE">
+      <div class="b-ic b-wifi" aria-hidden="true"></div>
+      <h3>Wi-Fi</h3>
+      <p class="b-who">for RemoteFM1 on the Move</p>
+      <p>The FM-1 joins your 2.4 GHz Wi-Fi and the Move finds it: a wireless panel for Route B. No Bluetooth, and no
+        sound out of the FM-1 in this build.</p>
+      <p class="b-def" data-wifi-state>The flasher below installs this one</p>
+    </article>
+    <article class="panel build" data-build="ble" data-tab="INSTALLER">
+      <div class="b-ic b-ble" aria-hidden="true"></div>
+      <h3>USB + Bluetooth</h3>
+      <p class="b-who">remotefm1.com, the apps, FM1VST</p>
+      <p>The everyday build, and the one for Route A or an FM-1 on the Move's USB-A cable.</p>
+      <p class="b-def"><a class="installer-link" href="../installer/">remotefm1.com/installer</a> (its default)</p>
+    </article>
+    <article class="panel build" data-build="usb" data-tab="INSTALLER">
+      <div class="b-ic b-usb" aria-hidden="true"></div>
+      <h3>USB only</h3>
+      <p class="b-who">a cable, no radio at all</p>
+      <p>For studios that want no radio. Works wherever a cable reaches, the Move's USB-A included.</p>
+      <p class="b-def"><a class="installer-link" href="../installer/">remotefm1.com/installer</a></p>
+    </article>
+  </div>
+
+  <div class="flasher panel" data-tab="FLASHER">
+    <iframe class="flasher-frame" src="flash/" title="RemoteFM1 Wi-Fi flasher" allow="midi" loading="lazy"></iframe>
+  </div>
+</section>
+
+<!-- ============================================================ WIFI -->
+<section id="wifi" class="sec">
+  <header class="sec-head">
+    <p class="num">06</p>
+    <h2>Put the FM-1 on your Wi-Fi</h2>
+    <p class="sub">Once, with the Wi-Fi build on it. The FM-1 keeps six networks and rejoins on its own. 2.4 GHz only: on
+      an iPhone hotspot, turn on <b>Maximise Compatibility</b>.</p>
+  </header>
+  <div class="seg" role="tablist" aria-label="Where to set up Wi-Fi">
+    <button role="tab" class="on" data-wifi="fm1">On the FM-1 itself</button>
+    <button role="tab" data-wifi="move">From the Move's page</button>
+  </div>
+  <div class="wifi-way" data-wifi="fm1">
+    <ol class="chips">
+      <li><div><kbd>HOME</kbd> held</div><span>opens the settings</span></li>
+      <li><div><kbd>SELECT</kbd> to <b>WI-FI</b></div><span>the last row</span></li>
+      <li><div><kbd>OCT+</kbd></div><span>the networks around</span></li>
+      <li><div><kbd>SELECT</kbd> + <kbd>OCT+</kbd></div><span>pick yours</span></li>
+      <li><div>type on the keys</div><span>FX / SEL / ENV / LFO: abc, ABC, 123, #+=</span></li>
+      <li><div><kbd>OCT+</kbd></div><span>join: a check, the name, the address</span></li>
+    </ol>
+    <div class="fm1-shot" aria-hidden="true">
+      <div class="fs-top"><span>WI-FI</span><span>3 · 1/6</span></div>
+      <div class="fs-row on"><i class="bars b4"></i>Home 2.4<em>KEPT</em></div>
+      <div class="fs-row"><i class="bars b3"></i>Studio<em>LOCK</em></div>
+      <div class="fs-row"><i class="bars b1"></i>Café Guest</div>
+    </div>
+  </div>
+  <div class="wifi-way" data-wifi="move" hidden>
+    <ol class="chips">
+      <li><div>FM-1 into the Move's <b>USB-A</b></div><span>with RemoteFM1 on the Move running</span></li>
+      <li><div>open <code>remotefm1.local:7730/?wifi</code></div><span>or the settings sheet › Set up the FM-1's Wi-Fi</span></li>
+      <li><div><b>Scan</b>, tap your network</div><span>the networks the FM-1 hears</span></li>
+      <li><div>password › <b>Join</b></div><span>it goes over the cable, never the air</span></li>
+      <li><div>unplug the FM-1</div><span>the page says when it is ready</span></li>
+    </ol>
+    <div class="phone-shot" aria-hidden="true">
+      <p class="ps-h">FM-1 Wi-Fi</p><div class="ps-scan"><b class="meter" data-n="7" data-of="10"></b><span>scanning</span></div>
+      <div class="ps-row"><i class="bars b4"></i>Home 2.4<button tabindex="-1">Join</button></div>
+      <div class="ps-row"><i class="bars b2"></i>Studio</div>
+      <div class="ps-ok">Joined: 10.0.0.42 · unplug it from USB-A</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ HELP -->
+<section id="help" class="sec">
+  <header class="sec-head">
+    <p class="num">07</p>
+    <h2>When something's off</h2>
+  </header>
+  <div class="faq panel" data-tab="HELP">
+    <details><summary>remotefm1.local doesn't open</summary>
+      <p>Use <code>move.local:7730</code>, or the address on the Move's screen. Android's browser often can't resolve
+        .local names. The phone must be on the same Wi-Fi as the Move (not a guest network).</p></details>
+    <details><summary>The player can't reach the Move (Route A)</summary>
+      <p>Is Move Remote running (its addresses on the screen)? In Chrome, allow "local network devices" when asked. On a
+        Mac, System Settings › Privacy &amp; Security › Local Network › your browser or app on. A USB-C cable to the
+        computer is the fastest and surest link.</p></details>
+    <details><summary>The Wi-Fi FM-1 isn't found by the Move</summary>
+      <p>Both must be on the same network, and some routers keep devices from seeing each other ("client isolation").
+        2.4 GHz only. The FM-1's settings › WI-FI row shows its state and address. A USB-A cable always works.</p></details>
+    <details><summary>Which FM-1 firmware do I need for Route A?</summary>
+      <p>None: Route A doesn't need an FM-1. If you want one as well, the USB + Bluetooth build.</p></details>
+    <details><summary>Can I go back?</summary>
+      <p>Yes. <a class="installer-link" href="../installer/">remotefm1.com/installer</a> puts the USB + Bluetooth build back
+        over the Wi-Fi one, or M-VAVE's V15. On the Move, Schwung's installer uninstalls Schwung; your Sets stay.</p></details>
+    <details><summary>Is this made by Ableton or M-VAVE?</summary>
+      <p>No. RemoteFM1, Move Remote and Schwung are independent, open-source projects, not approved, endorsed or
+        supported by Ableton or M-VAVE.</p></details>
+  </div>
+</section>
+</main>
+
+<footer class="foot">
+  <p>RemoteFM1 for Move · <a href="https://github.com/Quixotic7/RemoteFM1" target="_blank" rel="noopener">Source</a> ·
+    <a href="https://github.com/Quixotic7/remoteFM14Move" target="_blank" rel="noopener">RemoteFM1 on the Move</a> ·
+    <a href="https://github.com/Quixotic7/abletonmoveremote" target="_blank" rel="noopener">Move Remote</a> ·
+    <a href="https://schwung.dev" target="_blank" rel="noopener">Schwung</a></p>
+  <p class="fine">Ableton and Move are trademarks of Ableton AG; M-VAVE and FM-1 are M-VAVE's. Named here only to say what
+    these tools work with. Fonts: Jersey 10, DM Sans, DM Mono (SIL Open Font License).</p>
+</footer>
+<script src="js/move.js"></script>
+</body>
+</html>

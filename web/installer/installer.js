@@ -10,7 +10,7 @@
 // to be closed), 0.1.2/0.1.3 (Baud Girl: a package whose flash.bin reaches past the app area is refused here, before
 // the FM-1 is asked anything; the loader answers ota-FM-1_900, so Baud Girl's own installer refuses it), the loader
 // identity (an install cut off is resumed only from our own update mode, ota-FM-1_9NN).
-import { Updater, classifyFirmware, remoteFm1Version } from "./fm1ota.js";
+import { Updater, classifyFirmware, remoteFm1Version, remoteFm1Build } from "./fm1ota.js";
 import { Package, productOf, logicalImage, sha256hex, OFFICIAL_PACKAGES } from "./fm1pkg.js";
 
 export const IDENTITY = "FM-1_015";               // RemoteFM1 0.1's (it answered as the official V15); 0.2 and later
@@ -92,7 +92,7 @@ export function describe(st) {
   if (st.none) return "No FM-1 found. Connect it with a USB data cable, switch it on, and close every other app that uses MIDI (DAWs, other browser tabs with an FM-1 page).";
   if (st.several) return `Several FM-1s answer (${st.list.join(", ")}). Connect only the one to install.`;
   if (st.loader) return `The FM-1 is in update mode (${st.identity}): an install was cut off. Choose the same firmware and press Install to finish it.`;
-  if (st.remote && st.identity !== IDENTITY) return `The FM-1 runs RemoteFM1 ${st.remote.version || remoteFm1Version(st.identity)} (${st.identity}).`;
+  if (st.remote && st.identity !== IDENTITY) return `The FM-1 runs RemoteFM1 ${st.remote.version ? st.remote.version + (remoteFm1Build(st.identity) === "wifi" ? " Wi-Fi" : "") : remoteFm1Version(st.identity)} (${st.identity}).`;
   if (st.remote) return `The FM-1 runs RemoteFM1 ${st.remote.version || ""} (it answers installers as the official V15, ${st.identity}).`.replace("  ", " ");
   if (st.fw.kind === "remotefm1") return `The FM-1 runs ${st.fw.name} (${st.identity}).`;
   if (st.fw.kind === "stock") return st.identity === IDENTITY
@@ -141,23 +141,31 @@ export async function requestMidi(nav, ui, { hintMs = 1000, lateMs = 30000 } = {
 }
 
 // a release's package: the default one (firmware/remote-X.Y.Z.fwsc: from 0.2, USB + Bluetooth MIDI), or with
-// variant "usb" its USB-only one (releases.json usbOnly), when the release has one -> { file, sha256, usb }
+// variant "usb" its USB-only one (releases.json usbOnly), when the release has one -> { file, sha256, usb, wifi,
+// identity }. Variant "wifi" is RemoteFM1 Wi-Fi (releases.json wifi: { file, sha256, identity }), the build for an
+// Ableton Move, offered only by remotefm1.com/move/flash/; a release without one has none (null: never the default
+// package in its place)
 export function releaseFile(rel, variant = "") {
-  if (variant === "usb" && rel.usbOnly) return { file: rel.usbOnly.file, sha256: rel.usbOnly.sha256, usb: true };
-  return { file: `remote-${rel.version}.fwsc`, sha256: rel.sha256, usb: false };
+  if (variant === "wifi") return rel.wifi ? { file: rel.wifi.file, sha256: rel.wifi.sha256, usb: false, wifi: true, identity: rel.wifi.identity } : null;
+  if (variant === "usb" && rel.usbOnly) return { file: rel.usbOnly.file, sha256: rel.usbOnly.sha256, usb: true, wifi: false, identity: rel.identity };
+  return { file: `remote-${rel.version}.fwsc`, sha256: rel.sha256, usb: false, wifi: false, identity: rel.identity };
 }
+// the newest release with a Wi-Fi package, or null (none published yet)
+export const wifiRelease = (releases) => releases.find((r) => r.wifi) || null;
 
 // the released package, as the site hosts it: fetched, its SHA-256 and its identity the ones in releases.json
-export async function releasedPackage(rel, fetchFn = fetch, variant = "") {
-  const f = releaseFile(rel, variant), name = `RemoteFM1 ${rel.version}${f.usb ? " (USB only)" : ""}`;
-  const r = await fetchFn(`firmware/${f.file}`, { cache: "no-cache" });
+export async function releasedPackage(rel, fetchFn = fetch, variant = "", base = "firmware/") {
+  const f = releaseFile(rel, variant);
+  if (!f) throw new Error(`RemoteFM1 ${rel.version} has no ${variant} package.`);
+  const name = `RemoteFM1 ${rel.version}${f.usb ? " (USB only)" : f.wifi ? " Wi-Fi" : ""}`;
+  const r = await fetchFn(`${base}${f.file}`, { cache: "no-cache" });
   if (!r.ok) throw new Error(`The package for ${name} could not be downloaded (${r.status}).`);
   const bytes = new Uint8Array(await r.arrayBuffer());
   if (await sha256hex(bytes) !== f.sha256)
     throw new Error(`The file for ${name} is not the released one (its SHA-256 does not match). Nothing was written. Reload the page.`);
   const pkg = await packageFrom(bytes, name);
-  if (rel.identity && pkg.product !== rel.identity)
-    throw new Error(`The file for ${name} is not the released one (it installs as ${pkg.product}, not ${rel.identity}). Nothing was written.`);
+  if (f.identity && pkg.product !== f.identity)
+    throw new Error(`The file for ${name} is not the released one (it installs as ${pkg.product}, not ${f.identity}). Nothing was written.`);
   return pkg;
 }
 
@@ -218,8 +226,9 @@ export async function install(access, pkg, ui, opts = {}) {
   return "done";
 }
 
-// ---- the page (the browser only) ----
-if (typeof document !== "undefined") {
+// ---- the page (the browser only; not on a page that imports this module for its own wiring: <body data-flasher>,
+// remotefm1.com/move/flash/) ----
+if (typeof document !== "undefined" && !document.querySelector("[data-flasher]")) {
   const $ = (id) => document.getElementById(id);
   let access = null, rel = null, busy = false;
   const ui = {
@@ -280,7 +289,11 @@ if (typeof document !== "undefined") {
   }));
   if (!navigator.requestMIDIAccess) $("browser-warn").hidden = false;
   // the player: ../ on the published site, ../site/ in the source tree (web/ served as is)
-  fetch("../site/catalog.json", { method: "HEAD" }).then((r) => { if (r.ok) for (const a of document.querySelectorAll("a.player")) a.href = "../site/" + new URL(a.getAttribute("href"), location.href).search; }, () => {});
+  fetch("../site/catalog.json", { method: "HEAD" }).then((r) => {
+    if (!r.ok) return;
+    for (const a of document.querySelectorAll("a.player")) a.href = "../site/" + new URL(a.getAttribute("href"), location.href).search;
+    for (const a of document.querySelectorAll("a.move-link")) a.href = "../site/move/";   // (remotefm1.com/move)
+  }, () => {});
   fetch("releases.json", { cache: "no-cache" }).then((r) => r.json()).then((list) => {
     rel = list.releases[0];
     $("go").textContent = `Install RemoteFM1 ${rel.version}`;

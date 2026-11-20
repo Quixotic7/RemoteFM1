@@ -18,6 +18,9 @@
 #                                                                release releases.json lists, checked against SHA256SUMS)
 #   installer/smk37/                                             the SMK-37 test installer (docs/SMK37.md): linked from no page,
 #                                                                noindex; its packages checked against its SHA256SUMS
+#   move/                                                        remotefm1.com/move: FM-1 firmwares and the Ableton Move
+#                                                                (web/site/move); its Wi-Fi flasher move/flash/ imports the
+#                                                                installer's code from installer/; site_guard checks both
 #   managers/<id>/ fm1-shim.js index.json                         the firmwares' own managers, hosted (web/managers; FM1VST's core trees, or
 #                                                                their repositories at a pinned commit)
 #   engines/native/ext/<id>/<version>/                           firmware authors' own native builds, checked (web/site/tools/native_sync.mjs)
@@ -112,6 +115,7 @@ jobs:
           node web/engines/rfm1/ain-test.mjs
           node web/engines/rfm1/skin-test.mjs
           node web/installer/test_installer.mjs
+          node web/site/tools/movepage-test.mjs
           node web/installer/smk37/test_smk_installer.mjs
           node web/managers/test.mjs
 
@@ -209,7 +213,7 @@ jobs:
           # SHA256SUMS, into web/site/fw/rfm1/ (never committed); copied with fw/ below. A failure: the site without them
           fwcat=()
           if node web/site/tools/fetch_fw_catalog.mjs; then fwcat=(--fw-catalog web/site/fw/rfm1); else echo "::warning title=RemoteFM1FW::the .rfm1 catalog was not fetched; the site lists the Hub's and its own"; fi
-          cp -R web/site/index.html web/site/css web/site/js web/site/worklet web/site/mock web/site/fonts web/site/native web/site/fw _site/
+          cp -R web/site/index.html web/site/css web/site/js web/site/worklet web/site/mock web/site/fonts web/site/native web/site/fw web/site/move _site/
           # the Ableton Move's wasm wrapper and sequencer clock: rfm1cs-abletonmove's own files over js/'s re-exports
           # (those point into web/vendor/, which is not published)
           cp web/vendor/rfm1cs-abletonmove/web/move-core.js web/vendor/rfm1cs-abletonmove/web/move-seq.js _site/js/

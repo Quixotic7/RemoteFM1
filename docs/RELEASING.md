@@ -34,6 +34,19 @@ Two packages, both installing as `FM-1_72XXYYZZ` (0.3.7: `FM-1_72000307`; `firmw
 The Mac build and a clean Ubuntu 24.04 build (Python 3.12, a fresh clone, submodules from GitHub) give the same bytes;
 0.3.2 was checked that way before its tag.
 
+### The Wi-Fi package (from the release that carries the `wifi` branch)
+
+A third package, `remote-wifi-V.fwsc` (`./build.sh --wifi --release V`, docs/WIFI.md on the `wifi` branch), installs as
+`FM-1_729XXYYZZ` (0.4.0: `FM-1_729000400`; dev builds `FM-1_72900`). It is the build for an Ableton Move, offered only
+by remotefm1.com/move/flash/ (web/site/move/flash); remotefm1.com/installer keeps USB + Bluetooth as its default and
+installs over a Wi-Fi unit either way (fm1ota.js `remoteFm1Version` reads `FM-1_729`). For it to ship:
+
+- `tools/hub_build.sh` builds it beside the other two (and `--check` covers it); `release.yml` expects three signed
+  files (`n=3`) and names it in the release text; The Firmware Hub keeps listing `remote-V.fwsc` only.
+- `web/installer/releases.json`: the release's entry gets `"wifi": { "file": "remote-wifi-V.fwsc", "sha256": "…",
+  "identity": "FM-1_729XXYYZZ" }`, the file goes into `web/installer/firmware/` and its `SHA256SUMS`
+  (`test_installer.mjs` checks all three agree). Until a release has one, /move/flash/ says "Not released yet".
+
 ## Steps
 
 1. **Build on the Mac** (clean tree, Docker running):

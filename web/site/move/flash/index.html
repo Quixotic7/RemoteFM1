@@ -1,0 +1,61 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+<!-- remotefm1.com/move/flash/: RemoteFM1's Wi-Fi build, and only it (the owner's decision), flashed from the browser
+     with the installer's own code (../../installer/installer.js, fm1ota.js: imported, not copied). Embedded in
+     remotefm1.com/move; the main installer (remotefm1.com/installer) keeps USB + Bluetooth as its default. Until a
+     release lists a Wi-Fi package (releases.json "wifi"), this page says so and flashes nothing. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flash RemoteFM1 Wi-Fi</title>
+<meta name="robots" content="noindex">
+<link rel="stylesheet" href="../css/move.css">
+<link rel="stylesheet" href="flash.css">
+</head>
+<body data-flasher>
+<div class="installer fl">
+  <div class="inst-head">
+    <span class="inv">FLASH</span><b>RemoteFM1 Wi-Fi</b><i id="f-where">the Wi-Fi build only · remotefm1.com/move/flash/</i>
+  </div>
+  <div class="inst-body">
+    <div class="inst-pkg">
+      <div class="pkg-chip"><span class="pkg-fm1"><img class="px" src="../img/fm1-pixel.png" width="64" height="64" alt=""><span class="b-ic b-wifi" aria-hidden="true"></span></span>
+        <div><b id="f-title">RemoteFM1 Wi-Fi</b><code id="f-file">…</code></div></div>
+      <div class="knobs" id="f-knobs">
+        <div class="kc"><i class="kn" id="f-kv" style="--v:.5"></i><span id="f-ver">…</span><small>version</small></div>
+        <div class="kc"><i class="kn" style="--v:.5"></i><span>Wi-Fi</span><small>build</small></div>
+        <div class="kc"><i class="kn" style="--v:.25"></i><span>2.4 GHz</span><small>radio</small></div>
+        <div class="kc"><i class="kn" style="--v:.8"></i><span id="f-id">FM-1_729…</span><small>installs as</small></div>
+      </div>
+      <p class="meta" id="f-meta">Loading the release list…</p>
+      <p class="soon" id="f-soon" hidden><span class="inv">SOON</span>The Wi-Fi build comes with the next RemoteFM1 release.
+        Until then nothing is flashed from here; "What is on my FM-1?" works already.</p>
+    </div>
+    <ol class="inst-pre">
+      <li>A computer with Chrome or Edge, the FM-1 on a USB data cable, charged and on.</li>
+      <li>ChoralRoot users: back up with ChoralRoot's own page first.</li>
+      <li><label class="fl-check"><input type="checkbox" id="f-midi-closed"> Every app that uses MIDI is closed (DAWs,
+        synth editors, other tabs with an FM-1 page).</label></li>
+    </ol>
+    <div class="flash-row">
+      <button class="pill" type="button" id="f-go" disabled><span class="pill-dot" aria-hidden="true"></span><span id="f-go-t">Flash the Wi-Fi build</span></button>
+      <button class="pill ghost" type="button" id="f-check" disabled>What is on my FM-1?</button>
+      <div class="flash-meter"><b class="meter" id="f-meter" data-n="0" data-of="12"></b><span id="f-pct">READY</span></div>
+    </div>
+    <div class="fl-status">
+      <p id="f-status" role="status"></p>
+      <p id="f-browser" hidden>This browser has no Web MIDI: open this page in Chrome or Edge on a computer to flash.</p>
+      <label class="fl-check" id="f-override-box" hidden><input type="checkbox" id="f-override"> I understand the risk:
+        flash over this firmware anyway. An install over Sloop or a Felucca beta has left FM-1s that no longer start.</label>
+      <button class="pill ghost" type="button" id="f-retry" hidden>Try again</button>
+      <p id="f-next" hidden>Done. Next: <a href="../#wifi" target="_top">put the FM-1 on your Wi-Fi</a>.</p>
+      <details><summary>Log</summary><pre id="f-log"></pre></details>
+    </div>
+    <p class="fine">This page flashes only the Wi-Fi build. Back to USB + Bluetooth, USB only or M-VAVE's V15:
+      <a id="f-installer" href="../../installer/" target="_top">remotefm1.com/installer</a>. Installing firmware is at your own risk.</p>
+  </div>
+</div>
+<script type="module" src="flash.js"></script>
+</body>
+</html>

@@ -96,10 +96,22 @@ export const BUBBA_PORT = /bubba/i;
 // still read as RemoteFM1 (52 moved to 72: QUADRO numbers its releases FM-1_52XXYYZZ too). 0.1 answered as the
 // official V15 (FM-1_015).
 // -> "0.2.0", "development build", or null (not RemoteFM1 0.2 or later)
+// RemoteFM1 Wi-Fi (the build for an Ableton Move: build.sh --wifi, firmware/fm1-wifi.toml id_prefix "FM-1_729"):
+// FM-1_72900 a development build, FM-1_729XXYYZZ release X.Y.Z, read as RemoteFM1 too, so an install goes either way
+// (Wi-Fi over Bluetooth and back); remoteFm1Build tells the two apart
 export function remoteFm1Version(identity) {
   if (identity === "FM-1_5200" || identity === "FM-1_7200") return "development build";
+  if (identity === "FM-1_72900") return "Wi-Fi development build";
+  const w = /^FM-1_729(\d\d)(\d\d)(\d\d)$/.exec(identity || "");
+  if (w) return `${+w[1]}.${+w[2]}.${+w[3]} Wi-Fi`;
+  if (/^FM-1_729/.test(identity || "")) return null;          // (no other FM-1_729 number is RemoteFM1)
   const m = /^FM-1_[57]2(\d\d)(\d\d)(\d\d)$/.exec(identity || "");
   return m ? `${+m[1]}.${+m[2]}.${+m[3]}` : null;
+}
+// -> "wifi" (RemoteFM1 Wi-Fi), "remote" (the USB + Bluetooth or USB-only build), or null (not RemoteFM1 0.2 or later)
+export function remoteFm1Build(identity) {
+  if (!remoteFm1Version(identity)) return null;
+  return /^FM-1_729/.test(identity) ? "wifi" : "remote";
 }
 export function classifyFirmware(identity, info, port) {
   const m = /^(ota-)?([^_]+)_(\d+)$/i.exec(identity || "");
