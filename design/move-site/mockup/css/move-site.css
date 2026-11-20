@@ -79,11 +79,14 @@ main { max-width: 1180px; margin: 0 auto; padding: 0 16px; }
 .lede { font-size: 18px; color: #e6e6e6; max-width: 560px; }
 .hero .row { margin: 24px 0 14px; }
 .hero-art { position: relative; padding-bottom: 44px; }
-.fm1-mini { position: absolute; right: -1%; bottom: -4%; width: 34%; min-width: 120px; aspect-ratio: 1.45; padding: 6%; background: var(--bk);
-  border: 2px solid var(--fm1); box-shadow: 6px 6px 0 var(--fm1); display: grid; grid-template-rows: 1fr auto; gap: 8%; animation: bob 5s steps(4) infinite; z-index: 2; }
-.fm1-screen { background: var(--wh); color: var(--bk); display: grid; place-content: center; text-align: center; font: 400 clamp(13px, 2.2vw, 22px)/1 var(--px); }
-.fm1-screen small { font: 400 .8em var(--px); background: var(--bk); color: var(--led-w); padding: 1px 4px 0; margin-top: 3px; }
-.fm1-keys { height: 22%; min-height: 12px; background: repeating-linear-gradient(90deg, var(--wh) 0 calc(6.25% - 2px), var(--bk) calc(6.25% - 2px) 6.25%); }
+/* the owner's pixel FM-1 (img/fm1-pixel.png, 64 x 64, 1-bit): whole-number scales only, never smoothed; FM-1 orange as
+   its hard offset shadow and its lit tag, the art itself stays white on black */
+.px { image-rendering: pixelated; image-rendering: crisp-edges; display: block; }
+.fm1-mini { position: absolute; right: 0; bottom: -2%; z-index: 2; animation: bob 5s steps(4) infinite; }
+.fm1-px { width: 128px; height: 128px; outline: 2px solid var(--fm1); box-shadow: 8px 8px 0 var(--fm1); }
+.fm1-tag { position: absolute; left: 50%; bottom: -14px; transform: translateX(-50%); white-space: nowrap; font: 400 16px/1 var(--px);
+  background: var(--wh); color: var(--bk); padding: 3px 6px 1px; box-shadow: inset 0 -2px 0 var(--led-w); }
+@media (min-width: 900px) { .fm1-px { width: 192px; height: 192px; } }
 .hero-wire { position: absolute; left: 30%; bottom: 8%; height: 30%; width: 52%; overflow: visible; pointer-events: none; }
 .hero-wire path { fill: none; stroke: var(--led-w); stroke-width: 2; stroke-dasharray: 4 4; vector-effect: non-scaling-stroke; animation: dash 1.2s steps(8) infinite; }
 @keyframes dash { to { stroke-dashoffset: -16; } }
@@ -160,6 +163,11 @@ main { max-width: 1180px; margin: 0 auto; padding: 0 16px; }
 
 /* ---- architecture */
 .arch-stage { display: grid; gap: 14px; }
+.arch-pic { position: relative; }
+.arch-svg { display: block; }
+/* over the FM-1 node (centre 687,290 of 800 x 470): 1x on a phone, 2x from 700 px */
+.arch-fm1 { position: absolute; left: 85.875%; top: 61.7%; width: 64px; height: 64px; transform: translate(-50%, -50%); pointer-events: none; }
+@media (min-width: 700px) { .arch-fm1 { width: 128px; height: 128px; } }
 .arch-svg { width: 100%; height: auto; background: var(--bk); border: var(--line); }
 .arch-svg .node rect { fill: var(--bk); stroke: var(--wh); stroke-width: 1.5; }
 .arch-svg .node { cursor: pointer; outline: none; }
@@ -278,7 +286,12 @@ main { max-width: 1180px; margin: 0 auto; padding: 0 16px; }
 .inst-body { padding: 18px 16px; background: repeating-conic-gradient(#fff 0 25%, #000 0 50%) 0 0 / 2px 2px; }
 .inst-body > * { background: var(--bk); }
 .inst-pkg { padding: 14px; border: var(--line); margin-bottom: 12px; }
-.pkg-chip { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; }
+.pkg-chip { display: flex; gap: 16px; align-items: center; margin-bottom: 8px; }
+.pkg-fm1 { position: relative; flex: none; }
+.pkg-fm1 .px { width: 64px; height: 64px; outline: 1px solid var(--fm1); }
+.pkg-fm1 .b-ic { position: absolute; right: -10px; bottom: -10px; width: 28px; height: 28px; background: var(--bk); }
+.pkg-fm1 .b-wifi::before { inset: 5px; border-width: 2px; }
+.pkg-fm1 .b-wifi::after { left: 11px; bottom: 5px; width: 4px; height: 4px; }
 .pkg-chip b { display: block; font: 400 26px/1 var(--px); font-weight: 400; margin-bottom: 4px; }
 .inst-body .meta { font-size: 13px; color: #dcdcdc; margin: 0; }
 .sha { font: 500 12px var(--mono); }

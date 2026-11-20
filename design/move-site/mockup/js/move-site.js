@@ -143,7 +143,7 @@ const LINKS = {
   router: { k: "net", r: "A", lbl: [205, 130, "remotefm1.com"], t: "The firmwares, from remotefm1.com", d: ["The player loads each firmware from the catalog when you pick it. The apps keep them offline."] },
   phonemove: { k: "wifi", r: "B", lbl: [260, 290, "Wi-Fi · :7730"], t: "The page on your phone", d: ["remotefm1.local:7730, served by the Move: the FM-1's screen, the faceplate, the firmware browser, Mix & FX, the files.", "Optional: the Move plays without it."] },
   usba: { k: "usb", r: "B", lbl: [540, 368, "USB-A"], t: "An FM-1 on the Move's USB-A", d: ["Any FM-1 with RemoteFM1 0.3 or later: its screen shows the firmware, its keys and knobs play the slot.", "Also how the FM-1 learns your Wi-Fi from the Move's page."] },
-  wifi: { k: "wifi", r: "B", lbl: [560, 244, "Wi-Fi · found by itself"], t: "An FM-1 over Wi-Fi", d: ["The FM-1 with RemoteFM1's Wi-Fi build joins the same network; the Move finds it by a broadcast and links (TCP 7740).", "Wi-Fi wins over USB-A when both are there; one FM-1 at a time."] },
+  wifi: { k: "wifi", r: "B", lbl: [505, 230, "Wi-Fi · found by itself"], t: "An FM-1 over Wi-Fi", d: ["The FM-1 with RemoteFM1's Wi-Fi build joins the same network; the Move finds it by a broadcast and links (TCP 7740).", "Wi-Fi wins over USB-A when both are there; one FM-1 at a time."] },
   net: { k: "net", r: "B", lbl: [470, 112, "signed catalog"], t: "Downloads to the Move", d: ["The Move downloads firmwares itself, built for its processor, from a signed list: every file checked before it is installed.", "About 40 come bundled; the rest need Wi-Fi once."] },
 };
 const NODES = {
@@ -171,13 +171,6 @@ const svg = $(".arch-svg");
     Object.entries({ x: 352 + c * 17, y: 246 + r * 22, width: 13, height: 17, rx: 2.5, opacity: .85 }).forEach(([k, v]) => p.setAttribute(k, v));
     p.style.fill = HERO_COLS[(r + c) % 8]; p.style.stroke = "none";
     g.appendChild(p);
-  }
-  const k = $(".fm1keys", svg);
-  for (let i = 0; i < 12; i++) {
-    const p = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-    Object.entries({ x: 622 + i * 10.5, y: 312, width: 8.5, height: 30, rx: 1.5 }).forEach(([a, v]) => p.setAttribute(a, v));
-    p.style.fill = "#fbede3"; p.style.stroke = "none";
-    k.appendChild(p);
   }
 }
 const labels = {};

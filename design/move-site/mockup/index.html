@@ -35,8 +35,8 @@
   <div class="hero-art" aria-hidden="true">
     <div class="move move-hero" data-move="hero"></div>
     <div class="fm1-mini">
-      <div class="fm1-screen"><span>REMOTE FM1</span><small>WI-FI · LINKED</small></div>
-      <div class="fm1-keys"></div>
+      <img class="px fm1-px" src="img/fm1-pixel.png" width="64" height="64" alt="">
+      <span class="fm1-tag">WI-FI · LINKED</span>
     </div>
     <svg class="hero-wire" viewBox="0 0 100 40" preserveAspectRatio="none"><path d="M2 30 C 30 2, 70 2, 98 30"/></svg>
   </div>
@@ -142,6 +142,7 @@
       <button role="tab" data-arch="A"><span class="led led-a"></span>Route A · controller</button>
     </div>
     <div class="arch-stage">
+      <div class="arch-pic">
       <svg class="arch-svg" viewBox="0 0 800 470" role="img" aria-label="Architecture diagram">
         <defs>
           <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="6"/></filter>
@@ -175,10 +176,8 @@
           <text x="400" y="390" class="nt">Ableton Move</text>
         </g>
         <g class="node node-fm1" data-node="fm1" tabindex="0">
-          <rect x="610" y="230" width="150" height="130" rx="18"/>
-          <rect class="scr" x="660" y="244" width="50" height="50" rx="4"/>
-          <g class="fm1keys"></g>
-          <text x="685" y="384" class="nt">FM-1</text>
+          <rect x="604" y="214" width="166" height="152" rx="10"/>
+          <text x="687" y="392" class="nt">FM-1</text>
         </g>
         <!-- where the firmware runs -->
         <g class="runs" aria-hidden="true">
@@ -188,6 +187,8 @@
         <!-- sound -->
         <g class="sound" aria-hidden="true"><path d="M0 0 q 8 -10 0 -20 M8 4 q 14 -14 0 -28 M16 8 q 20 -18 0 -36"/></g>
       </svg>
+      <img class="px arch-fm1" src="img/fm1-pixel.png" width="64" height="64" alt="" aria-hidden="true">
+      </div>
       <aside class="arch-info" aria-live="polite">
         <p class="ai-kicker">Tap a box or a line</p>
         <h3 class="ai-title">Route B at a glance</h3>
@@ -378,7 +379,7 @@
     </div>
     <div class="inst-body">
       <div class="inst-pkg">
-        <div class="pkg-chip"><span class="b-ic b-wifi" aria-hidden="true"></span><div><b>RemoteFM1 0.4.0 · Wi-Fi</b>
+        <div class="pkg-chip"><span class="pkg-fm1"><img class="px" src="img/fm1-pixel.png" width="64" height="64" alt=""><span class="b-ic b-wifi" aria-hidden="true"></span></span><div><b>RemoteFM1 0.4.0 · Wi-Fi</b>
           <code>remote-wifi-0.4.0.fwsc</code></div></div>
         <p class="meta">Placeholder version. SHA-256 <span class="sha">placeholder…</span> · installs as FM-1_729…</p>
       </div>
