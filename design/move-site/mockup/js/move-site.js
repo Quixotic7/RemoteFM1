@@ -232,7 +232,7 @@ $$("[data-node]", svg).forEach((n) => {
 });
 $$(".arch .seg button").forEach((b) => b.addEventListener("click", () => setRoute(b.dataset.arch)));
 $$(".legend button").forEach((b) => b.addEventListener("click", () => { filter = filter === b.dataset.filter ? "" : b.dataset.filter; applyFilter(); }));
-setRoute("A");
+setRoute("B");
 
 // ---------------------------------------------------------------- the install paths (progress kept per browser)
 const saved = store.get();
@@ -262,16 +262,10 @@ for (const p of ["A", "B"]) {
 }
 $$("#setup .seg button").forEach((b) => b.addEventListener("click", () => setPath(b.dataset.path)));
 $$("[data-go]").forEach((a) => a.addEventListener("click", () => setPath(a.dataset.go)));
-setPath(saved.path || "A");
+setPath(saved.path || "B");
 
-// ---------------------------------------------------------------- the builds and the embedded installer
-function setBuild(b) {
-  $$(".build").forEach((c) => c.classList.toggle("sel", c.dataset.build === b));
-  const r = $(`.inst-choice input[value="${b}"]`); if (r) r.checked = true;
-  $(".inst-body .btn.primary").textContent = { ble: "Install RemoteFM1", wifi: "Install RemoteFM1 Wi-Fi", usb: "Install RemoteFM1 (USB only)" }[b];
-}
-$$(".build").forEach((c) => c.addEventListener("click", () => setBuild(c.dataset.build)));
-$$(".inst-choice input").forEach((r) => r.addEventListener("change", () => setBuild(r.value)));
+// ---------------------------------------------------------------- the flasher: this page offers only the Wi-Fi build
+// (the owner's decision); the other two cards link to remotefm1.com/installer, which keeps USB + Bluetooth as its default
 
 // ---------------------------------------------------------------- Wi-Fi: two ways
 $$("#wifi .seg button").forEach((b) => b.addEventListener("click", () => {
@@ -279,6 +273,27 @@ $$("#wifi .seg button").forEach((b) => b.addEventListener("click", () => {
   $$(".wifi-way").forEach((w) => (w.hidden = w.dataset.wifi !== b.dataset.wifi));
 }));
 
-// review shots: ?arch=B shows Route B in the diagram, ?path=B the Route B steps
-if (/arch=B/.test(location.search)) setRoute("B");
-if (/path=B/.test(location.search)) setPath("B");
+// review shots: ?arch=A shows Route A in the diagram, ?path=A the Route A steps
+if (/arch=A/.test(location.search)) setRoute("A");
+if (/path=A/.test(location.search)) setPath("A");
+
+// ---------------------------------------------------------------- 1-bit dither: an ordered (Bayer 8 x 8) dither of a
+// gradient, drawn white-on-black at one canvas pixel per 2 CSS pixels and scaled up crisp (image-rendering: pixelated),
+// as the Move's screen would draw it. data-dither: "fade" (white at the top, gone at the bottom) or "rule" (a short
+// band that thins out to the right, under each section's title)
+const BAYER = [0, 32, 8, 40, 2, 34, 10, 42, 48, 16, 56, 24, 50, 18, 58, 26, 12, 44, 4, 36, 14, 46, 6, 38, 60, 28, 52, 20, 62, 30, 54, 22,
+  3, 35, 11, 43, 1, 33, 9, 41, 51, 19, 59, 27, 49, 17, 57, 25, 15, 47, 7, 39, 13, 45, 5, 37, 63, 31, 55, 23, 61, 29, 53, 21];
+function dither(cv) {
+  const kind = cv.dataset.dither, w = Math.max(8, Math.round(cv.clientWidth / 2)), h = Math.max(4, Math.round(cv.clientHeight / 2));
+  cv.width = w; cv.height = h;
+  const ctx = cv.getContext("2d"), img = ctx.createImageData(w, h), d = img.data;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const v = kind === "fade" ? 1 - y / h : Math.max(0, 1 - x / (w * .9)) * (1 - Math.abs(y / h - .5));
+    if (v * 64 > BAYER[(y % 8) * 8 + (x % 8)] + .5) { const i = (y * w + x) * 4; d[i] = d[i + 1] = d[i + 2] = 255; d[i + 3] = 255; }
+  }
+  ctx.putImageData(img, 0, 0);
+}
+for (const h of $$(".sec-head")) { const cv = document.createElement("canvas"); cv.className = "dither dither-rule"; cv.dataset.dither = "rule"; h.appendChild(cv); }
+const drawDithers = () => $$("canvas.dither").forEach(dither);
+drawDithers();
+addEventListener("resize", drawDithers);

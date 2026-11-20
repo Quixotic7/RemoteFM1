@@ -6,7 +6,7 @@ leave the main installer's default on the BLE build. It should explain the archi
 with install guides, and the difference between the routes should be clear at the top.
 
 This folder holds the plan and a working mockup: `mockup/index.html` (+ `css/`, `js/`), with screenshots in `shots/`
-(`move-site-desktop.png`, `move-site-desktop-routeB.png`, `move-site-phone.png`, 390 px wide). Nothing is deployed,
+(`move-site-desktop.png`, `move-site-desktop-routeA.png`, `move-site-phone.png`, 390 px wide). Nothing is deployed,
 and nothing in `web/` changes until the owner says yes.
 
 ## 1. The two routes (the facts the page rests on)
@@ -29,7 +29,8 @@ standalone tool: Shift + touch the volume knob + click the jog wheel.
 1. **Hero.** One line ("Your Move, playing FM-1 firmwares"), two sentences on what this is, the animated Move with the
    FM-1 beside it (a dashed Wi-Fi link between them). CTAs: "Pick your way in" (to 2), "How it works" (to 3). A pointer
    to the glossary for complete newcomers.
-2. **Two ways to use a Move with an FM-1 firmware** (up top, as the owner asked). Two cards side by side (stacked on a
+2. **Two ways to use a Move with an FM-1 firmware** (up top, as the owner asked). Route B first, then Route A
+   (the owner's decision). Two cards side by side (stacked on a
    phone), colour-coded (A cyan, B lime, the colours the rest of the page uses for each route), each with the same five
    rows: runs on / sound from / on the Move / link / FM-1 needed?, a "best for" line and its own "Set up" button.
    Below them, **the chooser**: three one-tap questions (where the sound comes out; whether a computer is on while
@@ -59,7 +60,7 @@ standalone tool: Shift + touch the volume knob + click the jog wheel.
 6. **Put RemoteFM1 on your FM-1 (flashing).** Three build cards: **USB + Bluetooth** (the default everywhere else:
    website, iOS / Android apps, FM1VST, Route A, and the Move's USB-A), **Wi-Fi** (Route B's wireless panel; no
    Bluetooth, no sound out of the FM-1), **USB only** (no radio). One sentence on why one radio per build (the FM-1's
-   RAM; WIFI.md). Then **the installer, embedded** with the Wi-Fi package preselected; the build cards and the
+   RAM; WIFI.md). Then **the Wi-Fi flasher, embedded** (remotefm1.com/move/flash/: the Wi-Fi build only, the owner's decision; the BLE and USB-only cards link to remotefm1.com/installer); the build cards and the
    installer's radios stay in sync. The line "changing your mind is the same page" (BLE over Wi-Fi, or back to V15).
 7. **Put the FM-1 on your Wi-Fi.** Two tabs: **on the FM-1 itself** (HOME held › WI-FI row › OCT+ › pick › password on
    the keys › OCT+; a drawing of the Wi-Fi page) and **from the Move's page** (FM-1 on USB-A, `remotefm1.local:7730/?wifi`,
@@ -74,20 +75,33 @@ Navigation: a sticky header (brand "RemoteFM1 for Move", section links on deskto
 On the player itself, one entry point: the menu's "Use my Ableton Move" sheet gets a "New to this? remotefm1.com/move"
 link, and the installer's page a line "Flashing for an Ableton Move? /move".
 
-## 3. Look
+## 3. Look (reworked 2026-11-19: the owner's "binary black/white style inspired by the Ableton Move's screen, mixed with some colors")
 
-- **The page is the Move's body:** near-black page (#141416), dark grey chassis cards (#29292c..#303033) with a lit top
-  edge, pads that glow, an OLED (white mono text on black, a soft bloom), round knobs with a white pointer. The Move is
-  drawn in CSS from the manual's figure (`AbletonMove/images/p007-002.png`) in percentages, so it scales to any width.
-- **LED colours carry meaning** throughout: Route A cyan, Route B lime, FM-1 orange (remotefm1.com's tangerine),
-  Wi-Fi / Schwung violet, Bluetooth blue, USB yellow.
-- **Type:** remotefm1.com's own fonts (Unbounded titles, DM Sans text, Chakra Petch hardware legends, DM Mono values),
-  so it is clearly part of the same site.
+- **1-bit base, as the Move's OLED:** pure black (#000) and pure white (#fff), nothing in between for surfaces. Cards
+  and panels are black with a 1 px white outline and square corners; emphasis is **inverted blocks** (the section
+  numbers, the "for Move" tag, the picked tab, an open glossary card or FAQ row, the chooser as one white panel with
+  black type). Dividers are dashed 1 px lines. Grey (#a8a8a8) only for secondary text.
+- **Dither:** ordered (Bayer 8 x 8) dither drawn by the page's JS onto small canvases at one pixel per 2 CSS px,
+  scaled crisp (`image-rendering: pixelated`): a fade band under the hero, a short thinning rule under every section
+  title; a 50 % checker behind the flasher; the Move's jog wheel is dithered too.
+- **Colour as accents only**, each with one meaning: Route B lime, Route A cyan, FM-1 orange, Wi-Fi violet,
+  Bluetooth blue, USB yellow. They appear on badges (the route tags, the "Checkpoint" labels, the Wi-Fi card's tag),
+  lit pads and button LEDs, the diagram's links and the "firmware runs here" badge, hard offset shadows on the FM-1
+  and the Wi-Fi card (6 px, no blur), and the primary button's shadow. No coloured strips along card edges (owner).
+- **The Move** is drawn as 1-bit line art from the manual's figure (`AbletonMove/images/p007-002.png`, in % so it
+  scales): a black body and 1 px white outlines for the knobs, buttons and pads; colour only where an LED is lit
+  (pads, track buttons, the right-hand buttons in FM-1 mode). The hero's pads blink in steps, not fades.
+- **Type:** headings, labels, buttons and the mock OLED in **Jersey 10**, a pixel display face (SIL OFL 1.1; the one
+  RemoteFM1's own Wi-Fi screens already use, `firmware/third_party/jersey10`; the site ships it as
+  `web/site/fonts/Jersey10-Regular.woff` + `OFL-jersey10.txt`, converted with fontTools). Small labels and values in
+  DM Mono; paragraphs stay in DM Sans at 15-18 px for reading. Unbounded and Chakra Petch are not used on this page.
+- **Motion** is stepped (`steps()`): dashed links crawl, the FM-1 bobs, the badge jumps. All of it off under
+  `prefers-reduced-motion`.
 - **No Ableton marks:** no logo, no wordmark, no Ableton typeface; "Ableton Move" only in running text and the
   trademark line. The Move drawing is the hardware's shape, not its branding (no printed legends).
-- Mobile first (one column, 16 px gutters, 44 px targets, no horizontal scroll); two columns from 900 px. Respects
-  `prefers-reduced-motion`. Known mockup gap: on a phone the diagram's link labels are small (about 7 px); the real
-  page stacks the nodes vertically under 600 px with labels at 12 px. Dark only, as the hardware is (a light theme is not planned; the owner may say otherwise).
+- Mobile first (one column, 16 px gutters, 44 px targets, no horizontal scroll); two columns from 900 px. Known mockup
+  gap: on a phone the diagram's link labels are small; the real page stacks the nodes under 600 px with 12 px labels.
+  Dark only, as the screen is.
 
 ## 4. The interactive pieces
 
@@ -100,23 +114,25 @@ link, and the installer's page a line "Flashing for an Ableton Move? /move".
 | Build picker + installer | the cards select the package; the installer starts on Wi-Fi only here | `?variant=wifi` |
 | Wi-Fi tabs | FM-1 / Move page | static |
 
-## 5. The installer on this page (Wi-Fi preselected, BLE stays the default elsewhere)
+## 5. The flasher on this page (Wi-Fi only here, BLE stays the default elsewhere)
 
-- **One installer, a URL parameter.** `web/installer/index.html` learns `?variant=ble|wifi|usb` (default `ble`, as
-  now). /move embeds `../installer/?variant=wifi&embed=1` in an iframe (same origin, so Web MIDI works; the iframe
-  gets `allow="midi"`), or links to it on a phone (installing needs Chrome / Edge on a computer anyway: the embed shows
-  "open this on a computer" on phones). `embed=1` hides the installer's own header and "Then" card.
+- **Its own page, Wi-Fi only (owner's decision 3-4).** `web/site/move/flash/index.html` (remotefm1.com/move/flash/):
+  the installer's code (`installer.js`, `fm1ota.js`, `fm1pkg.js`, `releases.json`, imported from `../../installer/`,
+  nothing copied) with the package fixed to the release's `wifi` entry: no package choice, no file picker. /move
+  embeds it in an iframe (same origin, so Web MIDI works; `allow="midi"`), drawn in this page's 1-bit look; on a phone
+  it says "open this on a computer" (flashing needs Chrome / Edge on a computer). Going back to Bluetooth, USB only or
+  V15 is remotefm1.com/installer, linked from it.
 - **releases.json:** each release gets a third package beside `usbOnly`: `"wifi": { "file": "remote-wifi-X.Y.Z.fwsc",
-  "sha256": "...", "identity": "FM-1_729XXYYZZ" }`; `releaseFile(rel, "wifi")` returns it; the radio group grows a
-  third option, shown only when the release has a Wi-Fi package; test_installer.mjs checks the list, SHA256SUMS and
-  the files as for usbOnly.
+  "sha256": "...", "identity": "FM-1_729XXYYZZ" }`; `releaseFile(rel, "wifi")` returns it (the /move flasher's only
+  package; the main installer's radios are unchanged); test_installer.mjs checks the list, SHA256SUMS and the files
+  as for usbOnly.
 - **Identity:** the Wi-Fi build answers `FM-1_729..` (dev `FM-1_72900`, releases `FM-1_729XXYYZZ`). Today's
   `remoteFm1Version()` matches `FM-1_[57]2XXYYZZ` only, so the installer would **not** recognise a Wi-Fi unit as
   RemoteFM1 (an install over it would be refused as an unknown firmware, and the way back to BLE would need V15 first).
   `fm1ota.js` must read `FM-1_729XXYYZZ` (and `FM-1_72900`) as "RemoteFM1 Wi-Fi X.Y.Z"; the "What is on my FM-1?"
   sentence names the build. `tools/fm1_install.py` on the wifi branch already does.
-- **The main installer** keeps "USB + Bluetooth MIDI" checked by default and lists Wi-Fi as a third choice with one
-  line ("for RemoteFM1 on an Ableton Move: remotefm1.com/move").
+- **The main installer** keeps "USB + Bluetooth MIDI" checked by default; it can flash over a Wi-Fi unit (the identity
+  above) and links "Flashing for an Ableton Move? remotefm1.com/move" for the Wi-Fi build.
 
 ## 6. How it fits the site's build and deploy
 
