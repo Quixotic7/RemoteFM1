@@ -119,9 +119,14 @@ try {
   ok(await go(URL0), "reloaded");
   ok(await js(`document.querySelector('[data-steps="B"] li[data-step="schwung"] input').checked && document.querySelector('[data-ring="B"] b').textContent === "1"`), "steps: the tick is kept after a reload");
 
-  // the release states (data/move.json): RemoteFM14Move not out yet -> "soon", no made-up number
-  ok(await js(`!document.querySelector('[data-when="b-unreleased"]').hidden && document.querySelector("[data-bundled] b").textContent === "—"`),
-     "release states: RemoteFM1 for the Move marked SOON, the bundled count not invented");
+  // the release states, as data/move.json says: not out yet -> "soon", no made-up number; released -> the real count
+  const MJ = JSON.parse(readFileSync(new URL("../move/data/move.json", import.meta.url), "utf8")).remotefm14move;
+  if (MJ.released)
+    ok(await js(`document.querySelector('[data-when="b-unreleased"]').hidden && document.querySelector("[data-bundled] b").textContent === ${JSON.stringify(String(MJ.bundled))}`),
+       `release states: RemoteFM1 for the Move ${MJ.version} released, no SOON, ${MJ.bundled} bundled firmwares`);
+  else
+    ok(await js(`!document.querySelector('[data-when="b-unreleased"]').hidden && document.querySelector("[data-bundled] b").textContent === "—"`),
+       "release states: RemoteFM1 for the Move marked SOON, the bundled count not invented");
 
   // the embedded flasher
   await js(`document.querySelector(".flasher-frame").scrollIntoView()`);
