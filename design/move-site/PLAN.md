@@ -169,3 +169,10 @@ link, and the installer's page a line "Flashing for an Ableton Move? /move".
 4. **Embed or link the installer** on /move: an iframe with Wi-Fi preselected (the mockup), or a big button to
    `/installer/?variant=wifi`?
 5. **Photos / video:** will you shoot the Move + FM-1 photos, or should the page launch with drawings only?
+
+## The owner's decisions (2026-11-19)
+1. URL and name as proposed: remotefm1.com/move/, "RemoteFM1 for Move"; the Schwung tool stays "RemoteFM1".
+2. Route B (RemoteFM1 on the Move) leads; Route A (the Move as a controller) second.
+3. The Wi-Fi firmware ships in ONE RemoteFM1 release with all three packages (USB+Bluetooth stays the default everywhere else), but RemoteFM1 for Move gets its own flasher page that offers ONLY the Wi-Fi build.
+4. That Wi-Fi-only flasher is embedded in the /move page (as in the mockup).
+Still open: photos/video (owner-shot or drawings at launch).
