@@ -44,7 +44,7 @@
 // prefs.moveLibrary (base64) and given back at start. A firmware picked on the page goes to the Move (fwSlots).
 import { h } from "./sheet.js";
 import { SRC, E, NB, labelToMatrix, roleToMatrix } from "./panel.js";
-import { lean, MODE_NAMES, STATE, WHY, CH, STORE_PENDING, FW_FAILED, FW_BUSY } from "./move-core.js";
+import { lean, MODE_NAMES, STATE, WHY, CH, STORE_PENDING, FW_FAILED, FW_BUSY, LBL_N, NBTN } from "./move-core.js";
 import { SeqClock } from "./move-seq.js";
 import { MoveProjects, unpackFile, packFile, projectName, fileName, SET_NAME, firstFree, validSlot, dirBits, SLOTS, EXT_ONE, EXT_SET, MAX_FILE } from "./move-projects.js";
 
@@ -331,13 +331,13 @@ export class MoveLink {
     this.seq = new SeqClock({ advance: (n, r) => this.core.seqAdvance(n, r), midiIn: (b) => this.core.seqMidiIn(b), emit: (a, at) => this.apply(a, at) });
     this.wasPlaying = false; this.seqKey = ""; this.projSubs = new Set(); this.projList = []; this.coreP = null;
     this.px = null; this.sent = 0;
-    this.labels = null; this.keymap = null;
+    this.labels = null; this.keymap = null; this.liveLabels = null; this.btnNames = null;
     this.fw = { list: [], thumbs: new Map(), pending: null, asked: false };   // (the firmware browser: fwInit)
     const s = opts.site;
     s.on("leds", (levels, green) => this.onLeds(levels, green));
     s.on("frame", (px) => { this.px = px; if (this.core && this.want) this.sess((c, now) => c.sessFrame(now, px)); });
     s.on("info", (info) => this.onInfo(info));
-    s.on("firmware", () => { const sc = s.screen(); this.px = sc.pixels; this.onInfo(s.current().info); if (this.core && this.want) this.sess((c, now) => c.sessFrame(now, this.px)); this.fwSync(); });
+    s.on("firmware", () => { const sc = s.screen(); this.px = sc.pixels; this.onInfo(s.current().info); if (this.core) this.core.readoutsClear(); if (this.core && this.want) this.sess((c, now) => c.sessFrame(now, this.px)); this.fwSync(); });
     s.on("loopLevels", (peaks) => { if (this.live && this.core.sampleLevels(peaks) > 0) this.sess((c, now) => c.sessRedraw(now)); });   // (Sample's waveform)
     s.on("midiOut", (bytes, frame) => { if (this.live) { this.seq.clock(bytes, frame); this.sess((c, now) => c.sessUpdate(now)); } });
     if (typeof addEventListener === "function") addEventListener("pagehide", () => { this.flush(); this.release(); if (this.t) this.t.close(); this.closeBridge(); });
@@ -744,6 +744,7 @@ export class MoveLink {
     c.fwCaps(0);                                             // (before fwList: one slot, no FX setup)
     c.fwLibrary(fromB64(this.o.prefs.moveLibrary || ""));    // (-1: not a library; it starts empty)
     this.fwSend();
+    if (F.volume) this.pageLevel(F.volume());                // (the page's volume is the slot's level)
     if (F.thumbs && !this.fw.asked) {
       this.fw.asked = true;
       Promise.resolve().then(() => F.thumbs(this.fw.list.map((e) => e.id))).then((m) => {
@@ -758,6 +759,13 @@ export class MoveLink {
     this.fw.list = (F.list() || []).map((f) => fwEntry(f, this.fw.thumbs.get(f.id)));
     this.fwApply(this.core.fwList(this.fw.list));
     this.fwSync();
+  }
+  // (0.5.11) the page's volume (0..1) as slot 0's level (100 = full: fwLevel's scale), as the Move's own edit (the
+  // library saves it); its fwLevel is not played back to the page (no loop)
+  pageLevel(volume) {
+    if (!this.core || !this.o.firmwares) return;
+    const acts = this.core.fwSetLevel(0, Math.max(0, Math.min(127, Math.round(volume * 100))));
+    if (acts) this.fwApply(acts.filter((a) => a.kind !== "fwLevel"));
   }
   fwCurrent() { const id = this.o.firmwares ? this.o.firmwares.current() : null; return id && this.fw.list.some((e) => e.id === id) ? id : null; }
   // slot 0 = what the page plays (after a load, an unload refused, the page's own picker)
@@ -783,6 +791,7 @@ export class MoveLink {
       Promise.resolve().then(() => F.load(e.id)).then((ok) => ok !== false, () => false).then((ok) => {
         this.fw.pending = null;
         if (!this.core) return;
+        this.core.readoutsClear();
         if (!ok) this.o.toast(`${e.name} could not be loaded.`, "bad");
         this.fwApply(this.core.fwProgress(e.id, ok ? 100 : FW_FAILED));
         this.fwSync();
@@ -790,7 +799,7 @@ export class MoveLink {
     } else if (a.kind === "fwUnload") {
       Promise.resolve().then(() => {
         const cur = this.fw.list.find((x) => x.id === this.fwCurrent());
-        if (cur) this.o.toast(`The page always plays a firmware: ${cur.name} stays loaded.`);
+        if (cur) { this.o.toast(`The page always plays a firmware: ${cur.name} stays loaded.`); if (this.core) this.core.popup(`${cur.name} stays`); }
         this.fwSync();
       });
     } else if (a.kind === "fwDownload" && e) {                // (never offered: everything listed is installed)
@@ -817,13 +826,21 @@ export class MoveLink {
     this.sess((c, now) => c.sessFlushLeds(now));
   }
   // the firmware's knob labels (panel.js panelLabels().knobs: by role, 8, null = the printed name)
-  setLabels(knobs) {
+  // (0.5.11) the firmware's live labels (49, DYNAMIC-LABELS order: the engine's labels().list) and its 14 button names
+  // (info.buttonNames, FM1P_B_* order), null for none: the Move's held-button, key and knob popups. Without live labels
+  // the knobs keep the per-knob names below
+  setLabels(knobs, live, names) {
+    this.liveLabels = Array.isArray(live) && live.length === LBL_N ? live.map((x) => (typeof x === "string" ? asciiText(x) : null)) : null;
+    this.btnNames = Array.isArray(names) && names.length === NBTN ? names.map((x) => (x == null ? null : asciiText(x))) : null;
     this.labels = Array.isArray(knobs) ? knobs.slice(0, 8) : null;
     if (!this.core) return;
     this.applyLabels();
     this.sess((c, now) => c.sessRedraw(now));
   }
   applyLabels() {
+    this.core.setLabels(this.liveLabels);
+    this.core.setButtonNames(this.btnNames);
+    if (this.liveLabels) return;
     for (let r = 0; r < 8; r++) this.core.setLabel(r === E.MASTER ? 7 : roleToMatrix(r), this.labels && this.labels[r] ? this.labels[r] : "");
   }
 }

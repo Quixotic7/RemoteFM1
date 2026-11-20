@@ -191,7 +191,8 @@ const moveFirmwareHost = {
     await app.openFirmware(id, it.engine);
     return !!state.entry && state.entry.id === id && state.engine !== "mock";
   },
-  level(v) { app.setVolume(Math.min(1, Math.max(0, v) / 100), true); if (sheet && sheet.isOpen) sheet.render(); },
+  level(v) { app.setVolume(Math.min(1, Math.max(0, v) / 100), true, true); if (sheet && sheet.isOpen) sheet.render(); },
+  volume: () => state.volume,
   thumbs: (ids) => moveThumbs(ids),
 };
 const versionOf = (e, engine) => (!e ? "" : engine === "native" && e.native ? e.native.version : engine === "rfm1" && e.rfm1 && e.rfm1.version ? e.rfm1.version : e.version);
@@ -466,7 +467,8 @@ function applyButtonNames() {
   const l = panelLabels(state.info && state.info.buttonNames, state.labels, state.fwNames);
   device.setLabels(l);
   if (omx) omx.views.setButtonNames(l.buttons);
-  if (move) move.setLabels(l.knobs);
+  // (the Move: the knobs' names, and, with the "Firmware's button names" setting on, the live labels and button names)
+  if (move) move.setLabels(l.knobs, state.fwNames ? state.labels : null, state.fwNames && state.info ? state.info.buttonNames : null);
 }
 
 // ------------------------------------------------------------------ audio ---
@@ -783,9 +785,10 @@ const app = {
   // what shows behind the faceplate now (null: the theme's colour) and whether it is the firmware's
   skinNow: () => { const s = currentSkin(); return { skin: s, firmware: !!s && s === state.fwSkin }; },
   // the page's volume: while the slider moves (no re-render), and kept when it is let go
-  setVolume(v, keep) {
+  setVolume(v, keep, fromMove = false) {
     state.volume = Math.max(0, Math.min(1, +v || 0));
     if (player) player.setVolume(state.volume);
+    if (move && !fromMove) move.pageLevel(state.volume);   // (the Move's Track 1 level follows the slider; not back from it)
     if (keep) { prefs.volume = state.volume; savePrefs(); }
   },
   setMhz(choice) {

@@ -2399,6 +2399,32 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
       wf.input(P(0x90, 94, 100), P(0x80, 94, 0), cc(3, 127), cc(3, 0));      // Ripple: the load fails
       await tick(); await tick();
       ok(F.loads.join() === "amb,ripple" && wf.toasts.some((t) => /Ripple could not be loaded/.test(t)), "MoveLink firmwares: a load that fails: FAILED, said so");
+      // (0.5.11) virt: step 16 (Fantasy) shows Ripple alone, so the first pad + the jog loads it
+      wf.input(P(0x90, 31, 100), P(0x80, 31, 0), P(0x90, 92, 100), P(0x80, 92, 0), cc(3, 127), cc(3, 0));
+      await tick(); await tick();
+      ok(F.loads.join() === "amb,ripple,ripple", `MoveLink firmwares: virt reaches the core: step 16 (Fantasy) lists Ripple alone, its first pad loads it (${F.loads})`);
+      // (0.5.11) the page's volume slider sets slot 0's level (100 = full), not played back to the page
+      F.level = null;
+      wf.link.pageLevel(0.5);
+      wf.link.flush(); await tick();
+      const lv = Uint8Array.from(atob(wf.prefs.moveLibrary), (c) => c.charCodeAt(0));
+      ok(wf.link.core.fwLevel(0) === 50 && F.level === null && lv[6] === 50, "MoveLink firmwares: the page's volume 50 % = slot 0's level 50, in the library, no level sent back to the page");
+      // (0.5.11) labels: the firmware's 49 live labels and 14 button names go to the core whole; none: the per-knob names
+      const calls = [], c0 = wf.link.core, sl = c0.setLabels.bind(c0), sb = c0.setButtonNames.bind(c0), sk = c0.setLabel.bind(c0), rc = c0.readoutsClear.bind(c0);
+      c0.setLabels = (x) => { calls.push(["labels", x]); return sl(x); }; c0.setButtonNames = (x) => { calls.push(["names", x]); return sb(x); };
+      c0.setLabel = (e, t) => { calls.push(["knob", e, t]); return sk(e, t); }; c0.readoutsClear = () => { calls.push(["clear"]); return rc(); };
+      const live = Array.from({ length: 49 }, (_, i) => (i === 3 ? "Cutoff" : i === 17 ? "Looper" : null)), names = Array.from({ length: 14 }, (_, i) => (i === 9 ? "SEQ\u00e9" : null));
+      wf.link.setLabels(["X", null, null, "CUTOFF", null, null, null, null], live, names);
+      const lc = calls.find((c) => c[0] === "labels"), nc = calls.find((c) => c[0] === "names");
+      ok(lc && lc[1].length === 49 && lc[1][3] === "Cutoff" && lc[1][17] === "Looper" && nc && nc[1][9] === "SEQe" && !calls.some((c) => c[0] === "knob"),
+         "MoveLink firmwares: the live labels (49) and button names (14, ASCII) to the core; no per-knob calls over them");
+      calls.length = 0;
+      wf.link.setLabels(["X", null, null, "CUTOFF", null, null, null, null], null, null);
+      ok(calls.find((c) => c[0] === "labels")[1] === null && calls.filter((c) => c[0] === "knob").length === 8 && calls.some((c) => c[0] === "knob" && c[2] === "CUTOFF"),
+         "MoveLink firmwares: without live labels: cleared, the 8 per-knob names as before");
+      calls.length = 0;
+      wf.site.emit("firmware");
+      ok(calls.some((c) => c[0] === "clear"), "MoveLink firmwares: a firmware loaded: its readouts cleared");
       wf.link.disconnect();
       ({ F, w: wf } = fwWorld({ ...wf.prefs }));
       await wf.link.connect(); await tick(); wf.dev(devHello()); await tick();
