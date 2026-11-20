@@ -11,15 +11,18 @@ tags only.
 
 ## What a release is
 
-Two packages, both installing as `FM-1_72XXYYZZ` (0.3.7: `FM-1_72000307`; `firmware/fm1.toml` `id_prefix`). 0.2 to
-0.3.6 were `FM-1_52XXYYZZ`; 52 moved to 72 because QUADRO numbers its releases `FM-1_52XXYYZZ` too:
+Three packages (two before 0.4.0). The first two install as `FM-1_72XXYYZZ` (0.4.0: `FM-1_72000400`;
+`firmware/fm1.toml` `id_prefix`); 0.2 to 0.3.6 were `FM-1_52XXYYZZ`, and 52 moved to 72 because QUADRO numbers its
+releases `FM-1_52XXYYZZ` too. The Wi-Fi package installs as `FM-1_729XXYYZZ` (0.4.0: `FM-1_729000400`;
+`firmware/fm1-wifi.toml`):
 
 | file | build | |
 |---|---|---|
 | `remote-V.fwsc` | `./build.sh --release V` | USB + Bluetooth MIDI. **The one The Firmware Hub lists** |
 | `remote-usb-V.fwsc` | `./build.sh --release V --no-ble` | USB only, no Bluetooth library |
+| `remote-wifi-V.fwsc` | `./build.sh --wifi --release V` | Wi-Fi, for an Ableton Move (docs/WIFI.md); since 0.4.0 |
 
-`tools/hub_build.sh V` makes both, the same way on a Mac (the toolchain in Docker) and on GitHub's Ubuntu runner:
+`tools/hub_build.sh V` makes all three, the same way on a Mac (the toolchain in Docker) and on GitHub's Ubuntu runner:
 
 - Pillow is pinned (11.1.0, with Raqm): fm1-base draws the UI fonts with it, and another version could draw them
   differently. On the runner it is installed; on a Mac the script stops if the version differs.
@@ -34,18 +37,21 @@ Two packages, both installing as `FM-1_72XXYYZZ` (0.3.7: `FM-1_72000307`; `firmw
 The Mac build and a clean Ubuntu 24.04 build (Python 3.12, a fresh clone, submodules from GitHub) give the same bytes;
 0.3.2 was checked that way before its tag.
 
-### The Wi-Fi package (from the release that carries the `wifi` branch)
+### The Wi-Fi package (since 0.4.0)
 
-A third package, `remote-wifi-V.fwsc` (`./build.sh --wifi --release V`, docs/WIFI.md on the `wifi` branch), installs as
-`FM-1_729XXYYZZ` (0.4.0: `FM-1_729000400`; dev builds `FM-1_72900`). It is the build for an Ableton Move, offered only
-by remotefm1.com/move/flash/ (web/site/move/flash); remotefm1.com/installer keeps USB + Bluetooth as its default and
-installs over a Wi-Fi unit either way (fm1ota.js `remoteFm1Version` reads `FM-1_729`). For it to ship:
+`remote-wifi-V.fwsc` (`./build.sh --wifi --release V`, docs/WIFI.md) installs as `FM-1_729XXYYZZ` (0.4.0:
+`FM-1_729000400`; dev builds `FM-1_72900`). It is the build for an Ableton Move, offered only by
+remotefm1.com/move/flash/ (web/site/move/flash); remotefm1.com/installer keeps USB + Bluetooth as its default and
+installs over a Wi-Fi unit either way (fm1ota.js `remoteFm1Version` reads `FM-1_729`).
 
-- `tools/hub_build.sh` builds it beside the other two (and `--check` covers it); `release.yml` expects three signed
-  files (`n=3`) and names it in the release text; The Firmware Hub keeps listing `remote-V.fwsc` only.
-- `web/installer/releases.json`: the release's entry gets `"wifi": { "file": "remote-wifi-V.fwsc", "sha256": "…",
-  "identity": "FM-1_729XXYYZZ" }`, the file goes into `web/installer/firmware/` and its `SHA256SUMS`
-  (`test_installer.mjs` checks all three agree). Until a release has one, /move/flash/ says "Not released yet".
+- `tools/hub_build.sh` builds it after the other two (`build.sh --wifi` stops unless `tools/wifi_layout.py` passes;
+  the DX7 ROM check covers its `dx7_rom.h` too), and `--check` requires it; `release.yml` expects three signed files
+  (`n=3`) and names it in the release text. The Firmware Hub keeps listing `remote-V.fwsc` only (the hub was asked to
+  take that file; the other two are on the release for the site).
+- `web/installer/releases.json`: the release's entry has `"wifi": { "file": "remote-wifi-V.fwsc", "sha256": "…",
+  "identity": "FM-1_729XXYYZZ" }` (`hub_build.sh --check` requires the file name and identity), the file is in
+  `web/installer/firmware/` and its `SHA256SUMS` (`test_installer.mjs` checks all three agree). /move/flash/ offers
+  the newest release that has one.
 
 ## Steps
 
@@ -55,12 +61,12 @@ installs over a Wi-Fi unit either way (fm1ota.js `remoteFm1Version` reads `FM-1_
    tools/hub_build.sh --site 0.3.3
    ```
 
-   This builds both packages into `firmware/build/hub-0.3.3/`, copies them to `web/installer/firmware/` and adds them
-   to its `SHA256SUMS`.
+   This builds the three packages into `firmware/build/hub-0.3.3/`, copies them to `web/installer/firmware/` and adds
+   them to its `SHA256SUMS`.
 
 2. **List the release for the web installer**:
    - Add an entry at the top of `web/installer/releases.json`: version, date, tag, identity, `sha256`, `usbOnly`
-     (file and sha256), and short notes.
+     (file and sha256), `wifi` (file, sha256 and identity), and short notes.
    - Add a `# RemoteFM1 0.3.3` section at the top of `web/installer/firmware/RELEASE-NOTES.md`. The GitHub release's
      text is taken from it.
    - Update the version and identity that `web/installer/test_installer.mjs` expects for the newest release.
@@ -73,8 +79,9 @@ installs over a Wi-Fi unit either way (fm1ota.js `remoteFm1Version` reads `FM-1_
 
    ```sh
    tools/hub_build.sh --check web/installer/firmware 0.3.3
-   node web/installer/test_installer.mjs
+   WIFI_PKG=web/installer/firmware/remote-wifi-0.3.3.fwsc node web/installer/test_installer.mjs
    node web/site/test.mjs
+   node web/site/tools/movepage-test.mjs
    python3 tools/check_fmhub.py
    tests/run_tests.sh
    ```
@@ -95,8 +102,8 @@ installs over a Wi-Fi unit either way (fm1ota.js `remoteFm1Version` reads `FM-1_
    `.github/workflows/release.yml`:
    - **draft** checks the tagged commit's `web/installer/` and makes a draft release with the notes and the licence
      files;
-   - **build** is `zvenson/fm1-build@v1`. It runs `bash tools/hub_build.sh`, signs `remote-*.fwsc` and adds them
-     with their `SHA256SUMS` to the draft;
+   - **build** is `zvenson/fm1-build@v1`. It runs `bash tools/hub_build.sh`, signs `remote-*.fwsc` (three files)
+     and adds them with their `SHA256SUMS` to the draft;
    - **publish** verifies each file's attestation and checks the sha256s again, then publishes the release as Latest.
 
    The hub picks up the new release by itself within three hours.

@@ -140,7 +140,7 @@ static uint32_t rf_cinf;
 #define FELUCCA_USB_FRAME_DUE() rf_frame_due()
 #define FELUCCA_USB_MS() rf_usb_ms()
 #define FELUCCA_CIN_F_SYSEX (rf_cinf++)
-/* the whole identity ("FM-1_72000307"; 52 for 0.2 to 0.3.6) to every update handshake, as before felucca-bsp 41a6e86
+/* the whole identity ("FM-1_72000400"; 52 for 0.2 to 0.3.6) to every update handshake, as before felucca-bsp 41a6e86
  * (which answers a plain handshake with "FM-1_720", M-UPGRADE 3.11's length): web/installer and tools/fm1_install.py
  * read RemoteFM1's version from it (firmware/patches/felucca-bsp/0006) */
 #define FELUCCA_ID_WHOLE 1

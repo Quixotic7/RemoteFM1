@@ -3,7 +3,7 @@
 # RemoteFM1's build settings for fm1-base's tools/build.py (run through ../build.sh: fm1-base, patched, in
 # firmware/build/base; firmware/patches/)
 name = "RemoteFM1"             # the build's files: build/remotefm1.fwsc, remotefm1-usb.fwsc (--no-ble)
-id_prefix = "FM-1_72"          # package identity: dev FM-1_7200, releases FM-1_72XXYYZZ (72: "r"), since 0.3.7.
+id_prefix = "FM-1_72"          # package identity: dev FM-1_7200, releases FM-1_72XXYYZZ (72: "r"), since 0.4.0.
                                # 0.2 to 0.3.6 were FM-1_52 (52: "R", as RemoteFM1's SysEx 7D 52 46): QUADRO numbers
                                # its releases FM-1_52XXYYZZ too. FIZZ is FM-1_46, CTL-1 FM-1_6, Radio FM-1_13, the
                                # template FM-1_11

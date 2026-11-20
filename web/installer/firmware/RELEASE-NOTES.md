@@ -1,10 +1,37 @@
-# Unreleased (0.3.7)
+# RemoteFM1 0.4.0
 
-- **A new identity:** RemoteFM1 now answers installers as `FM-1_72XXYYZZ` (0.3.7: `FM-1_72000307`; a development
-  build `FM-1_7200`). 0.2 to 0.3.6 answered `FM-1_52XXYYZZ`, the same scheme as QUADRO (by Matt Allison), whose 1.x
-  releases are `FM-1_5201xxxx` and would collide with RemoteFM1 1.0. 72 is "r", as 52 was "R"; the SysEx ID
-  `7D 52 46` is unchanged. The installer here and `fm1_install.py` read both, so a unit on 0.2 to 0.3.6 still
-  installs and upgrades. The SMK-37 builds move the same way (`SMK-37 Pro_72XXYYZZ`).
+Released 2026-11-19, built and signed on GitHub with `tools/hub_build.sh 0.4.0` (docs/RELEASING.md). It replaces 0.3.6.
+Three packages now: the two as before, which install as `FM-1_72000400`, and the new Wi-Fi one, `FM-1_729000400`.
+
+| Package | sha256 |
+| --- | --- |
+| `remote-0.4.0.fwsc`, USB + Bluetooth MIDI (the default) | `27e4e4e523098c2480391636572e047f9076b96a91c77f4998a83b94bee67cbe` |
+| `remote-usb-0.4.0.fwsc`, USB only | `79fa9265c7fea7ed14cdb34366fad6b8d499f854dc0062fcddf0ade683698ce3` |
+| `remote-wifi-0.4.0.fwsc`, Wi-Fi, for an Ableton Move | `57fd3df28390a2ff6c284e35d9863c1f59418bfac60c63be18814a64aa86864d` |
+
+## What changed from 0.3.6
+
+- **RemoteFM1 Wi-Fi, for an Ableton Move.** The new package puts the FM-1 on your Wi-Fi, and a Move running
+  RemoteFM1 finds it there and uses it as its panel: the keys, knobs and screen of the firmware the Move plays, with
+  no cable. Install it from [remotefm1.com/move/flash/](https://remotefm1.com/move/flash/);
+  [remotefm1.com/move](https://remotefm1.com/move/) explains the ways to connect. It has Wi-Fi instead of Bluetooth
+  and USB audio (both don't fit beside Wi-Fi in the FM-1's memory); USB MIDI, updates and the standalone DX7 with
+  its cartridges and loops are as in the other packages.
+- **Wi-Fi settings on the FM-1 itself** (Wi-Fi package): the settings' new **WI-FI** row turns Wi-Fi on or off and
+  opens the Wi-Fi page, which lists the networks around; pick one, type its password on the keys, join. Up to six
+  networks are kept and joined again at start; forget one there too. A Move with the FM-1 on its USB-A port can
+  also scan and set up the network from its page.
+- **The Move without Wi-Fi.** Any package works with a Move over its USB-A port too (a slower link, paced like
+  Bluetooth); when the FM-1 is on Wi-Fi as well, Wi-Fi wins.
+- **A new identity.** The packages install as `FM-1_72XXYYZZ` (0.4.0: `FM-1_72000400`; development builds
+  `FM-1_7200`), the Wi-Fi one as `FM-1_729XXYYZZ`. 0.2 to 0.3.6 answered `FM-1_52XXYYZZ`, the same scheme as QUADRO
+  (by Matt Allison), whose 1.x releases would collide with RemoteFM1 1.0. 72 is "r", as 52 was "R"; the SysEx ID
+  `7D 52 46` is unchanged. The installer here and `fm1_install.py` read both, so a unit on 0.2 to 0.3.6 installs
+  and upgrades as before. The SMK-37 builds move the same way (`SMK-37 Pro_72XXYYZZ`).
+- **On remotefm1.com:** the firmware browser (thumbnail tiles, favourites, an UPDATE badge on the firmware that has
+  one) and the new /move page with its Wi-Fi flasher.
+- In use, the USB + Bluetooth and USB-only packages work as 0.3.6 did. Your cartridges, loops and settings stay,
+  also when you switch between the packages.
 
 # RemoteFM1 0.3.6
 

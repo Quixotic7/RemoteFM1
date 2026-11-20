@@ -6,12 +6,14 @@
 //   - the diagram: Route B first (its links shown, Route A's hidden, "firmware runs here" over the Move), Route A
 //     (its links, the badge over the computer), a node and a link tapped fill the info panel
 //   - the steps: a tick counts, and is kept after a reload
-//   - the embedded flasher loads (the installer's code imported): with no Wi-Fi package in releases.json it says
-//     "Not released yet" and its Flash button is off; "What is on my FM-1?" is there
+//   - the embedded flasher loads (the installer's code imported): with a Wi-Fi package in releases.json (0.4.0 on) it
+//     offers that release's (its file, version, identity; Flash on) and fetches and checks that very package from
+//     ../../installer/firmware/ (SHA-256 and identity, nothing written); with none it says "Not released yet" and its
+//     Flash button is off; "What is on my FM-1?" is there
 //   - phone (390 x 844): no sideways scroll, the diagram stacked (its tall layout), the pixel FM-1 inside its node
 //   node web/site/tools/movepage-e2e.mjs [--shots=web/build/test] [--prefix=movepage]
 import { spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -127,8 +129,20 @@ try {
      "the embedded flasher loads (the installer's code imported)");
   const fl = await js(`(() => { const d = document.querySelector(".flasher-frame").contentDocument;
     return { go: d.getElementById("f-go").disabled, t: d.getElementById("f-go-t").textContent, soon: !d.getElementById("f-soon").hidden,
+             file: d.getElementById("f-file").textContent, id: d.getElementById("f-id").textContent, midi: !!navigator.requestMIDIAccess,
+             state: (document.querySelector("[data-wifi-state]") || {}).textContent || "",
              check: !!d.getElementById("f-check"), h: document.querySelector(".flasher-frame").getBoundingClientRect().height }; })()`);
-  ok(fl.go && fl.t === "Not released yet" && fl.soon, `the flasher: no Wi-Fi package released yet -> "${fl.t}", nothing to flash`);
+  const wrel = JSON.parse(readFileSync(join(ROOT, "web/installer/releases.json"), "utf8")).releases.find((r) => r.wifi);
+  if (wrel) {
+    ok(fl.go === !fl.midi && fl.t === `Flash RemoteFM1 ${wrel.version} Wi-Fi` && !fl.soon && fl.file === wrel.wifi.file && fl.id === wrel.wifi.identity,
+       `the flasher: RemoteFM1 ${wrel.version} Wi-Fi offered (${fl.file}, ${fl.id}), Flash ${fl.go ? "off (no Web MIDI)" : "on"}`);
+    ok(fl.state.includes(`RemoteFM1 ${wrel.version} Wi-Fi`), `the page: "${fl.state}"`);
+    const got = await js(`(async () => { const w = document.querySelector(".flasher-frame").contentWindow;
+      const I = await w.eval('import("../../../installer/installer.js")'), list = await (await w.fetch("../../../installer/releases.json")).json();
+      const rel = I.wifiRelease(list.releases), p = await I.releasedPackage(rel, w.fetch.bind(w), "wifi", "../../../installer/firmware/");
+      return { product: p.product, label: p.label, n: p.raw ? p.raw.length : (p.bytes ? p.bytes.length : -1) }; })()`);
+    ok(got && got.product === wrel.wifi.identity, `the flasher's package: ${wrel.wifi.file} fetched from the local build, SHA-256 and identity checked (${got && got.product}, "${got && got.label}")`);
+  } else ok(fl.go && fl.t === "Not released yet" && fl.soon, `the flasher: no Wi-Fi package released yet -> "${fl.t}", nothing to flash`);
   ok(fl.check && fl.h > 300, `the flasher: "What is on my FM-1?" there; the frame sized to it (${fl.h | 0} px)`);
   await shot("desktop");
 
