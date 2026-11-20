@@ -31,8 +31,15 @@
       <a class="btn" href="#how">How it works</a>
     </div>
     <p class="fine">New to all of it? Start at <a href="#words">the words</a>: a minute, and the rest reads easily.</p>
+    <div class="hud" aria-label="RemoteFM1 on the Move in numbers">
+      <div class="hud-cell"><b>3</b><span>firmwares at once</span></div>
+      <div class="hud-cell"><b>39</b><span>on board at first launch</span></div>
+      <div class="hud-cell"><b>0</b><span>computers needed to play</span></div>
+    </div>
   </div>
   <div class="hero-art" aria-hidden="true">
+    <div class="field"></div>
+    <div class="hud-bar"><b class="meter" data-n="4" data-of="5"></b><span>LINK OK</span></div>
     <div class="move move-hero" data-move="hero"></div>
     <div class="fm1-mini">
       <img class="px fm1-px" src="img/fm1-pixel.png" width="64" height="64" alt="">
@@ -54,11 +61,15 @@
   </header>
 
   <div class="routes">
-    <article class="route route-b" data-route="B">
-      <div class="route-tag"><span class="led led-b"></span>Route B</div>
+    <article class="route route-b panel" data-route="B" data-tab="ROUTE B">
       <h3>RemoteFM1 on the Move</h3>
       <p class="route-one">The firmware runs <b>on the Move itself</b>: three at once, mixed, with Schwung's effects.
         No computer once it is set up. A phone shows the FM-1's screen.</p>
+      <div class="meters">
+        <div class="mt"><span>Plays on its own</span><b class="meter" data-n="5" data-of="5"></b></div>
+        <div class="mt"><span>Setup effort</span><b class="meter" data-n="3" data-of="5"></b></div>
+        <div class="mt"><span>Records into a DAW</span><b class="meter" data-n="1" data-of="5"></b></div>
+      </div>
       <ul class="facts">
         <li><div><b>Runs on</b></div><span>the Move</span></li>
         <li><div><b>Sound from</b></div><span>the Move's speaker and outputs</span></li>
@@ -72,11 +83,15 @@
 
     <div class="vs" aria-hidden="true">or</div>
 
-    <article class="route route-a" data-route="A">
-      <div class="route-tag"><span class="led led-a"></span>Route A</div>
+    <article class="route route-a panel" data-route="A" data-tab="ROUTE A">
       <h3>The Move as a controller</h3>
       <p class="route-one">The firmware runs on your <b>computer, phone or tablet</b> (remotefm1.com, the iOS or Android
         app). The Move is its keyboard, knobs and second screen.</p>
+      <div class="meters">
+        <div class="mt"><span>Plays on its own</span><b class="meter" data-n="1" data-of="5"></b></div>
+        <div class="mt"><span>Setup effort</span><b class="meter" data-n="2" data-of="5"></b></div>
+        <div class="mt"><span>Records into a DAW</span><b class="meter" data-n="5" data-of="5"></b></div>
+      </div>
       <ul class="facts">
         <li><div><b>Runs on</b></div><span>your browser or the app</span></li>
         <li><div><b>Sound from</b></div><span>the computer or phone (or an FM-1 on it)</span></li>
@@ -90,9 +105,9 @@
   </div>
 
   <!-- the chooser -->
-  <div class="chooser" id="chooser">
+  <div class="chooser panel" id="chooser" data-tab="NOT SURE?">
     <div class="chooser-head">
-      <h3>Not sure? Three taps.</h3>
+      <h3>Three taps</h3><b class="ch-count">1<small>/3</small></b>
       <button class="link" id="ch-reset" type="button">Start again</button>
     </div>
     <div class="ch-q" data-q="0">
@@ -145,7 +160,8 @@
       <div class="arch-pic">
       <svg class="arch-svg" viewBox="0 0 800 470" role="img" aria-label="Architecture diagram">
         <defs>
-          <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="6"/></filter>
+          <pattern id="pd-dots" width="4" height="4" patternUnits="userSpaceOnUse"><rect x="1" y="1" width="1.4" height="1.4" fill="#fff"/></pattern>
+          <pattern id="pd-hatch" width="6" height="6" patternUnits="userSpaceOnUse"><path d="M0 6 L6 0 M0 0 L6 6" stroke="#fff" stroke-width="1"/></pattern>
         </defs>
         <!-- links (drawn first) -->
         <g class="links">
@@ -161,11 +177,14 @@
         <!-- nodes -->
         <g class="node" data-node="cloud" tabindex="0">
           <rect x="320" y="18" width="160" height="52" rx="26"/>
-          <text x="400" y="50">Internet</text>
+          <circle class="globe" cx="350" cy="44" r="13"/>
+          <text x="412" y="51">Internet</text>
         </g>
         <g class="node" data-node="host" tabindex="0">
           <rect x="40" y="230" width="150" height="130" rx="18"/>
-          <rect class="scr" x="58" y="248" width="114" height="68" rx="6"/>
+          <rect class="scr" x="80" y="244" width="70" height="80" rx="9"/>
+          <rect class="scr-in" x="87" y="252" width="56" height="54" rx="3"/>
+          <circle class="btn-dot" cx="115" cy="315" r="3"/>
           <text x="115" y="342" class="nt">Computer</text>
           <text x="115" y="356" class="ns">phone · tablet</text>
         </g>
@@ -189,7 +208,7 @@
       </svg>
       <img class="px arch-fm1" src="img/fm1-pixel.png" width="64" height="64" alt="" aria-hidden="true">
       </div>
-      <aside class="arch-info" aria-live="polite">
+      <aside class="arch-info panel" data-tab="INFO" aria-live="polite">
         <p class="ai-kicker">Tap a box or a line</p>
         <h3 class="ai-title">Route B at a glance</h3>
         <div class="ai-body"></div>
@@ -211,7 +230,7 @@
     </div>
     <div class="explore-stage">
       <div class="move move-big" data-move="explore"></div>
-      <div class="explore-info" aria-live="polite">
+      <div class="explore-info panel" data-tab="CONTROL" aria-live="polite">
         <p class="ei-kicker">Control</p>
         <h4 class="ei-title">Pick any pad, knob or button</h4>
         <p class="ei-body">The track buttons on the left switch modes: FM-1, MIDI, Control and Sequencer. In FM-1 mode
@@ -229,7 +248,7 @@
     <h2>The words, for newcomers</h2>
     <p class="sub">Eight names come up again and again. Here is each in a line.</p>
   </header>
-  <div class="words">
+  <div class="words" data-lex>
     <details class="word" style="--c: var(--fm1)"><summary><b>FM-1</b><span>the little synth</span></summary>
       <p>M-VAVE's pocket FM synth: 27 keys, a colour screen, seven knobs, a Wi-Fi and Bluetooth radio, and an updater that
         takes community firmwares. Here it is optional: a panel you can hold.</p></details>
@@ -273,10 +292,10 @@
   </div>
 
   <div class="path" data-path="B">
-    <div class="progress"><div class="ring" data-ring="B"><svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.5"/><circle class="fill" cx="18" cy="18" r="15.5"/></svg><b>0/7</b></div>
+    <div class="progress"><div class="count" data-ring="B"><b>0</b><small>/7</small><b class="meter" data-n="0" data-of="7"></b></div>
       <p>About 20 minutes, most of it the first download. You need: the Move on Wi-Fi, a computer for Schwung's
         installer once, and a phone for the page.</p></div>
-    <ol class="steps" data-steps="B">
+    <ol class="steps panel" data-steps="B" data-tab="ROUTE B · STEPS">
       <li data-step="schwung"><label><input type="checkbox"><span class="tick"></span><b>Install Schwung on the Move</b></label>
         <p>Back up your Sets and samples first. Download Schwung's desktop installer from <a href="#">schwung.dev</a> and
           follow it.</p>
@@ -306,10 +325,10 @@
     </ol>
   </div>
   <div class="path" data-path="A" hidden>
-    <div class="progress"><div class="ring" data-ring="A"><svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.5"/><circle class="fill" cx="18" cy="18" r="15.5"/></svg><b>0/6</b></div>
+    <div class="progress"><div class="count" data-ring="A"><b>0</b><small>/6</small><b class="meter" data-n="0" data-of="6"></b></div>
       <p>About 15 minutes. You need: the Move on Wi-Fi, a computer for Schwung's installer, and Chrome or Edge (or the
         RemoteFM1 app) to play.</p></div>
-    <ol class="steps" data-steps="A">
+    <ol class="steps panel" data-steps="A" data-tab="ROUTE A · STEPS">
       <li data-step="schwung"><label><input type="checkbox"><span class="tick"></span><b>Install Schwung on the Move</b></label>
         <p>Back up your Sets and samples first. Download Schwung's desktop installer from <a href="#">schwung.dev</a> (Mac,
           Windows or Linux) and follow it; it sets up the connection to the Move over Wi-Fi and installs.</p>
@@ -349,7 +368,7 @@
   </header>
 
   <div class="builds">
-    <article class="build sel" data-build="wifi">
+    <article class="panel build sel" data-build="wifi" data-tab="THIS PAGE">
       <div class="b-ic b-wifi" aria-hidden="true"></div>
       <h3>Wi-Fi</h3>
       <p class="b-who">for RemoteFM1 on the Move</p>
@@ -357,14 +376,14 @@
         sound out of the FM-1 in this build.</p>
       <p class="b-def">The flasher below installs this one</p>
     </article>
-    <article class="build" data-build="ble">
+    <article class="panel build" data-build="ble" data-tab="INSTALLER">
       <div class="b-ic b-ble" aria-hidden="true"></div>
       <h3>USB + Bluetooth</h3>
       <p class="b-who">remotefm1.com, the apps, FM1VST</p>
       <p>The everyday build, and the one for Route A or an FM-1 on the Move's USB-A cable.</p>
       <p class="b-def"><a href="../installer/">remotefm1.com/installer</a> (its default)</p>
     </article>
-    <article class="build" data-build="usb">
+    <article class="panel build" data-build="usb" data-tab="INSTALLER">
       <div class="b-ic b-usb" aria-hidden="true"></div>
       <h3>USB only</h3>
       <p class="b-who">a cable, no radio at all</p>
@@ -373,7 +392,7 @@
     </article>
   </div>
 
-  <div class="installer" id="installer">
+  <div class="installer panel" id="installer" data-tab="FLASHER">
     <div class="inst-head">
       <span class="inv">FLASH</span><b>RemoteFM1 Wi-Fi</b><i>embedded from remotefm1.com/move/flash/</i>
     </div>
@@ -381,6 +400,12 @@
       <div class="inst-pkg">
         <div class="pkg-chip"><span class="pkg-fm1"><img class="px" src="img/fm1-pixel.png" width="64" height="64" alt=""><span class="b-ic b-wifi" aria-hidden="true"></span></span><div><b>RemoteFM1 0.4.0 · Wi-Fi</b>
           <code>remote-wifi-0.4.0.fwsc</code></div></div>
+        <div class="knobs">
+          <div class="kc"><i class="kn" style="--v:.62"></i><span>0.4.0</span><small>version</small></div>
+          <div class="kc"><i class="kn" style="--v:.5"></i><span>Wi-Fi</span><small>build</small></div>
+          <div class="kc"><i class="kn" style="--v:.95"></i><span>553 KB</span><small>image</small></div>
+          <div class="kc"><i class="kn" style="--v:.25"></i><span>2.4 GHz</span><small>radio</small></div>
+        </div>
         <p class="meta">Placeholder version. SHA-256 <span class="sha">placeholder…</span> · installs as FM-1_729…</p>
       </div>
       <ol class="inst-pre">
@@ -388,7 +413,11 @@
         <li>Every app that uses MIDI closed (DAWs, other FM-1 tabs).</li>
         <li>ChoralRoot users: back up with ChoralRoot's own page first.</li>
       </ol>
-      <div class="row"><button class="btn primary" type="button" disabled>Flash the Wi-Fi build</button><button class="btn" type="button" disabled>What is on my FM-1?</button></div>
+      <div class="flash-row">
+        <button class="pill" type="button" disabled><span class="pill-dot" aria-hidden="true"></span>Flash the Wi-Fi build</button>
+        <button class="pill ghost" type="button" disabled>What is on my FM-1?</button>
+        <div class="flash-meter"><b class="meter" data-n="0" data-of="12"></b><span>READY · 0 %</span></div>
+      </div>
       <p class="fine">This page only flashes the Wi-Fi build. Back to Bluetooth, USB only or M-VAVE's V15:
         <a href="../installer/">remotefm1.com/installer</a>. Installing firmware is at your own risk.</p>
     </div>
@@ -432,7 +461,7 @@
       <li><div>unplug the FM-1</div><span>the page says when it is ready</span></li>
     </ol>
     <div class="phone-shot" aria-hidden="true">
-      <p class="ps-h">FM-1 Wi-Fi</p>
+      <p class="ps-h">FM-1 Wi-Fi</p><div class="ps-scan"><b class="meter" data-n="7" data-of="10"></b><span>scanning</span></div>
       <div class="ps-row"><i class="bars b4"></i>Home 2.4<button>Join</button></div>
       <div class="ps-row"><i class="bars b2"></i>Studio</div>
       <div class="ps-ok">Joined: 10.0.0.42 · unplug it from USB-A</div>
@@ -446,7 +475,7 @@
     <p class="num">07</p>
     <h2>When something's off</h2>
   </header>
-  <div class="faq">
+  <div class="faq panel" data-tab="HELP">
     <details><summary>remotefm1.local doesn't open</summary>
       <p>Use <code>move.local:7730</code>, or the address on the Move's screen. Android's browser often can't resolve
         .local names. The phone must be on the same Wi-Fi as the Move (not a guest network).</p></details>

@@ -95,6 +95,15 @@ link, and the installer's page a line "Flashing for an Ableton Move? /move".
   RemoteFM1's own Wi-Fi screens already use, `firmware/third_party/jersey10`; the site ships it as
   `web/site/fonts/Jersey10-Regular.woff` + `OFL-jersey10.txt`, converted with fontTools). Small labels and values in
   DM Mono; paragraphs stay in DM Sans at 15-18 px for reading. Unbounded and Chakra Petch are not used on this page.
+- **Drawn 1-bit widgets** (the owner, 2026-11-19: the style of 1-bit handheld game and app art; inspired by it, copying
+  no game's or app's art or layout): framed panels with thick rounded 2.5 px outlines and a small inverted label tab
+  (ROUTE B, NOT SURE?, INFO, CONTROL, WORDS / MEANS, STEPS, FLASHER, HELP); segmented LED meters (the route cards'
+  comparison, the steps' progress, the flasher's progress, the phone's scan); big pixel numerals (the hero's 3 / 39 / 0,
+  the chooser's 1/3, the steps' 0/7); round knobs with a pointer and the value under each (the flasher: version, build,
+  image size, radio); inverted selection bars (the chooser's answers, the glossary's list beside its detail panel, the
+  picked tab); dotted and crosshatch 1-bit fills (the hero's dotted field, the Move's pads, the diagram's node where
+  the firmware runs, the phone's screen); a rounded pill button with a round glyph for Flash. The Move is drawn as
+  1-bit pixel art with a stepping playhead column; the FM-1 is the owner's pixel FM-1.
 - **Motion** is stepped (`steps()`): dashed links crawl, the FM-1 bobs, the badge jumps. All of it off under
   `prefers-reduced-motion`.
 - **No Ableton marks:** no logo, no wordmark, no Ableton typeface; "Ableton Move" only in running text and the

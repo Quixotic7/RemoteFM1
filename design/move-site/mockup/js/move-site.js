@@ -9,6 +9,15 @@ const store = {
   set(v) { try { localStorage.setItem("rfm1move.v1", JSON.stringify(v)); } catch (_) { /* private mode: no memory */ } },
 };
 
+// ---------------------------------------------------------------- segmented LED meters
+function meter(m, n) {
+  if (n != null) m.dataset.n = n;
+  const of = +m.dataset.of || 5, lit = +m.dataset.n || 0;
+  if (m.children.length !== of) m.replaceChildren(...Array.from({ length: of }, () => document.createElement("i")));
+  [...m.children].forEach((c, i) => c.classList.toggle("on", i < lit));
+}
+$$(".meter").forEach((m) => meter(m));
+
 // ---------------------------------------------------------------- the Move, in % of its body (the manual's figure:
 // the body 1260 x 588 at 370,145; every centre and size below is that figure's)
 const W = 1260, H = 588, X0 = 370, Y0 = 145;
@@ -39,9 +48,16 @@ function drawMove(root, hero) {
   PAD_Y.forEach((y, i) => { const t = el(root, "m-track", box(567, y, 30, 70), ctl("track" + (i + 1))); t.style.setProperty("--lc", i === 0 || hero ? TRACK[i] : "#4a4a4f"); });
   PAD_Y.forEach((y, r) => PAD_X.forEach((x, c) => {
     const p = el(root, "m-pad", box(x, y, 92, 66), ctl("pads"));
-    if (hero) { p.style.setProperty("--pc", HERO_COLS[(c + r) % 8]); p.style.setProperty("--pg", "14px"); p.style.setProperty("--d", (c * .18 + r * .3) + "s"); }
-    else if (KEY_ROW[r] === "white") { p.style.setProperty("--pc", "#ecebe6"); }
-    else if (BLACK[c]) { p.style.setProperty("--pc", "#ff6fb5"); p.style.setProperty("--pg", "8px"); }
+    p.dataset.col = c;
+    if (hero) {
+      const k = (c * 3 + r * 5) % 7;
+      if (k === 0) p.classList.add("lit"), p.style.setProperty("--pc", ["var(--led-b)", "var(--led-a)", "var(--fm1)"][(c + r) % 3]);
+      else if (k < 3) p.classList.add("white");
+      else if (k < 5) p.classList.add("hatch");
+      else if (k === 5) p.classList.add("dots");
+    }
+    else if (KEY_ROW[r] === "white") p.classList.add("white");
+    else if (BLACK[c]) p.classList.add("hatch");
   }));
   RIGHT.forEach((pair, r) => pair.forEach((name, c) => {
     const b = el(root, "m-btn" + (name === "shift" ? " shift" : " round"), box([1499, 1571][c], PAD_Y[r], 54, 54), ctl(name));
@@ -94,6 +110,14 @@ const CTL = {
 };
 
 drawMove($('[data-move="hero"]'), true);
+// the hero's playhead: one pad column inverted at a time, in steps
+{
+  let col = 0;
+  const pads = $$('[data-move="hero"] .m-pad');
+  const step = () => { pads.forEach((p) => p.classList.toggle("ph", +p.dataset.col === col)); col = (col + 1) % 8; };
+  step();
+  if (!matchMedia("(prefers-reduced-motion: reduce)").matches) setInterval(step, 375);
+}
 const big = $('[data-move="explore"]');
 drawMove(big, false);
 function pick(name, node) {
@@ -120,6 +144,8 @@ function chShow() {
   dots.forEach((d, i) => d.classList.toggle("on", i < ch.i || (i === ch.i && ch.i < 3)));
   const res = $(".ch-result");
   res.hidden = ch.i < qs.length;
+  const cnt = $(".ch-count");
+  if (res.hidden) cnt.innerHTML = `${ch.i + 1}<small>/3</small>`;
   if (!res.hidden) {
     const r = ch.score > 0 ? "B" : ch.score < 0 ? "A" : "B";
     const say = r === "A"
@@ -128,6 +154,7 @@ function chShow() {
         ? "<b style=\"--rc:var(--led-b)\">Either works.</b> Start with Route B: the Move on its own, and Route A is one tool away."
         : "<b style=\"--rc:var(--led-b)\">Route B, RemoteFM1 on the Move.</b> The Move becomes the instrument; a phone is its screen.";
     $(".ch-say").innerHTML = say;
+    cnt.innerHTML = `${r}<small>!</small>`;
     $(".ch-go").dataset.go = r;
   }
 }
@@ -143,7 +170,7 @@ const LINKS = {
   router: { k: "net", r: "A", lbl: [205, 130, "remotefm1.com"], t: "The firmwares, from remotefm1.com", d: ["The player loads each firmware from the catalog when you pick it. The apps keep them offline."] },
   phonemove: { k: "wifi", r: "B", lbl: [260, 290, "Wi-Fi · :7730"], t: "The page on your phone", d: ["remotefm1.local:7730, served by the Move: the FM-1's screen, the faceplate, the firmware browser, Mix & FX, the files.", "Optional: the Move plays without it."] },
   usba: { k: "usb", r: "B", lbl: [540, 368, "USB-A"], t: "An FM-1 on the Move's USB-A", d: ["Any FM-1 with RemoteFM1 0.3 or later: its screen shows the firmware, its keys and knobs play the slot.", "Also how the FM-1 learns your Wi-Fi from the Move's page."] },
-  wifi: { k: "wifi", r: "B", lbl: [505, 230, "Wi-Fi · found by itself"], t: "An FM-1 over Wi-Fi", d: ["The FM-1 with RemoteFM1's Wi-Fi build joins the same network; the Move finds it by a broadcast and links (TCP 7740).", "Wi-Fi wins over USB-A when both are there; one FM-1 at a time."] },
+  wifi: { k: "wifi", r: "B", lbl: [540, 252, "Wi-Fi"], t: "An FM-1 over Wi-Fi", d: ["The FM-1 with RemoteFM1's Wi-Fi build joins the same network; the Move finds it by a broadcast and links (TCP 7740).", "Wi-Fi wins over USB-A when both are there; one FM-1 at a time."] },
   net: { k: "net", r: "B", lbl: [470, 112, "signed catalog"], t: "Downloads to the Move", d: ["The Move downloads firmwares itself, built for its processor, from a signed list: every file checked before it is installed.", "About 40 come bundled; the rest need Wi-Fi once."] },
 };
 const NODES = {
@@ -169,7 +196,9 @@ const svg = $(".arch-svg");
   for (let r = 0; r < 4; r++) for (let c = 0; c < 6; c++) {
     const p = document.createElementNS("http://www.w3.org/2000/svg", "rect");
     Object.entries({ x: 352 + c * 17, y: 246 + r * 22, width: 13, height: 17, rx: 2.5, opacity: .85 }).forEach(([k, v]) => p.setAttribute(k, v));
-    p.style.fill = HERO_COLS[(r + c) % 8]; p.style.stroke = "none";
+    const k = (r * 6 + c) % 5;
+    p.style.fill = k === 0 ? "#b9f53e" : k === 1 ? "#fff" : k === 2 ? "url(#pd-hatch)" : "none";
+    p.style.stroke = "#fff"; p.style.strokeWidth = "1"; p.removeAttribute("opacity");
     g.appendChild(p);
   }
 }
@@ -201,6 +230,8 @@ function setRoute(r) {
     labels[id].style.display = on ? "" : "none";
   }
   $(".node-fm1", svg).classList.add("opt");
+  $("[data-node=host]", svg).classList.toggle("here", r === "A");
+  $("[data-node=move]", svg).classList.toggle("here", r === "B");
   const runs = $(".runs", svg);
   runs.style.setProperty("--rc", r === "A" ? "var(--led-a)" : "var(--led-b)");
   runs.setAttribute("transform", r === "A" ? "translate(40 192)" : "translate(325 162)");
@@ -237,9 +268,9 @@ function setPath(p) {
 function count(p) {
   const lis = $$(`[data-steps="${p}"] li`), done = lis.filter((li) => $("input", li).checked).length;
   lis.forEach((li) => li.classList.toggle("done", $("input", li).checked));
-  const ring = $(`[data-ring="${p}"]`);
-  $(".fill", ring).style.strokeDashoffset = 97.4 * (1 - done / lis.length);
-  $("b", ring).textContent = `${done}/${lis.length}`;
+  const box = $(`[data-ring="${p}"]`);
+  $("b", box).textContent = done;
+  meter($(".meter", box), done);
 }
 for (const p of ["A", "B"]) {
   const done = new Set(saved[p] || []);
@@ -290,3 +321,26 @@ for (const h of $$(".sec-head")) { const cv = document.createElement("canvas"); 
 const drawDithers = () => $$("canvas.dither").forEach(dither);
 drawDithers();
 addEventListener("resize", drawDithers);
+
+
+// ---------------------------------------------------------------- the glossary as a list + detail (the cards stay
+// as the content without script)
+{
+  const words = $("[data-lex]");
+  const items = $$(".word", words).map((d) => ({ t: $("summary b", d).textContent, k: $("summary span", d).textContent, p: $("p", d).innerHTML }));
+  const lex = document.createElement("div"); lex.className = "lex";
+  lex.innerHTML = '<div class="lex-list panel" data-tab="WORDS" role="listbox" aria-label="Words"></div><div class="lex-detail panel" data-tab="MEANS" aria-live="polite"><p class="lex-k"></p><h3 class="lex-t"></h3><p class="lex-p"></p><b class="meter lex-m" data-of="8"></b></div>';
+  const list = $(".lex-list", lex);
+  const pick = (i) => {
+    $$("button", list).forEach((b, j) => { b.classList.toggle("on", i === j); b.setAttribute("aria-selected", i === j); });
+    $(".lex-k", lex).textContent = items[i].k; $(".lex-t", lex).textContent = items[i].t; $(".lex-p", lex).innerHTML = items[i].p;
+    meter($(".lex-m", lex), i + 1);
+  };
+  items.forEach((it, i) => {
+    const b = document.createElement("button"); b.type = "button"; b.setAttribute("role", "option");
+    b.innerHTML = `<b></b><span></span>`; $("b", b).textContent = it.t; $("span", b).textContent = it.k;
+    b.addEventListener("click", () => pick(i)); list.appendChild(b);
+  });
+  words.replaceWith(lex);
+  pick(0);
+}
