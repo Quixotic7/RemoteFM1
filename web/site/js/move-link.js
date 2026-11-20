@@ -32,9 +32,19 @@
 // js/move-projects.js's store (IndexedDB) under the core's store (store.h: PROJECT_SAVE / LOAD / DELETE / CUT / COPY /
 // PASTE / COLOR as slot reads, writes and deletes); at start the store's slots (projectDir) and the last project
 // (prefs.moveProject) go to the core; the autosave flushed on disconnect and pagehide.
+//
+// Firmwares (rfm1cs-abletonmove 0.5.10, "One firmware, no FX"): the core's firmware browser on the projects view's
+// Track 1 with one slot and no FX (fwCaps(0)), fed the page's own firmware list (opts.firmwares: the settings sheet's
+// native tiles, A-Z) with 64 x 64 1-bit thumbnails (the catalog images, squeezed and Atkinson-dithered by the page,
+// sent again when they arrive). Everything listed is on this site, so every entry is "installed" at the version the
+// page would load: no download is ever offered (an FW_DOWNLOAD that comes anyway is answered as done). FW_LOAD loads
+// it as the page's own picker does (progress 100 or FAILED, BUSY while another load runs), then fwSlots; the page
+// always plays a firmware, so FW_UNLOAD keeps the current one (the slot shown again, a toast says so); FW_LEVEL is
+// the page's volume (100 = full, the core's default); the library blob (favourites, colours, tags) is kept in
+// prefs.moveLibrary (base64) and given back at start. A firmware picked on the page goes to the Move (fwSlots).
 import { h } from "./sheet.js";
 import { SRC, E, NB, labelToMatrix, roleToMatrix } from "./panel.js";
-import { lean, MODE_NAMES, STATE, WHY, CH, STORE_PENDING } from "./move-core.js";
+import { lean, MODE_NAMES, STATE, WHY, CH, STORE_PENDING, FW_FAILED, FW_BUSY, LBL_N, NBTN } from "./move-core.js";
 import { SeqClock } from "./move-seq.js";
 import { MoveProjects, unpackFile, packFile, projectName, fileName, SET_NAME, firstFree, validSlot, dirBits, SLOTS, EXT_ONE, EXT_SET, MAX_FILE } from "./move-projects.js";
 
@@ -118,6 +128,34 @@ export function ledMsgs(leds) {
     const p = new Uint8Array(pal.length * 3);
     pal.forEach((l, i) => p.set([l.cc ? 0xB0 : 0x90, l.number & 127, l.r & 127], i * 3));
     out.push(frame(MR.H_LED, p));
+  }
+  return out;
+}
+
+// ---- the firmware list for the core's browser (move.h rfm_move_fw_t)
+export const FW_CATS = ["Synth", "Groovebox", "Chords", "Drums", "Other"];   // (RFM_MOVE_CAT_* bit order: steps 3..7)
+// printable ASCII only (the core skips other bytes): accents dropped, typographic quotes and dashes made plain
+export const asciiText = (s) => String(s == null ? "" : s).replace(/[\u2018\u2019\u2032]/g, "'").replace(/[\u201C\u201D\u2033]/g, '"')
+  .replace(/[\u2010-\u2015\u2212]/g, "-").replace(/\u2026/g, "...").replace(/[\u00A0\u2009\u202F]/g, " ").replace(/\u00D7/g, "x")
+  .normalize("NFKD").replace(/[^\x20-\x7e]/g, "").replace(/\s+/g, " ").trim();
+// f: { id, name, version, desc, categories: [names], category, fantasy } -> core.fwList's entry (installed: the version
+// the page loads; everything listed is on this site)
+export function fwEntry(f, thumb) {
+  const cats = (f.categories || []).reduce((b, c) => (FW_CATS.indexOf(c) >= 0 ? b | (1 << FW_CATS.indexOf(c)) : b), 0);
+  const main = FW_CATS.indexOf(f.category || (f.categories || [])[0]);
+  const v = asciiText(f.version) || "1";
+  return { id: String(f.id), name: asciiText(f.name) || String(f.id), version: v, installed: v,
+    desc: asciiText(f.desc) || null, thumb: thumb && thumb.length >= 512 ? thumb : null, cats, cat: main >= 0 ? main : 255, virt: f.fantasy ? 1 : 0 };
+}
+// a 64 x 64 RGBA picture -> the core's thumbnail: 1 bit, rows top first, MSB left, 1 = lit (Atkinson dithering on luma)
+export function atkinson64(rgba) {
+  const W = 64, l = new Float32Array(W * W), out = new Uint8Array(512);
+  for (let i = 0; i < W * W; i++) l[i] = 0.299 * rgba[i * 4] + 0.587 * rgba[i * 4 + 1] + 0.114 * rgba[i * 4 + 2];
+  const add = (x, y, e) => { if (x >= 0 && x < W && y < W) l[y * W + x] += e; };
+  for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) {
+    const v = l[y * W + x], on = v >= 128, e = (v - (on ? 255 : 0)) / 8;
+    if (on) out[y * 8 + (x >> 3)] |= 0x80 >> (x & 7);
+    add(x + 1, y, e); add(x + 2, y, e); add(x - 1, y + 1, e); add(x, y + 1, e); add(x + 1, y + 1, e); add(x, y + 2, e);
   }
   return out;
 }
@@ -293,12 +331,13 @@ export class MoveLink {
     this.seq = new SeqClock({ advance: (n, r) => this.core.seqAdvance(n, r), midiIn: (b) => this.core.seqMidiIn(b), emit: (a, at) => this.apply(a, at) });
     this.wasPlaying = false; this.seqKey = ""; this.projSubs = new Set(); this.projList = []; this.coreP = null;
     this.px = null; this.sent = 0;
-    this.labels = null; this.keymap = null;
+    this.labels = null; this.keymap = null; this.liveLabels = null; this.btnNames = null;
+    this.fw = { list: [], thumbs: new Map(), pending: null, asked: false };   // (the firmware browser: fwInit)
     const s = opts.site;
     s.on("leds", (levels, green) => this.onLeds(levels, green));
     s.on("frame", (px) => { this.px = px; if (this.core && this.want) this.sess((c, now) => c.sessFrame(now, px)); });
     s.on("info", (info) => this.onInfo(info));
-    s.on("firmware", () => { const sc = s.screen(); this.px = sc.pixels; this.onInfo(s.current().info); if (this.core && this.want) this.sess((c, now) => c.sessFrame(now, this.px)); });
+    s.on("firmware", () => { const sc = s.screen(); this.px = sc.pixels; this.onInfo(s.current().info); if (this.core) this.core.readoutsClear(); if (this.core && this.want) this.sess((c, now) => c.sessFrame(now, this.px)); this.fwSync(); });
     s.on("loopLevels", (peaks) => { if (this.live && this.core.sampleLevels(peaks) > 0) this.sess((c, now) => c.sessRedraw(now)); });   // (Sample's waveform)
     s.on("midiOut", (bytes, frame) => { if (this.live) { this.seq.clock(bytes, frame); this.sess((c, now) => c.sessUpdate(now)); } });
     if (typeof addEventListener === "function") addEventListener("pagehide", () => { this.flush(); this.release(); if (this.t) this.t.close(); this.closeBridge(); });
@@ -464,6 +503,7 @@ export class MoveLink {
           remove: (slot) => { this.projDelete(slot); return 0; } });
         this.core = core;
         this.applyLabels(); core.setKeymap(this.keymap);
+        this.fwInit();
         await this.initProjects();
         return core;
       })().catch((e) => { this.coreP = null; this.core = null; throw e; });
@@ -629,6 +669,7 @@ export class MoveLink {
       else if (a.kind === "turn") c.turn(MATRIX_TO_ROLE[a.enc], a.steps);
       else if (a.kind === "master") this.o.mapAct({ kind: "master", value: a.value });
       else if (a.kind === "settings") this.keep();
+      else if (/^fw/.test(a.kind)) this.fwAct(a);
       else if (/^project/.test(a.kind)) this.sess((core, now) => core.storeAction(now, a));
       else if (a.kind === "click") { if (this.o.site.click) this.o.site.click(typeof at === "number" ? at + (a.frame || 0) : null, a.accent); }
       else if (a.kind === "audioRec") {   // Sample: a loop of whole bars, from a bar line to a bar line (worklet frames)
@@ -696,6 +737,75 @@ export class MoveLink {
     if (this.core && this.core.projectSlot() === slot) this.sess((c, now) => c.sessProjectAnswer(now, slot, null));
     await this.refreshProjects();
   }
+  // ---- the firmware browser (0.5.10: one firmware, no FX): the page's firmwares, its loads, the library
+  fwInit() {
+    const F = this.o.firmwares, c = this.core;
+    if (!F || !c) return;
+    c.fwCaps(0);                                             // (before fwList: one slot, no FX setup)
+    c.fwLibrary(fromB64(this.o.prefs.moveLibrary || ""));    // (-1: not a library; it starts empty)
+    this.fwSend();
+    if (F.volume) this.pageLevel(F.volume());                // (the page's volume is the slot's level)
+    if (F.thumbs && !this.fw.asked) {
+      this.fw.asked = true;
+      Promise.resolve().then(() => F.thumbs(this.fw.list.map((e) => e.id))).then((m) => {
+        if (m && m.size) { this.fw.thumbs = m; this.fwSend(); }
+      }).catch(() => {});
+    }
+  }
+  // the list again (the array kept until the next one: the wrapper copies it into the module), and slot 0
+  fwSend() {
+    const F = this.o.firmwares;
+    if (!F || !this.core) return;
+    this.fw.list = (F.list() || []).map((f) => fwEntry(f, this.fw.thumbs.get(f.id)));
+    this.fwApply(this.core.fwList(this.fw.list));
+    this.fwSync();
+  }
+  // (0.5.11) the page's volume (0..1) as slot 0's level (100 = full: fwLevel's scale), as the Move's own edit (the
+  // library saves it); its fwLevel is not played back to the page (no loop)
+  pageLevel(volume) {
+    if (!this.core || !this.o.firmwares) return;
+    const acts = this.core.fwSetLevel(0, Math.max(0, Math.min(127, Math.round(volume * 100))));
+    if (acts) this.fwApply(acts.filter((a) => a.kind !== "fwLevel"));
+  }
+  fwCurrent() { const id = this.o.firmwares ? this.o.firmwares.current() : null; return id && this.fw.list.some((e) => e.id === id) ? id : null; }
+  // slot 0 = what the page plays (after a load, an unload refused, the page's own picker)
+  fwSync() { if (this.core && this.o.firmwares) this.fwApply(this.core.fwSlots([this.fwCurrent()])); }
+  fwApply(acts) {
+    if (acts && acts.length) this.apply(acts);
+    if (this.live) { this.sess((c, now) => c.sessFlushLeds(now)); this.sess((c, now) => c.sessRedraw(now)); }
+  }
+  fwAct(a) {
+    const F = this.o.firmwares;
+    if (!F) return;
+    if (a.kind === "fwLibrary") {
+      const v = toB64(a.bytes);
+      if (v !== this.o.prefs.moveLibrary) { this.o.prefs.moveLibrary = v; this.o.save(); }
+      return;
+    }
+    if (a.kind === "fwLevel") { if (a.slot === 0 && F.level) F.level(a.level); return; }
+    const e = this.fw.list[a.fw];
+    // (answered after the session's call that brought the action)
+    if (a.kind === "fwLoad" && e && a.slot === 0) {
+      if (this.fw.pending) { if (this.fw.pending !== e.id) Promise.resolve().then(() => this.core && this.fwApply(this.core.fwProgress(e.id, FW_BUSY))); return; }
+      this.fw.pending = e.id;
+      Promise.resolve().then(() => F.load(e.id)).then((ok) => ok !== false, () => false).then((ok) => {
+        this.fw.pending = null;
+        if (!this.core) return;
+        this.core.readoutsClear();
+        if (!ok) this.o.toast(`${e.name} could not be loaded.`, "bad");
+        this.fwApply(this.core.fwProgress(e.id, ok ? 100 : FW_FAILED));
+        this.fwSync();
+      });
+    } else if (a.kind === "fwUnload") {
+      Promise.resolve().then(() => {
+        const cur = this.fw.list.find((x) => x.id === this.fwCurrent());
+        if (cur) { this.o.toast(`The page always plays a firmware: ${cur.name} stays loaded.`); if (this.core) this.core.popup(`${cur.name} stays`); }
+        this.fwSync();
+      });
+    } else if (a.kind === "fwDownload" && e) {                // (never offered: everything listed is installed)
+      Promise.resolve().then(() => { if (!this.core) return; this.core.fwInstalled(a.fw, e.version); this.fwApply(this.core.fwProgress(e.id, 100)); });
+    }
+  }
   keep() {
     if (!this.core) return;
     const v = toB64(this.core.save());
@@ -716,13 +826,21 @@ export class MoveLink {
     this.sess((c, now) => c.sessFlushLeds(now));
   }
   // the firmware's knob labels (panel.js panelLabels().knobs: by role, 8, null = the printed name)
-  setLabels(knobs) {
+  // (0.5.11) the firmware's live labels (49, DYNAMIC-LABELS order: the engine's labels().list) and its 14 button names
+  // (info.buttonNames, FM1P_B_* order), null for none: the Move's held-button, key and knob popups. Without live labels
+  // the knobs keep the per-knob names below
+  setLabels(knobs, live, names) {
+    this.liveLabels = Array.isArray(live) && live.length === LBL_N ? live.map((x) => (typeof x === "string" ? asciiText(x) : null)) : null;
+    this.btnNames = Array.isArray(names) && names.length === NBTN ? names.map((x) => (x == null ? null : asciiText(x))) : null;
     this.labels = Array.isArray(knobs) ? knobs.slice(0, 8) : null;
     if (!this.core) return;
     this.applyLabels();
     this.sess((c, now) => c.sessRedraw(now));
   }
   applyLabels() {
+    this.core.setLabels(this.liveLabels);
+    this.core.setButtonNames(this.btnNames);
+    if (this.liveLabels) return;
     for (let r = 0; r < 8; r++) this.core.setLabel(r === E.MASTER ? 7 : roleToMatrix(r), this.labels && this.labels[r] ? this.labels[r] : "");
   }
 }

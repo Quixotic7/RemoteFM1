@@ -16,7 +16,7 @@ import * as library from "./library.js";
 import { Sheet, icon } from "./sheet.js";
 import { makeSite } from "./remote-hook.js";
 import { createFm1, mountUseFm1, mountHeader } from "./use-fm1.js";
-import { liveCatalog, mergeLive, packageFor, chooseEngine, compareVersions, sourceOf, nativeOrigin, nameOf, localRfm1, siteRfm1 } from "./live.js";
+import { liveCatalog, mergeLive, packageFor, chooseEngine, compareVersions, sourceOf, nativeOrigin, nameOf, localRfm1, siteRfm1, browseSections, cardView, fantasyCfw } from "./live.js";
 import { loadPrefs, savePrefs as writePrefs, keyHintsOn, shiftHintDue } from "./prefs.js";
 import { DEFAULT_DIM, clampDim, pickSkin, firmwareSkin, loadUserSkin, setUserImage, removeUserImage } from "./skin.js";
 import { mhzFor, pickMhz, stepDown, Governor, AUTO_START } from "./cpu.js";
@@ -24,7 +24,8 @@ import { EditorPanel } from "./editor-panel.js";
 import { RecUI } from "./rec-ui.js";
 import { MidiMap, Learn, MODES, srcLabel, speedOf, targetOf, knobTarget, buttonTarget } from "./midi-map.js";
 import { OmxLink, mountOmx } from "./omx-link.js";
-import { MoveLink, mountMove } from "./move-link.js";
+import { MoveLink, mountMove, atkinson64 } from "./move-link.js";
+import { catalogImages } from "./fw-browser.js";
 import { MoveCore } from "./move-core.js";
 import { Folder } from "./folder.js";
 import { FolderUI } from "./folder-ui.js";
@@ -156,6 +157,44 @@ const selfLine = (tone = fm1Tone) => tone === "on" ? "Your FM-1 is now remotely 
   : "I heard you liked firmwares so I made a firmware for your firmware so you can run firmwares without installing firmwares";
 
 // --------------------------------------------------------------- firmware ---
+// the Move's firmware browser (move-link.js, rfm1cs-abletonmove 0.5.10's one firmware, no FX): the settings sheet's
+// native tiles (sheet.js fwItems: A-Z, the engine a tile starts), loaded as a tile's tap loads them
+const moveFirmwares = () => browseSections(catalog.firmwares, { cat: "All", q: "" }).native.map((f) => {
+  const v = cardView(f, "native");
+  return { id: f.id, name: f.name, version: v.version, engine: v.engine, desc: f.what, categories: f.categories, category: f.category, fantasy: fantasyCfw(f) };
+});
+// RemoteFM1FW's catalog images as the Move's 64 x 64 1-bit thumbnails: squeezed to 64 x 64, Atkinson-dithered on luma
+async function moveThumbs(ids) {
+  const urls = await catalogImages(), out = new Map();
+  await Promise.all(ids.filter((id) => urls.has(id)).map(async (id) => {
+    try {
+      const img = new Image();
+      img.crossOrigin = "anonymous"; img.src = urls.get(id);
+      await img.decode();
+      const c = document.createElement("canvas");
+      c.width = c.height = 64;
+      const g = c.getContext("2d", { willReadFrequently: true });
+      g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
+      g.drawImage(img, 0, 0, 64, 64);
+      out.set(id, atkinson64(g.getImageData(0, 0, 64, 64).data));
+    } catch (_) { /* (no picture: the core draws the initials) */ }
+  }));
+  return out;
+}
+const moveFirmwareHost = {
+  list: () => moveFirmwares(),
+  current: () => (state.entry && !state.entry.local ? state.entry.id : null),
+  // as the sheet's tile: its engine; true once it plays (false: it fell back to the test engine)
+  async load(id) {
+    const it = moveFirmwares().find((f) => f.id === id);
+    if (!it) return false;
+    await app.openFirmware(id, it.engine);
+    return !!state.entry && state.entry.id === id && state.engine !== "mock";
+  },
+  level(v) { app.setVolume(Math.min(1, Math.max(0, v) / 100), true, true); if (sheet && sheet.isOpen) sheet.render(); },
+  volume: () => state.volume,
+  thumbs: (ids) => moveThumbs(ids),
+};
 const versionOf = (e, engine) => (!e ? "" : engine === "native" && e.native ? e.native.version : engine === "rfm1" && e.rfm1 && e.rfm1.version ? e.rfm1.version : e.version);
 const findEntry = (id) => catalog.firmwares.find((f) => f.id === id) || null;
 // the visitor's .rfm1 files: prefs.last is "rfm1:<sha256>" for one of them
@@ -179,6 +218,7 @@ async function openFirmware(id, want = null) {
   if (e.emuNote && !e.native) toast(`${e.name} is known not to run in the emulator: ${e.emuNote}.`, "bad");
   if (state.fwSkin && state.fwSkin.id !== skinIdOf(e)) { state.fwSkin = null; applyTheme(); }
   state.entry = e;
+  if (move) move.fwSync();   // (the Move's firmware browser shows it: slot 0)
   state.wantEngine = engineFor(e, want);
   state.engine = state.wantEngine;
   state.info = null; state.selectedSave = null;
@@ -427,7 +467,8 @@ function applyButtonNames() {
   const l = panelLabels(state.info && state.info.buttonNames, state.labels, state.fwNames);
   device.setLabels(l);
   if (omx) omx.views.setButtonNames(l.buttons);
-  if (move) move.setLabels(l.knobs);
+  // (the Move: the knobs' names, and, with the "Firmware's button names" setting on, the live labels and button names)
+  if (move) move.setLabels(l.knobs, state.fwNames ? state.labels : null, state.fwNames && state.info ? state.info.buttonNames : null);
 }
 
 // ------------------------------------------------------------------ audio ---
@@ -718,7 +759,7 @@ const app = {
       prefs.engine = { ...(prefs.engine || {}), [e.id]: engine }; prefs.engineAt = { ...(prefs.engineAt || {}), [e.id]: e.version }; savePrefs();
       return openFirmware(e, engine);
     }
-    openFirmware(id);
+    return openFirmware(id);
   },
   // the background image's dim: while the slider moves (no re-render), and kept when it is let go
   setSkinDim(v, keep) {
@@ -744,9 +785,10 @@ const app = {
   // what shows behind the faceplate now (null: the theme's colour) and whether it is the firmware's
   skinNow: () => { const s = currentSkin(); return { skin: s, firmware: !!s && s === state.fwSkin }; },
   // the page's volume: while the slider moves (no re-render), and kept when it is let go
-  setVolume(v, keep) {
+  setVolume(v, keep, fromMove = false) {
     state.volume = Math.max(0, Math.min(1, +v || 0));
     if (player) player.setVolume(state.volume);
+    if (move && !fromMove) move.pageLevel(state.volume);   // (the Move's Track 1 level follows the slider; not back from it)
     if (keep) { prefs.volume = state.volume; savePrefs(); }
   },
   setMhz(choice) {
@@ -962,7 +1004,7 @@ async function main() {
   omx.auto();                                              // connects by itself where it was before and MIDI is allowed
 
   // USE MY ABLETON MOVE: Move Remote's WebSocket (rfm_move in WebAssembly does the mapping: catalog paths.move)
-  move = new MoveLink({ controls, site, prefs, save: savePrefs, toast, mapAct,
+  move = new MoveLink({ controls, site, prefs, save: savePrefs, toast, mapAct, firmwares: moveFirmwareHost,
     core: (settings) => MoveCore.load(settings, new URL(catalog.paths.move || "../build/move/rfm_move.mjs", document.baseURI).href),
     onActive: () => { if (sheet) sheet.render(); } });
   mountMove(sheet.moveSlot, move);
