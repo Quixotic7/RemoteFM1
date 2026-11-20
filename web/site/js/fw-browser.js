@@ -200,6 +200,8 @@ export class FwBrowser {
     const marks = [];
     if (f.fantasy) marks.push(el("span", { class: "fb-fan-tag", title: "Fantasy CFW: runs in RemoteFM1 hosts only, not on an FM-1" }, "Fantasy"));
     if (f.current) marks.push(el("span", { class: "fb-mark fb-cur", title: "Playing" }, icon("check")));
+    // (the playing one with an update: UPDATE at the bottom, the check stays at the top)
+    if (f.current && f.update && f.busy == null) marks.push(el("span", { class: "fb-mark fb-up fb-low", title: `Update: ${f.installed} here, ${f.version} in the catalog` }, icon("up"), "Update"));
     else if (f.busy != null) marks.push(el("span", { class: "fb-ring", style: { "--p": `${Math.max(2, Math.min(100, f.busy))}%` }, title: `Downloading ${f.busy | 0} %` }));
     else if (f.update) marks.push(el("span", { class: "fb-mark fb-up", title: `Update: ${f.installed} here, ${f.version} in the catalog` }, icon("up"), "Update"));
     else if (f.installed === "") marks.push(el("span", { class: "fb-mark fb-get", title: "Not installed: a tap downloads it" }, icon("down")));
