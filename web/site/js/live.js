@@ -109,6 +109,24 @@ export function newestWins(e) {
   if (rf !== null && rf >= 0) e.defaultEngine = "rfm1";
   return e;
 }
+// The site plays this site's own .rfm1 builds: RemoteFM1's .rfm1 catalog is the source of truth (the owner, 2026-11-21:
+// "always load and prefer the .RFM1 version ... The site should not make the native builds available, just RFM1s").
+// A firmware with an .rfm1 plays that .rfm1 only, at the .rfm1's version, whatever the Hub's version; native cores are
+// never offered; a firmware without an .rfm1 keeps the Hub's emulated package. hubVersion: the Hub's, where it differs.
+export function rfm1First(e) {
+  if (!e || localRfm1(e)) return e;
+  const out = { ...e, engines: (e.engines || []).filter((k) => k !== "native"), native: null, nativeBehind: false };
+  if (siteRfm1(e) && out.engines.includes("rfm1")) {
+    const v = String(e.rfm1.version ?? e.version);
+    if (String(e.version) !== v) out.hubVersion = String(e.version);
+    out.version = v;
+    out.engines = ["rfm1"];
+    out.defaultEngine = "rfm1";
+    delete out.snapshot;
+  } else if (!out.engines.includes(out.defaultEngine)) out.defaultEngine = out.engines[0];
+  return out;
+}
+export const rfm1Catalog = (c) => (!c ? c : { ...c, firmwares: c.firmwares.map(rfm1First).filter((f) => f && f.engines && f.engines.length) });
 export const nameOf = (e, engine) => (!e ? "" : engine === "native" && e.native && e.native.name ? e.native.name : e.name);
 // the engine to start: the deep link's (?engine=), else the visitor's own choice while the firmware's version is the
 // one they chose it at (a new release resets it), else the default. prefs: { engine: {id: name}, engineAt: {id: ver} }

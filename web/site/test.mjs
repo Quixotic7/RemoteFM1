@@ -1583,6 +1583,21 @@ if (!existsSync(new URL("remotefm1.mjs", BUILT)) || !existsSync(new URL("fakeuni
   ok(L.mergeLive(c, { firmwares: [] }).firmwares.length > 0 && L.newestWins({ ...ch, engines: ["rfm1", "native", "emu"], version: "0.1", rfm1: { from: "site", version: "0.26.1" }, native: { version: "0.26.1" } }).defaultEngine === "rfm1"
      && L.newestWins({ ...ch, engines: ["rfm1", "native", "emu"], version: "9.0", rfm1: { from: "site", version: "0.26.1" }, native: { version: "0.26.1" } }).defaultEngine === "emu",
      "newestWins: a site .rfm1 at the Hub's version or newer is the default, else newest wins as before");
+  {
+    // the page's rule (live.js rfm1First, the owner 2026-11-21): the .rfm1 alone, at its version; no native cores
+    const both = { ...ch, engines: ["rfm1", "native", "emu"], version: "0.42", defaultEngine: "emu", rfm1: { from: "site", version: "0.43" }, native: { version: "0.26.1" }, emu: { pkg: "x.fwsc" } };
+    const r = L.rfm1First(both), older = L.rfm1First({ ...both, version: "9.0" });
+    const emuNat = L.rfm1First({ id: "x", engines: ["emu", "native"], version: "1.0", defaultEngine: "native", native: { version: "0.9" }, emu: { pkg: "x.fwsc" } });
+    const cc = L.rfm1Catalog({ firmwares: [both, { id: "n", engines: ["native"], defaultEngine: "native", native: { version: "1" } }, emuNat] });
+    const own = { id: "mine", local: true, engines: ["rfm1"], defaultEngine: "rfm1", rfm1: { version: "1" } };
+    ok(r.engines.join() === "rfm1" && r.defaultEngine === "rfm1" && r.version === "0.43" && r.hubVersion === "0.42" && r.native === null
+       && older.defaultEngine === "rfm1" && older.version === "0.43" && older.hubVersion === "9.0"
+       && emuNat.engines.join() === "emu" && emuNat.defaultEngine === "emu" && emuNat.native === null
+       && cc.firmwares.map((f) => f.id).join() === "choralroot,x" && L.rfm1First(own) === own
+       && L.chooseEngine(r, "native", { engine: { choralroot: "native" }, engineAt: { choralroot: "0.42" } }) === "rfm1"
+       && L.chooseEngine(r, "emu", {}) === "rfm1",
+       "rfm1First: an .rfm1 plays alone at its own version (a newer Hub release too), native cores are gone, a remembered or linked native/emu choice yields");
+  }
   // the guard: every fetched file in the site at its SHA-256, and in the catalog
   const fwSums = new Map(Object.entries(files).map(([n, b]) => [`${rel}/${n}`, createHash("sha256").update(b).digest("hex")]));
   const g = (cc, have = () => true, sha = (p) => fwSums.get(p)) => G.guardSite({ catalog: cc, has: have, expected: [], managers: { managers: [] }, sha, fwSums }).errors.filter((e) => /RemoteFM1FW/.test(e));

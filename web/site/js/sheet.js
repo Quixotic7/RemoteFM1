@@ -359,7 +359,7 @@ export class Sheet {
     const i = sel ? names.indexOf(sel.name) : -1;
     const step = (d) => { if (!names.length) return; const j = ((i < 0 ? (d > 0 ? -1 : 0) : i) + d + names.length) % names.length; a.loadSave(named[j]); };
     const picker = h("select", { class: "nav-select", "aria-label": "Saves", onchange: (ev) => { const r = named.find((x) => x.name === ev.target.value); if (r) a.loadSave(r); } },
-      h("option", { value: "" }, auto ? "Autosave (running)" : "No save yet"), names.map((n) => h("option", { value: n }, n)));
+      h("option", { value: "" }, auto ? "Autosave (running)" : "Clean memory"), names.map((n) => h("option", { value: n }, n)));
     picker.value = sel ? sel.name : "";
     out.push(h("div", { class: "nav" },
       h("button", { class: "nav-arrow", "aria-label": "Previous save", onclick: () => step(-1), html: icon("left") }),
@@ -394,6 +394,22 @@ export class Sheet {
     out.push(h("p", { class: "note" }, auto
       ? `The firmware's flash is kept in this browser as it changes (${new Date(auto.saved).toLocaleString()}). A save is a copy you keep; picking one restarts the firmware from it.`
       : "The firmware's flash is kept in this browser as it changes. A save is a copy you keep; picking one restarts the firmware from it."));
+    // Reset firmware...: asked inline (as the iPhone app's Firmware page), a copy offered first
+    if (st.engine !== "mock") {
+      if (this.inline && this.inline.kind === "reset") {
+        const name = a.nameOf(st.entry, st.wantEngine);
+        const go = (keep) => async () => { this.inline = null; this.render(); await a.resetFirmware(keep); };
+        out.push(h("div", { class: "ask" },
+          h("p", {}, `Start ${name} with a clean memory, as if newly installed? Your saves stay as they are.`),
+          h("div", { class: "pills two" },
+            pill("Save a copy and reset", go(true), "primary", { disabled: !st.running && !auto, title: "Keep the current memory as a save first" }),
+            pill("Reset", go(false), "danger-fill"),
+            pill("Cancel", () => { this.inline = null; this.render(); }, "ghost"))));
+      } else {
+        out.push(h("div", { class: "pills" }, pill("Reset firmware...", () => { this.inline = { kind: "reset" }; this.render(); }, "danger",
+          { disabled: !st.running && !auto, title: "Start the firmware with a clean memory (your saves stay)" })));
+      }
+    }
     return out;
   }
 
