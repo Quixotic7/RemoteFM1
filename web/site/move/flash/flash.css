@@ -1,0 +1,21 @@
+/* SPDX-License-Identifier: MPL-2.0 */
+/* the Wi-Fi flasher (index.html): the /move page's look (../css/move.css), as one panel filling its frame */
+html, body { background: var(--bk); }
+body { padding: 0; }
+.installer.fl { border: 0 !important; margin: 0; }
+.fl .inst-head { border-radius: 0; padding: 10px 14px; }
+.fl .inst-body { border-radius: 0; }
+.fl-check { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+.fl-check input { width: 18px; height: 18px; flex: none; margin-top: 2px; accent-color: var(--led-w); }
+.fl-status { padding: 12px 14px; margin-top: 12px; border: 2px solid var(--wh); border-radius: 8px; display: grid; gap: 8px; }
+.fl-status p { margin: 0; font-size: 14px; }
+#f-status:empty { display: none; }
+#f-status.bad { color: #ff8f8a; }
+#f-status.ok { color: var(--led-b); }
+#f-status.wait { color: var(--led-y); }
+.fl-status details summary { cursor: pointer; font: 400 18px var(--px); }
+.fl-status pre { max-height: 160px; overflow: auto; font: 500 11px/1.4 var(--mono); white-space: pre-wrap; margin: 6px 0 0; }
+.pill:disabled { opacity: .5; }
+.pill:not(:disabled):hover { filter: invert(1); }
+#f-meta { overflow-wrap: anywhere; }
+@media (max-width: 520px) { .knobs { grid-template-columns: repeat(2, 1fr); } .flash-meter { margin-left: 0; } }

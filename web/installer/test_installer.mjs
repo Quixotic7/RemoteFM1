@@ -12,8 +12,8 @@
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createHash } from "node:crypto";
-import { pack7, unpack7, remoteFm1Version, classifyFirmware } from "./fm1ota.js";
-import { install, look, describe, packageFrom, releasedPackage, releaseFile, IDENTITY, rfPack7, rfUnpack7, requestMidi,
+import { pack7, unpack7, remoteFm1Version, remoteFm1Build, classifyFirmware } from "./fm1ota.js";
+import { install, look, describe, packageFrom, releasedPackage, releaseFile, wifiRelease, IDENTITY, rfPack7, rfUnpack7, requestMidi,
          MIDI_PROMPT, MIDI_LATE, MIDI_DENIED } from "./installer.js";
 import { validateStockPackage } from "./fm1pkg.js";
 
@@ -113,8 +113,10 @@ const UI = (answer = true) => {
   const missing = ids.filter((id) => !new RegExp(`id="${id}"`).test(page));
   ok(ids.length >= 10 && !missing.length, `the page has every element installer.js uses (${ids.length})${missing.length ? ": missing " + missing.join(", ") : ""}`);
   for (const t of [/On its own, it is a DX7/, /<h2>Your DX7 cartridges<\/h2>/, /href="\.\.\/\?open=carts"[^>]*>DX7 cartridges</, /ChoralRoot users: back up first/, /answers\s+installers as itself/, /Close every app that uses MIDI/, /Chrome or Edge/,
-                   /USB only/, /USB \+ Bluetooth MIDI/])
+                   /USB only/, /USB \+ Bluetooth MIDI/, /href="\.\.\/move\/">remotefm1\.com\/move</])
     ok(t.test(page), `the page says ${t.source.replace(/\\s\+/g, " ")}`);
+  ok(/id="pkg-ble" checked/.test(page) && !/id="pkg-usb" checked/.test(page) && !/pkg-wifi/.test(page),
+     "the installer's default stays USB + Bluetooth; it offers no Wi-Fi choice (that is /move/flash/)");
 }
 {
   const a = [0, 1, 127, 128, 200, 255, 7, 77, 254];
@@ -137,13 +139,13 @@ const sha = createHash("sha256").update(raw).digest("hex");
 if (!process.argv[2]) {
   const sums = readFileSync(new URL("./firmware/SHA256SUMS", import.meta.url), "utf8");
   // every package of every release (the default one, and the USB-only one where there is one)
-  const pkgs = rels.flatMap((r) => [releaseFile(r), ...(r.usbOnly ? [releaseFile(r, "usb")] : [])].map((f) => ({ r, ...f })));
+  const pkgs = rels.flatMap((r) => [releaseFile(r), ...(r.usbOnly ? [releaseFile(r, "usb")] : []), ...(r.wifi ? [releaseFile(r, "wifi")] : [])].map((f) => ({ r, ...f })));
   for (const p of pkgs) {
     const b = new Uint8Array(readFileSync(new URL(`./firmware/${p.file}`, import.meta.url)));
     const h = createHash("sha256").update(b).digest("hex");
     let prod = "";
     try { prod = (await packageFrom(b)).product; } catch (e) { prod = e.message; }
-    ok(h === p.sha256 && sums.includes(`${h}  ${p.file}`) && prod === p.r.identity,
+    ok(h === p.sha256 && sums.includes(`${h}  ${p.file}`) && prod === p.identity,
        `${p.file}: releases.json, SHA256SUMS and the file agree; installs as ${prod}`);
   }
   // what Pages publishes (firmware/ as it is): only the listed packages, no earlier one left beside them
@@ -151,9 +153,10 @@ if (!process.argv[2]) {
   const files = readdirSync(new URL("./firmware/", import.meta.url)).filter((f) => f.endsWith(".fwsc")).sort().join();
   const summed = sums.trim().split("\n").map((l) => l.split(/\s+/)[1]).sort().join();
   ok(files === listed && summed === listed, `firmware/ holds the listed packages only (${files})`);
-  ok(rels[0].version === "0.3.6" && rels[0].identity === "FM-1_52000306" && rels[0].usbOnly && rels[0].license === "MPL-2.0"
+  ok(rels[0].version === "0.4.0" && rels[0].identity === "FM-1_72000400" && rels[0].usbOnly && rels[0].license === "MPL-2.0"
+     && rels[0].wifi && rels[0].wifi.file === "remote-wifi-0.4.0.fwsc" && rels[0].wifi.identity === "FM-1_729000400" && wifiRelease(rels) === rels[0]
      && rels.some((r) => r.version === "0.1.1" && r.identity === "FM-1_015" && r.license === "GPL-3.0-only") && !files.includes("remote-0.1.fwsc"),
-     "RemoteFM1 0.3.6 is offered (USB + Bluetooth, and USB only), 0.3.5 .. 0.2.1 and 0.1.1 kept as older releases, 0.1 not published");
+     "RemoteFM1 0.4.0 is offered (USB + Bluetooth, USB only, and Wi-Fi for /move/flash/), 0.3.6 .. 0.2.1 and 0.1.1 kept as older releases, 0.1 not published");
   // the USB-only choice: its own file, its own SHA-256, the same identity
   const r0 = rels[0], usbRaw = new Uint8Array(readFileSync(new URL(`./firmware/${r0.usbOnly.file}`, import.meta.url)));
   const asked = [];
@@ -166,7 +169,7 @@ if (!process.argv[2]) {
   ok(/not the released one/.test(e), "the USB-only file served for the default package: refused (SHA-256)");
   e = "";
   try { await releasedPackage({ ...r0, identity: "FM-1_52000200" }, fetchAny, "usb"); } catch (x) { e = x.message; }
-  ok(/installs as FM-1_52000306, not FM-1_52000200/.test(e), "a package whose identity is not the release's: refused");
+  ok(/installs as FM-1_72000400, not FM-1_52000200/.test(e), "a package whose identity is not the release's: refused");
   const old = rels.find((r) => r.version === "0.1.1");
   ok(releaseFile(old, "usb").file === "remote-0.1.1.fwsc", "a release without a USB-only package: the choice falls back to its one package");
 }
@@ -213,6 +216,48 @@ ok(remoteFm1Version("FM-1_52000306") === "0.3.6" && remoteFm1Version("FM-1_72000
    "remoteFm1Version: FM-1_52000306 is 0.3.6, FM-1_72000307 0.3.7, both dev builds");
 ok(remoteFm1Version("FM-1_62000307") === null && remoteFm1Version("FM-1_720") === null && remoteFm1Version("FM-1_015") === null,
    "remoteFm1Version: other numbers are not RemoteFM1");
+// RemoteFM1 Wi-Fi (the Ableton Move build): FM-1_729XXYYZZ, dev FM-1_72900, read as RemoteFM1 (installs go both ways)
+ok(remoteFm1Version("FM-1_729000400") === "0.4.0 Wi-Fi" && remoteFm1Version("FM-1_72900") === "Wi-Fi development build" &&
+   remoteFm1Version("FM-1_7290040") === null && remoteFm1Version("FM-1_72900400") === null,
+   "remoteFm1Version: FM-1_729000400 is 0.4.0 Wi-Fi, FM-1_72900 its dev build, other FM-1_729 numbers not");
+ok(remoteFm1Build("FM-1_729000400") === "wifi" && remoteFm1Build("FM-1_72900") === "wifi" && remoteFm1Build("FM-1_72000307") === "remote" &&
+   remoteFm1Build("FM-1_52000306") === "remote" && remoteFm1Build("FM-1_015") === null, "remoteFm1Build: Wi-Fi told from the other builds");
+ok(classifyFirmware("FM-1_729000400", "", "FM-1").verdict === "allow" && classifyFirmware("FM-1_72900", "", "FM-1").kind === "remotefm1",
+   "classifyFirmware: a Wi-Fi unit is RemoteFM1, installed over (Wi-Fi to Bluetooth and back)");
+{
+  const st0 = await look(new FakeFM1(pkg.image, { identity: "FM-1_729000400", remote: "0.4.0" }).access);
+  ok(describe(st0) === "The FM-1 runs RemoteFM1 0.4.0 Wi-Fi (FM-1_729000400)." && !!st0.remote, "look: RemoteFM1 Wi-Fi by its identity and HELLO");
+  ok(describe(await look(new FakeFM1(pkg.image, { identity: "FM-1_72900" }).access)) === "The FM-1 runs RemoteFM1 Wi-Fi development build (FM-1_72900).",
+     "look: a RemoteFM1 Wi-Fi development build (FM-1_72900)");
+}
+{
+  const r1 = { version: "0.4.0", sha256: "aa", identity: "FM-1_72000400", usbOnly: { file: "remote-usb-0.4.0.fwsc", sha256: "bb" },
+               wifi: { file: "remote-wifi-0.4.0.fwsc", sha256: "cc", identity: "FM-1_729000400" } };
+  const d = releaseFile(r1), u = releaseFile(r1, "usb"), w = releaseFile(r1, "wifi");
+  ok(d.file === "remote-0.4.0.fwsc" && !d.wifi && !d.usb && d.identity === "FM-1_72000400", "variant: the default package is USB + Bluetooth (unchanged)");
+  ok(u.file === "remote-usb-0.4.0.fwsc" && u.usb && u.identity === "FM-1_72000400", "variant usb: the USB-only package");
+  ok(w.file === "remote-wifi-0.4.0.fwsc" && w.wifi && w.sha256 === "cc" && w.identity === "FM-1_729000400", "variant wifi: the Wi-Fi package, its own identity");
+  const r2 = { version: "0.3.6", sha256: "aa", identity: "FM-1_52000306" };
+  ok(releaseFile(r2, "wifi") === null && wifiRelease([r2]) === null && wifiRelease([r2, r1]) === r1,
+     "a release without a Wi-Fi package: none (never the Bluetooth one in its place); wifiRelease finds the newest with one");
+  let e = "";
+  try { await releasedPackage(r2, async () => { throw new Error("fetched"); }, "wifi"); } catch (x) { e = x.message; }
+  ok(/has no wifi package/.test(e), "the Wi-Fi package asked of a release without one: refused, nothing fetched");
+  const asked = [], bytes = raw;
+  const serve = async (url) => { asked.push(url); return { ok: true, status: 200, arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length) }; };
+  const rw = { version: "9.9", sha256: "00", identity: "FM-1_00", wifi: { file: "remote-wifi-9.9.fwsc", sha256: sha, identity: pkg.product } };
+  const got = await releasedPackage(rw, serve, "wifi", "../../installer/firmware/");
+  ok(asked.join() === "../../installer/firmware/remote-wifi-9.9.fwsc" && got.label === "RemoteFM1 9.9 Wi-Fi" && got.product === pkg.product,
+     "the Wi-Fi package: fetched from the flasher's base, checked, labelled Wi-Fi");
+  e = "";
+  try { await releasedPackage({ ...rw, wifi: { ...rw.wifi, identity: "FM-1_729000999" } }, serve, "wifi"); } catch (x) { e = x.message; }
+  ok(/not FM-1_729000999/.test(e), "a Wi-Fi file whose identity is not the listed one: refused");
+}
+// a real Wi-Fi package when one is at hand (WIFI_PKG=.../remotefm1-wifi*.fwsc): it reads as RemoteFM1 Wi-Fi
+if (process.env.WIFI_PKG) {
+  const w = await packageFrom(new Uint8Array(readFileSync(process.env.WIFI_PKG)));
+  ok(remoteFm1Build(w.product) === "wifi" && !w.official, `WIFI_PKG: installs as ${w.product}, RemoteFM1 Wi-Fi`);
+}
 ok(classifyFirmware("FM-1_52000306").kind === "remotefm1" && classifyFirmware("FM-1_72000307").kind === "remotefm1" &&
    classifyFirmware("FM-1_72000307").name === "RemoteFM1 0.3.7", "classifyFirmware: RemoteFM1 by either identity");
 ok(/ChoralRoot 0\.25\.1\./.test(await st({ identity: "FM-1_920", name: "ChoralRoot FM-1", version: "ChoralRoot 0.25.1" })),
@@ -247,6 +292,10 @@ t = await run({ remote: "0.1.1" });
 ok(t.r === "done" && t.dev.bad === 0 && t.dev.identity === FINAL && t.dev.hellos >= 1, "over RemoteFM1 (a reinstall): installed");
 t = await run({ identity: "FM-1_52000200", remote: "0.2.0" });
 ok(t.r === "done" && t.dev.bad === 0 && t.dev.identity === FINAL && t.dev.hellos >= 1, "over RemoteFM1 0.2 (FM-1_52000200): installed");
+t = await run({ identity: "FM-1_729000400", remote: "0.4.0" });
+ok(t.r === "done" && t.dev.bad === 0 && t.dev.identity === FINAL && t.dev.hellos >= 1, "over RemoteFM1 Wi-Fi (FM-1_729000400): installed (Wi-Fi back to Bluetooth)");
+t = await run({ identity: "FM-1_72900" });
+ok(t.r === "done" && t.dev.bad === 0 && t.dev.identity === FINAL, "over a RemoteFM1 Wi-Fi development build (FM-1_72900): installed");
 t = await run({}, {});
 ok(t.r === "refused" && t.dev.upgrades === 0 && t.ui.confirms === 0 && /close every app that uses MIDI/i.test(t.ui.said.at(-1)),
    "before the MIDI apps are said to be closed: refused, nothing sent");

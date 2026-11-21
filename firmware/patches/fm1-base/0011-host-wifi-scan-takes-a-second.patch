@@ -1,0 +1,42 @@
+diff --git a/host/plat_host.c b/host/plat_host.c
+--- a/host/plat_host.c
++++ b/host/plat_host.c
+@@ -919,9 +919,14 @@
+  * nothing here */
+ static uint8_t wf_st;
+ static uint32_t wf_t;
++static uint32_t wf_scans, wf_scan_at;          /* (RemoteFM1 0011: a scan takes 1 s, then counted) */
+ static char wf_ssid[33], wf_kept[6][33] = {"Home"};
+ static void wifi_tick(void)
+ {
++    if (wf_scan_at && now_ms - wf_scan_at >= 1000u) {
++        wf_scan_at = 0;
++        wf_scans++;
++    }
+     if (wf_st == WIFI_STARTING && now_ms - wf_t >= 500u) {
+         wf_st = wf_kept[0][0] ? WIFI_JOINING : WIFI_ON;
+         snprintf(wf_ssid, sizeof wf_ssid, "%s", wf_kept[0]);
+@@ -949,7 +954,13 @@
+ const char *plat_wifi_ssid(void) { return wf_ssid; }
+ uint32_t plat_wifi_ip(void) { return wf_st == WIFI_CONNECTED ? 0x2A01A8C0u : 0; }   /* 192.168.1.42 */
+ int plat_wifi_rssi(void) { return wf_st == WIFI_CONNECTED ? -48 : 0; }
+-int plat_wifi_scan(void) { return wf_st >= WIFI_ON ? 0 : -1; }
++int plat_wifi_scan(void)
++{
++    if (wf_st < WIFI_ON)
++        return -1;
++    wf_scan_at = now_ms | 1u;
++    return 0;
++}
+ int plat_wifi_found_channel(int i) { return wf_st >= WIFI_ON && i >= 0 && i <= 1 ? (i ? 11 : 6) : 0; }
+ int plat_wifi_found(int i, char *ssid, int *rssi, int *secured)
+ {
+@@ -995,7 +1006,7 @@
+             return 1;
+     return 0;
+ }
+-uint32_t plat_wifi_scans(void) { return wf_st >= WIFI_ON ? 1u : 0u; }
++uint32_t plat_wifi_scans(void) { return wf_st >= WIFI_ON ? 1u + wf_scans : 0u; }
+ void plat_wifi_rx(uint32_t *frames, int *rssi)
+ {
+     if (frames)

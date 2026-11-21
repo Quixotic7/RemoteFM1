@@ -14,7 +14,10 @@
 //           or a package the site itself hosts (RemoteFM1's) is missing;
 //         - the hosted managers' index.json names a manager whose page is missing, or the Web MIDI shim is missing;
 //         - remote/remote.js is published without the module it loads (build/remote/remotefm1.mjs);
-//         - the installer's page is missing.
+//         - the installer's page is missing;
+//         - remotefm1.com/move (move/index.html) or its Wi-Fi flasher (move/flash/index.html) is missing, a local link
+//           or file either page names is not in the site, move/data/move.json is not JSON, or what the pages load at
+//           run time is missing (the installer's releases.json and modules, the Jersey 10 font).
 //       A native core missing below the threshold, or no managers at all, is a warning.
 //   node web/site/tools/site_guard.mjs native-result FILE
 //       web/engines/native/build.sh's result.json as annotations: one warning per core that failed, with its log's
@@ -97,6 +100,32 @@ export function guardSite({ catalog, has, expected, managers = null, sha = null,
   return { errors, warnings, missing };
 }
 
+// remotefm1.com/move and its flasher: the pages, every local href / src they name (relative to each page), and what
+// their scripts load at run time. has(path) -> bool, read(path) -> text. -> errors
+export const MOVE_PAGES = ["move/index.html", "move/flash/index.html"];
+export const MOVE_RUNTIME = ["move/css/move.css", "move/js/move.js", "move/data/move.json", "move/flash/flash.js", "move/flash/flash.css",
+  "move/img/fm1-pixel.png", "fonts/Jersey10-Regular.woff", "fonts/OFL-jersey10.txt", "fonts/DMSans-VF-latin.woff", "fonts/DMMono-Medium-latin.woff",
+  "installer/index.html", "installer/releases.json", "installer/installer.js", "installer/fm1ota.js", "installer/fm1pkg.js"];
+export function guardMovePage({ has, read }) {
+  const errors = [];
+  for (const page of MOVE_PAGES) {
+    if (!has(page)) { errors.push(`${page} (remotefm1.com/move) is not in the site`); continue; }
+    const dir = page.replace(/[^/]+$/, "");
+    for (const m of read(page).matchAll(/\s(?:href|src)="([^"]+)"/g)) {
+      const u = m[1];
+      if (/^(?:[a-z]+:|#|\/\/)/i.test(u)) continue;                      // (other sites, anchors)
+      const parts = [];
+      for (const seg of (dir + u.split(/[?#]/)[0]).split("/")) { if (seg === "..") parts.pop(); else if (seg && seg !== ".") parts.push(seg); }
+      let p = parts.join("/");
+      if (u.endsWith("/") || p === "") p = (p ? p + "/" : "") + "index.html";
+      if (p.startsWith("..") || !has(p)) errors.push(`${page}: its link ${u} (${p}) is not in the site`);
+    }
+  }
+  for (const f of MOVE_RUNTIME) if (!has(f)) errors.push(`${f} (remotefm1.com/move loads it) is not in the site`);
+  if (has("move/data/move.json")) { try { JSON.parse(read("move/data/move.json")); } catch (e) { errors.push(`move/data/move.json is not JSON (${e.message})`); } }
+  return errors;
+}
+
 // build.sh's result.json -> [{ level, title, message }]
 export function nativeAnnotations(result) {
   if (!result) return [{ level: "error", title: "native cores not built", message: "web/engines/native/build.sh stopped before building any core (no result.json): no native engine is published" }];
@@ -144,6 +173,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const managers = existsSync(join(site, mbase, "index.json")) ? read(join(mbase, "index.json")) : null;
     const g = guardSite({ catalog, has: (p) => existsSync(join(site, p)), expected: ungatedCores(cores), managers,
       sha: (p) => createHash("sha256").update(readFileSync(join(site, p))).digest("hex"), fwSums: fwSumsOf(site, arg("--fw-catalog", "fw/rfm1")) });
+    g.errors.push(...guardMovePage({ has: (p) => existsSync(join(site, p)), read: (p) => readFileSync(join(site, p), "utf8") }));
     g.warnings.forEach((m) => annotate({ level: "warning", title: "site guard", message: m }));
     g.errors.forEach((m) => annotate({ level: "error", title: "not deployed (site guard)", message: m }));
     const nat = catalog.firmwares.filter((f) => f.native).length;

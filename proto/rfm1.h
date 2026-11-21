@@ -30,11 +30,15 @@ enum {
     RFM_TOUCH = 0x14,                   /* 0.3.1: the keys' velocity / pressure in the panel events (RFM_CAP_TOUCH) */
     RFM_AUDIO_MODE = 0x15,              /* 0.3.6: Bluetooth audio, no screen: on / off (RFM_CAP_BLE_AUDIO) */
     RFM_AUDIO = 0x16,                   /* 0.3.6: a block of the host's sound (IMA ADPCM) in that mode */
+    RFM_WIFI = 0x17,                    /* the Wi-Fi build (RFM_CAP_WIFI): op8 ...: the network's state, set, forget */
     RFM_HELLO_R = 0x41, RFM_DATA = 0x43, RFM_ECHO_R = 0x44, RFM_STATS_R = 0x45, RFM_ACK = 0x46, RFM_BLIT_R = 0x47,
     RFM_SA_BENCH_R = 0x49,
     RFM_SOURCE_DONE = 0x50, RFM_FRAME_ACK = 0x52, RFM_PANEL_R = 0x53,
     RFM_MIDI_IN = 0x54,                 /* 0.3: the TRS jack's MIDI in, forwarded in a session (RFM_CAP_MIDI_IN) */
-    RFM_AUDIO_R = 0x55                  /* 0.3.6: the audio mode's state and its buffer (RFM_CAP_BLE_AUDIO) */
+    RFM_AUDIO_R = 0x55,                 /* 0.3.6: the audio mode's state and its buffer (RFM_CAP_BLE_AUDIO) */
+    RFM_PANEL_EV = 0x56,                /* the panel's events as MIDI bytes, in a session on a link without a MIDI port
+                                         * (TCP: the Wi-Fi build, RFM_CAP_PANEL_EV; docs/PROTOCOL.md section 10) */
+    RFM_WIFI_R = 0x57                   /* the Wi-Fi build: WIFI's reply (docs/PROTOCOL.md section 10) */
 };
 
 /* HELLO_R: M0's 51 bytes (firmware/src/remote_proto.h), of which: */
@@ -46,7 +50,8 @@ enum {
     RFM_TR_SX_HEARD = 1u << 2,          /* RemoteFM1 SysEx heard over USB */
     RFM_TR_BK_HEARD = 1u << 3,          /* bulk heard */
     RFM_TR_BLE = 1u << 4,               /* 0.2: a Bluetooth computer connected */
-    RFM_TR_BLE_HEARD = 1u << 5          /* 0.2: RemoteFM1 SysEx heard over Bluetooth */
+    RFM_TR_BLE_HEARD = 1u << 5,         /* 0.2: RemoteFM1 SysEx heard over Bluetooth */
+    RFM_TR_NET = 1u << 6                /* the Wi-Fi build: a host connected over TCP (docs/PROTOCOL.md section 10) */
 };
 /* then: */
 #define RFM_HELLO_SCREEN_W 51u          /* u16 */
@@ -63,7 +68,11 @@ enum {
     RFM_CAP_BLE_FAST = 1u << 8,         /* 0.2.2: Bluetooth at 2M, long link packets, MTU 247: ~35 KB/s, ~9 KB in flight clean */
     RFM_CAP_MIDI_IN = 1u << 9,          /* 0.3: the TRS jack's MIDI in comes to the host in a session (MIDI_IN) */
     RFM_CAP_TOUCH = 1u << 10,           /* 0.3.1: TOUCH: the keys' real velocity and their pressure as poly aftertouch */
-    RFM_CAP_BLE_AUDIO = 1u << 11        /* 0.3.6: AUDIO_MODE / AUDIO: the host's sound over the session's link, no screen */
+    RFM_CAP_BLE_AUDIO = 1u << 11,       /* 0.3.6: AUDIO_MODE / AUDIO: the host's sound over the session's link, no screen */
+    RFM_CAP_WIFI = 1u << 12,            /* the Wi-Fi build: WIFI (0x17), the bulk framing over TCP (section 10) */
+    RFM_CAP_PANEL_EV = 1u << 13,        /* a session over TCP sends the panel's events as PANEL_EV (section 10) */
+    RFM_CAP_NET_FRAMES = 1u << 14       /* over TCP a frame of up to RFM_NET_FRAME_MAX bytes of TILES bodies is decoded
+                                         * whole at its END (section 10) */
 };
 
 /* TOUCH body (host -> device, in a session; no reply): flags8. A session starts with 0 (velocity 100, no
@@ -127,6 +136,8 @@ static inline uint32_t rfm_pal_row_bytes(uint32_t w, uint32_t n) { return (w * r
 /* FRAME_ACK body: frame16 status8 draw_us32 bytes32 pending8 */
 #define RFM_ACK_LEN 12u
 enum { RFM_ACK_DECODE_ERR = 1u << 0, RFM_ACK_SHADOW_RESET = 1u << 1 };
+/* (the Wi-Fi build) FRAME_ACK status bits 4..7 with SHADOW_RESET: why */
+enum { RFM_ACK_REASON_POWER = 1, RFM_ACK_REASON_AUDIO = 2, RFM_ACK_REASON_SESSION = 3, RFM_ACK_REASON_LCD = 4 };
 
 /* PANEL_R body: keys32 buttons16 enc[7] int16 master16 battery_mv16 flags8 */
 #define RFM_PANEL_KEYS 0u
@@ -144,6 +155,11 @@ enum { RFM_ACK_DECODE_ERR = 1u << 0, RFM_ACK_SHADOW_RESET = 1u << 1 };
  * SysEx): channel messages (2 or 3 bytes) and real time (F8 FA FB FC: 1 byte), in the order they came; 1..64 bytes */
 #define RFM_MIDI_IN_MAX 64u
 
+/* PANEL_EV body (device -> host, in a session over TCP): the panel's events exactly as the plain MIDI of section 4
+ * (9F/8F keys, AF pressure, 9E/8E buttons, BE encoders and MASTER), whole messages with their status, in the order
+ * they happened; 1..96 bytes */
+#define RFM_PANEL_EV_MAX 96u
+
 /* panel events as plain MIDI (docs/PROTOCOL.md section 4) */
 #define RFM_MIDI_KEY_CH 15u             /* channel 16, zero-based */
 #define RFM_MIDI_KEY_NOTE0 53u          /* key k -> note 53 + k */
@@ -152,6 +168,28 @@ enum { RFM_ACK_DECODE_ERR = 1u << 0, RFM_ACK_SHADOW_RESET = 1u << 1 };
 #define RFM_MIDI_BTN_CH 14u             /* channel 15: note = matrix button id */
 #define RFM_MIDI_BTN_VEL 127u
 #define RFM_MIDI_ENC_CC0 16u            /* encoder e -> CC 16 + e on channel 15, value 64 + detents */
+/* the Wi-Fi build (docs/PROTOCOL.md section 10): the bulk framing over TCP on RFM_NET_TCP_PORT, one host at a time;
+ * a UDP datagram "RFM1?" to RFM_NET_UDP_PORT (broadcast) is answered with "RFM1!" and key=value lines */
+#define RFM_NET_TCP_PORT 7740u
+#define RFM_NET_UDP_PORT 7741u
+#define RFM_NET_FRAME_MAX 16384u        /* RFM_CAP_NET_FRAMES: a frame's TILES messages (bodies + 2 each) kept whole */
+enum { RFM_WIFI_GET = 0, RFM_WIFI_SET = 1, RFM_WIFI_FORGET = 2, RFM_WIFI_SAVED = 3, RFM_WIFI_DIAG = 4, RFM_WIFI_MODE = 5,
+       RFM_WIFI_SCAN = 6, RFM_WIFI_LIST = 7 };
+enum { RFM_WIFI_OK = 0, RFM_WIFI_BAD = 1, RFM_WIFI_NOT_HERE = 2, RFM_WIFI_BUSY = 3 };
+#define RFM_WIFI_SSID_MAX 32u
+#define RFM_WIFI_PASS_MAX 63u
+#define RFM_WIFI_R_SSID 30u             /* WIFI_R: the fixed part's length; ssid_len8 ssid, why_len8 why follow */
+/* SCAN (6) / LIST (7): a list's page, small enough for any link (the Ableton Move's USB-A bridge loses a burst of more
+ * than ~200 bytes from the unit): WIFI_R `op status state which scanning scans8 total first count`, then count x
+ * `rssi8 flags8 channel8 ssid_len8 ssid`, the entries at most RFM_WIFI_PAGE_MAX bytes */
+enum { RFM_WIFI_LIST_SCAN = 0, RFM_WIFI_LIST_KEPT = 1 };
+#define RFM_WIFI_LIST_HDR 9u
+#define RFM_WIFI_PAGE_MAX 96u
+#define RFM_WIFI_F_SECURED 1u           /* a list entry's flags: a password needed */
+#define RFM_WIFI_F_KEPT 2u              /* .. the unit keeps this network */
+#define RFM_WIFI_F_HEARD 4u             /* .. the last scans heard it (rssi, secured and channel are its) */
+#define RFM_WIFI_F_JOINED 8u            /* .. the network joined (or being joined) now */
+#define RFM_WIFI_SCAN_MS 12000u         /* a scan not done after this long is given up (scanning 0) */
 #define RFM_MIDI_MASTER_MSB 7u          /* v14 = adc << 4: CC 7 = v14 >> 7, then CC 39 = v14 & 0x7F */
 #define RFM_MIDI_MASTER_LSB 39u
 

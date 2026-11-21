@@ -6,7 +6,8 @@
 # computer asleep (felucca-bsp 0008) lets its notes go too. tests/run_tests.sh runs it (both builds).
 wait 400
 expect usbh 0
-expect sa_nset 10
+# (10 rows; the Wi-Fi build's 11th is WI-FI, after USB HOST)
+expect sa_nset >9
 expect sa_set9 0
 expect sa_usbh_line 0
 # a device: the computer's MIDI plays it

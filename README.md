@@ -31,7 +31,11 @@ FM-1. It is in testing: a hidden tester page at [remotefm1.com/installer/smk37](
 and a browser emulator of it at [installer/smk37/emu](https://remotefm1.com/installer/smk37/emu/). See
 [docs/SMK37.md](docs/SMK37.md).
 
-> **Status: 0.3.1 released on the site (2026-10-31): the FM-1 on its own.** 0.3.1 adds 16 user cartridges (list,
+> **Status: 0.4.0 released (2026-11-19): RemoteFM1 over Wi-Fi.** 0.4.0 adds a third package, `remote-wifi-0.4.0.fwsc`
+> (Wi-Fi instead of Bluetooth and USB audio, Wi-Fi settings on the FM-1 itself), so an Ableton Move can use the FM-1 as
+> its panel without a cable ([remotefm1.com/move](https://remotefm1.com/move/), [docs/WIFI.md](docs/WIFI.md)); the
+> packages now install as `FM-1_72XXYYZZ` (Wi-Fi `FM-1_729XXYYZZ`).
+> 0.3.1 (2026-10-31) made the FM-1 an instrument on its own: it added 16 user cartridges (list,
 > replace, delete), loops saved on the unit, a VELOCITY setting, and velocity and pressure for hosts. Without a host, 0.3 is an instrument: a
 > DX7 (saadet's FM6, Yamaha's 256 ROM voices and your own cartridges), a MIDI controller over USB, Bluetooth and the
 > TRS jack, a 16-loop looper, an arp, scales and a REMOTE MIDI mode; a host still takes it over as its panel
@@ -97,7 +101,7 @@ the site's FM-1 emulator. The stock M-VAVE firmware can't run on a host.
 
 1. **Install RemoteFM1** on the FM-1 with [its web installer](https://remotefm1.com/installer/)
    (USB + Bluetooth MIDI, or USB only) or any Felucca-family installer, for example
-   `python3 tools/fm1_install.py web/installer/firmware/remote-0.3.1.fwsc` (USB only: `remote-usb-0.3.1.fwsc`).
+   `python3 tools/fm1_install.py web/installer/firmware/remote-0.4.0.fwsc` (USB only: `remote-usb-0.4.0.fwsc`).
    It answers installers as itself, `FM-1_72XXYYZZ` (release X.Y.Z; fm1-base's scheme), on the USB device "FM-1";
    0.2 to 0.3.6 answered `FM-1_52XXYYZZ` (52 moved to 72 because QUADRO numbers its releases `FM-1_52XXYYZZ` too;
    the installers still read both), 0.1 as the official V15 (`FM-1_015`).
@@ -206,7 +210,7 @@ macOS keeps the MIDI port name of the first firmware it saw on the unit (for exa
 finds RemoteFM1 by asking (HELLO), never by name. If the port shows up offline after a firmware change, use
 `--midi-restart` or Audio MIDI Setup > Rescan MIDI.
 
-**Over Bluetooth** (0.2, the default package `remote-0.3.1.fwsc`; `remote-usb-0.3.1.fwsc` has no radio): Bluetooth
+**Over Bluetooth** (0.2, the default package `remote-0.4.0.fwsc`; `remote-usb-0.4.0.fwsc` has no radio): Bluetooth
 is on at every power-on. Connect the FM-1 in Audio MIDI Setup > MIDI Studio > Bluetooth (on a Mac) or the app's Bluetooth MIDI page;
 its port is named after what it advertises, "FM-1 1F2D". The site and FM1VST send HELLO to any port whose name holds
 "FM-1", so they find it there too. The update path stays USB-only.
@@ -323,19 +327,23 @@ and the JieLi AC79 SDK (its Bluetooth libraries; never in this tree):
 ```sh
 git submodule update --init --recursive
 git clone --depth 1 --branch AC79NN_SDK_V1.2.1_2023-12-13 https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK.git ~/fw-AC79_AIoT_SDK
-./build.sh --release 0.3.7           # -> firmware/build/remotefm1-0.3.7.fwsc (USB + Bluetooth MIDI), FM-1_72000307
-./build.sh --release 0.3.7 --no-ble  # -> firmware/build/remotefm1-usb-0.3.7.fwsc (USB only: no Bluetooth library)
+./build.sh --release 0.4.0           # -> firmware/build/remotefm1-0.4.0.fwsc (USB + Bluetooth MIDI), FM-1_72000400
+./build.sh --release 0.4.0 --no-ble  # -> firmware/build/remotefm1-usb-0.4.0.fwsc (USB only: no Bluetooth library)
+./build.sh --wifi --release 0.4.0    # -> firmware/build/remotefm1-wifi-0.4.0.fwsc (Wi-Fi, for an Ableton Move), FM-1_729000400
 ./build.sh                           # a development build, FM-1_7200 (the standalone's DX7 voices: Yamaha's ROM
                                      # cartridges from DX7_ROM_DIR, default Presets/DX7-ROM beside the checkout;
                                      # without them the INIT VOICE only)
 ./build.sh --bench [--no-ble]        # the standalone DX7's bench at boot (firmware/build/remotefm1[-usb]-bench.fwsc);
                                      # firmware/tools/sa_bench.py reads it over USB-MIDI (--hash: the render hash)
 FM1B_CPU2=0 ./build.sh [...]         # one core (the packages start the second core: fm1.toml cpu2, FIZZ's settings)
+./build.sh --wifi [--host]           # RemoteFM1 Wi-Fi (docs/WIFI.md), a development build: firmware/build/remotefm1-wifi.fwsc,
+                                     # FM-1_72900: Wi-Fi instead of Bluetooth and USB audio, the bulk framing over TCP;
+                                     # tools/wifi_probe.py puts it on a network and measures it
 tests/run_tests.sh                   # the app in fm1-base's host simulator (firmware/tests/), the protocol code,
                                      # the patched usb.c and Bluetooth SysEx, tools/fm1_install.py, the DX7's checks
 tests/fm6_parity.sh SAADET_DIR       # the DX7 (saadet's FM6) against saadet's own build: tables and samples
 host/run_tests.sh                    # the host library's tests, with the cross test against the firmware's own code
-tools/hub_build.sh 0.3.2             # a release's two packages, as GitHub builds and signs them (docs/RELEASING.md)
+tools/hub_build.sh 0.4.0             # a release's three packages, as GitHub builds and signs them (docs/RELEASING.md)
 ```
 
 Releases (0.3.2 on) are built and signed on GitHub by The Firmware Hub's shared workflow from a `vX.Y.Z` tag:

@@ -60,6 +60,17 @@ struct rfm_fake {
     uint16_t au_seq;
     int16_t au_pcm[8192];
     uint32_t au_n;
+    /* cfg.tcp: the panel's events waiting for a PANEL_EV (sent when the host takes the bulk side, or when full) */
+    uint8_t ev[RFM_PANEL_EV_MAX];
+    uint32_t nev;
+    /* cfg.wifi */
+    struct {
+        int state, nnets, nkept, scanning;
+        uint32_t t, scan_t, scans, reqs, sets, scan_reqs;
+        char ssid[33], pass[64], why[24];
+        struct { char ssid[33]; int rssi, secured, ch; } nets[16];
+        struct { char ssid[33], pass[64]; } kept[6];
+    } wf;
 };
 
 static void send_audio_r(rfm_fake_t *f, int link);
@@ -145,6 +156,15 @@ static void reply(rfm_fake_t *f, int link, uint8_t cmd, const uint8_t *body, uin
     out_put(f, link, buf, len);
 }
 
+static void ev_flush(rfm_fake_t *f)
+{
+    if (!f->nev)
+        return;
+    reply(f, RFM_LINK_BK, RFM_PANEL_EV, f->ev, f->nev);
+    f->st.panel_ev++;
+    f->nev = 0;
+}
+
 static void midi3(rfm_fake_t *f, uint8_t a, uint8_t b, uint8_t c)
 {
     uint8_t m[3];
@@ -153,6 +173,15 @@ static void midi3(rfm_fake_t *f, uint8_t a, uint8_t b, uint8_t c)
     m[2] = c;
     if (f->drop_midi) {
         f->drop_midi--;
+        return;
+    }
+    if (f->cfg.tcp) {                                   /* the Wi-Fi build: TCP has no MIDI port */
+        if (f->session != 1 + RFM_LINK_BK)
+            return;                                     /* (no USB host here: nobody listens) */
+        if (f->nev + 3u > RFM_PANEL_EV_MAX)
+            ev_flush(f);
+        memcpy(f->ev + f->nev, m, 3);
+        f->nev += 3u;
         return;
     }
     out_put(f, RFM_LINK_SX, m, 3);
@@ -182,6 +211,264 @@ static void send_panel_r(rfm_fake_t *f, int link)
 }
 
 /* ---------------------------------------------------------------- input ---- */
+/* ---------------------------------------------------------------- Wi-Fi (cfg.wifi) ---- */
+static void wf_init(rfm_fake_t *f)
+{
+    const char *p = f->cfg.wifi_nets ? f->cfg.wifi_nets : "Home:-48:1:6;Cafe:-71:0:11";
+    while (*p && f->wf.nnets < 16) {
+        char tmp[80];
+        const char *e = strchr(p, ';');
+        size_t l = e ? (size_t)(e - p) : strlen(p);
+        char *c1, *c2, *c3;
+        if (l >= sizeof tmp)
+            l = sizeof tmp - 1u;
+        memcpy(tmp, p, l);
+        tmp[l] = 0;
+        c1 = strchr(tmp, ':');
+        if (c1 && l) {
+            *c1++ = 0;
+            c2 = strchr(c1, ':');
+            if (c2)
+                *c2++ = 0;
+            c3 = c2 ? strchr(c2, ':') : NULL;
+            if (c3)
+                *c3++ = 0;
+            memcpy(f->wf.nets[f->wf.nnets].ssid, tmp, strlen(tmp) < 32u ? strlen(tmp) : 32u);
+            f->wf.nets[f->wf.nnets].rssi = atoi(c1);
+            f->wf.nets[f->wf.nnets].secured = c2 ? atoi(c2) : 1;
+            f->wf.nets[f->wf.nnets].ch = c3 ? atoi(c3) : 6;
+            f->wf.nnets++;
+        }
+        p = e ? e + 1 : p + strlen(p);
+    }
+    f->wf.state = RFM_WIFI_ST_ON;
+}
+
+static int wf_net(const rfm_fake_t *f, const char *ssid)
+{
+    int i;
+    for (i = 0; i < f->wf.nnets; i++)
+        if (!strcmp(f->wf.nets[i].ssid, ssid))
+            return i;
+    return -1;
+}
+
+static int wf_kept_find(const rfm_fake_t *f, const char *ssid)
+{
+    int i;
+    for (i = 0; i < f->wf.nkept; i++)
+        if (!strcmp(f->wf.kept[i].ssid, ssid))
+            return i;
+    return -1;
+}
+
+static void wf_poll(rfm_fake_t *f)
+{
+    if (f->wf.scanning && f->now - f->wf.scan_t >= (f->cfg.wifi_scan_ms ? f->cfg.wifi_scan_ms : 1000u)) {
+        f->wf.scanning = 0;
+        f->wf.scans++;
+    }
+    if (f->wf.state == RFM_WIFI_ST_JOINING && f->now - f->wf.t >= (f->cfg.wifi_join_ms ? f->cfg.wifi_join_ms : 1500u)) {
+        const int k = wf_net(f, f->wf.ssid), pl = (int)strlen(f->wf.pass);
+        if (k < 0) {
+            f->wf.state = RFM_WIFI_ST_FAILED;
+            strcpy(f->wf.why, "not found");
+        } else if (f->wf.nets[k].secured && (pl < 8 || pl > 63)) {
+            f->wf.state = RFM_WIFI_ST_FAILED;
+            strcpy(f->wf.why, "wrong password?");
+        } else {
+            int i = wf_kept_find(f, f->wf.ssid);
+            if (i < 0)
+                i = f->wf.nkept < 6 ? f->wf.nkept++ : 5;
+            for (; i > 0; i--)                          /* kept, the most recent first */
+                f->wf.kept[i] = f->wf.kept[i - 1];
+            memcpy(f->wf.kept[0].ssid, f->wf.ssid, sizeof f->wf.ssid);
+            memcpy(f->wf.kept[0].pass, f->wf.pass, sizeof f->wf.pass);
+            f->wf.state = RFM_WIFI_ST_CONNECTED;
+            f->wf.why[0] = 0;
+        }
+        memset(f->wf.pass, 0, sizeof f->wf.pass);
+    }
+}
+
+static uint32_t wf_state_r(rfm_fake_t *f, uint32_t op, uint32_t status, uint8_t *b)
+{
+    const uint32_t ip = f->cfg.wifi_ip ? f->cfg.wifi_ip : 0x2A01A8C0u;
+    const uint16_t port = f->cfg.wifi_port ? f->cfg.wifi_port : (uint16_t)RFM_NET_TCP_PORT;
+    const int k = wf_net(f, f->wf.ssid);
+    uint32_t n = RFM_WIFI_R_SSID, l, i;
+    memset(b, 0, RFM_WIFI_R_SSID);
+    b[0] = (uint8_t)op;
+    b[1] = (uint8_t)status;
+    b[2] = (uint8_t)f->wf.state;
+    b[3] = (uint8_t)(int8_t)(f->wf.state == RFM_WIFI_ST_CONNECTED && k >= 0 ? f->wf.nets[k].rssi : 0);
+    if (f->wf.state == RFM_WIFI_ST_CONNECTED)
+        for (i = 0; i < 4u; i++)
+            b[4u + i] = (uint8_t)(ip >> (8u * i));
+    b[8] = (uint8_t)port;
+    b[9] = (uint8_t)(port >> 8);
+    b[10] = (uint8_t)RFM_NET_UDP_PORT;
+    b[11] = (uint8_t)(RFM_NET_UDP_PORT >> 8);
+    b[12] = (uint8_t)(f->cfg.tcp && f->session == 1 + RFM_LINK_BK);
+    b[13] = (uint8_t)f->wf.nkept;
+    l = (uint32_t)strlen(f->wf.ssid);
+    b[n] = (uint8_t)l;
+    memcpy(b + n + 1u, f->wf.ssid, l);
+    n += 1u + l;
+    l = f->wf.state == RFM_WIFI_ST_FAILED ? (uint32_t)strlen(f->wf.why) : 0u;
+    b[n] = (uint8_t)l;
+    memcpy(b + n + 1u, f->wf.why, l);
+    n += 1u + l;
+    if (op == RFM_WIFI_SAVED) {
+        b[n++] = (uint8_t)f->wf.nkept;
+        for (i = 0; i < (uint32_t)f->wf.nkept; i++) {
+            l = (uint32_t)strlen(f->wf.kept[i].ssid);
+            b[n] = (uint8_t)l;
+            memcpy(b + n + 1u, f->wf.kept[i].ssid, l);
+            n += 1u + l;
+        }
+    } else {
+        memset(b + n, 0, 44);                           /* (the sockets' counters) */
+        n += 44u;
+    }
+    return n;
+}
+
+static uint32_t wf_list_r(rfm_fake_t *f, uint32_t op, uint32_t status, uint32_t which, uint32_t first, uint8_t *b)
+{
+    const uint32_t total = which == RFM_WIFI_LIST_KEPT ? (uint32_t)f->wf.nkept : (uint32_t)f->wf.nnets;
+    uint32_t n = RFM_WIFI_LIST_HDR, count = 0, k;
+    for (k = first; k < total; k++) {
+        const char *s = which == RFM_WIFI_LIST_KEPT ? f->wf.kept[k].ssid : f->wf.nets[k].ssid;
+        const int h = wf_net(f, s);
+        const uint32_t l = (uint32_t)strlen(s);
+        uint32_t flags = 0;
+        if (n + 4u + l > RFM_WIFI_LIST_HDR + RFM_WIFI_PAGE_MAX)
+            break;
+        if (h >= 0)
+            flags |= RFM_WIFI_F_HEARD | (f->wf.nets[h].secured ? RFM_WIFI_F_SECURED : 0u);
+        if (wf_kept_find(f, s) >= 0)
+            flags |= RFM_WIFI_F_KEPT;
+        if (f->wf.ssid[0] && !strcmp(f->wf.ssid, s))
+            flags |= RFM_WIFI_F_JOINED;
+        b[n] = (uint8_t)(int8_t)(h >= 0 ? f->wf.nets[h].rssi : 0);
+        b[n + 1u] = (uint8_t)flags;
+        b[n + 2u] = (uint8_t)(h >= 0 ? f->wf.nets[h].ch : 0);
+        b[n + 3u] = (uint8_t)l;
+        memcpy(b + n + 4u, s, l);
+        n += 4u + l;
+        count++;
+    }
+    b[0] = (uint8_t)op;
+    b[1] = (uint8_t)status;
+    b[2] = (uint8_t)f->wf.state;
+    b[3] = (uint8_t)which;
+    b[4] = (uint8_t)f->wf.scanning;
+    b[5] = (uint8_t)f->wf.scans;
+    b[6] = (uint8_t)total;
+    b[7] = (uint8_t)first;
+    b[8] = (uint8_t)count;
+    return n;
+}
+
+static void wifi_cmd(rfm_fake_t *f, int link, const uint8_t *body, uint32_t len)
+{
+    uint8_t b[RFM_WIFI_R_SSID + 2u + 32u + 40u + 1u + 6u * 33u + 44u];
+    const uint32_t op = len ? body[0] : RFM_WIFI_GET;
+    const int usb = link == RFM_LINK_SX || !f->cfg.tcp;
+    uint32_t status = RFM_WIFI_OK;
+    if (!f->wf.state && !f->wf.nnets)
+        wf_init(f);
+    wf_poll(f);
+    f->wf.reqs++;
+    if (op == RFM_WIFI_SET) {
+        const uint32_t sl = len > 1u ? body[1] : 0u, pl = len > 2u + sl ? body[2u + sl] : 0u;
+        if (!usb)
+            status = RFM_WIFI_NOT_HERE;
+        else if (!sl || sl > RFM_WIFI_SSID_MAX || pl > RFM_WIFI_PASS_MAX || len != 3u + sl + pl)
+            status = RFM_WIFI_BAD;
+        else {
+            memset(f->wf.ssid, 0, sizeof f->wf.ssid);
+            memcpy(f->wf.ssid, body + 2, sl);
+            memset(f->wf.pass, 0, sizeof f->wf.pass);
+            memcpy(f->wf.pass, body + 3u + sl, pl);
+            f->wf.state = RFM_WIFI_ST_JOINING;
+            f->wf.t = f->now;
+            f->wf.sets++;
+        }
+    } else if (op == RFM_WIFI_FORGET) {
+        const uint32_t k = len > 1u ? body[1] : 0xFFu;
+        if (!usb)
+            status = RFM_WIFI_NOT_HERE;
+        else if (k == 0xFFu)
+            f->wf.nkept = 0;
+        else if (k >= (uint32_t)f->wf.nkept)
+            status = RFM_WIFI_BAD;
+        else {
+            int i;
+            for (i = (int)k; i < f->wf.nkept - 1; i++)
+                f->wf.kept[i] = f->wf.kept[i + 1];
+            f->wf.nkept--;
+        }
+    } else if (op == RFM_WIFI_SCAN || op == RFM_WIFI_LIST) {
+        const uint32_t which = op == RFM_WIFI_LIST && len > 1u ? body[1] : RFM_WIFI_LIST_SCAN;
+        const uint32_t first = op == RFM_WIFI_LIST && len > 2u ? body[2] : 0u;
+        if (which > RFM_WIFI_LIST_KEPT) {
+            status = RFM_WIFI_BAD;
+        } else if (op == RFM_WIFI_SCAN) {
+            f->wf.scan_reqs++;
+            if (f->wf.state == RFM_WIFI_ST_JOINING && !(len > 1u && body[1] == 1u)) {
+                status = RFM_WIFI_BUSY;
+            } else if (!f->wf.scanning) {
+                f->wf.scanning = 1;
+                f->wf.scan_t = f->now;
+                if (f->wf.state == RFM_WIFI_ST_JOINING) {   /* (a scan stops the join) */
+                    f->wf.state = RFM_WIFI_ST_FAILED;
+                    strcpy(f->wf.why, "stopped");
+                    memset(f->wf.pass, 0, sizeof f->wf.pass);
+                }
+            }
+        }
+        reply(f, link, RFM_WIFI_R, b, wf_list_r(f, op, status, which, first, b));
+        return;
+    } else if (op > RFM_WIFI_MODE) {
+        status = RFM_WIFI_BAD;
+    }
+    reply(f, link, RFM_WIFI_R, b, wf_state_r(f, op, status, b));
+}
+
+int rfm_fake_wifi_state(const rfm_fake_t *f, char *ssid)
+{
+    if (ssid)
+        memcpy(ssid, f->wf.ssid, sizeof f->wf.ssid);
+    return f->wf.state;
+}
+
+int rfm_fake_wifi_kept(const rfm_fake_t *f, int i, char *ssid)
+{
+    if (i < 0 || i >= f->wf.nkept)
+        return 0;
+    if (ssid)
+        memcpy(ssid, f->wf.kept[i].ssid, 33);
+    return 1;
+}
+
+int rfm_fake_wifi_pass_is(const rfm_fake_t *f, const char *ssid, const char *pass)
+{
+    const int i = wf_kept_find(f, ssid);
+    return i >= 0 && !strcmp(f->wf.kept[i].pass, pass);
+}
+
+void rfm_fake_wifi_counts(const rfm_fake_t *f, uint32_t *reqs, uint32_t *sets, uint32_t *scans)
+{
+    if (reqs)
+        *reqs = f->wf.reqs;
+    if (sets)
+        *sets = f->wf.sets;
+    if (scans)
+        *scans = f->wf.scan_reqs;
+}
+
 static void on_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
 {
     rfm_fake_t *f = (rfm_fake_t *)ctx;
@@ -203,7 +490,8 @@ static void on_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
         h.proto = f->cfg.proto;
         strncpy(h.ver, "fake", 8);
         h.transports = (uint8_t)(1u | (f->cfg.has_bulk ? 2u : 0u) |
-                                 (f->cfg.ble ? RFM_TR_BLE | RFM_TR_BLE_HEARD : 0u));
+                                 (f->cfg.ble ? RFM_TR_BLE | RFM_TR_BLE_HEARD : 0u) |
+                                 (f->cfg.tcp && link == RFM_LINK_BK ? RFM_TR_NET : 0u));
         h.sxq = (uint16_t)(f->cfg.ble == 1 && link == RFM_LINK_SX ? 128u : 1024u - 64u);  /* firmware/src/rfm_main.c */
         h.usb_mode = 1;
         h.lcd_baud = 2;
@@ -215,7 +503,9 @@ static void on_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
         h.screen_h = RFM_H;
         h.caps = RFM_CAP_SHADOW | RFM_CAP_COPY | RFM_CAP_RLE | RFM_CAP_PAL | RFM_CAP_BATTERY | RFM_CAP_PLAY_GREEN |
                  RFM_CAP_LED5 | (f->cfg.hold ? RFM_CAP_HOLD : 0u) | (f->cfg.midi_in ? RFM_CAP_MIDI_IN : 0u) |
-                 (f->cfg.touch ? RFM_CAP_TOUCH : 0u) | (f->cfg.audio ? RFM_CAP_BLE_AUDIO : 0u);
+                 (f->cfg.touch ? RFM_CAP_TOUCH : 0u) | (f->cfg.audio ? RFM_CAP_BLE_AUDIO : 0u) |
+                 (f->cfg.tcp ? RFM_CAP_WIFI | RFM_CAP_PANEL_EV | RFM_CAP_NET_FRAMES : 0u) |
+                 (f->cfg.wifi ? RFM_CAP_WIFI : 0u);
         h.max_in_flight = RFM_FRAMES_IN_FLIGHT;
         h.session = f->session ? 1 : 0;
         strncpy(h.fw_ver, "m1-fake", 8);
@@ -374,6 +664,10 @@ static void on_msg(void *ctx, uint8_t cmd, const uint8_t *b, uint32_t n)
         if (n <= RFM_SX_BODY_MAX)
             reply(f, link, RFM_ECHO_R, b, n);
         break;
+    case RFM_WIFI:
+        if (f->cfg.wifi)
+            wifi_cmd(f, link, b, n);
+        break;
     default:
         break;
     }
@@ -435,12 +729,37 @@ void rfm_fake_rx_bk(rfm_fake_t *f, const uint8_t *p, uint32_t n, uint32_t now)
 }
 
 uint32_t rfm_fake_take_sx(rfm_fake_t *f, uint8_t *out, uint32_t cap) { return out_take(&f->out[0], out, cap); }
-uint32_t rfm_fake_take_bk(rfm_fake_t *f, uint8_t *out, uint32_t cap) { return out_take(&f->out[1], out, cap); }
+uint32_t rfm_fake_take_bk(rfm_fake_t *f, uint8_t *out, uint32_t cap)
+{
+    ev_flush(f);                                        /* (cfg.tcp: the events since the last turn, one message) */
+    return out_take(&f->out[1], out, cap);
+}
+
+void rfm_fake_tcp_reset(rfm_fake_t *f)
+{
+    rfm_rx_reset(f->rx[RFM_LINK_BK]);
+    f->out[1].r = f->out[1].w = 0;
+    f->bk_seq = 0;
+    f->nev = 0;
+    f->st.tcp_resets++;
+    if (f->session == 1 + RFM_LINK_BK) {
+        audio_end(f, 0);
+        f->session = 0;
+        f->held = 0;
+        f->nacks = 0;
+        f->st.sessions_ended++;
+    }
+}
 
 void rfm_fake_poll(rfm_fake_t *f, uint32_t now)
 {
     uint32_t i = 0;
     f->now = now;
+    if (f->cfg.wifi) {
+        if (!f->wf.state && !f->wf.nnets)
+            wf_init(f);
+        wf_poll(f);
+    }
     while (i < f->nacks) {                              /* in order: an ACK waits for the ones before it */
         pend_ack_t *a = &f->acks[i];
         if (a->due_us > (uint64_t)now * 1000u + 999u)

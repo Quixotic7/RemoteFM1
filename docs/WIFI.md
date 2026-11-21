@@ -1,0 +1,246 @@
+# RemoteFM1 Wi-Fi (phase 1: a test build)
+
+An FM-1 as the panel of a host on the same network (an Ableton Move first) without a USB cable: RemoteFM1's bulk
+framing over TCP. This is the spike: the firmware joins a network, serves the bulk framing on TCP port 7740 and
+answers discovery on UDP 7741; `tools/wifi_probe.py` puts it on a network over USB and measures it. The protocol's
+part is docs/PROTOCOL.md section 10.
+
+## Building
+
+```sh
+./build.sh --wifi            # firmware/build/remotefm1-wifi.fwsc, identity FM-1_72900 (HELLO_R "FM-1_729")
+./build.sh --wifi --host     # the simulator, firmware/build/host/remotefm1-wifi_host (firmware/tests/wifi.txt)
+```
+
+`build.sh --wifi` copies `firmware/` to `build/app-wifi` with `firmware/fm1-wifi.toml` as its `fm1.toml`, so the
+USB / Bluetooth build is untouched. fm1-base is the submodule's commit (317cb86: its Wi-Fi is the same as fm1-base
+main's on 2026-11-19), with one more patch, `firmware/patches/fm1-base/0010`: `app_wifi.ld` gets the app's DSP code
+and the second core's loop in RAM (without it both landed in the flash), a `.ram_bss` section in what the RAM code
+leaves of RAMTEXT, and `fm1.toml wifi_heap2_kb`. After the build, `tools/wifi_layout.py` checks the image's pool.
+
+## What is in it
+
+- fm1-base's Wi-Fi (JieLi's library and the SDK's lwIP, `device/wifi.c`): a station, six networks kept in the
+  store (OBJ_WIFI: a record in RemoteFM1's own sectors 0xF2000..0xF3FFF, kept compact so the other builds still read
+  their own records; the password as fm1-base keeps it, in plain text there), joined at start and again after a drop;
+  on at the first screen (fm1-base masks the input timer and the sound while the radio calibrates, up to 15 s).
+- `net/rfm_net.c`: TCP on 7740 (one host at a time; a new one replaces the old), discovery on UDP 7741, two 8 KB
+  rings to the app; a task of the shim's that runs inside the main loop's `plat_yield` (every 250 us) and waits on a
+  semaphore the main loop posts. `src/rfm_wifi.c`: WIFI (0x17), the task's start, the discovery text, the big buffers.
+- The standalone DX7 as in the other builds (8 ROM cartridges, the loops, the user banks); no Bluetooth, no USB
+  audio, no shadow frame buffer (TILES go to the panel as they are decoded, as `RFM_SHADOW 0` has always done).
+- USB: SysEx, the vendor pair (rings of 2 KB: a diagnostic here) and the updater as in the other builds.
+
+## The memory, and the owner's question
+
+"Can we make the Wi-Fi build have fewer DX7 carts so there is space for BLE and USB audio still?" No: the carts are
+flash, and Wi-Fi's limit is the RAM. Measured with this tree (fm1-base 317cb86; bytes):
+
+| build | flash (of 581,564) | RAM .data+.bss (of 98,304; Wi-Fi 131,072) | pool (of 344,064; Wi-Fi 311,296) |
+|---|---|---|---|
+| (a) RemoteFM1 today: Bluetooth, USB audio, 8 carts | 339,216 | 97,172 | 335,320 |
+| (a') the same, `--no-ble` | 203,856 | 45,916 | 310,428 |
+| (b) Wi-Fi, no Bluetooth, no USB audio, the app as it is | 530,252 | 141,376 (over by 10,304) | 594,708 (over by 283,412) |
+| (c) (b) with USB audio | | over by 21,056 (+10,752) | over by 283,412 |
+| (d) (b) with Bluetooth (the build refuses it; forced, it links) | | over by 24,928 (+14,624) | over by 283,412 |
+| (e) carts: 0 / 1 / 8, any of the above | -32,752 / -28,736 / 0 | 0 | 0 |
+| the spike (this build): Wi-Fi, 8 carts | 550,840 | 128,320 | 305,988 (examples/wifi's exactly) |
+
+- The carts (`SA_ROM`, 32,768 bytes) are in `.text`: flash only, no RAM in any build. 8 carts fit a Wi-Fi build's
+  flash (31 KB left); fewer carts free flash, which is not short.
+- Wi-Fi takes ~100 KB of the RAM (the driver's buffers, lwIP, 24 KB of heap), a 248 KB heap in the pool, and lwIP's
+  packet buffers (28 KB) beside it: of the FM-1's ~464 KB of SRAM, ~376 KB. RemoteFM1's own buffers (the shadow 115 KB,
+  the vendor rings 64 KB, the loops 32 KB, the rings and parsers 50 KB) do not fit beside it as they are.
+- The spike fits by giving the app's big buffers the Wi-Fi heap (fm1-base's advice: "new buffers go on the heap"):
+  86.5 KB of its 260 KB (heap2 cut from 24 KB to 12 KB to make the RAM fit), no shadow, small rings. The Wi-Fi
+  library's own peak is not known until it runs (WIFI GET reports the heap's peak).
+- Bluetooth on top (JieLi's stack) wants ~15 KB more RAM, three task stacks (~24 KB) and its heap from the Wi-Fi heap
+  at run time; USB audio ~11 KB of RAM. Neither fits beside the spike: its RAM has 2.7 KB left, and the heap's margin
+  is unmeasured.
+- What could free RAM: the loops' pool in a Wi-Fi build (28 KB, but the loops kept in the flash would not all load),
+  the standalone's other buffers (~20 KB), the screen reader; and the real way: fm1-base's own Wi-Fi stack (open PR
+  charlesvestal/fm1-base#31, `wifi_stack = "own"`: ~3.8 KB of RAM, beside the own Bluetooth stack, nothing of
+  JieLi's), which has UDP and no TCP, and has not run on an FM-1 in that form.
+
+**Why "not with ble, yet"** (fm1-base): `tools/build.py` refuses `ble` with `wifi` ("one radio a build"). The README:
+"each fills most of what the FM-1 has (the chip has no external RAM), and together they don't fit": the RAM first.
+The two link (forced: only the RAM regions overflow), and the shim was made for both (its task table counts the
+Bluetooth tasks with Wi-Fi's), but they share the radio: commit 0a69a99 found Bluetooth's stored radio trim made the
+access point deaf to Wi-Fi (Wi-Fi now calibrates at every start), and JieLi's coexistence set-up (its `wlc.c`) is
+wired only in PR #31's own stack. Untested together on an FM-1.
+
+## The pool's layout
+
+`app_wifi.ld` says: "keep the pool's layout as fm1-radio has it: the radio hardware writes somewhere in it (unfound),
+and moving the stacks / heap / lwIP pools by even 4.6 KiB broke its reception". The spike keeps the pool before the
+heap exactly as long as `examples/wifi`'s (0x5A04 bytes), so the heap and lwIP's pools sit at the example's addresses:
+`src/rfm_wifi.c` `RF_POOL_PAD`, checked by `tools/wifi_layout.py` at every `--wifi` build. What else the app needs in
+RAM goes to the heap (`app.h` `RF_BIG`) or to RAMTEXT's rest (`RF_LOW`: 10,244 bytes, 1,872 left).
+
+## Putting it on a network and measuring it
+
+On a Mac with the FM-1 on USB (python-rtmidi, as RemoteFM1's other tools):
+
+```sh
+python3 tools/wifi_probe.py setup          # asks the network's name and its password (typed, not shown); waits
+                                           # for an address (the FM-1 keeps the network once it has joined)
+python3 tools/wifi_probe.py status         # the state, the address, the networks kept, the heap
+python3 tools/wifi_probe.py scan           # the networks the FM-1 hears (2.4 GHz), strongest first
+python3 tools/wifi_probe.py find           # discovery on the network (UDP broadcast)
+python3 tools/wifi_probe.py bench [ADDR] [--sink-kb 1024 --source-kb 1024 --echo 100 --json out.json]
+python3 tools/wifi_probe.py forget all     # forget the networks
+```
+
+`bench`: HELLO over TCP, ECHO round trips (16 B and 1 KB), SINK host to FM-1 (STATS confirms every byte, gaps and
+checksums), SOURCE FM-1 to host (sequence and checksums checked), the heap before and after; "result: no loss" at the
+end, exit 0. Against the simulator: `firmware/build/host/remotefm1-wifi_host` with a script `rf serve 30 7745`, then
+`wifi_probe.py --sim bench --tcp-port 7745` (tests/run_tests.sh does it).
+
+## What is known, and what is not
+
+Verified by building and in the simulator: the package builds (flash, RAM, pool inside their limits; the pool as
+examples/wifi's), WIFI over USB SysEx, the TCP transport through its rings, discovery and the whole bench over real
+TCP on this computer's sockets (net/rfm_net.c is the same code on BSD sockets), the standalone's tests.
+
+Needs the FM-1: that it boots and joins (JieLi's library with RemoteFM1's RAM use; the second core with Wi-Fi), the
+heap's peak (WIFI GET), TCP throughput and latency on the chip (lwIP's 2.9 KB send buffer bounds SOURCE), the audio
+and the screen while Wi-Fi works, discovery through the owner's router, and that USB and the updater still work.
+
+## Phase 1: a whole panel session over TCP (2026-11-19)
+
+- **The panel's events:** PANEL_EV (`0x56`, PROTOCOL.md section 10; caps bit13 `RFM_CAP_PANEL_EV`, caps 0x362C):
+  in a session over TCP the event queue (`rf_evq`, 256) goes out as PANEL_EV messages of up to 32 events (96 bytes,
+  the same MIDI bytes as section 4) when TCP's ring has room; nothing more in RAM (the message is built on the
+  stack). Flash +176 B (551,016), RAM and the pool unchanged (128,320 / 305,988), `tools/wifi_layout.py` passes.
+- **libremotefm1:** `RFM_LINK_TCP` (host/include/rfm/session.h): the bulk framing on a socket the back end owns, no
+  pacing (`RFM_BUDGET_TCP_BPS` 300,000 B/s, 2 frames in flight), PANEL_EV into the panel decoder, preferred to a
+  SysEx link (a TCP link that has not answered HELLO yet is waited for), `rfm_session_link_reset` for a reconnect,
+  `rfm_parse_discovery` for the UDP answers; the fake unit's `cfg.tcp` (host/tests/test_session.c test_tcp,
+  test_tcp_over_usb).
+- **The simulator** answers discovery with the port it serves (`rf serve 30 7745`: port=7745) and takes the panel
+  from standard input while serving (`rf serve SECONDS PORT stdin`: key, press, release, spin, master, drop, end), so
+  a host's end-to-end test drives it (RemoteFM14Move's tests/fm1wifi_e2e.sh).
+- **On the owner's FM-1 (2026-11-19):** linked by broadcast at once, its panel events arrived, but the session
+  restarted every few seconds over a connection that stayed up: TCP's retransmission stalls (a second or more) met
+  USB's timeouts (PANEL_R 1.6 s, SESSION resent after 400 ms: a second start restarted the unit's session, "shadow
+  reset"). libremotefm1 now waits TCP's stalls out (PROTOCOL.md section 10, `RFM_TCP_*`); test_session test_tcp_stalls
+  and the simulator's `stall MS` (RemoteFM14Move's fm1wifi_e2e.sh) reproduce it.
+- **1c on the unit was worse than 1b** (2026-11-19: ack 350 ms, PANEL_R gaps of 6 s, sessions restarting): see
+  "Diagnostics" below; 1d decodes a kept frame in 4 KB slices, sends 2 frames of 10 KB in flight again, never
+  restarts a session over TCP for a late PANEL_R, and counts SESSION's ACKs.
+- **1d's traces (2026-11-19) found it:** for 160 of 240 s the unit sent no PANEL_R and counted no whole frame on TCP
+  while the Move's frames were acknowledged: its session was on USB (two SESSION starts that did not come over TCP,
+  and one SESSION 0 that ended the Move's), taken by a player on the Mac the FM-1 was plugged into. Outside a session
+  the unit acknowledges TILES and draws nothing, so the FM-1 showed the other player's firmware ("other firmwares'
+  screens"), the Move's screen came back only when its heartbeat restarted the session ("blocks", restarts, "shadow
+  reset, a SESSION start"). The loop (turns <= 6 ms), the socket task (<= 31 ms), TCP's input (never full) and lwIP
+  (no retransmissions) were fine. 1e: a TCP session is not taken by another transport (PROTOCOL.md section 10); DIAG
+  says where the session is (`on`) and what it refused.
+- **Not done:** mDNS (`fm1-XXXX.local`, `_remotefm1._tcp`): lwIP's responder is in the SDK (`apps/mdns`) but not built
+  by fm1-base (its options, its sources, its RAM: a patch to fm1-base); the UDP responder is the discovery. The
+  screen's rate on the unit (no shadow: rectangles go to the panel row by row as they are decoded) is to be measured.
+
+## Diagnostics (1d)
+
+`tools/wifi_probe.py watch [--log trace.jsonl]` asks WIFI DIAG over USB every second while a host (the Move) drives the
+unit over TCP, and prints a line a second:
+
+- **turn**: the main loop's longest turn this second (the app's own: decoding, blitting, replies), and a histogram of
+  turns (< 0.25 / 1 / 4 / 16 / 64 ms / longer); **out**: the longest time fm1-base's loop kept the app waiting; **net**:
+  the longest the socket task did not run (it runs only inside plat_yield, every 250 us of the app's turns).
+- **frame**: the longest a kept frame took from its END to the last slice drawn, and in how many turns; +w whole
+  frames, +o frames too long to keep.
+- **PANEL_R**: how many went to TCP this second and the longest gap between two in a session (500 ms when well);
+  **txdrop**: messages TCP's ring had no room for.
+- **rxfull**: the longest stretch TCP's input ring was (nearly) full, and how often.
+- **sess**: session starts; ends by the host (h), the keepalive (k), the connection (c); **reset**: the last shadow
+  reset's reason.
+- **rexmit**: lwIP's retransmission episodes on the connection, the most retries in a row, the longest RTO; **wnd**:
+  the smallest send / receive windows; **persist**: zero-window probes begun; **txq**: the most bytes waiting to go;
+  **tcp / link**: segments out / in, drops, out-of-memory, the pbuf pool's failures. **heap**: used / peak.
+
+`wifi_probe.py mode direct` turns whole frames off (until the unit restarts), `mode whole` on again: an A/B without a
+flash. The Move's `/api/status` fm1 adds `draw_us_max` (the longest FRAME_ACK draw time), `panel_r_gap_max`,
+`shadow_resets`, `reset_reason` and `wifi_rx_ms_max` (the longest silence on the connection).
+
+## Setting up Wi-Fi from the Ableton Move (WIFI SCAN / LIST, 2026-11-19)
+
+No computer needed: the FM-1 on the Move's USB-A, RemoteFM14Move's page (`http://remotefm1.local:7730`) on a phone,
+"FM-1 Wi-Fi": the networks the FM-1 hears, a password, "Join". The Move sends WIFI over the USB-A SysEx link (SET is
+USB-only, so the setup needs the cable); the FM-1 joins, keeps the network (six, the most recent first) and the Move
+then finds it over Wi-Fi as before. The same for a phone's hotspot (2.4 GHz: on an iPhone, "Maximise Compatibility").
+
+- **SCAN (6) / LIST (7)** (docs/PROTOCOL.md section 10): a scan asked, then the list read in pages of at most 9 + 96
+  bytes (the Move's bridge loses a burst of more than ~200 bytes from the unit); `which` 1 lists the networks kept.
+  The scan's list is fm1-base's (`plat_wifi_found`: twelve networks, each SSID once, the strongest first, one missed
+  by a scan kept for three). A scan stops a join in progress, so it is refused while the FM-1 joins unless asked
+  with `06 01` (the Move's page does: the user is choosing a network).
+- **Cost** (against 1d): flash +416 B (553,408 B), RAM .data+.bss +32 B (128,768 of 131,072), the pool unchanged (305,988 of
+  311,296; `tools/wifi_layout.py` ok), the reply in WIFI's existing buffer: no heap.
+- **The simulator** (fm1-base's host stand-in, RemoteFM1 patch 0011): a scan takes 1 s, then `plat_wifi_scans` counts
+  it; `firmware/tests/wifi.txt` checks SCAN, the pages and their size.
+- **libremotefm1:** `rfm_build_wifi_get/scan/list/set/forget`, `rfm_parse_wifi_state`, `rfm_parse_wifi_list`;
+  `rfm_session_send` (any link, beside the session), `rfm_session_hello_link`, `rfm_session_link_hello`, `cb.msg`.
+  The fake unit has the Wi-Fi build's WIFI (`cfg.wifi`: networks around, joins, a wrong password, kept networks).
+
+## Wi-Fi on the FM-1 itself (the settings' WI-FI row and the Wi-Fi page, 2026-11-19)
+
+The design is design/wifi-settings/ (README.md: every screen's controls, the owner's decisions; the mockups). The code
+is `firmware/sa/sa_wifi.c` (the page's state and controls) and `sa_wifi_draw.c` (its screens, drawn with sa_gfx.c's
+calls and the Jersey 10 font as the mockups are), in the Wi-Fi build only (`FM1B_WIFI`): the USB, Bluetooth and
+SMK-37 builds compile none of it (their images are the same size as before).
+
+- **The WI-FI row** (HOME held or GLO + HOME: the settings, the 11th row after USB HOST): `OFF`, `LOOKING` (starting,
+  no network yet, joining, asking for an address), the network joined (the signal as four rising stripes), or `NOT
+  FOUND` / `COULD NOT JOIN`. **KN1** turns Wi-Fi off or on; **OCT+** (lit, the arrow) opens the Wi-Fi page and turns
+  Wi-Fi on if it was off. Turning it on calibrates the radio first: fm1-base holds the panel and the sound for up to
+  15 s (the owner accepted it).
+- **Kept across a power cycle:** off or on is kept with the instrument's settings (OBJ_SA, a spare byte: records from
+  before read as on), saved 2 s after the change once nothing sounds (15 s at the latest). At power-on a unit left
+  **off** starts no radio: no 15 s calibration, no network, no TCP or discovery, the waiting screen says `WIFI OFF`.
+  KN1, OCT+ into the page, or a WIFI SET or SCAN over USB (the Move's page) turns it on again and keeps it on. Left
+  **on** (the default) it starts as before: on after the first screen, joining the networks kept.
+- **The page:** the network joined on top (its signal, name, address), then the networks around (bars, a star when
+  kept, a lock when secured; a long name scrolls while picked), a count and the kept count (n/6) on top. **SELECT**
+  picks; turned up past the top it scans again (refused while a join is under way). **ALGORITHM** shows the networks
+  kept instead (a check for the joined one, dim when not heard, six places). **OCT+** opens the pick: a kept network
+  shows JOIN / a new password / FORGET (SELECT the tile, OCT+ does it; FORGET takes two presses, anything else or 3 s
+  disarms it); a secured one not kept opens the password; an open one joins at once. **OCT-** goes back a level (from
+  the list to the settings' WI-FI row); **HOME** closes the settings. Opening the page scans, unless a join is under way.
+  Nothing heard: a dark fan, a cross and `2.4 GHz` (the radio's only band).
+- **The password** (the keys, Elasticat's keybed with four layers): FX / SEL / ENV / LFO pick abc / ABC / 123 / #+=
+  (their LEDs show it); GLO held makes the next key a capital; EDIT shows or hides it (hidden: the last character a
+  second, then a block); ALGORITHM moves the cursor; SELECT / KN1 change the character under it (all 95; at the end
+  they add one); OCT- deletes (empty: back), GLO + OCT- clears; OCT+ joins, and is lit, at 0 (an open network) or
+  8..63 characters; HOME cancels. The keys type and play nothing.
+- **Joining:** the fan's arcs, the steps (the handshake, an address, done) and 15 s of blocks; OCT- cancels (the most
+  recent other network kept is joined again; with none, the join is stopped). Joined: a check, the name and the
+  address, then the list again (2 s or any control). Failed: `WRONG PASSWORD` when a password was just typed and the
+  network was heard in the last scan (fm1-base says only "could not join": the owner's decision, no fm1-base patch),
+  `NO ADDRESS`, `NOT FOUND`, else `COULD NOT JOIN`; OCT+ goes back to the password as typed (the cursor at its end),
+  OCT- to the list.
+- **The password's handling** (PROTOCOL.md section 10's rules): typed into one 64-byte buffer (`wp_pw`), handed to
+  fm1-base's join the way WIFI SET hands its own (`rf_wifi_hand`: the same buffer as SET, joined at the next
+  millisecond and wiped there), and kept by fm1-base in OBJ_WIFI once joined, as SET's are. The page's buffer is wiped
+  when the join succeeds, when the user leaves the password (HOME, OCT- to the list), and whenever the page is not up
+  (another screen, a host's session starting: checked every millisecond). It is kept only between a failed join and
+  the user's choice (OCT+ tries it again). Never logged, shown over USB / SysEx, or sent anywhere; the simulator's
+  checks compare it without printing it.
+- **The lists** are fm1-base's own, read when a screen is drawn (`plat_wifi_found`, `plat_wifi_saved`); the page keeps
+  only the name of the network picked (33 bytes).
+- **Beside the Move and the SysEx path:** while a host's session (USB or TCP) holds the panel the settings cannot be
+  opened, and a session that starts closes the page (its password wiped). With the Move linked over Wi-Fi there is a
+  session, so the page is reached only once the Move lets go (its module stopped, or the FM-1 taken off it). Joining
+  another network from the page (or turning Wi-Fi off) ends any TCP connection: the radio leaves the old network. The
+  Move finds the FM-1 again by its broadcast only when the Move is on the new network too; otherwise it uses USB-A
+  when the FM-1 is plugged in there. A WIFI SET over USB and the page share the hand-over (the later one wins); a page
+  waiting for its own join that sees another network being joined goes back to the list. The page never scans while
+  a join is under way or about to be handed over (a scan stops a join); the Move's `06 01` still can, as before.
+- **Cost** (against the setup build, 87d753f): flash +12,560 B (565,968 of 581,564: 15,596 left), RAM .data+.bss
+  +224 B (128,992 of 131,072), the pool unchanged (305,988 of 311,296; `tools/wifi_layout.py` ok), no heap. The other
+  builds' images are byte-for-byte the same size: Bluetooth 339,280, USB 203,880, SMK-37 333,488.
+- **Tests:** `firmware/tests/wifi_page.txt` (tests/run_tests.sh) with fm1-base patch 0012's simulator (networks set by
+  the script, a wrong password and a network not around fail, a network joined is kept, a scan while joining stops
+  the join and is counted; made-up passwords); its shots (`build/host/sim/wifi_NN_*.png`) against the mockups:
+  `tests/wifi_mockups.py` (the still screens 01, 04, 06, 07, 10, 13 and 14 match pixel for pixel; the others differ
+  only in motion or in the simulator's own values: its address .42, its signal, a scan's list already complete).

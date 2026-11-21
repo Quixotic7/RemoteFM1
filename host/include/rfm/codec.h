@@ -17,7 +17,9 @@
 extern "C" {
 #endif
 
-enum { RFM_LINK_SX = 0, RFM_LINK_BK = 1 };
+/* RFM_LINK_TCP (the Wi-Fi build, docs/PROTOCOL.md section 10): the bulk framing over a TCP stream; a new connection
+ * starts its sequence numbers from 0 both ways (rfm_rx_reset) */
+enum { RFM_LINK_SX = 0, RFM_LINK_BK = 1, RFM_LINK_TCP = 2 };
 
 #define RFM_BK_HDR_LEN 10u
 #define RFM_SX_OVERHEAD 6u                              /* F0 7D 52 46 cmd .. F7 */
@@ -103,6 +105,55 @@ uint32_t rfm_midi_msg_len(uint8_t status);              /* 1..3; 0 for a byte no
 int rfm_parse_midi_in(const uint8_t *b, uint32_t n);    /* 0: 1..RFM_MIDI_IN_MAX bytes of whole messages; else -1 */
 uint32_t rfm_build_midi_in(uint8_t *body, const uint8_t *msgs, uint32_t n);   /* (the fake): n bytes, as they are */
 
+/* PANEL_EV (RFM_CAP_PANEL_EV, a session over TCP): the panel's events as section 4's MIDI channel messages */
+int rfm_parse_panel_ev(const uint8_t *b, uint32_t n);   /* 0: 1..RFM_PANEL_EV_MAX bytes of whole channel messages */
+
+/* discovery (the Wi-Fi build): the answer to a UDP "RFM1?" (RFM_NET_DISCOVER) on RFM_NET_UDP_PORT, "RFM1!\n" and
+ * key=value lines (name, id, ver, port, ip, busy, session); unknown keys are skipped */
+#define RFM_NET_DISCOVER "RFM1?"
+typedef struct {
+    char name[24], id[16], ver[16], ip[16];
+    uint16_t port;                                      /* RFM_NET_TCP_PORT if not given */
+    uint8_t busy, session;                              /* a host is connected; in a session */
+} rfm_net_info_t;
+int rfm_parse_discovery(const uint8_t *b, uint32_t n, rfm_net_info_t *out);   /* 0 ok, -1 not an answer */
+
+/* WIFI (0x17) / WIFI_R (0x57), the Wi-Fi build (RFM_CAP_WIFI; docs/PROTOCOL.md section 10). Requests (their length,
+ * 0 when the arguments do not fit): GET; SCAN (force 1: even while the unit joins a network, which the scan stops);
+ * LIST a page (which: RFM_WIFI_LIST_SCAN or _KEPT, from entry first); SET (SSID 1..32 bytes, password 0..63: the body
+ * then holds the password, so the caller wipes it once sent); FORGET k (0xFF all). SET and FORGET: over USB only */
+#define RFM_WIFI_BODY_MAX (3u + RFM_WIFI_SSID_MAX + RFM_WIFI_PASS_MAX)
+uint32_t rfm_build_wifi_get(uint8_t *body);
+uint32_t rfm_build_wifi_scan(uint8_t *body, int force);
+uint32_t rfm_build_wifi_list(uint8_t *body, uint32_t which, uint32_t first);
+uint32_t rfm_build_wifi_set(uint8_t *body, const char *ssid, const char *pass);
+uint32_t rfm_build_wifi_forget(uint8_t *body, uint32_t k);
+/* WIFI_R to GET, SET, FORGET, SAVED, DIAG, MODE: the state (state RFM_WIFI_ST_*, ip a.b.c.d in ip[0..3]; the SSID
+ * joined or being joined, the reason it failed; SAVED: the networks kept). 0 ok, -1 not such a reply */
+enum { RFM_WIFI_ST_OFF, RFM_WIFI_ST_STARTING, RFM_WIFI_ST_ON, RFM_WIFI_ST_JOINING, RFM_WIFI_ST_ADDRESS,
+       RFM_WIFI_ST_CONNECTED, RFM_WIFI_ST_FAILED };
+typedef struct {
+    uint8_t op, status, state, host, saved;
+    int8_t rssi;
+    uint8_t ip[4];
+    uint16_t tcp_port, udp_port;
+    char ssid[33], why[41];
+    uint8_t nkept;                                      /* SAVED: the networks kept (kept[]), the most recent first */
+    char kept[6][33];
+} rfm_wifi_state_t;
+int rfm_parse_wifi_state(const uint8_t *b, uint32_t n, rfm_wifi_state_t *o);
+/* WIFI_R to SCAN and LIST: a page of a list. 0 ok, -1 not such a reply */
+typedef struct {
+    int8_t rssi;                                        /* dBm (0: not heard) */
+    uint8_t flags, channel;                             /* RFM_WIFI_F_*; 1..14 (0: not heard) */
+    char ssid[33];
+} rfm_wifi_net_t;
+typedef struct {
+    uint8_t op, status, state, which, scanning, scans, total, first, count;
+    rfm_wifi_net_t net[16];
+} rfm_wifi_list_t;
+int rfm_parse_wifi_list(const uint8_t *b, uint32_t n, rfm_wifi_list_t *o);
+
 /* TILES header: frame16 flags8 nrects8 */
 void rfm_tiles_header(uint8_t *body, uint16_t frame, uint8_t flags, uint8_t nrects);
 
@@ -115,7 +166,7 @@ typedef struct {
 } rfm_rx_stats_t;
 
 typedef struct rfm_rx rfm_rx_t;
-/* kind RFM_LINK_SX or RFM_LINK_BK; body_cap: the longest body kept (longer: counted as bad and dropped) */
+/* kind RFM_LINK_SX, RFM_LINK_BK or RFM_LINK_TCP (the bulk framing); body_cap: the longest body kept (longer: counted as bad and dropped) */
 rfm_rx_t *rfm_rx_new(int kind, uint32_t body_cap, rfm_msg_fn on_msg, rfm_midi_fn on_midi, void *ctx);
 void rfm_rx_free(rfm_rx_t *r);
 void rfm_rx_feed(rfm_rx_t *r, const uint8_t *p, uint32_t n);

@@ -2,8 +2,10 @@
 // The settings sheet: FM1VST plugin/Sheet.cpp's Graphite sheet, as DOM. It slides in from the right over a dimmed
 // scrim (180 ms, eased); a click on the scrim or Esc closes it. Pages:
 //   main      FIRMWARE, SAVES, USE MY FM-1, USE MY OMX-27, USE MY ABLETON MOVE, PLAYING (volume, sound output, MIDI), RECORDING, LOOK, VIEW, ENGINE, ABOUT
-//   firmware  the browser: a search field, category chips, a card per firmware (the loaded one outlined); Your firmware
-//             (the visitor's .rfm1 files, kept in this browser: js/library.js) above them
+//   firmware  the browser (js/fw-browser.js, the iOS app's firmware tiles): a search field, Favourites or All (the
+//             hearts kept in this browser), one category or Fantasy CFW, a tile per firmware that runs natively (its
+//             thumbnail, name, version; the loaded one outlined); the emulated ones (.fwsc) folded below as cards; Your
+//             firmware (the visitor's .rfm1 files, kept in this browser: js/library.js) above them
 //   about     the loaded firmware (author, licence, its source at the version that runs), the engine, the credits
 // app (main.js) holds the state and the actions; the sheet re-renders its page on app.changed().
 import { PRESETS, CUSTOM_NAME, CHOICE_ROLES, accentOf, onAccent, css, hex } from "./theme.js";
@@ -13,6 +15,7 @@ import { RELEASES } from "./library.js";
 import { MHZ_CHOICES, AUTO_START, DEVICE_RANGE, DUAL_CORE, inDeviceRange } from "./cpu.js";
 import { SPEEDS, srcLabel } from "./midi-map.js";
 import { MAX_DIM } from "./skin.js";
+import { FwBrowser } from "./fw-browser.js";
 
 // ---- icons: FM1VST Look::icon, 16 x 16 boxes
 const ICON = {
@@ -426,64 +429,77 @@ export class Sheet {
 
   // ============================================================ firmware ===
   firmwarePage() {
-    const a = this.app, cat = a.catalog, st = a.state;
-    const cats = cat.categories;
-    const grid = h("div", { class: "cards" });
-    const fill = () => {
-      const secs = browseSections(cat.firmwares, { cat: cats[this.cat], q: this.search }), list = [...secs.native, ...secs.emulated];
-      // the section decides the engine: a native card starts native (or the .rfm1), an emulated one its .fwsc
-      const cardOf = (f, eng) => {
-        // a card with a badge (RemoteFM1's "meta") is wider and shows its blurb in place of the tag
-        const v = cardView(f, eng), meta = f.blurb || `${f.tag} · ${f.author}`;
-        // a dual-core firmware, when it would run emulated: CPU-heavy
-        const runsEmu = v.engine ? v.engine === "emu" : f.defaultEngine === "emu";
-        const note = v.note || (runsEmu && DUAL_CORE.has(f.id) ? "CPU-heavy" : null);
-        // its Fantasy CFW / audio-in badges lead the meta line, so the name and version keep the top line
-        const tags = [fantasyCfw(f) ? fantasyTag() : null, usesAin(f) ? ainTag(f) : null].filter(Boolean);
-        const card = h("button", { class: "card" + (f.badge ? " badged" : "") + (a.isCurrent(f) ? " current" : ""), title: `${f.name} ${v.version}\n${f.what || ""}`,
-          "data-id": f.id, onclick: () => { a.openFirmware(f.id, v.engine); this.close(); } },
-          h("span", { class: "card-top" }, h("b", {}, f.name), f.badge ? h("span", { class: "card-tag" }, f.badge) : null, h("span", { class: "card-ver" }, v.version)),
-          note
-            ? h("span", { class: "card-meta split" }, ...tags, h("span", { class: "card-meta-text" }, meta), h("span", { class: "card-note" + (v.note ? "" : " heavy"),
-                title: v.note ? (eng === "native" ? `The Hub has ${f.version}; FM1VST's native core is ${f.native.version}` : `FM1VST's native core is ${f.native.version}; the Hub's latest ${f.version} runs emulated`)
-                  : "Runs both of the FM-1's cores: heavy to emulate" }, note))
-            : tags.length ? h("span", { class: "card-meta split" }, ...tags, h("span", { class: "card-meta-text" }, meta))
-            : h("span", { class: "card-meta" }, meta),
-          eng === "emu" ? null : f.native ? h("span", { class: "card-badge" + (f.native.by === "author" ? " author" : ""), title: f.native.by === "author" ? "Runs natively (WebAssembly), built by its author" : "Runs natively (WebAssembly)" })
-            : siteRfm1(f) ? h("span", { class: "card-badge", title: "Runs natively (WebAssembly): this site's .rfm1 build of its release" }) : null);
-        return card;
-      };
-      // the emulated ones (.fwsc) below, folded: open while searching, or with no native match
-      emuGrid.replaceChildren(...secs.emulated.map((f) => cardOf(f, "emu")));
-      emuCount.textContent = String(secs.emulated.length);
-      emuSec.hidden = !secs.emulated.length;
-      if (this.search.trim() || !secs.native.length) emuSec.open = true;
-      grid.replaceChildren(...secs.native.map((f) => cardOf(f, "native")), h("label", { class: "card file", title: "An .rfm1 firmware (it runs natively and stays in this browser), or a package to emulate (for example M-VAVE's FM-1.fwsc). Or drop the file on the page." },
+    const a = this.app, cat = a.catalog;
+    const lib = a.library || [];
+    // the catalog's native firmwares as tiles (js/fw-browser.js; kept across renders, so its thumbnails stay drawn)
+    if (!this.fwb) this.fwb = new FwBrowser({
+      key: "fm1player.fwbrowser", favourites: true, fantasy: true,
+      categories: cat.categories, items: () => this.fwItems(),
+      onPick: (it) => { a.openFirmware(it.id, it.engine); this.close(); },
+      onFav: (it) => { this.toggleFav(it.id); this.fwb.refresh(); },
+      label: () => "Opens it here (it runs natively)",
+      empty: "No firmware matches",
+      extra: () => [h("label", { class: "card file fb-file", title: "An .rfm1 firmware (it runs natively and stays in this browser), or a package to emulate (for example M-VAVE's FM-1.fwsc). Or drop the file on the page." },
         h("span", { class: "card-top" }, h("b", {}, "Open a file..."), h("span", { class: "card-ver", html: icon("file") })),
         h("span", { class: "card-meta" }, ".rfm1 native · .fwsc emulated"),
-        h("input", { type: "file", accept: ".rfm1,.fwsc", hidden: true, onchange: (ev) => { const f = ev.target.files[0]; ev.target.value = ""; if (f) { a.openLocalFile(f); this.close(); } } })));
-      if (!list.length) grid.prepend(h("p", { class: "empty" }, "No firmware matches"));
-      // Your firmware: the visitor's .rfm1 files (the search applies; the engine filter and the chips don't)
-      const q = this.search.trim().toLowerCase();
-      const libList = lib.filter((f) => !q || [f.name, f.author, f.id, f.rfm1.fileName].some((x) => x && String(x).toLowerCase().includes(q)));
+        h("input", { type: "file", accept: ".rfm1,.fwsc", hidden: true, onchange: (ev) => { const f = ev.target.files[0]; ev.target.value = ""; if (f) { a.openLocalFile(f); this.close(); } } }))],
+    });
+    this.fwb.refresh();
+    const fill = () => {
+      const q = this.fwb.filters.q.trim(), secs = browseSections(cat.firmwares, { cat: "All", q });
+      // the emulated ones (.fwsc) below, folded: open while searching, or with no native match
+      emuGrid.replaceChildren(...secs.emulated.map((f) => this.emuCard(f)));
+      emuCount.textContent = String(secs.emulated.length);
+      emuSec.hidden = !secs.emulated.length;
+      if (q || !secs.native.length) emuSec.open = true;
+      // Your firmware: the visitor's .rfm1 files (the search applies; the chips don't)
+      const ql = q.toLowerCase();
+      const libList = lib.filter((f) => !ql || [f.name, f.author, f.id, f.rfm1.fileName].some((x) => x && String(x).toLowerCase().includes(ql)));
       mine.replaceChildren(...libList.map((f) => this.libCard(f)));
       if (lib.length && !libList.length) mine.append(h("p", { class: "empty" }, "None matches"));
     };
     const emuGrid = h("div", { class: "cards emu-only" }), emuCount = h("span", { class: "heading-val" });
     const emuSec = h("details", { class: "emu-section" }, h("summary", { class: "heading", title: "Every firmware's .fwsc package (often the Hub's newer release), started emulated" }, "Emulated (.fwsc) ", emuCount), emuGrid);
-    const lib = a.library || [];
     const mineHead = h("h3", { class: "heading mine-head" }, "Your firmware", h("span", { class: "heading-val" }, `${lib.length} in this browser · `, link(RELEASES, "Get more ↗")));
     const mine = h("div", { class: "cards mine" });
-    const search = h("div", { class: "search" }, h("span", { html: icon("search") }),
-      h("input", { type: "search", placeholder: `Search ${cat.firmwares.length} firmwares`, value: this.search, oninput: (ev) => { this.search = ev.target.value; fill(); } }));
-    const chips = h("div", { class: "chips" }, cats.map((c, i) => h("button", { class: "chip" + (i === this.cat ? " on" : ""), onclick: (ev) => {
-      this.cat = i; for (const b of chips.children) b.classList.toggle("on", b === ev.currentTarget); fill();
-    } }, c)));
+    // (the search narrows Your firmware and the emulated ones too)
+    if (this.fwbSearch !== this.fwb.search) { this.fwbSearch = this.fwb.search; this.fwb.search.addEventListener("input", () => this.fwbFill && this.fwbFill()); }
+    this.fwbFill = fill;
     fill();
-    return [search, lib.length ? mineHead : null, lib.length ? mine : null, lib.length ? h("h3", { class: "heading" }, "Catalog") : null, chips, grid, emuSec,
+    return [lib.length ? mineHead : null, lib.length ? mine : null, lib.length ? h("h3", { class: "heading" }, "Catalog") : null, this.fwb.el, emuSec,
       h("div", { class: "links get-rfm1" }, link(RELEASES, "Get .rfm1 firmwares ↗"), h("span", { class: "muted small" }, " download one, then open it here (or drop it on the page)")),
-      h("p", { class: "note" }, "From ", link(cat.hub, "the FM-1 Firmware Hub"), ` (${cat.live ? "live, " : "as of "}${cat.hubUpdated || "snapshot"}). Firmwares with a dot run natively, compiled from FM1VST's cores, built by their authors or built here as an .rfm1 (`, h("a", { href: "native/" }, "how to publish yours"), `; they start native, and the Hub's newer release, where there is one, is under Emulated); every firmware also runs emulated on `,
+      h("p", { class: "note" }, "From ", link(cat.hub, "the FM-1 Firmware Hub"), ` (${cat.live ? "live, " : "as of "}${cat.hubUpdated || "snapshot"}), thumbnails from `, link("https://github.com/Quixotic7/RemoteFM1FW/tree/main/catalog", "RemoteFM1FW's catalog"), `. The tiles run natively, compiled from FM1VST's cores, built by their authors or built here as an .rfm1 (`, h("a", { href: "native/" }, "how to publish yours"), `; the Hub's newer release, where there is one, is under Emulated); every firmware also runs emulated on `,
         link(cat.credits.fm1emu.source, "fm1-emu"), ", its package fetched from where the Hub points (RemoteFM1's from this site).")];
+  }
+  // the browser's items: the catalog's native firmwares (a tap starts native, or the .rfm1)
+  fwItems() {
+    const a = this.app, favs = this.favs();
+    return browseSections(this.app.catalog.firmwares, { cat: "All", q: "" }).native.map((f) => {
+      const v = cardView(f, "native"), runsEmu = v.engine ? v.engine === "emu" : f.defaultEngine === "emu";
+      const note = [v.note, runsEmu && DUAL_CORE.has(f.id) ? "CPU-heavy" : null, usesAin(f) ? "audio in" : null,
+        f.native && f.native.by === "author" ? "by its author" : null].filter(Boolean).join(" · ");
+      return { id: f.id, name: f.name, version: v.version, engine: v.engine, author: f.author, tag: f.tag, desc: f.what,
+        categories: f.categories, fantasy: fantasyCfw(f), fav: favs.has(f.id), current: a.isCurrent(f), image: f.image || null, note };
+    });
+  }
+  // the favourites (this browser's: localStorage)
+  favs() { try { return new Set(JSON.parse(localStorage.getItem("fm1player.favourites") || "[]")); } catch (_) { return new Set(); } }
+  toggleFav(id) {
+    const f = this.favs();
+    if (f.has(id)) f.delete(id); else f.add(id);
+    try { localStorage.setItem("fm1player.favourites", JSON.stringify([...f])); } catch (_) {}
+  }
+  // an emulated firmware (.fwsc): a card
+  emuCard(f) {
+    const a = this.app, v = cardView(f, "emu"), meta = f.blurb || `${f.tag} · ${f.author}`;
+    const tags = [fantasyCfw(f) ? fantasyTag() : null, usesAin(f) ? ainTag(f) : null].filter(Boolean);
+    const heavy = DUAL_CORE.has(f.id);
+    return h("button", { class: "card" + (f.badge ? " badged" : "") + (a.isCurrent(f) ? " current" : ""), title: `${f.name} ${v.version}\n${f.what || ""}`,
+      "data-id": f.id, onclick: () => { a.openFirmware(f.id, "emu"); this.close(); } },
+      h("span", { class: "card-top" }, h("b", {}, f.name), f.badge ? h("span", { class: "card-tag" }, f.badge) : null, h("span", { class: "card-ver" }, v.version)),
+      heavy ? h("span", { class: "card-meta split" }, ...tags, h("span", { class: "card-meta-text" }, meta), h("span", { class: "card-note heavy", title: "Runs both of the FM-1's cores: heavy to emulate" }, "CPU-heavy"))
+        : tags.length ? h("span", { class: "card-meta split" }, ...tags, h("span", { class: "card-meta-text" }, meta))
+        : h("span", { class: "card-meta" }, meta));
   }
 
   // one of the visitor's .rfm1 files: a card that opens it, and a remove button (confirmed inline)

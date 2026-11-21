@@ -3,24 +3,27 @@
 # Copyright (C) 2026 RemoteFM1 contributors
 # The signed release build (docs/RELEASING.md). The Firmware Hub's shared workflow (zvenson/fm1-build@v1) runs it as its
 # build command on GitHub's Ubuntu runner (.github/workflows/release.yml); it runs the same way on a Mac (Docker).
-#   tools/hub_build.sh [VERSION]          build VERSION's two packages: the version from the argument, else from the tag
+#   tools/hub_build.sh [VERSION]          build VERSION's three packages: the version from the argument, else from the tag
 #                                         (vX.Y.Z), else (a run from the Actions tab) the run's version input
 #   tools/hub_build.sh --version [V]      print version=V (release.yml's output)
-#   tools/hub_build.sh --check DIR [V]    check remote-V.fwsc and remote-usb-V.fwsc in DIR against
+#   tools/hub_build.sh --check DIR [V]    check remote-V.fwsc, remote-usb-V.fwsc and remote-wifi-V.fwsc in DIR against
 #                                         web/installer/releases.json and the committed web/installer/firmware/, no build
-#   tools/hub_build.sh --site [V]         build, then copy both packages into web/installer/firmware/ and add them to its
+#   tools/hub_build.sh --site [V]         build, then copy the packages into web/installer/firmware/ and add them to its
 #                                         SHA256SUMS (the release's first step on the Mac; releases.json is by hand)
-# The two packages, as the site has always named them:
+# The packages, as the site has always named them:
 #   remote-V.fwsc       USB + Bluetooth MIDI (./build.sh --release V): the one The Firmware Hub lists
 #   remote-usb-V.fwsc   USB only (./build.sh --release V --no-ble)
-# Both install as FM-1_72XXYYZZ (firmware/fm1.toml id_prefix; FM-1_52XXYYZZ for 0.2 to 0.3.6).
+#   remote-wifi-V.fwsc  Wi-Fi, for an Ableton Move (./build.sh --wifi --release V, docs/WIFI.md; since 0.4.0): offered
+#                       by remotefm1.com/move/flash/ only
+# The first two install as FM-1_72XXYYZZ (firmware/fm1.toml id_prefix; FM-1_52XXYYZZ for 0.2 to 0.3.6), the Wi-Fi one
+# as FM-1_729XXYYZZ (firmware/fm1-wifi.toml).
 #
 # Yamaha's DX7 ROM cartridges (the standalone's 256 voices) are never in this repository or a release: the build
 # downloads the eight 32-voice dumps from Yamaha Black Boxes and stops unless each one's sha256 is the one pinned below
 # (the same files the owner's Presets/DX7-ROM holds, so the site's packages and the signed ones are the same bytes).
 # firmware/tools/gen_dx7_rom.py packs them into build/gen/dx7_rom.h; the .syx files stay in firmware/build/dx7-rom/.
 #
-# The version must be listed in web/installer/releases.json, with both sha256s, before the tag (on a tag it is an
+# The version must be listed in web/installer/releases.json, with every sha256, before the tag (on a tag it is an
 # error otherwise): each package's sha256 is checked against releases.json and the committed web/installer/firmware/
 # before anything is signed, so the signed files are byte for byte the ones the web installer serves.
 set -euo pipefail
@@ -70,14 +73,14 @@ if [ "$mode" = version ]; then
     exit 0
 fi
 
-# both packages in $1 (remote-V.fwsc, remote-usb-V.fwsc) against web/installer/releases.json and the committed
-# web/installer/firmware/: a version not listed is an error on a tag, a notice otherwise
+# the packages in $1 (remote-V.fwsc, remote-usb-V.fwsc, remote-wifi-V.fwsc) against web/installer/releases.json and the
+# committed web/installer/firmware/: a version not listed is an error on a tag, a notice otherwise
 check() {
     python3 - "$v" "$1" <<'PY'
 import hashlib, json, os, sys
 from pathlib import Path
 v, d = sys.argv[1], Path(sys.argv[2])
-names = [f"remote-{v}.fwsc", f"remote-usb-{v}.fwsc"]
+names = [f"remote-{v}.fwsc", f"remote-usb-{v}.fwsc", f"remote-wifi-{v}.fwsc"]
 got = {}
 for n in names:
     if not (d / n).is_file():
@@ -92,9 +95,13 @@ if entry is None:
     for n in names:
         print(f"  {got[n]}  {n}")
     sys.exit(0)
-want = {names[0]: entry.get("sha256"), names[1]: (entry.get("usbOnly") or {}).get("sha256")}
+want = {names[0]: entry.get("sha256"), names[1]: (entry.get("usbOnly") or {}).get("sha256"),
+        names[2]: (entry.get("wifi") or {}).get("sha256")}
 if (entry.get("usbOnly") or {}).get("file") != names[1]:
     sys.exit(f"::error::releases.json's {v}: usbOnly.file is not {names[1]}")
+x, y, z = (int(n) for n in v.split("."))
+if (entry.get("wifi") or {}).get("file") != names[2] or entry["wifi"].get("identity") != f"FM-1_729{x:02}{y:02}{z:02}":
+    sys.exit(f"::error::releases.json's {v}: wifi is not {{file: {names[2]}, identity: FM-1_729{x:02}{y:02}{z:02}}}")
 site = Path("web/installer/firmware")
 sums = (site / "SHA256SUMS").read_text()
 bad = [n for n in names if got[n] != want[n]]
@@ -106,7 +113,7 @@ if bad:
              "(or missing): this build is not the release the web installer serves")
 for n in names:
     print(f"  {got[n]}  {n}")
-print(f"web/installer/releases.json and web/installer/firmware/: {v}'s two sha256s match")
+print(f"web/installer/releases.json and web/installer/firmware/: {v}'s three sha256s match")
 PY
 }
 if [ "$mode" = check ]; then
@@ -176,18 +183,23 @@ rm -f "$out"/*
 cp firmware/build/remotefm1-"$v".fwsc "$out/remote-$v.fwsc"
 ./build.sh --release "$v" --no-ble
 cp firmware/build/remotefm1-usb-"$v".fwsc "$out/remote-usb-$v.fwsc"
-grep -q "define SA_ROM_NBANKS 8u" firmware/build/gen/dx7_rom.h ||
-    { echo "::error::the build does not have the eight DX7 ROM cartridges (firmware/build/gen/dx7_rom.h)"; exit 1; }
+# the Wi-Fi build (build/app-wifi, its own copy of firmware/): build.sh stops unless tools/wifi_layout.py passes
+./build.sh --wifi --release "$v"
+cp firmware/build/remotefm1-wifi-"$v".fwsc "$out/remote-wifi-$v.fwsc"
+for h in firmware/build/gen/dx7_rom.h build/app-wifi/build/gen/dx7_rom.h; do
+    grep -q "define SA_ROM_NBANKS 8u" "$h" ||
+        { echo "::error::the build does not have the eight DX7 ROM cartridges ($h)"; exit 1; }
+done
 (cd "$out" && for f in remote-*.fwsc; do echo "$(sha256 "$f")  $f"; done > SHA256SUMS && cat SHA256SUMS)
 
 if [ "$mode" = site ]; then
-    for n in "remote-$v.fwsc" "remote-usb-$v.fwsc"; do
+    for n in "remote-$v.fwsc" "remote-usb-$v.fwsc" "remote-wifi-$v.fwsc"; do
         cp "$out/$n" web/installer/firmware/
         grep -v "  $n\$" web/installer/firmware/SHA256SUMS > "$out/sums.tmp" || true
         echo "$(sha256 "$out/$n")  $n" >> "$out/sums.tmp"
         mv "$out/sums.tmp" web/installer/firmware/SHA256SUMS
     done
-    echo "web/installer/firmware/: remote-$v.fwsc and remote-usb-$v.fwsc copied, SHA256SUMS updated;"
+    echo "web/installer/firmware/: remote-$v.fwsc, remote-usb-$v.fwsc and remote-wifi-$v.fwsc copied, SHA256SUMS updated;"
     echo "now list $v in web/installer/releases.json with these sha256s (docs/RELEASING.md)"
     exit 0
 fi
@@ -196,6 +208,6 @@ check "$out"
 # what the shared workflow signs and releases (its "packages": remote-*.fwsc), in the root; on GitHub's runner only
 if [ "${GITHUB_ACTIONS:-}" = true ]; then
     rm -f remote-*.fwsc
-    cp "$out/remote-$v.fwsc" "$out/remote-usb-$v.fwsc" .
+    cp "$out/remote-$v.fwsc" "$out/remote-usb-$v.fwsc" "$out/remote-wifi-$v.fwsc" .
     ls -l remote-*.fwsc
 fi

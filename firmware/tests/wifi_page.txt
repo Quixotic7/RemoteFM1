@@ -1,0 +1,407 @@
+# SPDX-License-Identifier: MPL-2.0
+# The Wi-Fi build's own Wi-Fi pages (firmware/sa/sa_wifi.c; design/wifi-settings): the settings' WI-FI row (its states,
+# KN1 off / on kept across a power cycle), the page (OCT+), the scan and the pull to refresh, the networks kept
+# (ALGORITHM), a network kept (JOIN, a new password, FORGET twice), the password on the keys (four layers, GLO held
+# for a capital, symbols, show / hide, the cursor, the character under it, delete, clear, the 8-character rule), a
+# wrong password, a join, an open network, a network not around, a cancel, HOME and OCT- out, a host's session closing
+# the page, nothing heard. The networks are the mockups' (fm1-base patch 0012's stand-in: "wifi"); the passwords are
+# made up. Screens shot to build/host/sim/wifi_*.png (tests/wifi_mockups.py compares them with the mockups).
+# tests/run_tests.sh runs it (firmware/build/host/remotefm1-wifi_host).
+wifi clear
+wifi add Studio-2G -48 1 6 studio-pass1
+wifi add NETGEAR-47 -58 1 1 Fm1-loves-wifi!
+wifi add Moonbase -63 1 6 moon-pass1
+wifi add Cafe_Guest -71 0 11
+wifi add iPhone_(Q) -74 1 1 p@ss:{x}~9
+wifi add DIRECT-HP-LaserJet -82 1 11
+wifi add xfinitywifi -86 0 1
+wifi forget_all
+wifi keep Grandma's_House gran-pass1
+wifi keep Moonbase moon-pass1
+wifi keep Studio-2G studio-pass1
+wait 3000
+expect wifi_st 5
+expect sa_wifi_off 0
+# ------------------------------------------------------------------ the settings' WI-FI row (the 11th)
+press HOME
+wait 600
+release HOME
+expect sa_screen 19
+turn SELECT 12
+expect sa_mfocus 10
+wait 40
+shot wifi_03_settings_joined.png
+# KN1: off, kept: off after a power cycle too
+turn K1 -1
+expect wifi_st 0
+expect sa_wifi_off 1
+wait 40
+shot wifi_01_settings_off.png
+wait 2500
+power
+wait 3000
+expect wifi_st 0
+expect sa_wifi_off 1
+# on again: LOOKING while it starts and joins, then the network's name
+press HOME
+wait 600
+release HOME
+turn SELECT 12
+turn K1 1
+expect sa_wifi_off 0
+expect wifi_st 1
+wait 600
+expect wifi_st 3
+shot wifi_02_settings_looking.png
+wait 2500
+expect wifi_st 5
+wait 2500
+power
+wait 3000
+expect wifi_st 5
+expect sa_wifi_off 0
+# ------------------------------------------------------------------ the page: OCT+ on the row (not the octave)
+press HOME
+wait 600
+release HOME
+turn SELECT 12
+tap OCT+
+expect sa_screen 23
+expect sa_oct 0
+expect sa_wp_page 0
+expect sa_wp_scans 1
+wait 40
+shot wifi_05_scanning.png
+wait 1200
+expect sa_wp_count 7
+turn SELECT 2
+expect sa_wp_pick 2
+wait 40
+shot wifi_04_page.png
+# SELECT up past the top: a scan
+turn SELECT -3
+expect sa_wp_pick 0
+expect sa_wp_scans 2
+wait 1200
+# ALGORITHM: the networks kept
+turn ALGO 1
+expect sa_wp_tab 1
+expect sa_wp_count 3
+turn SELECT 1
+wait 40
+shot wifi_14_kept.png
+# a network kept (Moonbase): JOIN, a new password, FORGET
+tap OCT+
+expect sa_wp_page 1
+expect sa_wp_tile 0
+wait 40
+shot wifi_07_network.png
+turn SELECT 2
+expect sa_wp_tile 2
+tap OCT+
+expect sa_wp_armed 1
+wait 40
+shot wifi_08_forget_armed.png
+# armed: gone by itself after 3 s, or with any other control
+wait 3100
+expect sa_wp_armed 0
+tap OCT+
+expect sa_wp_armed 1
+turn SELECT -1
+expect sa_wp_armed 0
+expect sa_wp_tile 1
+expect wifi_kept 3
+# two presses: forgotten
+turn SELECT 1
+tap OCT+
+tap OCT+
+expect sa_wp_forgets 1
+expect wifi_kept 2
+expect sa_wp_page 0
+# ------------------------------------------------------------------ the password: a wrong one first
+turn ALGO 1
+expect sa_wp_tab 0
+expect sa_wp_pick 0
+turn SELECT 1
+tap OCT+
+expect sa_wp_page 2
+expect sa_wp_len 0
+expect sa_wp_layer 0
+expect sa_wp_shown 0
+tapkey w1 100
+tapkey w3 100
+tapkey w3 100
+tapkey w2 100
+tapkey w0 100
+tapkey b8 100
+tapkey b6 100
+tapkey b7 100
+tapkey w8 100
+tap ENV
+expect sa_wp_layer 2
+tapkey b7 100
+sa wfpw moonlight7
+expect sa_wp_len 10
+# (the keys typed, they played nothing)
+expect sa_notes_out 0
+tap FX
+expect sa_wp_layer 0
+shot wifi_09_password_hidden.png
+tap OCT+
+expect sa_wp_page 3
+expect sa_wp_joins 1
+wait 1200
+expect sa_wp_page 5
+expect sa_wp_why 1
+wifi pass_is moonlight7
+expect wifi_stops 0
+wait 400
+shot wifi_13_failed.png
+# OCT+: the password again, as typed, the cursor at its end
+tap OCT+
+expect sa_wp_page 2
+expect sa_wp_len 10
+expect sa_wp_cur 10
+sa wfpw moonlight7
+# GLO + OCT-: all of it gone (WIFI SET's copy was wiped when it was handed over)
+press GLO
+tap OCT-
+release GLO
+expect sa_wp_len 0
+expect sa_wp_pwzero 1
+expect sa_wp_page 2
+# under 8 characters OCT+ joins nothing
+tapkey b0 100
+tapkey b1 100
+tapkey b2 100
+tap OCT+
+expect sa_wp_page 2
+expect sa_wp_joins 1
+# OCT- deletes
+tap OCT-
+expect sa_wp_len 2
+tap OCT-
+tap OCT-
+expect sa_wp_len 0
+# EDIT shows it; a capital with GLO held; digits and '-' on ENV (123), the rest on FX (abc)
+tap EDIT
+expect sa_wp_shown 1
+press GLO
+tapkey b5 100
+release GLO
+tapkey w1 100
+tap ENV
+tapkey b1 100
+tapkey b10 100
+tap FX
+tapkey w0 100
+tapkey w3 100
+tapkey w10 100
+tapkey b4 100
+tapkey w7 100
+tap ENV
+tapkey b10 100
+tap FX
+tapkey w11 100
+tapkey b8 100
+tapkey b5 100
+tapkey b8 100
+tap ENV
+tapkey w2 100
+shot wifi_10_password_shown.png
+sa wfpw Fm1-loves-wifi!
+expect sa_wp_layer 2
+# ALGORITHM the cursor; SELECT and KN1 the character under it
+turn ALGO -2
+expect sa_wp_cur 13
+turn SELECT 1
+sa wfpw Fm1-loves-wifj!
+turn SELECT -1
+sa wfpw Fm1-loves-wifi!
+turn K1 1
+sa wfpw Fm1-loves-wifj!
+turn K1 -1
+sa wfpw Fm1-loves-wifi!
+turn ALGO 2
+expect sa_wp_cur 15
+# the symbols (LFO: #+=), and OCT- takes it back
+tap LFO
+expect sa_wp_layer 3
+tapkey w15 100
+sa wfpw Fm1-loves-wifi!~
+tap OCT-
+sa wfpw Fm1-loves-wifi!
+# EDIT hides it, and shows it again
+tap EDIT
+expect sa_wp_shown 0
+tap EDIT
+expect sa_wp_shown 1
+# OCT+: joined (the handshake, then an address)
+tap OCT+
+expect sa_wp_page 3
+expect sa_wp_joins 2
+wait 1100
+expect wifi_st 4
+shot wifi_11_joining.png
+wait 600
+expect sa_wp_page 4
+expect sa_wp_pwzero 1
+wifi pass_is Fm1-loves-wifi!
+expect wifi_kept 3
+expect wifi_stops 0
+wait 350
+shot wifi_12_joined.png
+wait 2000
+expect sa_wp_page 0
+# ------------------------------------------------------------------ an open network: joined at once; cancelled
+# (the list: NETGEAR-47 joined on top, then Studio-2G, Moonbase, Cafe Guest...; ALGORITHM twice: the pick at the top)
+turn ALGO 1
+turn ALGO 1
+turn SELECT 3
+tap OCT+
+expect sa_wp_page 3
+expect sa_wp_joins 3
+# OCT- cancels: the most recent other network kept is joined again; meanwhile no scan (the pull to refresh refused)
+tap OCT-
+expect sa_wp_page 0
+expect sa_wp_scans 2
+turn SELECT -9
+expect sa_wp_scans 2
+expect wifi_stops 0
+wait 1700
+expect wifi_st 5
+expect sa_wp_scans 2
+# the open network again, to the end; DONE: any control back to the list
+turn ALGO 1
+turn ALGO 1
+turn SELECT 3
+tap OCT+
+wait 1700
+expect sa_wp_page 4
+expect wifi_kept 4
+turn SELECT 1
+expect sa_wp_page 0
+# ------------------------------------------------------------------ symbols; HOME cancels the password
+turn ALGO 1
+turn ALGO 1
+turn SELECT 4
+tap OCT+
+expect sa_wp_page 2
+tapkey w4 100
+tap ENV
+tapkey w4 100
+tap FX
+tapkey w7 100
+tapkey w7 100
+tap LFO
+tapkey w4 100
+tapkey w10 100
+tap FX
+tapkey w12 100
+tap LFO
+tapkey w11 100
+tapkey w15 100
+tapkey b9 100
+sa wfpw p@ss:{x}~9
+tap HOME
+expect sa_screen 23
+expect sa_wp_page 0
+expect sa_wp_pwzero 1
+# again, joined with it
+tap OCT+
+expect sa_wp_page 2
+tapkey w4 100
+tap ENV
+tapkey w4 100
+tap FX
+tapkey w7 100
+tapkey w7 100
+tap LFO
+tapkey w4 100
+tapkey w10 100
+tap FX
+tapkey w12 100
+tap LFO
+tapkey w11 100
+tapkey w15 100
+tapkey b9 100
+tap OCT+
+wait 1700
+expect sa_wp_page 4
+wifi pass_is p@ss:{x}~9
+expect sa_wp_pwzero 1
+wait 2100
+# ------------------------------------------------------------------ the networks kept: JOIN (its own password)
+# (kept now: iPhone (Q), Cafe Guest, NETGEAR-47, Studio-2G, Grandma's House)
+turn ALGO 1
+expect sa_wp_count 5
+turn SELECT 3
+tap OCT+
+expect sa_wp_page 1
+tap OCT+
+expect sa_wp_page 3
+wait 1700
+expect sa_wp_page 4
+wifi pass_is studio-pass1
+wait 2100
+# a network kept, not around: NOT FOUND
+expect sa_wp_tab 1
+turn SELECT 9
+expect sa_wp_pick 4
+tap OCT+
+tap OCT+
+wait 1200
+expect sa_wp_page 5
+expect sa_wp_why 2
+tap OCT-
+expect sa_wp_page 0
+# ------------------------------------------------------------------ a host's session closes the page, the password wiped
+turn ALGO 1
+expect sa_wp_tab 0
+turn SELECT 5
+tap OCT+
+expect sa_wp_page 2
+tapkey b0 100
+tapkey b1 100
+tapkey b2 100
+rf session usb 1 3000
+expect sa_wp_open 0
+expect sa_wp_pwzero 1
+rf session usb 0
+wait 100
+expect sa_screen 0
+# ------------------------------------------------------------------ OCT- and HOME out of the page
+press HOME
+wait 600
+release HOME
+turn SELECT 12
+tap OCT+
+expect sa_screen 23
+tap OCT-
+expect sa_screen 19
+expect sa_mfocus 10
+tap OCT+
+expect sa_screen 23
+tap HOME
+expect sa_screen 0
+expect sa_wp_open 0
+# ------------------------------------------------------------------ nothing heard: the 2.4 GHz chip; SELECT up looks again
+wifi clear
+wifi forget_all
+press HOME
+wait 600
+release HOME
+turn SELECT 12
+turn K1 -1
+turn K1 1
+wait 700
+expect wifi_st 2
+tap OCT+
+wait 1500
+expect sa_wp_count 0
+shot wifi_06_empty.png
+expect sa_wp_scans >0
+turn SELECT -1
+wait 1200
+tap HOME
+expect sa_screen 0

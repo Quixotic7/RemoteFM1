@@ -891,8 +891,16 @@ static void sa_paint_scale(void)
 /* "Big options like ChoralRoot" (the owner, 2026-10-30): one setting big in the middle, its value bigger in its
  * colour, the value's place among its choices as stripes, the rows before and after peeking dim above and below, where
  * the row is on the right. SELECT the row, KN1 the value. */
-static const char *const SA_SET_LAB[10] = {"SCREEN", "KNOBS", "CC CHANNEL", "KEY CHANNEL", "KEYS", "OCT KEYS",
-                                           "SCALE SHORTCUTS", "KNOB LEDS", "VELOCITY", "USB HOST"};
+static const char *const SA_SET_LAB[10 + FM1B_WIFI] = {"SCREEN", "KNOBS", "CC CHANNEL", "KEY CHANNEL", "KEYS",
+                                                       "OCT KEYS", "SCALE SHORTCUTS", "KNOB LEDS", "VELOCITY",
+                                                       "USB HOST",
+#if FM1B_WIFI
+                                                       "WI-FI"
+#endif
+};
+#if FM1B_WIFI
+#include "sa_wifi_draw.c"
+#endif
 static const char *sa_usbh_txt(void)          /* USB HOST's row: what is on the port */
 {
     if (!ui.set[SA_SET_USBH])
@@ -922,8 +930,12 @@ static uint32_t sa_set_val(uint32_t i, char *num, const char **v)   /* row i's v
 
 static void sa_paint_settings(void)
 {
-    static const uint8_t COL[10] = {SA_TK_A5, SA_TK_A1, SA_TK_A3, SA_TK_A4, SA_TK_A2, SA_TK_A5, SA_TK_A1, SA_TK_A3,
-                                    SA_TK_A4, SA_TK_A2};
+    static const uint8_t COL[10 + FM1B_WIFI] = {SA_TK_A5, SA_TK_A1, SA_TK_A3, SA_TK_A4, SA_TK_A2, SA_TK_A5, SA_TK_A1,
+                                                SA_TK_A3, SA_TK_A4, SA_TK_A2,
+#if FM1B_WIFI
+                                                SA_TK_A5
+#endif
+    };
     int32_t f = ui.mfocus < SA_NSET ? ui.mfocus : 0, n, i, w, nv, cur, sw, x0;
     uint16_t c = ui.c[COL[f]];
     char num[4];
@@ -935,16 +947,23 @@ static void sa_paint_settings(void)
     for (n = 3; n > 1 && sg_text_w(SA_SET_LAB[f], n) > 210; n--)
         ;
     sg_text_sh((SG_W - sg_text_w(SA_SET_LAB[f], n)) / 2, 64, n, SA_SET_LAB[f], UC(INK), 3, UC(SHADOW));
-    nv = (int32_t)sa_set_val((uint32_t)f, num, &v);
-    for (n = 5; n > 1 && sg_text_w(v, n) > 214; n--)   /* (scale 1: a USB device's long name) */
-        ;
-    sg_text_sh((SG_W - sg_text_w(v, n)) / 2, 100 + (5 - n) * 5, n, v, c, n > 1 ? 4 : 2, UC(SHADOW));
-    /* the value's place: a stripe a choice, the value's lit */
-    cur = f == 2 || f == 3 ? ui.set[f] - 1 : ui.set[f];
-    sw = (200 - 3 * (nv - 1)) / nv;
-    x0 = (SG_W - (nv * sw + 3 * (nv - 1))) / 2;
-    for (i = 0; i < nv; i++)
-        sg_rect(x0 + i * (sw + 3), 164, sw, 8, i == cur ? c : UC(D5));
+#if FM1B_WIFI
+    if (f == (int32_t)SA_SET_WIFI)
+        sa_paint_set_wifi(c);                /* (its value, its stripes, the arrow in: sa_wifi_draw.c) */
+    else
+#endif
+    {
+        nv = (int32_t)sa_set_val((uint32_t)f, num, &v);
+        for (n = 5; n > 1 && sg_text_w(v, n) > 214; n--)   /* (scale 1: a USB device's long name) */
+            ;
+        sg_text_sh((SG_W - sg_text_w(v, n)) / 2, 100 + (5 - n) * 5, n, v, c, n > 1 ? 4 : 2, UC(SHADOW));
+        /* the value's place: a stripe a choice, the value's lit */
+        cur = f == 2 || f == 3 ? ui.set[f] - 1 : ui.set[f];
+        sw = (200 - 3 * (nv - 1)) / nv;
+        x0 = (SG_W - (nv * sw + 3 * (nv - 1))) / 2;
+        for (i = 0; i < nv; i++)
+            sg_rect(x0 + i * (sw + 3), 164, sw, 8, i == cur ? c : UC(D5));
+    }
     if (f + 1 < (int32_t)SA_NSET)            /* the row after, peeking below */
         sg_text_c(182, 2, SA_SET_LAB[f + 1], UC(PANEL));
     for (i = 0; i < (int32_t)SA_NSET; i++)   /* where the row is: a dot each, on the right */
@@ -981,6 +1000,9 @@ static void sa_ui_snap_more(void)
     ui.set[4] = sa.rm_keys, ui.set[5] = sa.rm_octk, ui.set[6] = sa.rm_scl, ui.set[7] = sa.rm_kled;
     ui.set[8] = sa.vel_on;
     ui.set[SA_SET_USBH] = sa.usbh;
+#if FM1B_WIFI
+    sa_ui_snap_wifi();
+#endif
     ui.usbh_st = (uint8_t)plat_usb_host_state();
     ui.usbh_said = sa.usbh_said;
     ui.usbh_msg = sa.usbh_msg;
@@ -1060,6 +1082,9 @@ static int sa_paint_more(void)               /* 1: painted (a screen after S1) *
     case SA_SCR_SETTINGS: sa_paint_settings(); return 1;
     case SA_SCR_SCALE: sa_paint_scale(); return 1;
     case SA_SCR_USBH: sa_paint_usbh(); return 1;
+#if FM1B_WIFI
+    case SA_SCR_WIFI: sa_paint_wifi(); return 1;
+#endif
     default: return 0;
     }
 }

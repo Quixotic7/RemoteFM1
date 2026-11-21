@@ -3,6 +3,29 @@
   "repo": "https://github.com/Quixotic7/RemoteFM1",
   "releases": [
     {
+      "version": "0.4.0",
+      "date": "2026-11-19",
+      "tag": "v0.4.0",
+      "identity": "FM-1_72000400",
+      "license": "MPL-2.0",
+      "sha256": "27e4e4e523098c2480391636572e047f9076b96a91c77f4998a83b94bee67cbe",
+      "usbOnly": {
+        "file": "remote-usb-0.4.0.fwsc",
+        "sha256": "79fa9265c7fea7ed14cdb34366fad6b8d499f854dc0062fcddf0ade683698ce3"
+      },
+      "wifi": {
+        "file": "remote-wifi-0.4.0.fwsc",
+        "sha256": "57fd3df28390a2ff6c284e35d9863c1f59418bfac60c63be18814a64aa86864d",
+        "identity": "FM-1_729000400"
+      },
+      "notes": [
+        "RemoteFM1 Wi-Fi, a third package for an Ableton Move: the FM-1 joins your Wi-Fi and the Move uses it as its panel, no cable. Install it from remotefm1.com/move/flash/. It has Wi-Fi instead of Bluetooth and USB audio.",
+        "Wi-Fi settings on the FM-1 itself (the settings' WI-FI row): pick a network, type the password on the keys, join or forget. The Move's page can set it up too.",
+        "A new identity: the packages install as FM-1_72000400 (Wi-Fi: FM-1_729000400). Units on 0.2 to 0.3.6 (FM-1_52...) update as before.",
+        "In use, the USB + Bluetooth and USB-only packages work as 0.3.6 did; your cartridges, loops and settings stay, also when you switch between the packages."
+      ]
+    },
+    {
       "version": "0.3.6",
       "date": "2026-11-08",
       "tag": "v0.3.6",

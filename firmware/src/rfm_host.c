@@ -20,6 +20,19 @@
  *   rf raw T HEX...              bytes as they are on T (usb: SysEx bytes through the tap; bk: into the ring)
  *   rf ota                       an update frame (F0 00 59 ... F7) from USB, between RemoteFM1's
  *   rf snap                      the reference screen kept as it is now (rf_screen_snap: the panel is that one)
+ *   rf net connect | close       (the Wi-Fi build) a host on the TCP transport comes, or goes: T "net" is then
+ *                                the bulk framing through net/rfm_net.c's rings, as TCP would carry it
+ *   rf wifi set SSID PASS | get | saved | forget K | scan [1] | list WHICH FIRST   (the Wi-Fi build) WIFI over USB
+ *                                SysEx (PASS "-": none)
+ *   rf wfstore                   (the Wi-Fi build) OBJ_WIFI saved and loaded back (expect rf_wfstore 1: whole, and
+ *                                kept compact in OBJ_RF)
+ *   rf serve SECONDS [PORT [stdin]]   (the Wi-Fi build) the simulator in real time for SECONDS, net/rfm_net.c on
+ *                                this computer's sockets: TCP on 127.0.0.1:PORT (7740), discovery on UDP 7741, for
+ *                                tools/wifi_probe.py --sim (docs/WIFI.md). With "stdin": lines from standard input are
+ *                                taken while it serves (a host's end-to-end test drives the panel): key K down [VEL]|up,
+ *                                press BTN, release BTN, spin ENC N, master N (as the script's), stall MS (the sockets
+ *                                left alone: a TCP stall, as a segment lost on the radio), drop (the FM-1 closes
+ *                                the host's connection), end (the serve ends now); each answered "ok WORD" on stdout
  * expect (an int; "<N" / ">N" bounds): rf_session, rf_session_t (0 usb, 1 bk, 2 ble), rf_n_T_CC (replies of command
  * CC, hex, on T), rf_ack_frame, rf_ack_status, rf_ack_t, rf_ack_pending, rf_hello_caps, rf_hello_session,
  * rf_hello_transports, rf_hello_sxq, rf_hello_ident (1: the identity's first 8 characters), rf_panel_flags,
@@ -28,9 +41,18 @@
  * rf_decode_errs, rf_ota_frames, rf_bad_T, rf_drop_T, rf_lit_keys, rf_lit_btns (plat.h's labels), rf_mid_keys,
  * rf_glow_keys, rf_held (tiles drawn, not shown: HOLD), rf_held_frames, rf_hold_timeouts, rf_mi_n (MIDI_IN bytes the
  * host got, all transports), rf_mi_bK (byte K of them), rf_mi_msgs (MIDI_IN messages), rf_mi_bad (one not whole
- * messages, or longer than RFM_MIDI_IN_MAX), rf_midi_drop */
+ * messages, or longer than RFM_MIDI_IN_MAX), rf_midi_drop; the Wi-Fi build: rf_net_up, rf_wifi_op, rf_wifi_status,
+ * rf_wifi_state, rf_wifi_saved, rf_wifi_host, rf_wifi_ssid_len, rf_wifi_heap (the app's share, bytes), rf_wifi_ip_last
+ * (the address's last byte), rf_wifi_tail (WIFI_R's length past the SSID and the reason), rf_ev_net_n (PANEL_EV bytes
+ * the host got on TCP), rf_ev_net_bad (PANEL_EVs not whole channel messages, or longer than RFM_PANEL_EV_MAX),
+ * rf_ev_net_bK (byte K of the last PANEL_EV) */
 #include <stdlib.h>
 #include <string.h>
+#if FM1B_WIFI
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/time.h>
+#endif
 static void run_ms(uint32_t ms);                    /* (plat_host.c's, below) */
 
 /* ------------------------------------------------------------------ the port --- */
@@ -49,6 +71,13 @@ static uint32_t rp_usb_resets(void) { return hp_resets; }
 static rf_tstats_t hs_st[RF_NT];
 static rf_sx_t hs_sx[2];
 static rf_bk_t hs_bk;
+#if FM1B_WIFI
+static rf_bk_t hs_bk_net;                           /* the host at the other end of TCP */
+static uint8_t hs_wifi[512];                        /* the last WIFI_R */
+static uint32_t hs_wifi_n;
+static uint8_t hs_ev[RFM_PANEL_EV_MAX];             /* the last PANEL_EV */
+static uint32_t hs_ev_len, hs_ev_n, hs_ev_bad;
+#endif
 static uint8_t hs_buf[RF_NT][RFM_BK_BODY_MAX];
 static uint32_t hs_n[RF_NT][128];
 static struct {
@@ -89,6 +118,28 @@ static void hs_msg(void *ctx, uint32_t cmd, const uint8_t *b, uint32_t len)
         for (i = 0; i < RFM_PANEL_LEN; i++)
             hs_panel[i] = b[i];
     }
+#if FM1B_WIFI
+    if (cmd == RFM_WIFI_R && len <= sizeof hs_wifi) {
+        memcpy(hs_wifi, b, len);
+        hs_wifi_n = len;
+    }
+    if (cmd == RFM_PANEL_EV) {                      /* channel messages, each with its status, 1..96 bytes */
+        uint32_t k = 0;
+        if (!len || len > RFM_PANEL_EV_MAX)
+            hs_ev_bad++;
+        while (k < len) {
+            uint32_t st = b[k], n = (st & 0xE0u) == 0xC0u ? 2u : 3u;
+            if (st < 0x80u || st >= 0xF0u || k + n > len) {
+                hs_ev_bad++;
+                break;
+            }
+            k += n;
+        }
+        hs_ev_n += len;
+        hs_ev_len = len <= sizeof hs_ev ? len : 0u;
+        memcpy(hs_ev, b, hs_ev_len);
+    }
+#endif
 }
 static void hs_pkt(rf_sx_t *s, uint32_t pkt)        /* a USB-MIDI SysEx packet's bytes to a parser */
 {
@@ -191,8 +242,104 @@ static int hb_ble_in(const uint8_t *m, uint32_t n)   /* Bluetooth: packets into 
 }
 static int hb_t(const char *s)                       /* a transport's name */
 {
+#if FM1B_WIFI
+    if (!strcmp(s, "net"))
+        return (int)RF_T_NET;
+#endif
     return !strcmp(s, "usb") ? (int)RF_T_SX : !strcmp(s, "bk") ? (int)RF_T_BK : !strcmp(s, "ble") ? (int)RF_T_BLE : -1;
 }
+#if FM1B_WIFI
+static int hs_serving;                              /* rf serve: the real sockets, not the script's host */
+static int hs_wfstore;                              /* rf wfstore's outcome */
+static uint32_t hs_net_w;                           /* the script's host's frames on TCP */
+/* rf serve ... stdin: the panel driven from standard input while serving (a host's end-to-end test); 1: "end" */
+static char hs_ctl[512];
+static uint32_t hs_ctl_n;
+static uint64_t hs_stall_until;                     /* (stall MS: the sockets left alone until then, real time, us) */
+static uint64_t hs_real_us(void)
+{
+    struct timeval tv;
+    gettimeofday(&tv, 0);
+    return (uint64_t)tv.tv_sec * 1000000u + (uint64_t)tv.tv_usec;
+}
+#define hs_stall (hs_real_us() < hs_stall_until)
+static int hs_ctl_name(const char *const *t, int n, const char *w)    /* (plat_host.c's names: defined after app.c) */
+{
+    int i;
+    for (i = 0; i < n; i++)
+        if (!strcmp(t[i], w))
+            return i;
+    return -1;
+}
+static int hs_serve_ctl(void)
+{
+    char *nl;
+    ssize_t r = read(0, hs_ctl + hs_ctl_n, sizeof hs_ctl - 1u - hs_ctl_n);
+    if (r > 0)
+        hs_ctl_n += (uint32_t)r;
+    hs_ctl[hs_ctl_n] = 0;
+    while ((nl = strchr(hs_ctl, '\n')) != NULL) {
+        char w[5][32] = {{0}};
+        int e, end = 0;
+        *nl = 0;
+        sscanf(hs_ctl, "%31s %31s %31s %31s %31s", w[0], w[1], w[2], w[3], w[4]);
+        static const char *const BTN[NB] = {"FX", "SEL", "ENV", "LFO", "EDIT", "GLO", "HOME", "SAVE", "ARP", "SEQ",
+                                            "PLAY", "REC", "OCT-", "OCT+"};
+        static const char *const ENC[NE] = {"SELECT", "ALGO", "PRESET", "K1", "K2", "K3", "K4"};
+        if (!strcmp(w[0], "key") && (e = atoi(w[1])) >= 0 && e < 27) {   /* (K: 0..26 only; key K down [VEL]) */
+            const int down = !strcmp(w[2], "down");
+#ifdef APP_KEY_SENSE
+            app_host_key((uint32_t)e, down ? (atoi(w[3]) > 0 ? (uint32_t)atoi(w[3]) : 100u) : 0u, 0u);   /* (TOUCH) */
+#endif
+            if (down)
+                held_keys |= 1u << e;
+            else
+                held_keys &= ~(1u << e);
+        } else if ((!strcmp(w[0], "press") || !strcmp(w[0], "release")) && (e = hs_ctl_name(BTN, NB, w[1])) >= 0) {
+            if (w[0][0] == 'p')
+                held_btn |= 1u << e;
+            else
+                held_btn &= ~(1u << e);
+        } else if (!strcmp(w[0], "spin") && (e = hs_ctl_name(ENC, NE, w[1])) >= 0) {
+            enc_acc[e] += atoi(w[2]);
+        } else if (!strcmp(w[0], "master")) {
+            master = (uint32_t)atoi(w[1]);
+        } else if (!strcmp(w[0], "stall")) {         /* stall MS: a TCP stall (a segment lost on the radio, resent
+                                                     * late): the sockets untouched, the app running */
+            hs_stall_until = hs_real_us() + (uint64_t)atoi(w[1]) * 1000u;
+        } else if (!strcmp(w[0], "drop")) {
+            rfn_close();
+        } else if (!strcmp(w[0], "end")) {
+            end = 1;
+        } else if (w[0][0]) {
+            printf("rf serve: %s?\n", w[0]);
+            w[0][0] = 0;
+        }
+        if (w[0][0])
+            printf("ok %s\n", w[0]);
+        fflush(stdout);
+        hs_ctl_n -= (uint32_t)(nl + 1 - hs_ctl);
+        memmove(hs_ctl, nl + 1, hs_ctl_n + 1u);
+        if (end)
+            return 1;
+    }
+    if (hs_ctl_n == sizeof hs_ctl - 1u)
+        hs_ctl_n = 0;                               /* (a line too long: dropped) */
+    return 0;
+}
+static int hs_net_pump(void)                        /* what the device queued for TCP, to the script's host */
+{
+    uint8_t b[1024];
+    uint32_t n, got = 0;
+    if (hs_serving)
+        return !hs_stall && rfn_poll() > 0;         /* (stall: the sockets left alone) */
+    while ((n = rfn_test_take(b, sizeof b)) > 0) {
+        rf_bk_feed(&hs_bk_net, b, n);
+        got += n;
+    }
+    return got > 0;
+}
+#endif
 static uint8_t hb_m[3 * RFM_BK_BODY_MAX];
 static int hb_send(int t, uint32_t cmd, const uint8_t *body, uint32_t n)   /* a message from the host on t */
 {
@@ -205,6 +352,14 @@ static int hb_send(int t, uint32_t cmd, const uint8_t *body, uint32_t n)   /* a 
             hb_in[hb_w++ % HB_N] = hb_m[i];
         return 0;
     }
+#if FM1B_WIFI
+    if (t == (int)RF_T_NET) {                       /* as TCP carries it: into the device's rx ring */
+        rf_bk_header(hb_m, cmd, n, hs_net_w++);
+        for (i = 0; i < n; i++)
+            hb_m[RF_BK_HDR + i] = body[i];
+        return rfn_test_inject(hb_m, RF_BK_HDR + n) == RF_BK_HDR + n ? 0 : -1;
+    }
+#endif
     if (n > RFM_SX_BODY_MAX + 64u)
         return -1;
     m = rf_sx_encode(cmd, body, n, hb_m);
@@ -374,6 +529,20 @@ int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, c
             sa_chord_name(held, n, &ch);
             snprintf(got, sizeof got, "%s%s%s", ch.main, ch.ext, ch.bass);
             sa_host_check("chord", n ? got : "-", b);
+#if FM1B_WIFI
+        } else if (!strcmp(a, "wfpw")) {         /* sa wfpw TEXT: the Wi-Fi page's password is TEXT (never shown) */
+            const char *want = hb_word(plat_host_line, 2);
+            char w[80];
+            snprintf(w, sizeof w, "%s", want);
+            w[strcspn(w, "\r\n")] = 0;
+            if (strcmp(wp_pw, w) || wp.len != strlen(w)) {
+                printf("FAIL sa wfpw: the password typed is not the one expected (%u characters, wanted %u)\n",
+                       (unsigned)wp.len, (unsigned)strlen(w));
+                sa_host_fails++;
+            } else {
+                printf("  ok sa wfpw (%u characters)\n", (unsigned)wp.len);
+            }
+#endif
         } else if (!strcmp(a, "name")) {
             const char *want = hb_word(plat_host_line, 2);
             char w[40];
@@ -607,6 +776,78 @@ int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, c
         hb_run();
         return 1;
     }
+#if FM1B_WIFI
+    if (!strcmp(a, "net")) {                        /* rf net connect | close */
+        rfn_test_connect(!strcmp(b, "connect"));
+        hs_net_w = 0;
+        hb_run();
+        return 1;
+    }
+    if (!strcmp(a, "wifi")) {                       /* rf wifi set SSID PASS | get | saved | forget K */
+        uint8_t m[3u + RFM_WIFI_SSID_MAX + RFM_WIFI_PASS_MAX];
+        uint32_t n = 1, sl = (uint32_t)strlen(c), pl = !strcmp(d, "-") ? 0u : (uint32_t)strlen(d);
+        m[0] = !strcmp(b, "set") ? RFM_WIFI_SET : !strcmp(b, "saved") ? RFM_WIFI_SAVED :
+               !strcmp(b, "forget") ? RFM_WIFI_FORGET : !strcmp(b, "scan") ? RFM_WIFI_SCAN :
+               !strcmp(b, "list") ? RFM_WIFI_LIST : RFM_WIFI_GET;
+        if (m[0] == RFM_WIFI_SET && sl <= RFM_WIFI_SSID_MAX && pl <= RFM_WIFI_PASS_MAX) {
+            m[1] = (uint8_t)sl;
+            memcpy(m + 2, c, sl);
+            m[2u + sl] = (uint8_t)pl;
+            memcpy(m + 3u + sl, d, pl);
+            n = 3u + sl + pl;
+        } else if (m[0] == RFM_WIFI_SCAN && c[0]) { /* rf wifi scan [1]: 1 even while joining */
+            m[1] = (uint8_t)atoi(c);
+            n = 2;
+        } else if (m[0] == RFM_WIFI_LIST) {         /* rf wifi list WHICH FIRST (0 the scan's, 1 the kept) */
+            m[1] = (uint8_t)atoi(c);
+            m[2] = (uint8_t)atoi(d);
+            n = 3;
+        } else if (m[0] == RFM_WIFI_FORGET) {
+            m[1] = !strcmp(c, "all") ? 0xFFu : (uint8_t)atoi(c);
+            n = 2;
+        }
+        hb_send((int)RF_T_SX, RFM_WIFI, m, n);
+        hb_run();
+        return 1;
+    }
+    if (!strcmp(a, "wfstore")) {                    /* rf wfstore: OBJ_WIFI kept compact, read back whole */
+        static uint8_t w[588], r[588];
+        int n;
+        memset(w, 0, sizeof w);
+        memcpy(w, "2FIW", 4);                       /* (device/wifi.c's magic, "WIF2" little endian) */
+        memcpy(w + 4, "Home", 4);
+        memcpy(w + 4 + 33, "pa55word", 8);
+        memcpy(w + 4 + 97, "Cafe", 4);              /* (an open one) */
+        hs_wfstore = plat_store_save(OBJ_WIFI, w, sizeof w) == 0 &&
+                     (n = plat_store_load(OBJ_WIFI, r, sizeof r)) == (int)sizeof r && !memcmp(w, r, sizeof w) &&
+                     plat_store_size(OBJ_WIFI) == 4 + 1 + 4 + 1 + 8 + 1 + 4 + 1 + 0;   /* (19 bytes, not 588) */
+        return 1;
+    }
+    if (!strcmp(a, "serve")) {                      /* rf serve SECONDS [PORT [stdin]]: real time, real sockets */
+        uint32_t ms = (uint32_t)atoi(b) * 1000u, k;
+        const int ctl = !strcmp(d, "stdin");
+        if (c[0])
+            rfn_init(rf_net_rx, RF_NET_RX_N, rf_net_tx, RF_NET_TX_N, (uint16_t)atoi(c), RFM_NET_UDP_PORT);
+        rfn_test_connect(0);
+        hs_serving = 1;
+        if (ctl)
+            fcntl(0, F_SETFL, fcntl(0, F_GETFL, 0) | O_NONBLOCK);
+        printf("rf serve: %u s, TCP 127.0.0.1:%s, UDP %u\n", ms / 1000u, c[0] ? c : "7740", RFM_NET_UDP_PORT);
+        fflush(stdout);
+        for (k = 0; k < ms; k++) {
+            int i;
+            if (!hs_stall)
+                for (i = 0; i < 8 && rfn_poll() > 0; i++)
+                    ;
+            if (ctl && hs_serve_ctl())
+                break;
+            run_ms(1);
+            usleep(1000);
+        }
+        hs_serving = 0;
+        return 1;
+    }
+#endif
     if (!strcmp(a, "snap")) {
         memcpy(snap, ref, sizeof snap);
         return 1;
@@ -970,7 +1211,28 @@ int app_expect(const char *what, int *got)
         const uint8_t v[10] = {sa.rm_disp, sa.rm_rel, sa.rm_cc_ch, sa.rm_key_ch, sa.rm_keys, sa.rm_octk, sa.rm_scl,
                                sa.rm_kled, sa.vel_on, sa.usbh};
         *got = v[what[6] - '0'];
-    } else if (!strcmp(what, "sa_scale"))          /* the scale: root * 100 + scale */
+    }
+#if FM1B_WIFI
+    else if (!strcmp(what, "sa_wifi_off"))       /* the settings' WI-FI row: off (kept) */
+        *got = sa.wifi_off;
+    else if (!strncmp(what, "sa_wp_", 6)) {      /* the Wi-Fi page (sa_wifi.c): open, page (WP_*), tab, pick, tile,
+                                                  * armed, layer, shown, len, cur, why, count, scans (asked), joins,
+                                                  * forgets, pwzero (its password and WIFI SET's copy all zeros) */
+        const char *f = what + 6;
+        uint32_t i, z = 1;
+        for (i = 0; i < sizeof wp_pw; i++)
+            z &= wp_pw[i] == 0;
+        for (i = 0; i < sizeof rf_wf.pass; i++)
+            z &= rf_wf.pass[i] == 0;
+        *got = !strcmp(f, "open") ? wp.open : !strcmp(f, "page") ? wp.page : !strcmp(f, "tab") ? wp.tab
+             : !strcmp(f, "pick") ? wp.pick : !strcmp(f, "tile") ? wp.tile : !strcmp(f, "armed") ? wp.armed
+             : !strcmp(f, "layer") ? wp.layer : !strcmp(f, "shown") ? wp.shown : !strcmp(f, "len") ? wp.len
+             : !strcmp(f, "cur") ? wp.cur : !strcmp(f, "why") ? wp.why : !strcmp(f, "count") ? (int)wp_count()
+             : !strcmp(f, "scans") ? (int)wp_scans_asked : !strcmp(f, "joins") ? (int)wp_joins
+             : !strcmp(f, "forgets") ? (int)wp_forgets : !strcmp(f, "pwzero") ? (int)z : -1;
+    }
+#endif
+    else if (!strcmp(what, "sa_scale"))          /* the scale: root * 100 + scale */
         *got = sa.scale_root * 100 + sa.scale;
     else if (!strcmp(what, "sa_rm_oct"))         /* MIDI REMOTE's keys' octave; its screen blank */
         *got = rm.oct;
@@ -1084,6 +1346,61 @@ int app_expect(const char *what, int *got)
         *got = (int)rs_saves;
     else if (!strcmp(what, "rf_store_same"))
         *got = (int)rs_same;
+#if FM1B_WIFI
+    else if (!strcmp(what, "rf_wfstore"))
+        *got = hs_wfstore;
+    else if (!strcmp(what, "rf_net_up"))
+        *got = rfn_up();
+    else if (!strcmp(what, "rf_wifi_op"))
+        *got = hs_wifi_n ? hs_wifi[0] : -1;
+    else if (!strcmp(what, "rf_wifi_status"))
+        *got = hs_wifi_n ? hs_wifi[1] : -1;
+    else if (!strcmp(what, "rf_wifi_state"))
+        *got = hs_wifi_n ? hs_wifi[2] : -1;
+    else if (!strcmp(what, "rf_wifi_host"))
+        *got = hs_wifi_n ? hs_wifi[12] : -1;
+    else if (!strcmp(what, "rf_wifi_saved"))
+        *got = hs_wifi_n ? hs_wifi[13] : -1;
+    else if (!strcmp(what, "rf_wifi_heap"))
+        *got = hs_wifi_n ? (int)rf_rd16(hs_wifi + 26) * 16 : -1;
+    else if (!strcmp(what, "rf_wifi_ip_last"))
+        *got = hs_wifi_n ? hs_wifi[7] : -1;
+    else if (!strcmp(what, "rf_wifi_ssid_len"))
+        *got = hs_wifi_n ? hs_wifi[RFM_WIFI_R_SSID] : -1;
+    else if (!strcmp(what, "rf_wifi_len"))          /* WIFI_R's whole body */
+        *got = (int)hs_wifi_n;
+    else if (!strcmp(what, "rf_wifi_scanning"))     /* SCAN / LIST's page: scanning, total, first, count */
+        *got = hs_wifi_n >= RFM_WIFI_LIST_HDR ? hs_wifi[4] : -1;
+    else if (!strcmp(what, "rf_wifi_scans"))
+        *got = hs_wifi_n >= RFM_WIFI_LIST_HDR ? hs_wifi[5] : -1;
+    else if (!strcmp(what, "rf_wifi_total"))
+        *got = hs_wifi_n >= RFM_WIFI_LIST_HDR ? hs_wifi[6] : -1;
+    else if (!strcmp(what, "rf_wifi_first"))
+        *got = hs_wifi_n >= RFM_WIFI_LIST_HDR ? hs_wifi[7] : -1;
+    else if (!strcmp(what, "rf_wifi_count"))
+        *got = hs_wifi_n >= RFM_WIFI_LIST_HDR ? hs_wifi[8] : -1;
+    else if (!strncmp(what, "rf_wifi_e", 9) && hs_wifi_n >= RFM_WIFI_LIST_HDR) {
+        /* rf_wifi_eK_rssi | _flags | _ch | _len: entry K of the page */
+        uint32_t k = (uint32_t)atoi(what + 9), i = 0, o = RFM_WIFI_LIST_HDR;
+        const char *f = strchr(what + 9, '_');
+        while (i < k && i < hs_wifi[8] && o + 4u <= hs_wifi_n)
+            o += 4u + hs_wifi[o + 3u], i++;
+        if (!f || i != k || k >= hs_wifi[8] || o + 4u > hs_wifi_n)
+            *got = -1;
+        else
+            *got = !strcmp(f, "_rssi") ? (int)(int8_t)hs_wifi[o] : !strcmp(f, "_flags") ? hs_wifi[o + 1u]
+                 : !strcmp(f, "_ch") ? hs_wifi[o + 2u] : hs_wifi[o + 3u];
+    }
+    else if (!strcmp(what, "rf_ev_net_n"))
+        *got = (int)hs_ev_n;
+    else if (!strcmp(what, "rf_ev_net_bad"))
+        *got = (int)hs_ev_bad;
+    else if (!strncmp(what, "rf_ev_net_b", 11))
+        *got = (uint32_t)atoi(what + 11) < hs_ev_len ? hs_ev[atoi(what + 11)] : -1;
+    else if (!strcmp(what, "rf_wifi_tail"))
+        *got = hs_wifi_n ? (int)(hs_wifi_n - RFM_WIFI_R_SSID - 1u - hs_wifi[RFM_WIFI_R_SSID] - 1u -
+                                 hs_wifi[RFM_WIFI_R_SSID + 1u + hs_wifi[RFM_WIFI_R_SSID]]) : -1;
+#endif
     else
         return 0;
     return 1;
@@ -1095,4 +1412,7 @@ static void hs_init(void)
     rf_body_init(&hs_sx[0].b, &hs_st[RF_T_SX], hs_buf[RF_T_SX], RFM_BK_BODY_MAX, hs_msg, (void *)(uintptr_t)RF_T_SX);
     rf_body_init(&hs_bk.b, &hs_st[RF_T_BK], hs_buf[RF_T_BK], RFM_BK_BODY_MAX, hs_msg, (void *)(uintptr_t)RF_T_BK);
     rf_body_init(&hs_sx[1].b, &hs_st[RF_T_BLE], hs_buf[RF_T_BLE], RFM_BK_BODY_MAX, hs_msg, (void *)(uintptr_t)RF_T_BLE);
+#if FM1B_WIFI
+    rf_body_init(&hs_bk_net.b, &hs_st[RF_T_NET], hs_buf[RF_T_NET], RFM_BK_BODY_MAX, hs_msg, (void *)(uintptr_t)RF_T_NET);
+#endif
 }

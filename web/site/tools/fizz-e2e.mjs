@@ -155,8 +155,8 @@ try {
 
   // 6. the firmware browser: its card has the native badge, and the Native filter lists it
   await js(`(document.getElementById("fw-btn").click(), true)`);
-  await until(`document.querySelector(".sheet.open") && document.querySelector('.cards .card[data-id="fizz"]')`, 5000, "FIZZ's card");
-  ok(await js(`!!document.querySelector('.cards .card[data-id="fizz"] .card-badge') && document.querySelector('.cards .card[data-id="fizz"]').classList.contains("current")`), "its card: the native badge, current");
+  await until(`document.querySelector(".sheet.open") && document.querySelector('.fb-tile[data-id="fizz"]')`, 5000, "FIZZ's card");
+  ok(await js(`!!document.querySelector('.fb-tile[data-id="fizz"] .fb-cur') && document.querySelector('.fb-tile[data-id="fizz"]').classList.contains("current")`), "its tile (the tiles run natively): current, with the check");
   await js(`(document.querySelector('.engine-filter button[data-engine="native"]').click(), true)`);
   await sleep(300);
   ok(await js(`!!document.querySelector('.cards .card[data-id="fizz"]')`), "the Native filter lists FIZZ");
@@ -189,7 +189,7 @@ try {
   await js(`(document.getElementById("fw-btn").click(), true)`);
   await until(`document.querySelector(".cards.mine .card[data-sha]")`, 5000, "Your firmware");
   const sep = await js(`({ mine: Array.from(document.querySelectorAll(".cards.mine .card[data-sha]"), (c) => c.classList.contains("current")),
-    cat: !!document.querySelector('.cards:not(.mine) .card[data-id="fizz"]'), catCurrent: !!document.querySelector('.cards:not(.mine) .card[data-id="fizz"].current') })`);
+    cat: !!document.querySelector('.fb-tile[data-id="fizz"]'), catCurrent: !!document.querySelector('.fb-tile[data-id="fizz"].current') })`);
   ok(stored.lib.length === 1 && stored.lib[0].id === "fizz" && stored.lib[0].sha === SITE_RFM1.sha256 && sep.mine.length === 1 && sep.mine[0] && sep.cat && !sep.catCurrent,
      "the visitor's own FIZZ file is in Your firmware (current), the catalog's FIZZ apart from it (not current)");
   ok(await js(`!new URL(location.href).searchParams.has("fw")`), "the visitor's file has no ?fw= deep link");

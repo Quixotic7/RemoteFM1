@@ -1,14 +1,15 @@
 # SPDX-License-Identifier: MPL-2.0
-# Build, sign and release RemoteFM1's FM-1 firmware from a tag (docs/RELEASING.md): both packages, remote-V.fwsc
-# (USB + Bluetooth MIDI, the one The Firmware Hub lists) and remote-usb-V.fwsc (USB only), built by The Firmware Hub's
+# Build, sign and release RemoteFM1's FM-1 firmware from a tag (docs/RELEASING.md): the three packages, remote-V.fwsc
+# (USB + Bluetooth MIDI, the one The Firmware Hub lists), remote-usb-V.fwsc (USB only) and remote-wifi-V.fwsc (Wi-Fi,
+# for an Ableton Move: remotefm1.com/move/flash/ offers it; since 0.4.0), built by The Firmware Hub's
 # shared workflow zvenson/fm1-build at its reviewed tag v1, which signs a GitHub build attestation for each: the hub then
 # shows "Built from source on GitHub" on RemoteFM1's card, and anyone can check a file with gh attestation verify.
 #   push of a tag vX.Y.Z -> draft:   the tagged commit's web/installer/ checked (releases.json lists V, SHA256SUMS,
-#                                    the two packages, test_installer.mjs), then a draft release with the notes
+#                                    the three packages, test_installer.mjs), then a draft release with the notes
 #                                    (web/installer/firmware/RELEASE-NOTES.md's "# RemoteFM1 V"), LICENSE,
 #                                    LICENSING.md and LICENSES.zip: nothing public yet
 #                           build:   fm1-build@v1 runs tools/hub_build.sh (./build.sh --release V, with and without
-#                                    Bluetooth; every sha256 checked against releases.json and the committed packages
+#                                    Bluetooth, and --wifi; every sha256 checked against releases.json and the committed packages
 #                                    before anything is signed), attests remote-*.fwsc and uploads them with its
 #                                    SHA256SUMS to the draft
 #                           publish: the draft's files checked (signed by fm1-build v1 at its reviewed tag object, for
@@ -104,7 +105,7 @@ jobs:
                 web/installer/firmware/RELEASE-NOTES.md
             sed -e "s/@VERSION@/$V/g" -e "s|@REPO@|$GITHUB_REPOSITORY|g" <<'EOT'
 
-          `remote-@VERSION@.fwsc` is the package with USB and Bluetooth MIDI (the one The Firmware Hub lists), `remote-usb-@VERSION@.fwsc` the USB-only one; `SHA256SUMS` lists both. GitHub built and signed each file from this tag's source (The Firmware Hub's shared workflow); check one with `gh attestation verify remote-@VERSION@.fwsc --repo @REPO@ --signer-workflow zvenson/fm1-build/.github/workflows/build.yml`. The build downloads Yamaha's DX7 ROM cartridges and checks them against the sha256s pinned in `tools/hub_build.sh`; they are compiled in, never in the repository or the release. `LICENSE`, `LICENSING.md` and `LICENSES.zip` carry every licence. Installing firmware is at your own risk.
+          `remote-@VERSION@.fwsc` is the package with USB and Bluetooth MIDI (the one The Firmware Hub lists), `remote-usb-@VERSION@.fwsc` the USB-only one, `remote-wifi-@VERSION@.fwsc` the Wi-Fi one for an Ableton Move (install it from remotefm1.com/move/flash/); `SHA256SUMS` lists all three. GitHub built and signed each file from this tag's source (The Firmware Hub's shared workflow); check one with `gh attestation verify remote-@VERSION@.fwsc --repo @REPO@ --signer-workflow zvenson/fm1-build/.github/workflows/build.yml`. The build downloads Yamaha's DX7 ROM cartridges and checks them against the sha256s pinned in `tools/hub_build.sh`; they are compiled in, never in the repository or the release. `LICENSE`, `LICENSING.md` and `LICENSES.zip` carry every licence. Installing firmware is at your own risk.
           EOT
           } > release-body.md
           grep -q . release-body.md
@@ -171,7 +172,7 @@ jobs:
           mkdir signed
           gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --dir signed \
               --pattern 'remote-*.fwsc' --pattern SHA256SUMS
-          n=2                         # remote (USB + Bluetooth), remote-usb
+          n=3                         # remote (USB + Bluetooth), remote-usb, remote-wifi
           ls -l signed
           files=(signed/remote-*.fwsc)
           if [ "${#files[@]}" != $n ] || [ "$(grep -c . signed/SHA256SUMS)" != $n ]; then

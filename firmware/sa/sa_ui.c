@@ -58,7 +58,7 @@ static struct {
     /* MIDI REMOTE (sa_remote.c) */
     uint8_t rm_last[3], rm_src, rm_src_i, rm_any;
     uint8_t latch;
-    uint8_t set[10], blank;                  /* the settings' values (sa_setopt's rows); MIDI REMOTE's screen off */
+    uint8_t set[10 + FM1B_WIFI], blank;      /* the settings' values (sa_setopt's rows); MIDI REMOTE's screen off */
     uint8_t usbh_st, usbh_said, usbh_msg;    /* USB HOST: plat_usb_host_state, sa.usbh_said, sa.usbh_msg */
     char usbh_name[28];                      /* its device's name, in capitals (sa_usbh_name) */
     uint8_t rm_info, rm_oct, rm_keych, rm_kbd;
@@ -66,6 +66,10 @@ static struct {
     int8_t rm_rel;
     uint32_t rm_info_age;
     uint32_t rm_age;
+#if FM1B_WIFI
+    sa_wp_t wp;                              /* the Wi-Fi page (sa_wifi.c), as it was at the frame's start */
+    uint8_t wp_st, wp_glo, wp_scanning;      /* plat_wifi_state, GLO held, a scan of the page's under way */
+#endif
     /* the hand-over */
     uint8_t host_t, warn;
     char info[4][32];
@@ -368,8 +372,8 @@ static void sa_paint_octave(void)
 
 static void sa_paint_host(void)
 {
-    static const char *const TR[3] = {"USB", "USB BULK", "BLUETOOTH"};
-    const char *tr = TR[ui.host_t < 3u ? ui.host_t : 0u];
+    static const char *const TR[4] = {"USB", "USB BULK", "BLUETOOTH", "WI-FI"};   /* (RF_T_*; 3: the Wi-Fi build's) */
+    const char *tr = TR[ui.host_t < 4u ? ui.host_t : 0u];
     int32_t i, w;
     sg_chip_text((SG_W - 100) / 2, 8, 100, 22, 0, "PANEL MODE", UC(A4), UC(ON));
     sg_text_sh((SG_W - sg_text_w("HOST", 5)) / 2, 52, 5, "HOST", UC(A2), 4, UC(D2));

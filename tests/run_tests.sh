@@ -63,6 +63,24 @@ sim "$SIM/remotefm1_host" firmware/tests/sa_bench_boot.txt
 echo "== without the shadow frame buffer (RFM_SHADOW 0: rectangles straight to the panel, no COPY)"
 CC="$PWD/firmware/tests/cc_noshadow.sh" ./build.sh --host >/dev/null
 sim "$SIM/remotefm1_host" firmware/tests/noshadow.txt firmware/tests/standalone.txt
+echo "== the Wi-Fi build (./build.sh --wifi --host, docs/WIFI.md): WIFI over USB SysEx, the bulk framing on the TCP"
+echo "   transport's rings (net/rfm_net.c), the instrument with its buffers from the Wi-Fi heap; tools/wifi_probe.py's codec"
+env -u CC ./build.sh --wifi --host >/dev/null
+sim "$SIM/remotefm1-wifi_host" firmware/tests/wifi.txt firmware/tests/wifi_page.txt firmware/tests/standalone.txt firmware/tests/trs.txt \
+    firmware/tests/sa_bench.txt $(echo $SA_TESTS | tr ' ' '\n' | grep -v "standalone_velocity" | tr '\n' ' ')
+                                                       # (not standalone_velocity, hold, bulk_ota: HELLO_R's caps, the
+                                                       # shadow and 16 KB bulk bodies are the other builds')
+echo "   the FM-1's own Wi-Fi pages (firmware/tests/wifi_page.txt) against their mockups (design/wifi-settings)"
+python3 tests/wifi_mockups.py "$OUT" || { echo "FAILED: tests/wifi_mockups.py (a still screen differs from its mockup)"; exit 1; }
+python3 tools/wifi_probe.py --selftest
+echo "   tools/wifi_probe.py bench against the simulator over this computer's TCP (\"rf serve\": net/rfm_net.c on BSD sockets)"
+printf 'wait 1000\nrf serve 8 7745\n' > "$H/wifi_serve.txt"
+"$SIM/remotefm1-wifi_host" "$H/wifi_serve.txt" "$OUT" > "$OUT/wifi_serve.log" 2>&1 &
+WSP=$!
+python3 tools/wifi_probe.py --sim bench --tcp-port 7745 --sink-kb 256 --source-kb 256 --echo 20 > "$H/wifi_probe.txt" ||
+    { cat "$H/wifi_probe.txt"; kill $WSP 2>/dev/null; echo "FAILED: tools/wifi_probe.py --sim bench"; exit 1; }
+wait $WSP
+grep "^SINK\|^SOURCE\|^result" "$H/wifi_probe.txt"
 echo "== without Yamaha's ROM cartridges (DX7_ROM_DIR somewhere empty): the build goes on, the INIT VOICE only"
 DX7_ROM_DIR=/nonexistent env -u CC ./build.sh --host | grep "dx7 rom"
 grep -q "SA_ROM_NBANKS 0u" firmware/build/gen/dx7_rom.h
