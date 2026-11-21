@@ -16,7 +16,7 @@ import * as library from "./library.js";
 import { Sheet, icon } from "./sheet.js";
 import { makeSite } from "./remote-hook.js";
 import { createFm1, mountUseFm1, mountHeader } from "./use-fm1.js";
-import { liveCatalog, mergeLive, packageFor, chooseEngine, compareVersions, sourceOf, nativeOrigin, nameOf, localRfm1, siteRfm1, browseSections, cardView, fantasyCfw } from "./live.js";
+import { rfm1Catalog, liveCatalog, mergeLive, packageFor, chooseEngine, compareVersions, sourceOf, nativeOrigin, nameOf, localRfm1, siteRfm1, browseSections, cardView, fantasyCfw } from "./live.js";
 import { loadPrefs, savePrefs as writePrefs, keyHintsOn, shiftHintDue } from "./prefs.js";
 import { DEFAULT_DIM, clampDim, pickSkin, firmwareSkin, loadUserSkin, setUserImage, removeUserImage } from "./skin.js";
 import { mhzFor, pickMhz, stepDown, Governor, AUTO_START } from "./cpu.js";
@@ -344,7 +344,7 @@ function replaceEntry(n) {
 let recheckP = null;
 function recheckHub(id) {
   if (!recheckP) recheckP = emuHook.fetchHubCatalog((u) => fetch(u, { cache: "no-cache" }))
-    .then((hub) => mergeLive(snapshot, hub, { emuSkip: emuHook.EMU_SKIP || {} })).catch(() => null);
+    .then((hub) => rfm1Catalog(mergeLive(snapshot, hub, { emuSkip: emuHook.EMU_SKIP || {} }))).catch(() => null);
   return recheckP.then((c) => (c && c.firmwares.find((f) => f.id === id)) || null);
 }
 async function fallback(why) {
@@ -974,7 +974,8 @@ async function main() {
   matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`).addEventListener?.("change", layout);
   try {
     const r = await fetch("catalog.json", { cache: "no-cache" });
-    snapshot = catalog = await r.json();
+    snapshot = await r.json();
+    catalog = rfm1Catalog(snapshot);   // (.rfm1 first, no native cores: live.js rfm1First; the live merge too, below)
   } catch (e) {
     toast("The firmware list could not be loaded. Reload the page.", "bad");
     return;
@@ -984,8 +985,8 @@ async function main() {
   try { emuHook = catalog.paths.engines.emu && catalog.paths.engines.emu.hook ? await import(new URL(catalog.paths.engines.emu.hook, document.baseURI).href) : null; }
   catch (_) { emuHook = null; }
   if (emuHook && typeof emuHook.fetchHubCatalog === "function") {
-    catalog = await liveCatalog(snapshot, { emuSkip: emuHook.EMU_SKIP || {},
-      fetchHub: (signal) => emuHook.fetchHubCatalog((u) => fetch(u, { signal })) });
+    catalog = rfm1Catalog(await liveCatalog(snapshot, { emuSkip: emuHook.EMU_SKIP || {},
+      fetchHub: (signal) => emuHook.fetchHubCatalog((u) => fetch(u, { signal })) }));
     if (!catalog.live) console.warn("the Hub's catalog:", catalog.liveError, "- using the deployed snapshot");
   }
   // the hosted managers (web/managers/build.mjs: managers/index.json); none: the Editor button shows only links
