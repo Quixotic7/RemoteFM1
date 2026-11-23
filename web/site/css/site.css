@@ -545,7 +545,7 @@ body.learning #device { cursor: crosshair; }
   #top { gap: 6px; padding: 0 6px; }
   #top .brand b { display: none; }
   #status { display: none; }
-  #top nav a:last-child, #top nav #vst-link, #install-link .long, #ios-link .long, #android-link .long { display: none; }
+  #top nav a:last-child, #top nav #vst-link, #install-link .long { display: none; }
   .src-link { width: 34px; padding: 0; justify-content: center; }
   .src-link .src-text, .src-link .src-arrow { display: none; }
   .ed-sub, .ed-src, .ed-mode { display: none; }
@@ -574,7 +574,7 @@ body.learning #device { cursor: crosshair; }
   #stage { height: 100%; }
 }
 @media (max-width: 1080px) {
-  #top nav #site-src, #top nav #vst-link { display: none; }
+  #top nav #site-src { display: none; }
 }
 @media (max-width: 900px) {
   .src-link { width: 34px; padding: 0; justify-content: center; }
