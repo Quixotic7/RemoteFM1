@@ -49,7 +49,7 @@ kbd { display: inline-block; border-radius: 3px; white-space: nowrap; }
 .km-index { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 26px; }
 .km-index a { font: 400 19px/1 var(--px); color: var(--wh); text-decoration: none; border: var(--line); border-radius: 5px; padding: 7px 10px 5px; }
 .km-index a:hover { background: var(--wh); color: var(--bk); }
-.km { margin: 0 0 40px; padding: 26px 14px 10px; display: grid; gap: 14px; scroll-margin-top: 70px; }
+.km { margin: 0 0 40px; padding: 26px 14px 10px; display: grid; gap: 14px; scroll-margin-top: 14px; }
 .km-head h3 { font: 400 38px/1 var(--px); margin-bottom: 4px; }
 .km-head p { margin: 0; color: #dcdcdc; font-size: 15px; }
 .km-dev { position: sticky; top: 48px; z-index: 2; background: var(--bk); padding: 12px 0 10px; }

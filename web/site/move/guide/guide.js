@@ -132,3 +132,14 @@ for (const fig of $$(".km")) {
     items[at_].scrollIntoView({ block: "nearest", behavior: "smooth" });
   });
 }
+
+// a link straight to a keymap (#km-session): the pixel font arrives after the first layout and the text above the
+// keymap gets shorter, so the browser's jump lands past it. Go there again once the fonts are in, unless the reader
+// has already scrolled by hand.
+{
+  let moved = false;
+  for (const ev of ["wheel", "touchstart", "keydown", "pointerdown"]) addEventListener(ev, () => { moved = true; }, { once: true, passive: true });
+  const again = () => { const t = !moved && location.hash.length > 1 && document.getElementById(location.hash.slice(1)); if (t) t.scrollIntoView({ behavior: "instant" }); };
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(again);
+  addEventListener("load", again);
+}
