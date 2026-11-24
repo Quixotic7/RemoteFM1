@@ -102,9 +102,9 @@ export function guardSite({ catalog, has, expected, managers = null, sha = null,
 
 // remotefm1.com/move and its flasher: the pages, every local href / src they name (relative to each page), and what
 // their scripts load at run time. has(path) -> bool, read(path) -> text. -> errors
-export const MOVE_PAGES = ["move/index.html", "move/flash/index.html"];
+export const MOVE_PAGES = ["move/index.html", "move/flash/index.html", "move/guide/index.html"];
 export const MOVE_RUNTIME = ["move/css/move.css", "move/js/move.js", "move/data/move.json", "move/flash/flash.js", "move/flash/flash.css",
-  "move/img/fm1-pixel.png", "fonts/Jersey10-Regular.woff", "fonts/OFL-jersey10.txt", "fonts/DMSans-VF-latin.woff", "fonts/DMMono-Medium-latin.woff",
+  "move/img/fm1-pixel.png", "move/guide/guide.css", "move/guide/guide.js", "fonts/Jersey10-Regular.woff", "fonts/OFL-jersey10.txt", "fonts/DMSans-VF-latin.woff", "fonts/DMMono-Medium-latin.woff",
   "installer/index.html", "installer/releases.json", "installer/installer.js", "installer/fm1ota.js", "installer/fm1pkg.js"];
 export function guardMovePage({ has, read }) {
   const errors = [];
