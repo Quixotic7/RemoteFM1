@@ -1,0 +1,95 @@
+/* SPDX-License-Identifier: MPL-2.0 */
+/* remotefm1.com/move/guide: what the guide adds to ../css/move.css (the Move page's 1-bit look, its Move figure, its
+   panels). The keymaps: the Move with a keymap's controls lit in LED colours and numbered, its list beside it. */
+.ghero { padding: 40px 0 8px; max-width: 860px; }
+.ghero h1 { font: 400 clamp(52px, 13vw, 96px)/.88 var(--px); letter-spacing: .005em; margin: 14px 0 18px; }
+.ghero h1 em { font-style: normal; background: var(--led-b); color: var(--bk); padding: 0 .08em; }
+.ghero .row { margin: 22px 0 6px; }
+
+/* ---- what is new: a panel a release, its items in columns */
+.news { display: grid; gap: 30px; }
+.rel { padding: 26px 18px 8px; }
+.rel-items { list-style: none; margin: 0; padding: 0; display: grid; gap: 0 28px; }
+.rel-items li { padding: 12px 0 10px; border-top: var(--line); }
+.rel-items li:first-child { border-top: 0; }
+.rel-items b { display: block; font: 400 26px/1 var(--px); letter-spacing: .01em; margin-bottom: 4px; }
+.rel-items p { margin: 0; color: #e6e6e6; font-size: 15px; }
+.rel-items a { white-space: nowrap; }
+@media (min-width: 800px) {
+  .rel-items { grid-template-columns: 1fr 1fr; }
+  .rel-items li:nth-child(2) { border-top: 0; }
+}
+
+/* ---- getting around: numbered steps */
+.walk { list-style: none; padding: 0; margin: 0; counter-reset: w; display: grid; gap: 0; }
+.walk li { counter-increment: w; position: relative; padding: 16px 16px 10px 62px; border-bottom: var(--line); }
+.walk li:last-child { border-bottom: 0; }
+.walk li::before { content: counter(w); position: absolute; left: 14px; top: 14px; width: 34px; height: 34px; display: grid; place-items: center;
+  font: 400 28px/1 var(--px); background: var(--wh); color: var(--bk); border-radius: 5px; padding-top: 2px; }
+.walk b { display: block; font: 400 28px/1 var(--px); margin-bottom: 6px; }
+.walk p { color: #e6e6e6; font-size: 15px; margin: 0 0 6px; }
+.walk.panel { padding-top: 8px; }
+.rules { display: grid; gap: 12px; margin-top: 22px; }
+.rule { padding: 14px 16px 8px; border: var(--line); border-radius: 6px; }
+.rule b { display: block; font: 400 24px/1 var(--px); margin-bottom: 6px; }
+.rule p { margin: 0 0 6px; color: #e6e6e6; font-size: 15px; }
+@media (min-width: 800px) { .rules { grid-template-columns: repeat(4, 1fr); } }
+
+/* ---- where things are */
+.places { display: grid; gap: 0; padding-top: 10px; }
+.place { display: grid; gap: 2px 18px; padding: 12px 16px 8px; border-bottom: var(--line); }
+.place:last-child { border-bottom: 0; }
+.place b { font: 400 26px/1.05 var(--px); }
+.place p { margin: 0 0 4px; color: #e6e6e6; font-size: 15px; }
+.place span { font: 500 11px/1.4 var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--grey); margin-right: 6px; }
+@media (min-width: 800px) { .place { grid-template-columns: 220px 1.4fr 1fr; align-items: baseline; } }
+kbd { display: inline-block; border-radius: 3px; white-space: nowrap; }
+
+/* ---- the keymaps */
+.km-index { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 26px; }
+.km-index a { font: 400 19px/1 var(--px); color: var(--wh); text-decoration: none; border: var(--line); border-radius: 5px; padding: 7px 10px 5px; }
+.km-index a:hover { background: var(--wh); color: var(--bk); }
+.km { margin: 0 0 40px; padding: 26px 14px 10px; display: grid; gap: 14px; scroll-margin-top: 70px; }
+.km-head h3 { font: 400 38px/1 var(--px); margin-bottom: 4px; }
+.km-head p { margin: 0; color: #dcdcdc; font-size: 15px; }
+.km-dev { position: sticky; top: 48px; z-index: 2; background: var(--bk); padding: 12px 0 10px; }
+.km-keys { list-style: none; margin: 0; padding: 0; }
+.km-keys > li { display: grid; grid-template-columns: 34px 1fr; gap: 0 10px; padding: 10px 8px 6px; border-top: var(--line); cursor: default; outline: none; }
+.km-keys > li:first-child { border-top: 0; }
+.km-keys > li.on, .km-keys > li:focus-visible { background: var(--bk) var(--dots); }
+.km-keys > li > * { grid-column: 2; }
+.km-keys > li > .km-n { grid-column: 1; grid-row: 1 / span 9; align-self: start; }
+.km-n { display: grid; place-items: center; min-width: 28px; height: 28px; padding: 2px 3px 0; font: 400 24px/1 var(--px); font-style: normal;
+  background: var(--hc); color: var(--bk); border-radius: 4px; }
+.km-keys b { font: 400 24px/1.05 var(--px); letter-spacing: .01em; }
+.km-keys p { margin: 3px 0 4px; color: #e6e6e6; font-size: 15px; }
+.km-keys p em { font-style: normal; font: 500 11px/1.4 var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--hc); }
+.km-note { margin: 0; padding: 10px 8px 0; border-top: var(--line); color: #dcdcdc; font-size: 14px; }
+@media (min-width: 1000px) {
+  .km { grid-template-columns: 1.45fr 1fr; gap: 6px 26px; padding: 30px 22px 14px; align-items: start; }
+  .km-head, .km-note { grid-column: 1 / -1; }
+  .km-dev { top: 60px; padding-top: 16px; }
+}
+/* compact lists: the Shift + step keymap, two columns of short lines */
+.km-keys.tight > li { padding: 7px 8px 3px; }
+.km-keys.tight b { font-size: 22px; }
+@media (min-width: 600px) { .km-keys.tight { columns: 2; column-gap: 20px; } .km-keys.tight > li { break-inside: avoid; } .km-keys.tight > li:first-child { border-top: var(--line); } }
+
+/* the Move of a keymap: what the keymap does not use steps back, what it uses is lit and numbered */
+.km-move > * { opacity: .42; transition: opacity .12s; }
+.km-move > .hl, .km-move > .m-oled, .km-move > .km-badge { opacity: 1; }
+.km-move > .off { opacity: .2; }
+.km-move .hl { cursor: pointer; }
+.km-move .m-pad.hl { background: var(--hc); border-color: var(--hc); }
+.km-move .m-btn.hl { background: var(--hc); border-color: var(--hc); color: var(--bk); }
+.km-move .m-btn.hl svg .f { fill: var(--bk); }
+.km-move .m-step.hl { background: var(--hc); border-color: var(--hc); }
+.km-move .m-knob.hl, .km-move .m-vol.hl { background: var(--hc); border-color: var(--hc); }
+.km-move .m-knob.hl::after, .km-move .m-vol.hl::after { background: var(--bk); }
+.km-move .m-jog.hl { box-shadow: inset 0 0 0 5px var(--bk), inset 0 0 0 6px var(--hc), 0 0 0 2px var(--hc); border-color: var(--hc); }
+.km-move .m-track.hl { border-color: var(--hc); }
+.km-move .m-track.hl::after { background: var(--hc); border-color: var(--hc); left: 26%; right: 26%; top: 10%; bottom: 10%; }
+.km-move .m-oled b { font-size: 2.3cqw; }
+.km-move .m-oled small { font-size: 1.15cqw; }
+.km-badge { z-index: 3; transform: translate(-50%, -62%); min-width: 1.5em; padding: .1em .22em 0; text-align: center; pointer-events: none;
+  font: 400 max(14px, 2.5cqw)/1 var(--px); background: var(--hc); color: var(--bk); border: 1.5px solid var(--bk); border-radius: 3px; }

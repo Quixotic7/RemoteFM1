@@ -1,0 +1,489 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+<!-- remotefm1.com/move/guide: RemoteFM1 on the Move (RemoteFM14Move): what is new in 0.3.0 and 0.4.0, how to get
+     around, and the keymaps. The shortcuts are the released module's own (its built-in help, module/help.json, and
+     the core's README, rfm1cs-abletonmove 0.14.0); keep them in step with a release. The keymaps' Move is drawn by
+     guide.js: a list item names its controls in data-ctl. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>RemoteFM1 on the Move: guide and shortcuts</title>
+<meta name="description" content="RemoteFM1 on the Ableton Move: what is new in 0.3.0 and 0.4.0, how to get around, and keymaps of every shortcut.">
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="../img/fm1-pixel.png">
+<link rel="stylesheet" href="../css/move.css">
+<link rel="stylesheet" href="guide.css">
+</head>
+<body>
+<a class="skip" href="#keys">Skip to the keymaps</a>
+<header class="top">
+  <a class="brand" href="../" aria-label="RemoteFM1 for Move"><span class="mark" aria-hidden="true"></span><b>RemoteFM1</b><i>for Move</i></a>
+  <nav class="nav" aria-label="Sections">
+    <a href="#new">What's new</a><a href="#around">Getting around</a><a href="#places">Places</a><a href="#keys">Keymaps</a>
+  </nav>
+  <a class="back" href="../">Set-up page</a>
+</header>
+
+<main id="top">
+<section class="ghero">
+  <p class="kicker"><span class="inv">GUIDE</span>RemoteFM1 on the Move · 0.4.0</p>
+  <h1>Find your way, <em>fast.</em> </h1>
+  <p class="lede">Three FM-1 firmwares at once on an Ableton Move, a 16-track sequencer, a session view, projects and
+    states. This page says what is new, how to get around, and shows every shortcut on the Move itself.</p>
+  <div class="row">
+    <a class="btn primary" href="#keys">The keymaps</a>
+    <a class="btn" href="#around">Getting around</a>
+    <a class="btn" href="#new">What's new</a>
+  </div>
+  <p class="fine">Not installed yet? <a href="../#setup">Set it up</a> first. Update from Schwung Manager: Modules ›
+    Install Custom Module › From GitHub URL › <code>Quixotic7/remoteFM14Move</code>.</p>
+</section>
+
+<!-- ============================================================ WHAT'S NEW -->
+<section id="new" class="sec">
+  <header class="sec-head">
+    <p class="num">01</p>
+    <h2>What's new</h2>
+    <p class="sub">The two big releases: <b>0.4.0</b> (24 November 2026) and <b>0.3.0</b>.</p>
+  </header>
+  <div class="news">
+    <article class="rel panel" data-tab="0.4.0">
+      <ul class="rel-items">
+        <li><b>Engine parameters on the knobs</b>
+          <p>A new knob page, ENGINE: a firmware's own sound on the Move's eight knobs, by name and value, nothing to
+            set up. ChoralRoot 0.46 is first: both layers, seven engines, 632 parameters on 117 pages.
+            <a href="#km-pages">Keymap</a></p></li>
+        <li><b>Names and values for 59 more firmwares</b>
+          <p>Touch or turn a knob in the FM-1 layout and the Move says what it is and its value: Melodee, Felucca,
+            SLOOP, GR!MM and many more.</p></li>
+        <li><b>States that belong to the project</b>
+          <p>Pad 1 of a firmware's States is the open project's own sound, saved as you play. Pads 2 to 32 are a
+            library every project shares. <a href="#km-states">Keymap</a></p></li>
+        <li><b>States and Projects on your phone</b>
+          <p>The Move's page, <code>remotefm1.local:7730</code>, has two new panels: load, save, download, upload and
+            delete states and projects.</p></li>
+        <li><b>More rates, and triplets</b>
+          <p>A track's rate goes from 1/32 to 4 Bars, with a Feel: Straight, Dotted or Triplet. In Triplet every
+            fourth step key is off, so each group of three is one triplet. Shift + a Track opens its settings.</p></li>
+        <li><b>The arp plays your clips</b>
+          <p>Each track has its own arp, fed by the clip's notes as well as the pads. Octaves go down as well as up,
+            and a jog click makes a random Mod or Transpose pattern. <a href="#km-arp">Keymap</a></p></li>
+        <li><b>The firmware's knobs, one click away</b>
+          <p>On the FM-1 knob page one jog click hands the steps and buttons to the firmware too (Knobs + Keys). Back
+            leaves. Back + Play is always the Move's own Play. <a href="#km-pages">Keymap</a></p></li>
+        <li><b>Random, on step 13</b>
+          <p>In the firmware list: a random firmware from the list you are in. On the Projects page: a new project
+            with three random firmwares and a random key.</p></li>
+      </ul>
+    </article>
+    <article class="rel panel" data-tab="0.3.0">
+      <ul class="rel-items">
+        <li><b>Session view</b>
+          <p>Clips on the pads: seven tracks across, the eighth column launches scenes. Clips wait for the bar, or
+            start at once with a double press. <a href="#km-session">Keymap</a></p></li>
+        <li><b>A project holds its firmwares</b>
+          <p>Each of the 32 projects keeps its three firmwares and their sounds. Opening it loads them as you left
+            them. <a href="#km-projects">Keymap</a></p></li>
+        <li><b>Firmware states</b>
+          <p>32 states for every firmware: the whole firmware as it was, a pad each.
+            <a href="#km-states">Keymap</a></p></li>
+        <li><b>A colour for each slot</b>
+          <p>Track 1 orange, Track 2 blue, Track 3 yellow: on the Track buttons, session view's columns and the
+            routing. Solo is purple.</p></li>
+        <li><b>The FM-1's knobs in the sequencer</b>
+          <p>A knob page beside the trig and CC pages with the firmware's own eight knobs, named by the firmware.</p></li>
+        <li><b>Back shortcuts and the Loop page</b>
+          <p>Hold Back for bar 1, the whole clip, close everything. The Loop page sets the loop to the step.
+            <a href="#km-back">Keymap</a></p></li>
+      </ul>
+    </article>
+  </div>
+  <p class="fine" style="margin-top:16px">The full lists:
+    <a href="https://github.com/Quixotic7/remoteFM14Move/releases" target="_blank" rel="noopener">RemoteFM14Move's releases</a>.
+    Projects saved by 0.4.0 do not open in 0.3.0 or older.</p>
+</section>
+
+<!-- ============================================================ GETTING AROUND -->
+<section id="around" class="sec">
+  <header class="sec-head">
+    <p class="num">02</p>
+    <h2>Getting around</h2>
+    <p class="sub">Eight things, in the order you meet them. The <b>four Track buttons</b> beside the pads are the way
+      to everything.</p>
+  </header>
+  <ol class="walk panel" data-tab="START HERE">
+    <li><b>Three firmwares, three Track buttons</b>
+      <p>Track 1, 2 and 3 are the three slots: orange, blue, yellow. <kbd>Tap</kbd> one to play its firmware.
+        <kbd>Double tap</kbd> it to choose a firmware: a pad picks one, the jog's click loads it.
+        <kbd>Hold</kbd> it for its menu.</p></li>
+    <li><b>Every slot has a layout</b>
+      <p>Hold the Track and press a pad of the top row. <kbd>FM-1</kbd>: the pads are the FM-1's keys, the knobs and
+        buttons the firmware's own. <kbd>Own</kbd>: the firmware's own Move layout, when it brings one (ChoralRoot
+        does). <kbd>Scale</kbd> <kbd>Chroma</kbd> <kbd>Drum</kbd> <kbd>Octave</kbd>: the note layouts.</p></li>
+    <li><b>A note layout is the sequencer</b>
+      <p>The pads play the selected track, the 16 steps are its clip, Play starts it. There are 16 tracks, shared by
+        the three firmwares: hold a Track and press a step to choose the track that firmware plays.</p></li>
+    <li><b>The jog turns the knob pages</b>
+      <p>TRIG, FM-1, ENGINE, then the CC banks. Touch any knob and the screen names it and shows its value. Each
+        track remembers its page.</p></li>
+    <li><b>Menu is session view</b>
+      <p>All the clips on the pads: a column a track, the last column the scenes. Menu again takes you back.</p></li>
+    <li><b>Track 4 is everything else</b>
+      <p><kbd>Tap</kbd>: the Mixer, again for Routing (your Schwung effects). <kbd>Double tap</kbd>: the 32 projects.
+        <kbd>Hold</kbd> + a step: the Shift shortcuts, from anywhere.</p></li>
+    <li><b>Back only closes</b>
+      <p>One click closes the last menu or latch. It never changes where you are. Lost? <kbd>Back</kbd> +
+        <kbd>Delete</kbd> closes everything, then tap a Track.</p></li>
+    <li><b>Leaving</b>
+      <p><kbd>Shift</kbd> + touch the volume knob + click the jog. Move's own software starts again.</p></li>
+  </ol>
+  <div class="rules">
+    <div class="rule"><b>Only Play starts it</b><p>Steps, pads, menus and loading never start or stop the transport.
+      A scene pad is the one exception.</p></div>
+    <div class="rule"><b>Click, hold, double</b><p>A quick click on Loop or Mute latches it; a hold lasts while you
+      hold. A Track: tap, hold, double tap.</p></div>
+    <div class="rule"><b>Lit knobs do something</b><p>A dark knob is unused where you are. Touch a lit one to read
+      its name before turning it.</p></div>
+    <div class="rule"><b>The screen answers</b><p>Every press names what it did. With Speech on (Global settings),
+      the Move says it too.</p></div>
+  </div>
+</section>
+
+<!-- ============================================================ PLACES -->
+<section id="places" class="sec">
+  <header class="sec-head">
+    <p class="num">03</p>
+    <h2>Where things are</h2>
+    <p class="sub">Every place, how to get there, how to leave.</p>
+  </header>
+  <div class="places panel" data-tab="PLACES">
+    <div class="place"><b>A firmware</b><p><span>Go</span><kbd>Tap</kbd> Track 1, 2 or 3</p><p><span>Then</span>it plays in its layout</p></div>
+    <div class="place"><b>Its layouts and tracks</b><p><span>Go</span><kbd>Hold</kbd> Track 1, 2 or 3</p><p><span>Leave</span>let go</p></div>
+    <div class="place"><b>The firmware list</b><p><span>Go</span><kbd>Double tap</kbd> Track 1, 2 or 3</p><p><span>Leave</span><kbd>Back</kbd></p></div>
+    <div class="place"><b>States</b><p><span>Go</span>Track held + pad 7 of the top row, or <kbd>Loop</kbd> in the firmware list</p><p><span>Leave</span><kbd>Back</kbd></p></div>
+    <div class="place"><b>Session view</b><p><span>Go</span><kbd>Menu</kbd> in a note layout; <kbd>Back</kbd> + <kbd>Menu</kbd> anywhere</p><p><span>Leave</span><kbd>Menu</kbd></p></div>
+    <div class="place"><b>Mixer and Routing</b><p><span>Go</span><kbd>Tap</kbd> Track 4; again for the other</p><p><span>Leave</span>tap Track 1, 2 or 3</p></div>
+    <div class="place"><b>Projects</b><p><span>Go</span><kbd>Double tap</kbd> Track 4, or <kbd>Shift</kbd> + step 1</p><p><span>Leave</span>tap a Track</p></div>
+    <div class="place"><b>Tempo, Groove, Keys, Arp…</b><p><span>Go</span><kbd>Shift</kbd> + a step; Track 4 held + a step anywhere</p><p><span>Leave</span><kbd>Back</kbd></p></div>
+    <div class="place"><b>The FM-1's screen</b><p><span>Go</span>a phone or computer on the same Wi-Fi: <code>remotefm1.local:7730</code></p><p><span>Also</span>Mix, FX, States, Projects, files</p></div>
+  </div>
+</section>
+
+<!-- ============================================================ KEYMAPS -->
+<section id="keys" class="sec">
+  <header class="sec-head">
+    <p class="num">04</p>
+    <h2>Keymaps</h2>
+    <p class="sub">One Move for each place. The lit controls are the ones that matter there; the numbers match the
+      list. Point at a line, or press a lit control, to see it alone.</p>
+  </header>
+  <nav class="km-index" aria-label="Keymaps">
+    <a href="#km-tracks">Track buttons</a><a href="#km-menu">Track held</a><a href="#km-fm1">FM-1 layout</a>
+    <a href="#km-seq">Sequencer</a><a href="#km-pages">Knob pages</a><a href="#km-step">A step held</a>
+    <a href="#km-shift">Shift + step</a><a href="#km-back">Back held</a><a href="#km-session">Session view</a>
+    <a href="#km-fw">Firmware list</a><a href="#km-states">States</a><a href="#km-projects">Projects</a><a href="#km-arp">Arp</a>
+  </nav>
+
+  <figure class="km panel" id="km-tracks" data-tab="EVERYWHERE" data-oled="RemoteFM1|3 SLOTS · 16 TRACKS">
+    <div class="km-head"><h3>The Track buttons and friends</h3><p>These work wherever you are.</p></div>
+    <div class="km-dev"><div class="move km-move"></div></div>
+    <ol class="km-keys">
+      <li data-ctl="t1-3"><b>Track 1, 2, 3: the firmwares</b>
+        <p><em>Tap</em> play that firmware, in its layout</p>
+        <p><em>Hold</em> its menu: layouts, scales, tracks</p>
+        <p><em>Double tap</em> the firmware list</p>
+        <p><em>Hold + volume</em> that firmware's level</p></li>
+      <li data-ctl="t4"><b>Track 4: mix, projects, shortcuts</b>
+        <p><em>Tap</em> the Mixer; again: Routing</p>
+        <p><em>Hold</em> pad 1 Mixer, pad 2 Routing, a step: its Shift shortcut</p>
+        <p><em>Double tap</em> the projects</p></li>
+      <li data-ctl="back"><b>Back</b>
+        <p><em>Click</em> closes one layer: a menu, a latch. Never changes the view</p>
+        <p><em>Hold</em> shortcuts: <a href="#km-back">Back held</a></p></li>
+      <li data-ctl="menu"><b>Menu</b>
+        <p><em>Note layout</em> track view ↔ session view</p>
+        <p><em>FM-1 layout</em> the firmware's HOME. Session view: Track held + Menu</p></li>
+      <li data-ctl="play"><b>Play</b>
+        <p>The sequencer, and the clock to every firmware. Where Play is the firmware's own: <kbd>Back</kbd> + <kbd>Play</kbd></p></li>
+      <li data-ctl="vol"><b>Volume</b>
+        <p>The master level. With a Track held: that firmware's</p></li>
+      <li data-ctl="shift vol jog" data-n="×"><b>Leave RemoteFM1</b>
+        <p><kbd>Shift</kbd> + touch the volume knob + click the jog</p></li>
+    </ol>
+  </figure>
+
+  <figure class="km panel" id="km-menu" data-tab="TRACK 1, 2 OR 3 HELD" data-oled="ChoralRoot|SCALE · C MINOR">
+    <div class="km-head"><h3>A Track held: its menu</h3><p>Hold Track 1, 2 or 3. Everything here is for that firmware.</p></div>
+    <div class="km-dev"><div class="move km-move"></div></div>
+    <ol class="km-keys">
+      <li data-ctl="t1" data-col="8"><b>Hold Track 1, 2 or 3</b><p>Then, while it is held:</p></li>
+      <li data-ctl="p11" data-col="0"><b>Pad 1: FM-1 layout</b><p>The pads become the FM-1's keys</p></li>
+      <li data-ctl="p12" data-col="1"><b>Pad 2: the firmware's own layout</b><p>Lit when the firmware brings one</p></li>
+      <li data-ctl="p13-6" data-col="2"><b>Pads 3 to 6: note layouts</b><p>Scale, Chroma, Drum, Octave. These are the sequencer</p></li>
+      <li data-ctl="p17" data-col="3"><b>Pad 7: States</b><p>The firmware's 32 states</p></li>
+      <li data-ctl="p18" data-col="4"><b>Pad 8: Latch</b><p>Notes keep sounding</p></li>
+      <li data-ctl="row2 row3 row4" data-col="5"><b>The other pads: 24 scales</b></li>
+      <li data-ctl="steps" data-col="6"><b>Steps: the 16 tracks</b>
+        <p><em>Click</em> select the track this firmware plays</p>
+        <p><em>Double click</em> solo it (purple)</p>
+        <p><em>Hold</em> send it to this firmware, or not (lit: yes)</p></li>
+      <li data-ctl="jog up down" data-col="7"><b>Jog: root. Plus / minus: octave</b></li>
+      <li data-ctl="vol" data-col="9"><b>Volume: this firmware's level</b></li>
+    </ol>
+  </figure>
+
+  <figure class="km panel" id="km-fm1" data-tab="FM-1 LAYOUT" data-oled="ChoralRoot|SLOT 1 · FM-1">
+    <div class="km-head"><h3>The FM-1 layout</h3><p>The Move is the FM-1's panel. Track held + pad 1.</p></div>
+    <div class="km-dev"><div class="move km-move"></div></div>
+    <ol class="km-keys">
+      <li data-ctl="pads"><b>Pads: the FM-1's keys</b><p>Two octaves as two piano rows, with velocity and pressure</p></li>
+      <li data-ctl="k1-3"><b>Knobs 1, 2, 3</b><p>SELECT, PRESET, ALGO</p></li>
+      <li data-ctl="k5-8"><b>Knobs 5 to 8</b><p>The FM-1's four knobs. Touch one: its name and value, from the firmware</p></li>
+      <li data-ctl="jog"><b>Jog</b>
+        <p><em>Turn</em> SELECT</p>
+        <p><em>Click</em> it turns PRESET or ALGO instead</p></li>
+      <li data-ctl="capture sample loop mute delete copy undo shift"><b>The buttons are the FM-1's</b>
+        <p>Capture FX · Sample SEL · Loop ARP · Mute ENV · Delete LFO · Copy EDIT · Undo SAVE · Shift GLO</p>
+        <p><em>Hold one</em> the screen says what it does now</p></li>
+      <li data-ctl="menu play rec left right"><b>And these</b>
+        <p>Menu HOME · Play PLAY · Record REC · Left OCT- · Right OCT+</p></li>
+      <li data-ctl="up down"><b>Plus / minus</b>
+        <p><em>Plus</em> the FM-1's SEQ</p>
+        <p><em>Minus</em> the next loaded firmware</p></li>
+      <li data-ctl="vol"><b>Volume: MASTER</b></li>
+    </ol>
+    <p class="km-note">Shift is the firmware's GLO here, so the Move's shortcuts are on a held Track instead: Track 4
+      held + a step, Track 1 to 3 held + Menu for session view.</p>
+  </figure>
+
+  <figure class="km panel" id="km-seq" data-tab="A NOTE LAYOUT" data-oled="Track 1|TRIG · BAR 1/4">
+    <div class="km-head"><h3>The sequencer</h3><p>Scale, Chroma, Drum or Octave: the track view of the selected track.</p></div>
+    <div class="km-dev"><div class="move km-move"></div></div>
+    <ol class="km-keys">
+      <li data-ctl="pads"><b>Pads: play the track</b>
+        <p><em>Hold notes + a step</em> the step gets exactly those notes</p></li>
+      <li data-ctl="steps"><b>Steps: the clip</b>
+        <p><em>Tap</em> a note on, or off</p>
+        <p><em>Hold</em> edit it: <a href="#km-step">a step held</a></p></li>
+      <li data-ctl="jog"><b>Jog: the knob pages</b><p>TRIG, FM-1, ENGINE, CC 1 to 4: <a href="#km-pages">knob pages</a></p></li>
+      <li data-ctl="knobs"><b>Knobs: the page's eight</b></li>
+      <li data-ctl="left right up down"><b>Arrows</b>
+        <p><em>Left / right</em> the bar shown. Right past the end: a new bar</p>
+        <p><em>Plus / minus</em> the pads' octave</p></li>
+      <li data-ctl="loop"><b>Loop</b>
+        <p><em>Click or hold</em> the steps are the bars, the jog the loop's length</p>
+        <p><em>Double click a bar</em> loop it alone. Hold one + another: the range</p>
+        <p><em>Shift + Loop</em> Fill</p></li>
+      <li data-ctl="copy delete"><b>Copy and Delete</b>
+        <p><em>Hold + a step</em> copy, paste, cut</p>
+        <p><em>Delete + Play</em> clear the clip</p></li>
+      <li data-ctl="mute"><b>Mute</b><p><em>Click or hold, + a step</em> mute that track</p></li>
+      <li data-ctl="rec capture undo"><b>Record, Capture, Undo</b>
+        <p>Record what you play; Capture what you just played; Undo, and Shift + Undo to redo</p></li>
+      <li data-ctl="menu play"><b>Menu: session view. Play: go</b></li>
+    </ol>
+  </figure>
+
+  <figure class="km panel" id="km-pages" data-tab="THE JOG IN A NOTE LAYOUT" data-oled="Chord VA|ENGINE · FILTER">
+    <div class="km-head"><h3>The knob pages</h3><p>Turn the jog: TRIG › FM-1 › ENGINE › CC 1 to 4. Each track keeps its page.</p></div>
+    <div class="km-dev"><div class="move km-move"></div></div>
+    <ol class="km-keys">
+      <li data-ctl="jog"><b>Jog: choose the page</b></li>
+      <li data-ctl="knobs" data-col="1"><b>TRIG</b>
+        <p>Knobs 1 to 7: Micro, Ratchet, Chance, Condition, Function, Amount, Length. For a held step, or every step</p></li>
+      <li data-ctl="k1-3 k5-8" data-col="2"><b>FM-1: the firmware's own knobs</b>
+        <p><em>Jog click</em> Knobs + Keys: the steps and buttons are the firmware's too, the jog turns its SELECT. Pads stay notes</p>
+        <p><em>Shift + jog click</em> the jog turns SELECT, PRESET or ALGO</p>
+        <p><em>Shift + a knob</em> the firmware's shifted turn</p></li>
+      <li data-ctl="back" data-col="2"><b>Back: out of Knobs + Keys</b>
+        <p>So does a jog click, or changing track</p></li>
+      <li data-ctl="back play" data-col="5"><b>Back + Play: the Move's Play</b>
+        <p>In Knobs + Keys, Play alone is the firmware's</p></li>
+      <li data-ctl="knobs jog" data-col="3"><b>ENGINE: the firmware's sound</b>
+        <p>Its parameters by name and value (ChoralRoot 0.46). Shift: fine</p>
+        <p><em>Jog click</em> the list of pages: OSC, Filter, Envelopes, LFOs… Turn, then click or Back</p></li>
+      <li data-ctl="knobs" data-col="4"><b>CC 1 to 4</b>
+        <p>Eight MIDI CCs a bank, on the track's channel. Hold a step and turn: a lock on that step</p></li>
+    </ol>
+  </figure>
+
+  <figure class="km panel" id="km-step" data-tab="A STEP HELD" data-oled="Step 5|LENGTH 1/16">
+    <div class="km-head"><h3>A step held</h3><p>Hold a step in the sequencer: everything edits that step.</p></div>
+    <div class="km-dev"><div class="move km-move"></div></div>
+    <ol class="km-keys">
+      <li data-ctl="s5" data-col="8"><b>Hold a step</b><p>It plays once, so you hear it</p></li>
+      <li data-ctl="pads" data-col="0"><b>Pads: its notes</b><p>Add or remove, up to eight</p></li>
+      <li data-ctl="vol" data-col="2"><b>Volume: velocity</b></li>
+      <li data-ctl="jog" data-col="1"><b>Jog: length</b><p>Shift: whole steps</p></li>
+      <li data-ctl="left right" data-col="3"><b>Left / right: nudge</b><p>Micro timing</p></li>
+      <li data-ctl="up down" data-col="4"><b>Plus / minus: transpose</b><p>Shift: an octave</p></li>
+      <li data-ctl="knobs" data-col="5"><b>Knobs: this step only</b><p>TRIG page: its chance, condition, ratchet… CC pages: a lock</p></li>
+      <li data-ctl="s8" data-col="6"><b>A later step: stretch the note to it</b></li>
+    </ol>
+  </figure>
+
+  <figure class="km panel" id="km-shift" data-tab="SHIFT HELD" data-oled="Tempo|120.0 BPM">
+    <div class="km-head"><h3>Shift + a step</h3><p>The icons under the steps light while Shift is held. Back closes a menu.</p></div>
+    <div class="km-dev"><div class="move km-move"></div></div>
+    <ol class="km-keys tight">
+      <li data-ctl="s1" data-n="1" data-col="0"><b>Projects</b></li>
+      <li data-ctl="s2" data-n="2" data-col="0"><b>Global settings</b><p>Launch, FW Play, Speech, popup size</p></li>
+      <li data-ctl="s3" data-n="3" data-col="0"><b>Track settings</b><p>Channel, Rate, Feel, Quantize</p></li>
+      <li data-ctl="s5" data-n="5" data-col="0"><b>Tempo</b><p>Each press is a tap</p></li>
+      <li data-ctl="s6" data-n="6" data-col="1"><b>Metronome on / off</b></li>
+      <li data-ctl="s7" data-n="7" data-col="0"><b>Groove</b></li>
+      <li data-ctl="s8" data-n="8" data-col="0"><b>Layout</b></li>
+      <li data-ctl="s9" data-n="9" data-col="0"><b>Keys and Scales</b></li>
+      <li data-ctl="s10" data-n="10" data-col="0"><b>Velocity</b></li>
+      <li data-ctl="s11" data-n="11" data-col="0"><b>Arp</b><p>Click: open. Hold: on / off</p></li>
+      <li data-ctl="s14" data-n="14" data-col="1"><b>New clip</b></li>
+      <li data-ctl="s15" data-n="15" data-col="1"><b>Double the loop</b></li>
+      <li data-ctl="s16" data-n="16" data-col="1"><b>Quantize the clip</b></li>
+      <li data-ctl="shift t4" data-n="+" data-col="8"><b>Shift, or Track 4 held</b><p>Double tap Shift: it stays on</p></li>
+    </ol>
+    <p class="km-note">Blue opens a menu: the jog selects a line, its click edits it. Green acts at once. In a menu the
+      pads and steps keep playing. Also: Shift + Track 1 to 3: its track settings. Shift + Play: every clip from its
+      start. Shift + Record: record settings.</p>
+  </figure>
+
+  <figure class="km panel" id="km-back" data-tab="BACK HELD" data-oled="Bar 1|BACK +">
+    <div class="km-head"><h3>Back held</h3><p>Hold Back, then press one of these. A quick click on Back just closes one layer.</p></div>
+    <div class="km-dev"><div class="move km-move"></div></div>
+    <ol class="km-keys">
+      <li data-ctl="back" data-col="8"><b>Hold Back</b></li>
+      <li data-ctl="left" data-col="0"><b>+ Left: bar 1</b><p>In session view: track 1</p></li>
+      <li data-ctl="up" data-col="1"><b>+ Plus: scene 1</b><p>In session view</p></li>
+      <li data-ctl="loop" data-col="2"><b>+ Loop: the loop is the whole clip</b></li>
+      <li data-ctl="play" data-col="3"><b>+ Play: back to bar 1</b><p>Where Play is the firmware's: the Move's Play</p></li>
+      <li data-ctl="menu" data-col="4"><b>+ Menu: session view</b><p>From anywhere</p></li>
+      <li data-ctl="delete" data-col="9"><b>+ Delete: close everything</b><p>Every open menu and latch</p></li>
+    </ol>
+  </figure>
+
+  <figure class="km panel" id="km-session" data-tab="SESSION VIEW" data-oled="Session|SCENES 1-4">
+    <div class="km-head"><h3>Session view</h3><p>Menu in a note layout, or Back + Menu anywhere. Menu leaves.</p></div>
+    <div class="km-dev"><div class="move km-move"></div></div>
+    <ol class="km-keys">
+      <li data-ctl="col1-7"><b>Columns 1 to 7: the clips</b>
+        <p><em>Press</em> plays at the next bar. Green: playing. Flashing: waiting</p>
+        <p><em>Double click</em> now. On the playing clip: stop now</p>
+        <p><em>Empty slot</em> selects it and stops the track. Shift: select only</p></li>
+      <li data-ctl="col8"><b>Column 8: the scenes</b>
+        <p><em>Press</em> plays the row, also from stop</p>
+        <p><em>Shift + scene</em> stop</p></li>
+      <li data-ctl="s1 s3 s5 s7 s9 s11 s13"><b>Odd steps: select the track above</b>
+        <p><em>Hold</em> knob 1 Launch, knob 2 After, volume its level</p></li>
+      <li data-ctl="s2 s4 s6 s8 s10 s12 s14" data-col="9"><b>Even steps: stop that track</b></li>
+      <li data-ctl="s16" data-col="8"><b>Step 16: stop every clip</b></li>
+      <li data-ctl="copy delete" data-col="4"><b>Copy and Delete</b>
+        <p><em>Hold + a clip</em> copy, then paste on another; cut</p>
+        <p><em>Hold + a scene</em> the same for a row</p>
+        <p><em>Delete + Play</em> clear the clip</p></li>
+      <li data-ctl="left right" data-col="6"><b>Left / right: more tracks</b><p>Shift: a page</p></li>
+      <li data-ctl="t1-3" data-col="2"><b>Track 1, 2, 3</b>
+        <p><em>Tap</em> that firmware plays</p>
+        <p><em>Hold</em> a column's pad sends its track to that firmware, or not</p></li>
+    </ol>
+    <p class="km-note">A column has its firmware's colour; grey has none. When clips start is Launch in Global
+      settings: at once, a beat, a bar, more.</p>
+  </figure>
+
+  <figure class="km panel" id="km-fw" data-tab="TRACK 1, 2 OR 3 DOUBLE TAPPED" data-oled="Felucca|ALL · BANK 1">
+    <div class="km-head"><h3>The firmware list</h3><p>Double tap Track 1, 2 or 3 to choose its firmware.</p></div>
+    <div class="km-dev"><div class="move km-move"></div></div>
+    <ol class="km-keys">
+      <li data-ctl="pads"><b>Pads: the firmwares</b>
+        <p><em>Tap</em> pick one</p>
+        <p><em>Double tap</em> load it</p></li>
+      <li data-ctl="jog"><b>Jog</b>
+        <p><em>Click</em> load the picked one (the catalog: download first)</p>
+        <p><em>Turn</em> its info</p></li>
+      <li data-ctl="left right"><b>Left / right: banks</b></li>
+      <li data-ctl="s1 s2"><b>Steps 1, 2: Favorites, All</b></li>
+      <li data-ctl="s3-7"><b>Steps 3 to 7: categories</b></li>
+      <li data-ctl="s8-12 s14-15"><b>Steps 8 to 15: tags</b></li>
+      <li data-ctl="s13"><b>Step 13: Random</b><p>A firmware from the list you are in</p></li>
+      <li data-ctl="s16"><b>Step 16: Fantasy</b><p>Firmwares made for RemoteFM1</p></li>
+      <li data-ctl="mute sample delete loop" data-col="8"><b>Buttons</b>
+        <p><em>Mute</em> the catalog: everything you can download. There step 1: updates, step 2: not installed</p>
+        <p><em>Sample</em> favorite</p>
+        <p><em>Delete</em> unload the slot</p>
+        <p><em>Loop</em> the firmware's States</p></li>
+      <li data-ctl="back"><b>Back: out</b></li>
+    </ol>
+  </figure>
+
+  <figure class="km panel" id="km-states" data-tab="TRACK HELD + PAD 7" data-oled="ChoralRoot|STATES · PROJECT">
+    <div class="km-head"><h3>States</h3><p>A state is the firmware exactly as it was. 32 for each firmware.</p></div>
+    <div class="km-dev"><div class="move km-move"></div></div>
+    <ol class="km-keys">
+      <li data-ctl="p11" data-col="8"><b>Pad 1: this project's sound</b>
+        <p>Saved as you play. <em>Click</em> save now</p></li>
+      <li data-ctl="p12-8 row2 row3 row4" data-col="0"><b>Pads 2 to 32: the library</b>
+        <p>Shared by every project. Playing never changes one</p>
+        <p><em>A stored pad</em> load it into the project</p>
+        <p><em>An empty pad</em> store the sound you have</p></li>
+      <li data-ctl="delete" data-col="9"><b>Delete</b>
+        <p><em>Pad held + Delete</em> reset that state</p>
+        <p><em>Delete + a pad</em> cut it</p></li>
+      <li data-ctl="copy" data-col="4"><b>Copy</b>
+        <p><em>Copy + a pad</em> copy; then Copy + another pad: paste</p></li>
+      <li data-ctl="s14" data-col="1"><b>Step 14: New</b><p>The firmware as first installed</p></li>
+      <li data-ctl="undo" data-col="3"><b>Undo</b><p>The sound before the last load, paste or New</p></li>
+      <li data-ctl="back" data-col="6"><b>Back: leave</b></li>
+    </ol>
+  </figure>
+
+  <figure class="km panel" id="km-projects" data-tab="TRACK 4 DOUBLE TAPPED" data-oled="Project 17|3 FIRMWARES">
+    <div class="km-head"><h3>Projects</h3><p>32 projects. Each keeps its three firmwares, their sounds and every clip.</p></div>
+    <div class="km-dev"><div class="move km-move"></div></div>
+    <ol class="km-keys">
+      <li data-ctl="pads"><b>Pads: the projects</b>
+        <p><em>Click</em> open it. The open one is white: a click saves it now</p>
+        <p><em>Hold</em> its info</p>
+        <p><em>An empty pad</em> a new project</p></li>
+      <li data-ctl="s13"><b>Step 13: Random</b><p>A new project in an empty slot: three random firmwares, a random key</p></li>
+      <li data-ctl="copy" data-col="4"><b>Copy</b><p><em>Copy + a project, then an empty pad</em> a copy to vary</p></li>
+      <li data-ctl="delete" data-col="9"><b>Delete</b><p><em>Delete + a project</em> cut it</p></li>
+      <li data-ctl="undo" data-col="3"><b>Undo: bring it back</b></li>
+      <li data-ctl="k1" data-col="5"><b>Knob 1: colour</b><p>While a project's pad is held</p></li>
+      <li data-ctl="t1-4" data-col="6"><b>A Track: leave</b></li>
+    </ol>
+  </figure>
+
+  <figure class="km panel" id="km-arp" data-tab="SHIFT + STEP 11" data-oled="Arp On|RATE 1/16">
+    <div class="km-head"><h3>The arp</h3><p>Each track has its own. It plays the pads and the clip's notes.</p></div>
+    <div class="km-dev"><div class="move km-move"></div></div>
+    <ol class="km-keys">
+      <li data-ctl="shift s11" data-col="8"><b>Shift + step 11</b>
+        <p><em>Click</em> open the arp</p>
+        <p><em>Hold</em> on / off, without opening</p></li>
+      <li data-ctl="jog" data-col="1"><b>Jog</b>
+        <p><em>Turn</em> its pages: the arp, the Mod lane, the Transpose lane</p>
+        <p><em>Click</em> arp on / off. On a lane: a random pattern</p></li>
+      <li data-ctl="knobs" data-col="0"><b>Knobs</b>
+        <p>Pattern, Rate, Range and more. Touch one: its name and value on top</p>
+        <p><em>On a lane</em> knob 1 what the step does, 2 length, 3 reset</p></li>
+      <li data-ctl="steps" data-col="3"><b>Steps, on a lane: its 16 steps</b>
+        <p><em>Hold one</em> the pads choose its function or semitones</p>
+        <p><em>Step 1 + a step</em> the lane's length</p></li>
+      <li data-ctl="delete jog" data-col="9"><b>Delete + jog click: defaults</b></li>
+      <li data-ctl="menu" data-col="4"><b>Menu</b><p>Track view or session view, under the open arp</p></li>
+      <li data-ctl="back" data-col="6"><b>Back: close</b></li>
+    </ol>
+  </figure>
+</section>
+</main>
+
+<footer class="foot">
+  <p>RemoteFM1 for Move · <a href="../">Set-up page</a> ·
+    <a href="https://github.com/Quixotic7/remoteFM14Move" target="_blank" rel="noopener">RemoteFM1 on the Move</a> ·
+    <a href="https://github.com/Quixotic7/remoteFM14Move/issues" target="_blank" rel="noopener">Report a problem</a> ·
+    <a href="https://schwung.dev" target="_blank" rel="noopener">Schwung</a></p>
+  <p class="fine">Ableton and Move are trademarks of Ableton AG; M-VAVE and FM-1 are M-VAVE's. Named here only to say what
+    these tools work with. Fonts: Jersey 10, DM Sans, DM Mono (SIL Open Font License).</p>
+</footer>
+<script src="guide.js"></script>
+</body>
+</html>
