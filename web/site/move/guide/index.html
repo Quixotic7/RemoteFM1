@@ -1,15 +1,15 @@
 <!doctype html>
 <!-- SPDX-License-Identifier: MPL-2.0 -->
-<!-- remotefm1.com/move/guide: RemoteFM1 on the Move (RemoteFM14Move): what is new in 0.3.0 and 0.4.0, how to get
+<!-- remotefm1.com/move/guide: RemoteFM1 on the Move (RemoteFM14Move): what is new in 0.5.0, 0.4.0 and 0.3.0, how to get
      around, and the keymaps. The shortcuts are the released module's own (its built-in help, module/help.json, and
-     the core's README, rfm1cs-abletonmove 0.14.0); keep them in step with a release. The keymaps' Move is drawn by
+     the core's README, rfm1cs-abletonmove 0.15.0); keep them in step with a release. The keymaps' Move is drawn by
      guide.js: a list item names its controls in data-ctl. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>RemoteFM1 on the Move: guide and shortcuts</title>
-<meta name="description" content="RemoteFM1 on the Ableton Move: what is new in 0.3.0 and 0.4.0, how to get around, and keymaps of every shortcut.">
+<meta name="description" content="RemoteFM1 on the Ableton Move: what is new in 0.5.0, how to get around, and keymaps of every shortcut.">
 <meta name="theme-color" content="#000000">
 <link rel="icon" href="../img/fm1-pixel.png">
 <link rel="stylesheet" href="../css/move.css">
@@ -27,10 +27,10 @@
 
 <main id="top">
 <section class="ghero">
-  <p class="kicker"><span class="inv">GUIDE</span>RemoteFM1 on the Move · 0.4.0</p>
+  <p class="kicker"><span class="inv">GUIDE</span>RemoteFM1 on the Move · 0.5.0</p>
   <h1>Find your way, <em>fast.</em> </h1>
-  <p class="lede">Three FM-1 firmwares at once on an Ableton Move, a 16-track sequencer, a session view, projects and
-    states. This page says what is new, how to get around, and shows every shortcut on the Move itself.</p>
+  <p class="lede">Three FM-1 firmwares at once on an Ableton Move, a 16-track sequencer, a session view, a sampler, projects
+    and states. This page says what is new, how to get around, and shows every shortcut on the Move itself.</p>
   <div class="row">
     <a class="btn primary" href="#keys">The keymaps</a>
     <a class="btn" href="#around">Getting around</a>
@@ -45,9 +45,30 @@
   <header class="sec-head">
     <p class="num">01</p>
     <h2>What's new</h2>
-    <p class="sub">The two big releases: <b>0.4.0</b> (24 November 2026) and <b>0.3.0</b>.</p>
+    <p class="sub">The latest releases: <b>0.5.0</b> (25 November 2026), <b>0.4.0</b> and <b>0.3.0</b>.</p>
   </header>
   <div class="news">
+    <article class="rel panel" data-tab="0.5.0">
+      <ul class="rel-items">
+        <li><b>A sampler</b>
+          <p>Sample opens it. It records the master, one firmware on its own, the audio input, or stems: the master
+            and each firmware as separate files. <a href="#km-sampler">Keymap</a></p></li>
+        <li><b>Four ways to record</b>
+          <p>Capture keeps what you just played. Bars starts and ends on the bar line. Threshold starts with the
+            sound. Manual starts and ends at your press.</p></li>
+        <li><b>Takes in the Move's own library</b>
+          <p>Every take is a WAV file in <code>Samples/RemoteFM1</code>, a folder a day, so Move's sample browser
+            lists it. Firmwares that read audio, like Elasticat, see the same takes as <code>audio/rec</code>.</p></li>
+        <li><b>Play, trim and edit a take</b>
+          <p>The Takes tab lists everything you recorded. A click on a take: Play, Trim, Normalize, Reverse, Fade In,
+            Fade Out, Delete, with one step of Undo. <a href="#km-takes">Keymap</a></p></li>
+        <li><b>The sampler on your phone</b>
+          <p>The Move's page has a Sampler window next to Mix &amp; FX: the settings and the record key, your takes
+            with playback, the same edits, rename, download and delete.</p></li>
+        <li><b>Minus in the FM-1 layout</b>
+          <p>It no longer switches firmware: the Track buttons do that.</p></li>
+      </ul>
+    </article>
     <article class="rel panel" data-tab="0.4.0">
       <ul class="rel-items">
         <li><b>Engine parameters on the knobs</b>
@@ -101,7 +122,7 @@
   </div>
   <p class="fine" style="margin-top:16px">The full lists:
     <a href="https://github.com/Quixotic7/remoteFM14Move/releases" target="_blank" rel="noopener">RemoteFM14Move's releases</a>.
-    Projects saved by 0.4.0 do not open in 0.3.0 or older.</p>
+    Projects saved by 0.4.0 or later do not open in 0.3.0 or older.</p>
 </section>
 
 <!-- ============================================================ GETTING AROUND -->
@@ -183,6 +204,7 @@
     <a href="#km-seq">Sequencer</a><a href="#km-pages">Knob pages</a><a href="#km-step">A step held</a>
     <a href="#km-shift">Shift + step</a><a href="#km-back">Back held</a><a href="#km-session">Session view</a>
     <a href="#km-fw">Firmware list</a><a href="#km-states">States</a><a href="#km-projects">Projects</a><a href="#km-arp">Arp</a>
+    <a href="#km-sampler">Sampler</a><a href="#km-takes">Takes and Trim</a>
   </nav>
 
   <figure class="km panel" id="km-tracks" data-tab="EVERYWHERE" data-oled="RemoteFM1|3 SLOTS · 16 TRACKS">
@@ -249,8 +271,7 @@
       <li data-ctl="menu play rec left right"><b>And these</b>
         <p>Menu HOME · Play PLAY · Record REC · Left OCT- · Right OCT+</p></li>
       <li data-ctl="up down"><b>Plus / minus</b>
-        <p><em>Plus</em> the FM-1's SEQ</p>
-        <p><em>Minus</em> the next loaded firmware</p></li>
+        <p><em>Plus</em> the FM-1's SEQ</p></li>
       <li data-ctl="vol"><b>Volume: MASTER</b></li>
     </ol>
     <p class="km-note">Shift is the firmware's GLO here, so the Move's shortcuts are on a held Track instead: Track 4
@@ -472,6 +493,49 @@
       <li data-ctl="menu" data-col="4"><b>Menu</b><p>Track view or session view, under the open arp</p></li>
       <li data-ctl="back" data-col="6"><b>Back: close</b></li>
     </ol>
+  </figure>
+
+  <figure class="km panel" id="km-sampler" data-tab="SAMPLE" data-oled="Sampler|MASTER · BARS">
+    <div class="km-head"><h3>The sampler</h3><p>Records what the Move plays. It stays open while you play: the pads, steps and knobs work under it.</p></div>
+    <div class="km-dev"><div class="move km-move"></div></div>
+    <ol class="km-keys">
+      <li data-ctl="sample" data-col="8"><b>Sample</b>
+        <p><em>Closed</em> open the sampler</p>
+        <p><em>In the Record tab</em> record: start, arm or end a take</p>
+        <p><em>In Takes, Tools, Trim</em> play the take you are on</p></li>
+      <li data-ctl="t1-3 sample" data-col="0"><b>Track 1, 2, 3 held + Sample</b>
+        <p>Open it with that firmware as the source. In the FM-1 layout this is the way in</p></li>
+      <li data-ctl="t4 sample" data-col="4"><b>Track 4 held + Sample</b><p>Open it with the master as the source</p></li>
+      <li data-ctl="jog" data-col="1"><b>Jog</b>
+        <p><em>Turn</em> the settings: Source, Mode, Length, Threshold, Input level</p>
+        <p><em>Click</em> change the chosen one, click again when done</p>
+        <p><em>Up past the first row</em> the tabs: click, turn, click. Record, Takes, Tools</p></li>
+      <li data-ctl="play" data-col="2"><b>Play</b><p>Bars armed while stopped: Play starts the take on the bar</p></li>
+      <li data-ctl="back" data-col="6"><b>Back</b>
+        <p><em>In the Record tab</em> close the sampler. A running take goes on; Sample brings it back and ends it</p>
+        <p><em>In Takes and Tools</em> the tabs first, then close</p></li>
+    </ol>
+    <p class="km-note">Takes go to <code>Samples/RemoteFM1</code> in the Move's library, a folder a day. A stems take is
+      a folder of its own. The page's Sampler window does all of this from a phone or a computer.</p>
+  </figure>
+
+  <figure class="km panel" id="km-takes" data-tab="TAKES · TRIM" data-oled="Trim|1.84 s">
+    <div class="km-head"><h3>Takes and Trim</h3><p>The Takes tab: everything you recorded, the newest on top.</p></div>
+    <div class="km-dev"><div class="move km-move"></div></div>
+    <ol class="km-keys">
+      <li data-ctl="jog" data-col="1"><b>Jog</b>
+        <p><em>Turn</em> choose a take</p>
+        <p><em>Click</em> its actions: Play, Trim, Normalize, Reverse, Fade In, Fade Out, Delete</p></li>
+      <li data-ctl="sample" data-col="8"><b>Sample: play the take</b><p>Again: stop. In Trim: the part you keep</p></li>
+      <li data-ctl="delete jog" data-col="9"><b>Delete held + jog click</b><p>Delete the chosen take</p></li>
+      <li data-ctl="undo" data-col="3"><b>Undo</b><p>One step: a deleted or edited take comes back</p></li>
+      <li data-ctl="k1 k2" data-col="0"><b>In Trim: knobs 1 and 2</b>
+        <p><em>Knob 1</em> the start. <em>Knob 2</em> the end. The view zooms in while one moves</p>
+        <p>The jog stays on Play: click to hear the part you keep, then turn to the tick and click to cut</p></li>
+      <li data-ctl="shift" data-col="2"><b>In Trim: Shift held</b><p>Fine steps</p></li>
+      <li data-ctl="back" data-col="6"><b>Back</b><p>One level back: Trim, the take's actions, the list, the tabs, out</p></li>
+    </ol>
+    <p class="km-note">After a Capture its take plays by itself. After a Manual or Threshold take Trim comes up.</p>
   </figure>
 </section>
 </main>

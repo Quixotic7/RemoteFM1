@@ -2,11 +2,11 @@
   "about": "remotefm1.com/move's release states (js/move.js reads it). What depends on a release not out yet is null or false here, and the page shows it as \"coming with the release\" instead of a number. Set each when it ships: remotefm14move when RemoteFM14Move's module is released (its version, the release page, how many firmwares the package bundles and their size unpacked, whether Schwung Manager lists it); apps when the iOS / Android apps ship the Ableton Move controller. The Wi-Fi firmware's state is not here: the page and its flasher read web/installer/releases.json (a release with a \"wifi\" package).",
   "remotefm14move": {
     "released": true,
-    "version": "0.4.0",
+    "version": "0.5.0",
     "repo": "https://github.com/Quixotic7/remoteFM14Move",
-    "release": "https://github.com/Quixotic7/remoteFM14Move/releases/tag/v0.4.0",
+    "release": "https://github.com/Quixotic7/remoteFM14Move/releases/tag/v0.5.0",
     "bundled": 39,
-    "bundledMB": 42.0,
+    "bundledMB": 43.7,
     "schwungListed": false
   },
   "moveRemote": {
