@@ -7,10 +7,10 @@
     "release": "https://github.com/Quixotic7/remoteFM14Move/releases/tag/v0.6.0",
     "bundled": 39,
     "bundledMB": 43.7,
-    "schwungListed": false
+    "schwungListed": true
   },
   "moveRemote": {
-    "version": "0.1.1",
+    "version": "0.1.2",
     "repo": "https://github.com/Quixotic7/abletonmoveremote",
     "release": "https://github.com/Quixotic7/abletonmoveremote/releases/latest",
     "schwungMin": "1.6.0"
