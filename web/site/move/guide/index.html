@@ -1,15 +1,15 @@
 <!doctype html>
 <!-- SPDX-License-Identifier: MPL-2.0 -->
-<!-- remotefm1.com/move/guide: RemoteFM1 on the Move (RemoteFM14Move): what is new in 0.5.0, 0.4.0 and 0.3.0, how to get
+<!-- remotefm1.com/move/guide: RemoteFM1 on the Move (RemoteFM14Move): what is new in 0.6.0, 0.5.0 and 0.4.0, how to get
      around, and the keymaps. The shortcuts are the released module's own (its built-in help, module/help.json, and
-     the core's README, rfm1cs-abletonmove 0.15.0); keep them in step with a release. The keymaps' Move is drawn by
+     the core's README, rfm1cs-abletonmove 0.16.0); keep them in step with a release. The keymaps' Move is drawn by
      guide.js: a list item names its controls in data-ctl. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>RemoteFM1 on the Move: guide and shortcuts</title>
-<meta name="description" content="RemoteFM1 on the Ableton Move: what is new in 0.5.0, how to get around, and keymaps of every shortcut.">
+<meta name="description" content="RemoteFM1 on the Ableton Move: what is new in 0.6.0, how to get around, and keymaps of every shortcut.">
 <meta name="theme-color" content="#000000">
 <link rel="icon" href="../img/fm1-pixel.png">
 <link rel="stylesheet" href="../css/move.css">
@@ -27,10 +27,10 @@
 
 <main id="top">
 <section class="ghero">
-  <p class="kicker"><span class="inv">GUIDE</span>RemoteFM1 on the Move · 0.5.0</p>
+  <p class="kicker"><span class="inv">GUIDE</span>RemoteFM1 on the Move · 0.6.0</p>
   <h1>Find your way, <em>fast.</em> </h1>
-  <p class="lede">Three FM-1 firmwares at once on an Ableton Move, a 16-track sequencer, a session view, a sampler, projects
-    and states. This page says what is new, how to get around, and shows every shortcut on the Move itself.</p>
+  <p class="lede">Three FM-1 firmwares at once on an Ableton Move, a 16-track sequencer, a session view, a sampler, a kit,
+    projects and states. This page says what is new, how to get around, and shows every shortcut on the Move itself.</p>
   <div class="row">
     <a class="btn primary" href="#keys">The keymaps</a>
     <a class="btn" href="#around">Getting around</a>
@@ -45,9 +45,43 @@
   <header class="sec-head">
     <p class="num">01</p>
     <h2>What's new</h2>
-    <p class="sub">The latest releases: <b>0.5.0</b> (25 November 2026), <b>0.4.0</b> and <b>0.3.0</b>.</p>
+    <p class="sub">The latest releases: <b>0.6.0</b> (26 November 2026), <b>0.5.0</b> and <b>0.4.0</b>.</p>
   </header>
   <div class="news">
+    <article class="rel panel" data-tab="0.6.0">
+      <ul class="rel-items">
+        <li><b>The kit</b>
+          <p>A 16-pad sampler on Track 4: tap Track 4 round Mixer, Routing, Kit, or hold it + pad 3. The left pads are
+            the kit, each row on its own track, 13 to 16. The right pads play the chosen pad in pitches or chops.
+            <a href="#km-kit">Keymap</a></p></li>
+        <li><b>Pages and engines</b>
+          <p>The jog turns the pages: Sample Kit, Pad Sample, Pad Sample 2, Trig, Warp, Filter, Pad Mix, Kit Mix. Six
+            engines: One Shot, Momentary, Loop, Pitch Env, LoFi and Granular.</p></li>
+        <li><b>Loading sounds</b>
+          <p>Press a pad, click the jog: My Samples, with your takes, and the Move Library, Move's own sounds. The
+            sound the jog rests on is on the pad; play the pad to hear it. Browsing never previews.</p></li>
+        <li><b>Your samples are never changed</b>
+          <p>A pad's sound is copied into the project; edits make new files there. Export Samples (Shift + step 3 on a
+            kit track) copies the kit's sounds into a new folder in My Samples, a file a pad.</p></li>
+        <li><b>Copy, Mix, Join on the jog</b>
+          <p>Hold Copy and turn the jog for the mode, press the source pad, then each target: done at once. Onto an
+            empty pad, Mix and Join copy.</p></li>
+        <li><b>Sequencing with held steps</b>
+          <p>A tapped step is a plain hit. Hold a step: a knob locks its value, the volume knob sets its velocity, the
+            jog its length, Left / Right its timing. A lock on a step without a hit is a ghost trigger. Delete + touch a
+            knob clears that knob's locks; with a step held, just that step's.</p></li>
+        <li><b>Levels in dB</b>
+          <p>Every level, a firmware's, the kit's or a pad's, shows the same popup in dB, 0.5 dB a detent.</p></li>
+        <li><b>Shut Down?</b>
+          <p>Press the power button, click the jog: RemoteFM1 saves, then the Move turns off. Holding it still
+            works.</p></li>
+        <li><b>Update and Listen here</b>
+          <p>The page's settings sheet installs a signed <code>.rfm1u</code> build, with Undo last update. The
+            headphones button plays the Move on the phone or iPad with the page open.</p></li>
+        <li><b>Exit</b>
+          <p>The last row of Global settings: click, then click again to leave RemoteFM1.</p></li>
+      </ul>
+    </article>
     <article class="rel panel" data-tab="0.5.0">
       <ul class="rel-items">
         <li><b>A sampler</b>
@@ -98,31 +132,10 @@
             with three random firmwares and a random key.</p></li>
       </ul>
     </article>
-    <article class="rel panel" data-tab="0.3.0">
-      <ul class="rel-items">
-        <li><b>Session view</b>
-          <p>Clips on the pads: seven tracks across, the eighth column launches scenes. Clips wait for the bar, or
-            start at once with a double press. <a href="#km-session">Keymap</a></p></li>
-        <li><b>A project holds its firmwares</b>
-          <p>Each of the 32 projects keeps its three firmwares and their sounds. Opening it loads them as you left
-            them. <a href="#km-projects">Keymap</a></p></li>
-        <li><b>Firmware states</b>
-          <p>32 states for every firmware: the whole firmware as it was, a pad each.
-            <a href="#km-states">Keymap</a></p></li>
-        <li><b>A colour for each slot</b>
-          <p>Track 1 orange, Track 2 blue, Track 3 yellow: on the Track buttons, session view's columns and the
-            routing. Solo is purple.</p></li>
-        <li><b>The FM-1's knobs in the sequencer</b>
-          <p>A knob page beside the trig and CC pages with the firmware's own eight knobs, named by the firmware.</p></li>
-        <li><b>Back shortcuts and the Loop page</b>
-          <p>Hold Back for bar 1, the whole clip, close everything. The Loop page sets the loop to the step.
-            <a href="#km-back">Keymap</a></p></li>
-      </ul>
-    </article>
   </div>
   <p class="fine" style="margin-top:16px">The full lists:
     <a href="https://github.com/Quixotic7/remoteFM14Move/releases" target="_blank" rel="noopener">RemoteFM14Move's releases</a>.
-    Projects saved by 0.4.0 or later do not open in 0.3.0 or older.</p>
+    Projects saved by 0.6.0 do not open in 0.5.0 or older; older projects load as they were.</p>
 </section>
 
 <!-- ============================================================ GETTING AROUND -->
@@ -151,13 +164,14 @@
     <li><b>Menu is session view</b>
       <p>All the clips on the pads: a column a track, the last column the scenes. Menu again takes you back.</p></li>
     <li><b>Track 4 is everything else</b>
-      <p><kbd>Tap</kbd>: the Mixer, again for Routing (your Schwung effects). <kbd>Double tap</kbd>: the 32 projects.
+      <p><kbd>Tap</kbd>: the Mixer, again for Routing (your Schwung effects), again for the Kit. <kbd>Double tap</kbd>: the 32 projects.
         <kbd>Hold</kbd> + a step: the Shift shortcuts, from anywhere.</p></li>
     <li><b>Back only closes</b>
       <p>One click closes the last menu or latch. It never changes where you are. Lost? <kbd>Back</kbd> +
         <kbd>Delete</kbd> closes everything, then tap a Track.</p></li>
     <li><b>Leaving</b>
-      <p><kbd>Shift</kbd> + touch the volume knob + click the jog. Move's own software starts again.</p></li>
+      <p><kbd>Shift</kbd> + touch the volume knob + click the jog, or Exit, the last row of Global settings. Move's
+        own software starts again. The power button asks Shut Down?: the jog's click saves and turns the Move off.</p></li>
   </ol>
   <div class="rules">
     <div class="rule"><b>Only Play starts it</b><p>Steps, pads, menus and loading never start or stop the transport.
@@ -184,7 +198,7 @@
     <div class="place"><b>The firmware list</b><p><span>Go</span><kbd>Double tap</kbd> Track 1, 2 or 3</p><p><span>Leave</span><kbd>Back</kbd></p></div>
     <div class="place"><b>States</b><p><span>Go</span>Track held + pad 7 of the top row, or <kbd>Loop</kbd> in the firmware list</p><p><span>Leave</span><kbd>Back</kbd></p></div>
     <div class="place"><b>Session view</b><p><span>Go</span><kbd>Menu</kbd> in a note layout; <kbd>Back</kbd> + <kbd>Menu</kbd> anywhere</p><p><span>Leave</span><kbd>Menu</kbd></p></div>
-    <div class="place"><b>Mixer and Routing</b><p><span>Go</span><kbd>Tap</kbd> Track 4; again for the other</p><p><span>Leave</span>tap Track 1, 2 or 3</p></div>
+    <div class="place"><b>Mixer, Routing, Kit</b><p><span>Go</span><kbd>Tap</kbd> Track 4, again for the next; Track 4 held + pad 1, 2 or 3</p><p><span>Leave</span>tap Track 1, 2 or 3</p></div>
     <div class="place"><b>Projects</b><p><span>Go</span><kbd>Double tap</kbd> Track 4, or <kbd>Shift</kbd> + step 1</p><p><span>Leave</span>tap a Track</p></div>
     <div class="place"><b>Tempo, Groove, Keys, Arp…</b><p><span>Go</span><kbd>Shift</kbd> + a step; Track 4 held + a step anywhere</p><p><span>Leave</span><kbd>Back</kbd></p></div>
     <div class="place"><b>The FM-1's screen</b><p><span>Go</span>a phone or computer on the same Wi-Fi: <code>remotefm1.local:7730</code></p><p><span>Also</span>Mix, FX, States, Projects, files</p></div>
@@ -204,7 +218,7 @@
     <a href="#km-seq">Sequencer</a><a href="#km-pages">Knob pages</a><a href="#km-step">A step held</a>
     <a href="#km-shift">Shift + step</a><a href="#km-back">Back held</a><a href="#km-session">Session view</a>
     <a href="#km-fw">Firmware list</a><a href="#km-states">States</a><a href="#km-projects">Projects</a><a href="#km-arp">Arp</a>
-    <a href="#km-sampler">Sampler</a><a href="#km-takes">Takes and Trim</a>
+    <a href="#km-sampler">Sampler</a><a href="#km-takes">Takes and Trim</a><a href="#km-kit">Kit</a>
   </nav>
 
   <figure class="km panel" id="km-tracks" data-tab="EVERYWHERE" data-oled="RemoteFM1|3 SLOTS · 16 TRACKS">
@@ -216,9 +230,9 @@
         <p><em>Hold</em> its menu: layouts, scales, tracks</p>
         <p><em>Double tap</em> the firmware list</p>
         <p><em>Hold + volume</em> that firmware's level</p></li>
-      <li data-ctl="t4"><b>Track 4: mix, projects, shortcuts</b>
-        <p><em>Tap</em> the Mixer; again: Routing</p>
-        <p><em>Hold</em> pad 1 Mixer, pad 2 Routing, a step: its Shift shortcut</p>
+      <li data-ctl="t4"><b>Track 4: mix, kit, projects, shortcuts</b>
+        <p><em>Tap</em> the Mixer; again: Routing; again: the <a href="#km-kit">Kit</a></p>
+        <p><em>Hold</em> pad 1 Mixer, pad 2 Routing, pad 3 Kit, pad 5 projects, a step: its Shift shortcut</p>
         <p><em>Double tap</em> the projects</p></li>
       <li data-ctl="back"><b>Back</b>
         <p><em>Click</em> closes one layer: a menu, a latch. Never changes the view</p>
@@ -229,10 +243,12 @@
       <li data-ctl="play"><b>Play</b>
         <p>The sequencer, and the clock to every firmware. Where Play is the firmware's own: <kbd>Back</kbd> + <kbd>Play</kbd></p></li>
       <li data-ctl="vol"><b>Volume</b>
-        <p>The master level. With a Track held: that firmware's</p></li>
+        <p>The master level. With Track 1, 2 or 3 held: that firmware's. Track 4 held: the kit's. In dB, 0.5 dB a detent</p></li>
       <li data-ctl="shift vol jog" data-n="×"><b>Leave RemoteFM1</b>
-        <p><kbd>Shift</kbd> + touch the volume knob + click the jog</p></li>
+        <p><kbd>Shift</kbd> + touch the volume knob + click the jog. Or Exit, Global settings' last row: click, click again</p></li>
     </ol>
+    <p class="km-note">The power button: a press asks Shut Down?, the jog's click confirms (all is saved, then the Move
+      turns off). Back, power again or any button, pad or step: cancel. Hold it 2 s: off at once.</p>
   </figure>
 
   <figure class="km panel" id="km-menu" data-tab="TRACK 1, 2 OR 3 HELD" data-oled="ChoralRoot|SCALE · C MINOR">
@@ -349,12 +365,12 @@
     <div class="km-dev"><div class="move km-move"></div></div>
     <ol class="km-keys tight">
       <li data-ctl="s1" data-n="1" data-col="0"><b>Projects</b></li>
-      <li data-ctl="s2" data-n="2" data-col="0"><b>Global settings</b><p>Launch, FW Play, Speech, popup size</p></li>
-      <li data-ctl="s3" data-n="3" data-col="0"><b>Track settings</b><p>Channel, Rate, Feel, Quantize</p></li>
+      <li data-ctl="s2" data-n="2" data-col="0"><b>Global settings</b><p>Launch, FW Play, Speech, popup size. The last row: Exit</p></li>
+      <li data-ctl="s3" data-n="3" data-col="0"><b>Track settings</b><p>Channel, Rate, Feel, Quantize. On a kit track: Export Samples</p></li>
       <li data-ctl="s5" data-n="5" data-col="0"><b>Tempo</b><p>Each press is a tap</p></li>
       <li data-ctl="s6" data-n="6" data-col="1"><b>Metronome on / off</b></li>
       <li data-ctl="s7" data-n="7" data-col="0"><b>Groove</b></li>
-      <li data-ctl="s8" data-n="8" data-col="0"><b>Layout</b></li>
+      <li data-ctl="s8" data-n="8" data-col="0"><b>Layout</b><p>The jog's turn changes it. In the kit: the right pads' mode</p></li>
       <li data-ctl="s9" data-n="9" data-col="0"><b>Keys and Scales</b></li>
       <li data-ctl="s10" data-n="10" data-col="0"><b>Velocity</b></li>
       <li data-ctl="s11" data-n="11" data-col="0"><b>Arp</b><p>Click: open. Hold: on / off</p></li>
@@ -536,6 +552,44 @@
       <li data-ctl="back" data-col="6"><b>Back</b><p>One level back: Trim, the take's actions, the list, the tabs, out</p></li>
     </ol>
     <p class="km-note">After a Capture its take plays by itself. After a Manual or Threshold take Trim comes up.</p>
+  </figure>
+
+  <figure class="km panel" id="km-kit" data-tab="TRACK 4 · KIT" data-oled="Kit|PAD SAMPLE · 1">
+    <div class="km-head"><h3>The kit</h3><p>16 sampled pads on tracks 13 to 16, a row a track. Tap Track 4 round
+      Mixer, Routing, Kit, or hold Track 4 + pad 3.</p></div>
+    <div class="km-dev"><div class="move km-move"></div></div>
+    <ol class="km-keys">
+      <li data-ctl="col1-4" data-col="0"><b>Left pads: the kit</b>
+        <p>Pad 1 bottom left. <em>Press</em> play and choose the pad. <em>Shift + pad</em> choose it silently</p></li>
+      <li data-ctl="col5-8" data-col="1"><b>Right pads: the chosen pad</b>
+        <p>Pitches, In Key, Chromatic, In Key 4ths, or Chop: the sound in 16 chops; hold two to loop between them</p></li>
+      <li data-ctl="jog" data-col="2"><b>Jog</b>
+        <p><em>Turn</em> the pages: Sample Kit, Pad Sample, Pad Sample 2, Trig, Warp, Filter, Pad Mix, Kit Mix</p>
+        <p><em>Click</em> Files, on the chosen pad's sound: My Samples and the Move Library. On Sample Kit or Kit Mix: Load, Save</p>
+        <p><em>A step held</em> its length. Shift: whole steps</p></li>
+      <li data-ctl="left right" data-col="3"><b>Left / Right: a held step's timing</b><p>Shift: finer</p></li>
+      <li data-ctl="up down" data-col="4"><b>Up / Down: the right pads' octave</b></li>
+      <li data-ctl="knobs" data-col="5"><b>Knobs: the page's settings</b>
+        <p>Touch one to see its value. Shift: fine</p>
+        <p><em>A step held</em> a lock on that hit: the padlock shows top right</p></li>
+      <li data-ctl="vol" data-col="6"><b>Volume</b>
+        <p><em>A step held</em> its velocity, not the master</p>
+        <p><em>Track 4 held</em> the kit's level. <em>A pad held</em> that pad's</p></li>
+      <li data-ctl="copy jog" data-col="7"><b>Copy held: Copy, Mix, Join</b>
+        <p>Turn the jog for the mode, press the source pad, then each target: done at once. Each press starts on Copy</p></li>
+      <li data-ctl="delete" data-col="9"><b>Delete</b>
+        <p><em>+ a pad</em> its steps, then its sound</p>
+        <p><em>+ touch a knob</em> that knob's locks of the pad. On Sample Kit, Kit Mix: every pad's</p>
+        <p><em>A step held, touch a knob, Delete</em> that step's lock</p>
+        <p><em>+ Play</em> the pad's steps. On Sample Kit, Kit Mix: all 16 pads'</p></li>
+      <li data-ctl="sample" data-col="8"><b>A pad held + Sample</b><p>Record into it until you let go</p></li>
+      <li data-ctl="shift s3" data-col="0"><b>Shift + step 3: Export Samples</b>
+        <p>The last row: the pads' sounds into a new folder of My Samples, a file a pad (<code>01 Kick.wav</code>)</p></li>
+      <li data-ctl="shift s8" data-col="1"><b>Shift + step 8: Layout</b><p>The right pads' mode, on the jog's turn</p></li>
+    </ol>
+    <p class="km-note">A tapped step is a plain hit: a step long, chance 100, no locks. A lock on a step without a hit is
+      a ghost trigger: it changes the pad's sound there without playing it. Undo brings back what Delete cleared. A
+      sample plays only from its pad or the sequence, through the kit's mix, its sends and the volume knob.</p>
   </figure>
 </section>
 </main>
